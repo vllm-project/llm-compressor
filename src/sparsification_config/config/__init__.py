@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # flake8: noqa
-SPARSITY_CONFIG_NAME = "sparsity_config"
 
-from .compressors import *
-from .config import *
+from .base import CompressionConfig
+from .dense import DenseSparsityConfig
+from .sparse_bitmask import BitmaskConfig

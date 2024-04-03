@@ -12,8 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# flake8: noqa
-SPARSITY_CONFIG_NAME = "sparsity_config"
+from typing import Dict, Generator, Tuple
 
-from .compressors import *
-from .config import *
+from torch import Tensor
+
+from sparsification_config.compressors import ModelCompressor
+
+
+@ModelCompressor.register(name="dense_sparsity")
+class DenseCompressor(ModelCompressor):
+    """
+    Identity compressor for dense models, returns the original state_dict
+    """
+
+    def compress(self, model_state: Dict[str, Tensor]) -> Dict[str, Tensor]:
+        return model_state
+
+    def decompress(self, model_path: str) -> Generator[Tuple[str, Tensor], None, None]:
+        return iter([])
