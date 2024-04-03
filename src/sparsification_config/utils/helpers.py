@@ -17,13 +17,12 @@ from typing import Optional
 
 from sparsetensors.compressors import ModelCompressor
 from sparsetensors.config import CompressionConfig
+from sparsetensors.utils.helpers import SPARSITY_CONFIG_NAME
 from torch.nn import Module
 from transformers import AutoConfig
 
-from . import SPARSITY_CONFIG_NAME
 
-
-__all__ = ["infer_compressor_from_model_config", "set_layer"]
+__all__ = ["infer_compressor_from_model_config"]
 
 
 def infer_compressor_from_model_config(

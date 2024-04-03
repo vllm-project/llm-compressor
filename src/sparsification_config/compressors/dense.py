@@ -14,7 +14,7 @@
 
 from typing import Dict, Generator, Tuple
 
-from sparsification_config.compressors import ModelCompressor
+from sparsetensors.compressors import ModelCompressor
 from torch import Tensor
 
 

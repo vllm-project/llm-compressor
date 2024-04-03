@@ -18,8 +18,8 @@ import shutil
 import pytest
 import torch
 from safetensors.torch import save_file
-from sparsification_config import BitmaskCompressor, BitmaskConfig
-from sparsification_config.compressors.sparse_bitmask import BitmaskTensor
+from sparsetensors import BitmaskCompressor, BitmaskConfig
+from sparsetensors.compressors.sparse_bitmask import BitmaskTensor
 
 
 @pytest.mark.parametrize(

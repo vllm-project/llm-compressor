@@ -14,7 +14,7 @@
 
 from typing import Optional
 
-from sparsification_config.config import CompressionConfig
+from sparsetensors.config import CompressionConfig
 
 
 __all__ = ["DenseSparsityConfig"]

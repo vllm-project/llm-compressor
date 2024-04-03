@@ -19,8 +19,8 @@ import weakref
 from functools import wraps
 from typing import Optional
 
-from sparsification_config.compressors import ModelCompressor
-from sparsification_config.config import CompressionConfig
+from sparsetensors.compressors import ModelCompressor
+from sparsetensors.config import CompressionConfig
 from transformers import PreTrainedModel
 from transformers.file_utils import CONFIG_NAME
 
