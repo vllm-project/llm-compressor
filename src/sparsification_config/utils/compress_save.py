@@ -24,7 +24,6 @@ from transformers.file_utils import CONFIG_NAME
 
 from sparsification_config.compressors import ModelCompressor
 from sparsification_config.config import CompressionConfig
-from sparsification_config.utils.helpers import SPARSITY_CONFIG_NAME
 
 _LOGGER = logging.getLogger(__name__)
 

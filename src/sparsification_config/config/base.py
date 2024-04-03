@@ -15,8 +15,8 @@
 from typing import Optional
 
 from pydantic import BaseModel
-# from sparseml.pytorch.utils import ModuleSparsificationInfo # TODO move to sparsezoo
-from sparsezoo.utils.registry import RegistryMixin
+from sparsezoo.utils.registry import (  # TODO move ModuleSparsificationInfo to sparsezoo
+    ModuleSparsificationInfo, RegistryMixin)
 from torch.nn import Module
 
 __all__ = ["CompressionConfig"]
@@ -48,28 +48,7 @@ class CompressionConfig(RegistryMixin, BaseModel):
         global_sparsity = info.params_sparse_percent
         return global_sparsity
 
-    # TODO: can we make this independent?
-    # @staticmethod
-    # def infer_sparsity_structure() -> str:
-    #     """
-    #     Determines what sparsity structure, if any, was applied in the currently active
-    #     sparse session
-
-    #     :return: sparsity structure as a string
-    #     """
-    #     current_session = session_manager.active_session()
-    #     stage_modifiers = current_session.lifecycle.modifiers
-    #     sparsity_structure = "unstructured"
-
-    #     # check for applied pruning modifiers
-    #     for stage in stage_modifiers:
-    #         if stage.applied:
-    #             for modifier in stage.modifiers:
-    #                 if hasattr(modifier, "mask_structure"):
-    #                     sparsity_structure = modifier.mask_structure
-    #                     break
-
-    #     return sparsity_structure
+    # TODO: Move infer_sparsity_structure to sparseml
 
     @staticmethod
     def infer_config_from_model(

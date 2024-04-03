@@ -19,9 +19,8 @@ from transformers import AutoConfig
 
 from sparsification_config.compressors import ModelCompressor
 from sparsification_config.config import CompressionConfig
-from sparsification_config.utils.helpers import SPARSITY_CONFIG_NAME
 
-__all__ = ["infer_compressor_from_model_config"]
+__all__ = ["infer_compressor_from_model_config", "set_layer"]
 
 
 def infer_compressor_from_model_config(
