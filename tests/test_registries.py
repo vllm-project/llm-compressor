@@ -13,10 +13,14 @@
 # limitations under the License.
 
 import pytest
-
-from sparsification_config import (BitmaskCompressor, BitmaskConfig,
-                                   CompressionConfig, DenseCompressor,
-                                   DenseSparsityConfig, ModelCompressor)
+from sparsification_config import (
+    BitmaskCompressor,
+    BitmaskConfig,
+    CompressionConfig,
+    DenseCompressor,
+    DenseSparsityConfig,
+    ModelCompressor,
+)
 
 
 @pytest.mark.parametrize(

@@ -15,10 +15,13 @@
 
 from typing import Optional
 
-from transformers import AutoConfig
-
 from sparsification_config.compressors import ModelCompressor
 from sparsification_config.config import CompressionConfig
+from torch.nn import Module
+from transformers import AutoConfig
+
+from . import SPARSITY_CONFIG_NAME
+
 
 __all__ = ["infer_compressor_from_model_config", "set_layer"]
 
@@ -45,14 +48,14 @@ def infer_compressor_from_model_config(
 
 
 def set_layer(target: str, layer: Module, module: Module) -> Module:
-    target = fix_fsdp_module_name(target)
-    with summon_full_params_context(module):
+    target = fix_fsdp_module_name(target)  # noqa TODO
+    with summon_full_params_context(module):  # noqa TODO
         # importing here to avoid circular import
-        from sparseml.utils.fsdp.helpers import maybe_get_wrapped
+        from sparseml.utils.fsdp.helpers import maybe_get_wrapped  # noqa TODO
 
         parent_target = ".".join(target.split(".")[:-1])
         if parent_target != "":
-            parent_layer = get_layer(parent_target, module)[1]
+            parent_layer = get_layer(parent_target, module)[1]  # noqa TODO
         else:
             parent_layer = maybe_get_wrapped(module)
         old_layer = getattr(parent_layer, target.split(".")[-1])

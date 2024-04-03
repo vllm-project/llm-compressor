@@ -14,9 +14,8 @@
 
 from typing import Dict, Generator, Tuple
 
-from torch import Tensor
-
 from sparsification_config.compressors import ModelCompressor
+from torch import Tensor
 
 
 @ModelCompressor.register(name="dense_sparsity")

@@ -20,6 +20,9 @@ from torch import Tensor
 from torch.nn import Module, Parameter
 from tqdm import tqdm
 
+from . import SPARSITY_CONFIG_NAME
+
+
 __all__ = ["ModelCompressor"]
 
 
@@ -63,7 +66,7 @@ class ModelCompressor(RegistryMixin):
         :param model: pytorch model to insert data into
         """
         model_device = operator.attrgetter(param_name)(model).device
-        set_layer(param_name, Parameter(data.to(model_device)), model)
+        set_layer(param_name, Parameter(data.to(model_device)), model)  # noqa TODO
 
     def overwrite_weights(self, pretrained_model_name_or_path: str, model: Module):
         """

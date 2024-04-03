@@ -20,6 +20,7 @@ from typing import Dict, List
 
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME
 
+
 __all__ = [
     "get_safetensors_header",
     "match_param_name",

@@ -18,11 +18,11 @@ from typing import Dict, Generator, List, Tuple, Union
 import numpy
 import torch
 from safetensors import safe_open
+from sparsification_config.compressors import ModelCompressor
+from sparsification_config.utils import get_nested_weight_mappings, merge_names
 from torch import Tensor
 from tqdm import tqdm
 
-from sparsification_config.compressors import ModelCompressor
-from sparsification_config.utils import get_nested_weight_mappings, merge_names
 
 __all__ = [
     "BitmaskCompressor",

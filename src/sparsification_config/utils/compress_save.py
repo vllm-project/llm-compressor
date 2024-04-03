@@ -19,11 +19,13 @@ import weakref
 from functools import wraps
 from typing import Optional
 
+from sparsification_config.compressors import ModelCompressor
+from sparsification_config.config import CompressionConfig
 from transformers import PreTrainedModel
 from transformers.file_utils import CONFIG_NAME
 
-from sparsification_config.compressors import ModelCompressor
-from sparsification_config.config import CompressionConfig
+from . import SPARSITY_CONFIG_NAME
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,7 +74,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             """
             model = model_ref()
 
-            if qat_active(model):
+            if qat_active(model):  # noqa TODO
                 _LOGGER.info(
                     "Compression for quantized models is not yet supported. Save will "
                     "be run without compression and no sparsity statistics will be "

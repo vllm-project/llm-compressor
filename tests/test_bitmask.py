@@ -18,7 +18,6 @@ import shutil
 import pytest
 import torch
 from safetensors.torch import save_file
-
 from sparsification_config import BitmaskCompressor, BitmaskConfig
 from sparsification_config.compressors.sparse_bitmask import BitmaskTensor
 
@@ -34,7 +33,7 @@ from sparsification_config.compressors.sparse_bitmask import BitmaskTensor
 )
 def test_bitmask_sizes(shape, sparsity, dtype):
     test_tensor = torch.rand(shape, dtype=dtype)
-    mask = (test_tensor.abs() < (1 - sparsity)).int()
+    mask = (test_tensor.abs() < (1 - sparsity)).int()  # noqa
     test_tensor *= mask
     dense_state_dict = {"dummy.weight": test_tensor}
 

@@ -15,9 +15,9 @@
 from typing import Optional
 
 from pydantic import BaseModel
-from sparsezoo.utils.registry import (  # TODO move ModuleSparsificationInfo to sparsezoo
-    ModuleSparsificationInfo, RegistryMixin)
+from sparsezoo.utils.registry import ModuleSparsificationInfo, RegistryMixin
 from torch.nn import Module
+
 
 __all__ = ["CompressionConfig"]
 
