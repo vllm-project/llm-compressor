@@ -15,9 +15,9 @@
 
 from typing import Optional
 
+from sparsetensors.base import SPARSITY_CONFIG_NAME
 from sparsetensors.compressors import ModelCompressor
 from sparsetensors.config import CompressionConfig
-from sparsetensors.utils.helpers import SPARSITY_CONFIG_NAME
 from transformers import AutoConfig
 
 
