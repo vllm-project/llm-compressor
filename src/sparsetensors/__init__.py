@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# flake8: noqa
-SPARSITY_CONFIG_NAME = "sparsity_config"
+from .base import *
 
+# flake8: noqa
 from .compressors import *
 from .config import *
+from .utils import *

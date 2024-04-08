@@ -12,8 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# flake8: noqa
-
-from .base import ModelCompressor
-from .dense import DenseCompressor
-from .sparse_bitmask import BitmaskCompressor, BitmaskTensor
+SPARSITY_CONFIG_NAME = "sparsity_config"

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 # flake8: noqa
-
-from .base import CompressionConfig
-from .dense import DenseSparsityConfig
-from .sparse_bitmask import BitmaskConfig
+from .base import *
+from .dense import *
+from .sparse_bitmask import *

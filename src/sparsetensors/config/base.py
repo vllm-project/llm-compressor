@@ -15,8 +15,7 @@
 from typing import Optional
 
 from pydantic import BaseModel
-from sparsezoo.utils.registry import ModuleSparsificationInfo, RegistryMixin
-from torch.nn import Module
+from sparsezoo.utils.registry import RegistryMixin
 
 
 __all__ = ["CompressionConfig"]
@@ -35,55 +34,3 @@ class CompressionConfig(RegistryMixin, BaseModel):
     format: str
     global_sparsity: Optional[float] = 0.0
     sparsity_structure: Optional[str] = "unstructured"
-
-    @staticmethod
-    def infer_global_sparsity(model: Module) -> float:
-        """
-        Calculates the global percentage of sparse zero weights in the model
-
-        :param model: pytorch model to infer sparsity of
-        :return: global sparsity of model
-        """
-        info = ModuleSparsificationInfo(model)
-        global_sparsity = info.params_sparse_percent
-        return global_sparsity
-
-    # TODO: Move infer_sparsity_structure to sparseml
-
-    @staticmethod
-    def infer_config_from_model(
-        model: Module, compress: bool = False
-    ) -> Optional["CompressionConfig"]:
-        """
-        Determines compression type and informational parameters for a given model
-
-        :param model: pytorch model to calculate sparsity config for
-        :param compress: whether or not to compress the model on disk
-        :return: compression config inferred from the model
-        """
-
-        global_sparsity = CompressionConfig.infer_global_sparsity(model)
-
-        if global_sparsity < 0.05:
-            return None
-
-        sparsity_structure = CompressionConfig.infer_sparsity_structure()
-        if compress:
-            format = "sparse_bitmask"
-        else:
-            format = "dense_sparsity"
-
-        return CompressionConfig.load_from_registry(
-            format,
-            global_sparsity=global_sparsity,
-            sparsity_structure=sparsity_structure,
-        )
-
-    def fill_config_details(self, model: Module):
-        """
-        Fills in informational sparsity parameters from a given model
-
-        :param model: pytorch model to infer config parameters from
-        """
-        self.global_sparsity = CompressionConfig.infer_global_sparsity(model)
-        self.sparsity_structure = CompressionConfig.infer_sparsity_structure()

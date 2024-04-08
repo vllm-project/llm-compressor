@@ -14,7 +14,7 @@
 
 from typing import Optional
 
-from sparsetensors.config import CompressionConfig
+from sparsetensors.config.base import CompressionConfig
 
 
 __all__ = ["BitmaskConfig"]

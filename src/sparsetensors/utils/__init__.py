@@ -13,5 +13,4 @@
 # limitations under the License.
 # flake8: noqa
 
-from .compress_save import *
 from .safetensors_load import *

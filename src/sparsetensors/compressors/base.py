@@ -15,12 +15,12 @@
 import operator
 from typing import Dict, Generator, Tuple
 
+from sparsetensors.base import SPARSITY_CONFIG_NAME
+from sparsetensors.config import CompressionConfig
 from sparsezoo.utils.registry import RegistryMixin
 from torch import Tensor
 from torch.nn import Module, Parameter
 from tqdm import tqdm
-
-from . import SPARSITY_CONFIG_NAME
 
 
 __all__ = ["ModelCompressor"]
@@ -33,7 +33,7 @@ class ModelCompressor(RegistryMixin):
     :param config: config specifying compression parameters
     """
 
-    def __init__(self, config: "CompressionConfig"):  # noqa
+    def __init__(self, config: CompressionConfig):
         self.config = config
 
     def compress(self, model_state: Dict[str, Tensor]) -> Dict[str, Tensor]:
@@ -66,17 +66,21 @@ class ModelCompressor(RegistryMixin):
         :param model: pytorch model to insert data into
         """
         model_device = operator.attrgetter(param_name)(model).device
-        set_layer(param_name, Parameter(data.to(model_device)), model)  # noqa TODO
+        new_param = Parameter(data.to(model_device))
+        # TODO: Two for loops?
+        for name, param in model.named_parameters():
+            if name == param_name:
+                param.data = new_param.data
+                return
 
-    def overwrite_weights(self, pretrained_model_name_or_path: str, model: Module):
+    def overwrite_weights(self, model_path: str, model: Module):
         """
-        Overwrites the weights in model with weights decompressed from
-        pretrained_model_name_or_path
+        Overwrites the weights in model with weights decompressed from model_path
 
-        :param pretrained_model_name_or_path: path to compressed weights
+        :param model_path: path to compressed weights
         :param model: pytorch model to load decompressed weights into
         """
-        dense_gen = self.decompress(pretrained_model_name_or_path)
+        dense_gen = self.decompress(model_path)
         for name, data in tqdm(dense_gen, desc="Decompressing model"):
             ModelCompressor.replace_layer(name, data, model)
         setattr(model, SPARSITY_CONFIG_NAME, self.config)
