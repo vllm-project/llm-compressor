@@ -55,24 +55,6 @@ class ModelCompressor(RegistryMixin):
         """
         raise NotImplementedError()
 
-    @staticmethod
-    def replace_layer(param_name: str, data: Tensor, model: Module):
-        """
-        Overwrites a parameterized layer with a new tensor, maintaining the device of
-        the original parameter
-
-        :param param_name: name of parameterized layer to replace
-        :param data: tensor to insert into model
-        :param model: pytorch model to insert data into
-        """
-        model_device = operator.attrgetter(param_name)(model).device
-        new_param = Parameter(data.to(model_device))
-        # TODO: Two for loops?
-        for name, param in model.named_parameters():
-            if name == param_name:
-                param.data = new_param.data
-                return
-
     def overwrite_weights(self, model_path: str, model: Module):
         """
         Overwrites the weights in model with weights decompressed from model_path
@@ -82,5 +64,10 @@ class ModelCompressor(RegistryMixin):
         """
         dense_gen = self.decompress(model_path)
         for name, data in tqdm(dense_gen, desc="Decompressing model"):
-            ModelCompressor.replace_layer(name, data, model)
+            # loading the decompressed weights into the model
+            model_device = operator.attrgetter(name)(model).device
+            data_new = Parameter(data.to(model_device))
+            data_old = operator.attrgetter(name)(model)
+            data_old.data = data_new.data
+
         setattr(model, SPARSITY_CONFIG_NAME, self.config)
