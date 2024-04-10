@@ -1,3 +1,5 @@
+# flake8: noqa
+
 # Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,25 +14,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
-
-from pydantic import BaseModel
-from sparsetensors.registry import RegistryMixin
-
-
-__all__ = ["CompressionConfig"]
-
-
-class CompressionConfig(RegistryMixin, BaseModel):
-    """
-    Base data class for storing compression parameters
-
-    :param format: name of compression format
-    :param global_sparsity: average sparsity of the entire model
-    :param sparsity_structure: structure of the sparsity, such as
-    "unstructured", "2:4", "8:16" etc
-    """
-
-    format: str
-    global_sparsity: Optional[float] = 0.0
-    sparsity_structure: Optional[str] = "unstructured"
+from .registry import *

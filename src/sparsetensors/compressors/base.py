@@ -17,7 +17,7 @@ from typing import Dict, Generator, Tuple
 
 from sparsetensors.base import SPARSITY_CONFIG_NAME
 from sparsetensors.config import CompressionConfig
-from sparsezoo.utils.registry import RegistryMixin
+from sparsetensors.registry import RegistryMixin
 from torch import Tensor
 from torch.nn import Module, Parameter
 from tqdm import tqdm

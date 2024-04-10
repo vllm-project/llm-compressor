@@ -27,5 +27,4 @@ test:
 clean:
 	@echo "Cleaning up";
 	rm -rf .pytest_cache;
-	rm -rf src/sparsezoo.egg-info;
 	find $(PYCHECKDIRS) | grep -E "(__pycache__|\.pyc|\.pyo)" | xargs rm -rf;
