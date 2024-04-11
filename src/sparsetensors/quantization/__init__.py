@@ -12,10 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .base import *
-
 # flake8: noqa
-from .compressors import *
-from .config import *
-from .quantization import QuantizationConfig, QuantizationStatus
-from .utils import *
+from .quant_args import *
+from .quant_config import *
+from .quant_scheme import *
