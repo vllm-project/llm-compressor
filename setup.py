@@ -29,7 +29,7 @@ def _setup_extras() -> Dict:
 
 setup(
     name="sparsetensors",
-    version="0.1.0",
+    version="0.2.0",
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",
     description="Library for utilization of compressed safetensors of neural network models",
