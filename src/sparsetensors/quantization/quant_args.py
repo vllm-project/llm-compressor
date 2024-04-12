@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 __all__ = ["QuantizationType", "QuantizationStrategy", "QuantizationArgs"]
@@ -61,3 +61,25 @@ class QuantizationArgs(BaseModel):
     strategy: QuantizationStrategy = QuantizationStrategy.TENSOR
     group_size: Optional[int] = None
     block_structure: Optional[str] = None
+    observer: str = Field(
+        default="minmax",
+        description=(
+            "The class to use to compute the quantization param - "
+            "scale and zero-point'"
+        ),
+    )
+    observer_kwargs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "optional dict of kwargs to be passed directly to torch quantization "
+            "Observers constructor excluding quantization range or symmetry"
+        ),
+    )
+
+    def get_observer(self):
+        """
+        :return: torch quantization FakeQuantize built based on these QuantizationArgs
+        """
+        from sparsetensors.quantization.observers.base import Observer
+
+        return Observer.load_from_registry(self.observer, quantization_args=self)
