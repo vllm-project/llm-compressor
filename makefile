@@ -1,6 +1,6 @@
 BUILDDIR := $(PWD)
 PYCHECKDIRS := src tests
-PYCHECKGLOBS := 'src/**/*.py' 'tests/**/*.py' 'utils/**/*.py' setup.py
+PYCHECKGLOBS := 'src/**/*.py' 'tests/**/*.py' 'utils/**/*.py' 'examples/**/*.py' setup.py
 # run checks on all files for the repo
 quality:
 	@echo "Running copyright checks";
