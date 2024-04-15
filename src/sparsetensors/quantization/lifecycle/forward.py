@@ -116,8 +116,6 @@ def _maybe_calibrate_or_quantize(
     # zero_point = getattr(module, f"{base_name}_zero_point").data
     zero_point = getattr(module, f"{base_name}_zero_point")
 
-    print(scale, zero_point)
-
     if module.quantization_status == QuantizationStatus.CALIBRATION:
         # get observer and get new quant params from observation
         observer = getattr(module, f"{base_name}_observer")
