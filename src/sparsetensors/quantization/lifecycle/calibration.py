@@ -15,7 +15,7 @@
 
 import logging
 
-from sparsetensors.quantization.lifecycle.status import QuantizationStatus
+from sparsetensors.quantization.quant_config import QuantizationStatus
 from torch.nn import Module
 
 

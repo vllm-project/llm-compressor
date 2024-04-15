@@ -17,8 +17,8 @@ import logging
 
 import torch
 from sparsetensors.quantization.lifecycle.forward import wrap_module_forward_quantized
-from sparsetensors.quantization.lifecycle.status import QuantizationStatus
 from sparsetensors.quantization.quant_args import QuantizationArgs
+from sparsetensors.quantization.quant_config import QuantizationStatus
 from sparsetensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module, Parameter
 

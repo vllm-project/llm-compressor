@@ -19,7 +19,11 @@ from pydantic import BaseModel
 from sparsetensors.quantization.quant_scheme import QuantizationScheme
 
 
-__all__ = ["QuantizationStatus", "QuantizationConfig"]
+__all__ = [
+    "QuantizationStatus",
+    "QuantizationConfig",
+    "LIFECYCLE_ORDER",
+]
 
 
 class QuantizationStatus(Enum):
@@ -40,6 +44,26 @@ class QuantizationStatus(Enum):
     CALIBRATION = "calibration"
     FROZEN = "frozen"
     COMPRESSED = "compressed"
+
+    @classmethod
+    def lifecycle_order(cls) -> List["QuantizationStatus"]:
+        """
+        :return: list of correct quantization lifecycle order
+        """
+        return
+
+    def __ge__(self, other):
+        if not isinstance(other, self.__class__):
+            raise NotImplementedError
+        return LIFECYCLE_ORDER.index(self) >= LIFECYCLE_ORDER.index(other)
+
+
+LIFECYCLE_ORDER = [
+    QuantizationStatus.INITIALIZED,
+    QuantizationStatus.CALIBRATION,
+    QuantizationStatus.FROZEN,
+    QuantizationStatus.COMPRESSED,
+]
 
 
 class QuantizationConfig(BaseModel):

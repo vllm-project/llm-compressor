@@ -15,8 +15,8 @@
 from functools import wraps
 
 import torch
-from sparsetensors.quantization.lifecycle.status import QuantizationStatus
 from sparsetensors.quantization.quant_args import QuantizationArgs
+from sparsetensors.quantization.quant_config import QuantizationStatus
 from sparsetensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module
 
