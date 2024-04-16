@@ -14,6 +14,7 @@
 
 
 import logging
+from typing import Optional
 
 import torch
 from sparsetensors.quantization.lifecycle.forward import wrap_module_forward_quantized
@@ -31,9 +32,27 @@ __all__ = [
 _LOGGER = logging.getLogger(__name__)
 
 
-def initialize_module_for_quantization(module: Module, scheme: QuantizationScheme):
-    if scheme.input_activations is not None:
+def initialize_module_for_quantization(
+    module: Module,
+    scheme: Optional[QuantizationScheme] = None,
+):
+    """
+    attaches appropriate scales, zero points, and observers to a layer
+    given its target quantization scheme
 
+    apply to full model with `model.apply(initialize_module_for_quantization)`
+
+    :param module: module to set for calibration
+    :param scheme: scheme to use for quantization. if None is provided,
+        will attempt to use scheme stored in the module under `quantization_scheme`,
+        if not provided, the layer will be skipped
+    """
+    scheme = scheme or getattr(module, "quantization_scheme", None)
+    if scheme is None:
+        # no scheme passed and layer not targeted for quantization - skip
+        return
+
+    if scheme.input_activations is not None:
         _initialize_scale_zero_point_observer(module, "input", scheme.input_activations)
     if scheme.weights is not None:
         if hasattr(module, "weight"):

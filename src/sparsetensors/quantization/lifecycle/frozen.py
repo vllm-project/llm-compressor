@@ -23,6 +23,13 @@ __all__ = [
 
 
 def freeze_module_quantization(module: Module):
+    """
+    deletes observers so static quantization is completed.
+
+    apply to full model with `model.apply(freeze_module_quantization)`
+
+    :param module: module to freeze quantization for
+    """
     if not getattr(module, "quantization_scheme", None):
         # no quantization scheme nothing to do
         return

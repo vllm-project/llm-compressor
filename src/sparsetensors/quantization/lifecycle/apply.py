@@ -25,7 +25,6 @@ from sparsetensors.quantization.quant_config import (
     QuantizationConfig,
     QuantizationStatus,
 )
-from sparsetensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module
 
 
@@ -49,41 +48,32 @@ def apply_quantization_config(model: Module, config: QuantizationConfig):
         for target in scheme.targets:
             target_to_scheme[target] = scheme
 
-    # build list of layers to target to avoid mutating submodule dict during iteration
-    layer_quant_scheme_pairs = []
+    # mark appropriate layers for quantization by setting their quantization schemes
     for name, submodule in _iter_named_leaf_modules(model):
         if _find_first_name_or_class_match(name, submodule, config.ignore):
             continue  # layer matches ignore list, continue
         target = _find_first_name_or_class_match(name, submodule, target_to_scheme)
         if target is not None:
             # target matched - add layer and scheme to target list
-            layer_quant_scheme_pairs.append((submodule, target_to_scheme[target]))
+            submodule.quantization_scheme = target_to_scheme[target]
 
-    # apply current quantization status for each matched pair
-    for layer, scheme in layer_quant_scheme_pairs:
-        apply_quantization_status(
-            module=layer,
-            scheme=scheme,
-            status=config.quantization_status,
-        )
+    # apply current quantization status across all targeted layers
+    apply_quantization_status(model, config.quantization_status)
 
 
-def apply_quantization_status(
-    module: Module, scheme: QuantizationScheme, status: QuantizationStatus
-):
+def apply_quantization_status(model: Module, status: QuantizationStatus):
     """
     Applies in place the quantization lifecycle up to the given status
 
-    :param module: module to apply quantization to
-    :param scheme: quantization scheme to apply
+    :param model: model to apply quantization to
     :param status: status to update the module to
     """
     if status >= QuantizationStatus.INITIALIZED:
-        initialize_module_for_quantization(module, scheme)
+        model.apply(initialize_module_for_quantization)
     if status >= QuantizationStatus.CALIBRATION:
-        set_module_for_calibration(module)
+        model.apply(set_module_for_calibration)
     if status >= QuantizationStatus.FROZEN:
-        freeze_module_quantization(module)
+        model.apply(freeze_module_quantization)
 
 
 def _iter_named_leaf_modules(model: Module) -> Tuple[str, Module]:

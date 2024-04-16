@@ -28,6 +28,14 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def set_module_for_calibration(module: Module):
+    """
+    marks a layer as ready for calibration which activates observers
+    to update scales and zero points on each forward pass
+
+    apply to full model with `model.apply(set_module_for_calibration)`
+
+    :param module: module to set for calibration
+    """
     if not getattr(module, "quantization_scheme", None):
         # no quantization scheme nothing to do
         return
