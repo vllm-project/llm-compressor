@@ -56,7 +56,7 @@ def fake_quantize(
     zero_point: torch.Tensor,
     args: QuantizationArgs,
 ) -> torch.Tensor:
-    max_q = torch.tensor(2**args.num_bits - 1)
+    max_q = torch.tensor(2**args.num_bits - 1, device=x.device)
     Q = torch.zeros_like(x)
     Q = quantize(x, scale, zero_point, max_q)
     return dequantize(Q, scale, zero_point)
@@ -112,6 +112,7 @@ def _maybe_calibrate_or_quantize(
     }:
         return value
 
+    device = next(module.parameters()).device
     scale = getattr(module, f"{base_name}_scale")
     # zero_point = getattr(module, f"{base_name}_zero_point").data
     zero_point = getattr(module, f"{base_name}_zero_point")
@@ -122,7 +123,7 @@ def _maybe_calibrate_or_quantize(
         updated_scale, updated_zero_point = observer(value)
 
         # update scale and zero point
-        scale.data = updated_scale
-        zero_point.data = updated_zero_point
+        scale.data = updated_scale.to(device)
+        zero_point.data = updated_zero_point.to(device)
 
     return fake_quantize(value, scale, zero_point, args)

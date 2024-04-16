@@ -78,11 +78,15 @@ def initialize_module_for_quantization(
 def _initialize_scale_zero_point_observer(
     module: Module, base_name: str, quantization_args: QuantizationArgs
 ):
+    device = next(module.parameters()).device
+
     # initializes empty scale and zero point parameters for the module
-    init_scale = Parameter(torch.empty(0), requires_grad=False)
+    init_scale = Parameter(torch.empty(0, device=device), requires_grad=False)
     module.register_parameter(f"{base_name}_scale", init_scale)
 
-    init_zero_point = Parameter(torch.empty(0, dtype=int), requires_grad=False)
+    init_zero_point = Parameter(
+        torch.empty(0, device=device, dtype=int), requires_grad=False
+    )
     module.register_parameter(f"{base_name}_zero_point", init_zero_point)
 
     # initialize observer module and attach as submodule
