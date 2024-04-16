@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 
-class QuantizationStatus(Enum):
+class QuantizationStatus(str, Enum):
     """
     Enum storing the different states a quantized layer can be in
 

@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 __all__ = ["QuantizationType", "QuantizationStrategy", "QuantizationArgs"]
 
 
-class QuantizationType(Enum):
+class QuantizationType(str, Enum):
     """
     Enum storing quantization type options
     """
@@ -30,7 +30,7 @@ class QuantizationType(Enum):
     FLOAT = "float"
 
 
-class QuantizationStrategy(Enum):
+class QuantizationStrategy(str, Enum):
     """
     Enum storing quantization strategy options
     """

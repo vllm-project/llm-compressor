@@ -50,7 +50,7 @@ def apply_quantization_config(model: Module, config: QuantizationConfig):
             target_to_scheme[target] = scheme
 
     # mark appropriate layers for quantization by setting their quantization schemes
-    for name, submodule in _iter_named_leaf_modules(model):
+    for name, submodule in iter_named_leaf_modules(model):
         if _find_first_name_or_class_match(name, submodule, config.ignore):
             continue  # layer matches ignore list, continue
         target = _find_first_name_or_class_match(name, submodule, target_to_scheme)
