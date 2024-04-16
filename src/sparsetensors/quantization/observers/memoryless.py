@@ -56,6 +56,6 @@ class MemorylessObserver(Observer):
             # scales from a 0 range should be set to 1
             scale[observed_range == 0] = 1
 
-            zero_point = (0 - min_val) / scale
+            zero_point = ((0 - min_val) / scale).to(torch.int8)
 
         return scale, zero_point
