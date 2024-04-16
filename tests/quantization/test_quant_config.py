@@ -31,7 +31,7 @@ def test_basic_config():
     assert config.format == "fakequant"
     assert config.quantization_status == QuantizationStatus.INITIALIZED
     assert config.global_compression_ratio is None
-    assert config.ignore is None
+    assert isinstance(config.ignore, list) and len(config.ignore) == 0
 
 
 def test_full_config():
