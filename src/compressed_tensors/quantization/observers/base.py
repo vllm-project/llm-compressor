@@ -14,8 +14,8 @@
 
 from typing import Optional, Tuple
 
-from sparsetensors.quantization.quant_args import QuantizationArgs
-from sparsetensors.registry.registry import RegistryMixin
+from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.registry.registry import RegistryMixin
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
 

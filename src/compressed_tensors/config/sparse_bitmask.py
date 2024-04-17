@@ -14,23 +14,23 @@
 
 from typing import Optional
 
-from sparsetensors.config import CompressionConfig
+from compressed_tensors.config.base import CompressionConfig
 
 
-__all__ = ["DenseSparsityConfig"]
+__all__ = ["BitmaskConfig"]
 
 
-@CompressionConfig.register(name="dense_sparsity")
-class DenseSparsityConfig(CompressionConfig):
+@CompressionConfig.register(name="sparse_bitmask")
+class BitmaskConfig(CompressionConfig):
     """
-    Identity configuration for storing a sparse model in
-    an uncompressed dense format
+    Configuration for storing a sparse model using
+    bitmask compression
 
     :param global_sparsity: average sparsity of the entire model
     :param sparsity_structure: structure of the sparsity, such as
     "unstructured", "2:4", "8:16" etc
     """
 
-    format: str = "dense_sparsity"
+    format: str = "sparse_bitmask"
     global_sparsity: Optional[float] = 0.0
     sparsity_structure: Optional[str] = "unstructured"

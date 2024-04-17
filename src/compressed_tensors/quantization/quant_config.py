@@ -16,8 +16,8 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from sparsetensors.quantization.quant_scheme import QuantizationScheme
-from sparsetensors.quantization.utils import (
+from compressed_tensors.quantization.quant_scheme import QuantizationScheme
+from compressed_tensors.quantization.utils import (
     calculate_compression_ratio,
     is_module_quantized,
     iter_named_leaf_modules,

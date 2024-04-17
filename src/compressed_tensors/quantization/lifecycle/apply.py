@@ -16,16 +16,16 @@ import re
 from collections import OrderedDict
 from typing import Iterable, Optional
 
-from sparsetensors.quantization.lifecycle.calibration import set_module_for_calibration
-from sparsetensors.quantization.lifecycle.frozen import freeze_module_quantization
-from sparsetensors.quantization.lifecycle.initialize import (
+from compressed_tensors.quantization.lifecycle.calibration import set_module_for_calibration
+from compressed_tensors.quantization.lifecycle.frozen import freeze_module_quantization
+from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
 )
-from sparsetensors.quantization.quant_config import (
+from compressed_tensors.quantization.quant_config import (
     QuantizationConfig,
     QuantizationStatus,
 )
-from sparsetensors.quantization.utils import iter_named_leaf_modules
+from compressed_tensors.quantization.utils import iter_named_leaf_modules
 from torch.nn import Module
 
 

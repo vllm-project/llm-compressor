@@ -80,6 +80,6 @@ class QuantizationArgs(BaseModel):
         """
         :return: torch quantization FakeQuantize built based on these QuantizationArgs
         """
-        from sparsetensors.quantization.observers.base import Observer
+        from compressed_tensors.quantization.observers.base import Observer
 
         return Observer.load_from_registry(self.observer, quantization_args=self)

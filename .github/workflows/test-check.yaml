@@ -18,10 +18,10 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
-      - name: "Checking if sparsification_config python code was changed"
+      - name: "Checking if compressed-tensors python code was changed"
         id: python-check
         run: >
-          ((git diff --name-only origin/main HEAD | grep -E "[src|tests]/sparsification_config|setup.py")
+          ((git diff --name-only origin/main HEAD | grep -E "[src|tests]/compressed_tensors|setup.py")
           || (echo $GITHUB_REF | grep -E "refs/heads/[release/|main]"))
           && echo "::set-output name=output::1" || echo "::set-output name=output::0"
       - name: "Checking if full tests need to run"

@@ -12,20 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Generator, Tuple
+from typing import Optional
 
-from sparsetensors.compressors import ModelCompressor
-from torch import Tensor
+from pydantic import BaseModel
+from compressed_tensors.registry import RegistryMixin
 
 
-@ModelCompressor.register(name="dense_sparsity")
-class DenseCompressor(ModelCompressor):
+__all__ = ["CompressionConfig"]
+
+
+class CompressionConfig(RegistryMixin, BaseModel):
     """
-    Identity compressor for dense models, returns the original state_dict
+    Base data class for storing compression parameters
+
+    :param format: name of compression format
+    :param global_sparsity: average sparsity of the entire model
+    :param sparsity_structure: structure of the sparsity, such as
+    "unstructured", "2:4", "8:16" etc
     """
 
-    def compress(self, model_state: Dict[str, Tensor]) -> Dict[str, Tensor]:
-        return model_state
-
-    def decompress(self, model_path: str) -> Generator[Tuple[str, Tensor], None, None]:
-        return iter([])
+    format: str
+    global_sparsity: Optional[float] = 0.0
+    sparsity_structure: Optional[str] = "unstructured"
