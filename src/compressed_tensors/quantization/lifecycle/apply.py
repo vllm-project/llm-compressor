@@ -16,7 +16,9 @@ import re
 from collections import OrderedDict
 from typing import Iterable, Optional
 
-from compressed_tensors.quantization.lifecycle.calibration import set_module_for_calibration
+from compressed_tensors.quantization.lifecycle.calibration import (
+    set_module_for_calibration,
+)
 from compressed_tensors.quantization.lifecycle.frozen import freeze_module_quantization
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
