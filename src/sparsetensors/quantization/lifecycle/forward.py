@@ -31,12 +31,13 @@ def quantize(
     zero_point: torch.Tensor,
     q_max: torch.Tensor,
 ) -> torch.Tensor:
+    #TODO: don't harcode these, will change for other bit-depths
     return torch.clamp(
         torch.round(
             x / scale + zero_point,
         ),
-        0,
-        q_max,
+        -128,
+        127,
     )
 
 
