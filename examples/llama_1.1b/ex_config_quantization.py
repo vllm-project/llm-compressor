@@ -1,33 +1,51 @@
 # Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #    http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from sparseml.transformers import oneshot, SparseAutoModelForCausalLM
+from tqdm import tqdm
+
+from compressed_tensors.quantization import (
+    apply_quantization_config,
+    freeze_module_quantization,
+    QuantizationConfig,
+    QuantizationStatus,
+)
 from sparseml.transformers.finetune.data.data_args import DataTrainingArguments
 from sparseml.transformers.finetune.data.base import TextGenerationDataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
+from torch.utils.data import DataLoader
 
-recipe = "example_quant_recipe.yaml"
+
+config_file = "example_quant_config.json"
 model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 dataset_name = "open_platypus"
 split = "train"
 num_calibration_samples = 512
 max_seq_length = 1024
 pad_to_max_length = False
-output_dir = "./llama1.1b_old_quant_out"
+output_dir = "./llama1.1b_new_quant_out"
 
-model = SparseAutoModelForCausalLM.from_pretrained(model_name, device_map="cuda:0")
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cuda:0")
+model.eval()  # no grad or updates needed for base model
+config = QuantizationConfig.parse_file(config_file)
 
+# set status to calibration
+config.quantization_status = QuantizationStatus.CALIBRATION
+
+# initialize quantization
+apply_quantization_config(model, config)
+
+# create dataset
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 data_args = DataTrainingArguments(
     dataset=dataset_name,
@@ -43,14 +61,17 @@ dataset_manager = TextGenerationDataset.load_from_registry(
 calib_dataset = dataset_manager.tokenize_and_process(
     dataset_manager.get_raw_dataset()
 )
-
-oneshot(
-    model=model_name,
-    dataset=dataset_name,
-    output_dir=output_dir,
-    overwrite_output_dir=True,
-    max_seq_length = max_seq_length,
-    num_calibration_samples=num_calibration_samples,
-    recipe=recipe,
-    pad_to_max_length=pad_to_max_length
+data_loader = DataLoader(
+    calib_dataset, batch_size=1, collate_fn=DefaultDataCollator()
 )
+
+# run calibration
+for idx, sample in tqdm(enumerate(data_loader)):
+    _ = model(**sample)
+
+    if idx >= num_calibration_samples:
+        break
+
+# freeze params after calibration
+model.apply(freeze_module_quantization)
+model.save_pretrained(output_dir)
