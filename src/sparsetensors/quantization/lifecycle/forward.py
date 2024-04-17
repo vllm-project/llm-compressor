@@ -57,8 +57,9 @@ def fake_quantize(
     zero_point: torch.Tensor,
     args: QuantizationArgs,
 ) -> torch.Tensor:
-    max_q = torch.tensor((2**args.num_bits) / 2 - 1, device=x.device)
-    min_q = torch.tensor(max_q - 2**args.num_bits, device=x.device)
+    bit_range = 2**args.num_bits
+    max_q = torch.tensor(bit_range / 2 - 1, device=x.device)
+    min_q = torch.tensor(-bit_range / 2, device=x.device)
     Q = torch.zeros_like(x)
     Q = quantize(x, scale, zero_point, min_q, max_q)
     return dequantize(Q, scale, zero_point)

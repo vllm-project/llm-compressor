@@ -44,7 +44,8 @@ class MinMaxObserver(Observer):
         """
         # TODO: Add support for full range of quantization Args, only supports 8bit
         #       per tensor
-        bit_range = 255
+        bit_min = -128
+        bit_max = 127
         min_val = torch.tensor([observed.min()])
         max_val = torch.tensor([observed.max()])
 
@@ -64,16 +65,17 @@ class MinMaxObserver(Observer):
 
         if self.quantization_args.symmetric:
             symmetric_range = 2 * max(min_val.abs(), max_val.abs())
-            scale = symmetric_range / bit_range
+            scale = symmetric_range / (bit_max - bit_min)
             zero_point = torch.tensor(0).to(torch.int8)
         else:
             # non-symmetric
             observed_range = max_val - min_val
-            scale = observed_range / bit_range
+            quantized_range = bit_max - bit_min
+            scale = observed_range / (quantized_range)
 
             # scales from a 0 range should be set to 1
             scale[observed_range == 0] = 1
 
-            zero_point = ((0 - min_val) / scale).to(torch.int8)
+            zero_point = ((0 - min_val) / scale + bit_min).to(torch.int8)
 
         return scale, zero_point
