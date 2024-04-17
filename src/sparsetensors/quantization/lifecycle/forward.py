@@ -15,9 +15,9 @@
 from functools import wraps
 
 import torch
-from sparsetensors.quantization.quant_args import QuantizationArgs
-from sparsetensors.quantization.quant_config import QuantizationStatus
-from sparsetensors.quantization.quant_scheme import QuantizationScheme
+from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_config import QuantizationStatus
+from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module
 
 

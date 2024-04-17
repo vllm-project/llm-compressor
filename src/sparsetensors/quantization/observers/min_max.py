@@ -15,9 +15,9 @@
 from typing import Tuple
 
 import torch
-from sparsetensors.quantization.observers.base import Observer
-from sparsetensors.quantization.observers.helpers import calculate_qparams
-from sparsetensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.observers.base import Observer
+from compressed_tensors.quantization.observers.helpers import calculate_qparams
+from compressed_tensors.quantization.quant_args import QuantizationArgs
 from torch import FloatTensor, IntTensor, Tensor
 
 

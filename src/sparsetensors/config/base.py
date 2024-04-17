@@ -15,7 +15,7 @@
 from typing import Optional
 
 from pydantic import BaseModel
-from sparsetensors.registry import RegistryMixin
+from compressed_tensors.registry import RegistryMixin
 
 
 __all__ = ["CompressionConfig"]

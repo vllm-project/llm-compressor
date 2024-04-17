@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-from sparsetensors.quantization.quant_config import QuantizationStatus
+from compressed_tensors.quantization.quant_config import QuantizationStatus
 from torch.nn import Module
 
 

@@ -15,9 +15,9 @@
 
 from typing import Optional
 
-from sparsetensors.base import SPARSITY_CONFIG_NAME
-from sparsetensors.compressors import ModelCompressor
-from sparsetensors.config import CompressionConfig
+from compressed_tensors.base import SPARSITY_CONFIG_NAME
+from compressed_tensors.compressors import ModelCompressor
+from compressed_tensors.config import CompressionConfig
 from transformers import AutoConfig
 
 

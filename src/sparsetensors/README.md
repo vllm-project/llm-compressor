@@ -65,7 +65,7 @@ is saved to the model's `config.json` file. **Note:** the model must have been
 initialized with SparseAutoModelForCausalLM.from_pretrained()
 
 ```python
-from sparsetensors import BitmaskConfig
+from compressed_tensors import BitmaskConfig
 
 output_dir = "/PATH/TO/SAVE/COMPRESSED_MODEL"
 sparsity_config = BitmaskConfig()
