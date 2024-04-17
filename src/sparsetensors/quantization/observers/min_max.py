@@ -50,8 +50,10 @@ class MinMaxObserver(Observer):
 
         # update running average
         if self.counter > 0:
-            self.min_val = (self.min_val * self.counter + min_val) / (self.counter + 1)
-            self.max_val = (self.max_val * self.counter + max_val) / (self.counter + 1)
+            # self.min_val = (self.min_val * self.counter + min_val) / (self.counter + 1)
+            # self.max_val = (self.max_val * self.counter + max_val) / (self.counter + 1)
+            self.min_val = torch.min(min_val, self.min_val)
+            self.max_val = torch.max(max_val, self.max_val)
         else:
             self.min_val = min_val
             self.max_val = max_val

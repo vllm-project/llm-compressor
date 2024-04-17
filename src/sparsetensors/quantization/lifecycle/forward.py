@@ -114,7 +114,6 @@ def _maybe_calibrate_or_quantize(
 
     device = next(module.parameters()).device
     scale = getattr(module, f"{base_name}_scale")
-    # zero_point = getattr(module, f"{base_name}_zero_point").data
     zero_point = getattr(module, f"{base_name}_zero_point")
 
     if module.quantization_status == QuantizationStatus.CALIBRATION:
