@@ -16,6 +16,7 @@ from sparseml.transformers import oneshot, SparseAutoModelForCausalLM
 from sparseml.transformers.finetune.data.data_args import DataTrainingArguments
 from sparseml.transformers.finetune.data.base import TextGenerationDataset
 from transformers import AutoTokenizer
+import torch
 
 recipe = "example_quant_recipe.yaml"
 model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
@@ -25,8 +26,9 @@ num_calibration_samples = 512
 max_seq_length = 1024
 pad_to_max_length = False
 output_dir = "./llama1.1b_old_quant_out"
+device = "cuda:0" if torch.cuda_is_available() else "cpu"
 
-model = SparseAutoModelForCausalLM.from_pretrained(model_name, device_map="cuda:0")
+model = SparseAutoModelForCausalLM.from_pretrained(model_name, device_map=device)
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 data_args = DataTrainingArguments(

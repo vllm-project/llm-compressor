@@ -43,10 +43,7 @@ class MinMaxObserver(Observer):
         :param observed: observed tensor to calculate quantization parameters for
         :return: tuple of scale and zero point derived from the observed tensor
         """
-        # TODO: Add support for full range of quantization Args, only supports 8bit
-        #       per tensor
-        bit_min = -128
-        bit_max = 127
+
         min_val = torch.tensor([observed.min()])
         max_val = torch.tensor([observed.max()])
 
@@ -63,20 +60,4 @@ class MinMaxObserver(Observer):
         max_val = torch.max(self.max_val, torch.zeros_like(self.max_val))
 
         self.counter += 1
-
-        if self.quantization_args.symmetric:
-            symmetric_range = 2 * max(min_val.abs(), max_val.abs())
-            scale = symmetric_range / (bit_max - bit_min)
-            zero_point = torch.tensor(0).to(torch.int8)
-        else:
-            # non-symmetric
-            observed_range = max_val - min_val
-            quantized_range = bit_max - bit_min
-            scale = observed_range / (quantized_range)
-
-            # scales from a 0 range should be set to 1
-            scale[observed_range == 0] = 1
-
-            zero_point = ((0 - min_val) / scale + bit_min).to(torch.int8)
-
-        return scale, zero_point
+        return calculate_qparams(min_val, max_val, self.quantization_args)

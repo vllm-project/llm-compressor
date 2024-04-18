@@ -15,7 +15,6 @@
 from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from compressed_tensors.quantization.utils import (
     calculate_compression_ratio,
@@ -23,6 +22,7 @@ from compressed_tensors.quantization.utils import (
     iter_named_leaf_modules,
     module_type,
 )
+from pydantic import BaseModel, Field
 from torch.nn import Module
 
 

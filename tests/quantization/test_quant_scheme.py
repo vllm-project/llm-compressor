@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import pytest
-from pydantic import ValidationError
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from pydantic import ValidationError
 
 
 def test_basic_scheme():

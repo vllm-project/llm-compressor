@@ -25,6 +25,7 @@ from sparseml.transformers.finetune.data.base import TextGenerationDataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 from torch.utils.data import DataLoader
 from sparseml.pytorch.utils import tensors_to_device
+import torch
 
 config_file = "example_quant_config.json"
 model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
@@ -34,8 +35,9 @@ num_calibration_samples = 512
 max_seq_length = 1024
 pad_to_max_length = False
 output_dir = "./llama1.1b_new_quant_out"
+device = "cuda:0" if torch.cuda_is_available() else "cpu"
 
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cuda:0")
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device)
 model.eval()  # no grad or updates needed for base model
 config = QuantizationConfig.parse_file(config_file)
 

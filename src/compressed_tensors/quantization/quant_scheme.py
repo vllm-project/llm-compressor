@@ -14,8 +14,8 @@
 
 from typing import List, Optional
 
-from pydantic import BaseModel
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from pydantic import BaseModel
 
 
 __all__ = ["QuantizationScheme"]

@@ -34,6 +34,7 @@ def calculate_qparams(
     :return: tuple of the calculated scale(s) and zero point(s)
     """
     bit_range = 2**quantization_args.num_bits - 1
+    bit_min = -(bit_range + 1) / 2
     if quantization_args.symmetric:
         symmetric_range = 2 * max(min_vals.abs(), max_vals.abs())
         scales = symmetric_range / bit_range
@@ -46,6 +47,6 @@ def calculate_qparams(
         # scales from a 0 range should be set to 1
         scales[observed_range == 0] = 1
 
-        zero_points = ((0 - min_vals) / scales).to(torch.int8)
+        zero_points = ((0 - min_vals) / scales + bit_min).to(torch.int8)
 
     return scales, zero_points

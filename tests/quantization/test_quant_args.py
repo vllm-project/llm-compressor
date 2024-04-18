@@ -13,12 +13,12 @@
 # limitations under the License.
 
 import pytest
-from pydantic import ValidationError
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
 )
+from pydantic import ValidationError
 
 
 def test_defaults():

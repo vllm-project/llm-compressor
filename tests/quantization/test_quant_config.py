@@ -14,12 +14,12 @@
 
 
 import pytest
-from pydantic import ValidationError
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
 )
+from pydantic import ValidationError
 
 
 def test_basic_config():

@@ -17,9 +17,9 @@ from typing import Dict, Generator, List, Tuple, Union
 
 import numpy
 import torch
-from safetensors import safe_open
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.utils import get_nested_weight_mappings, merge_names
+from safetensors import safe_open
 from torch import Tensor
 from tqdm import tqdm
 

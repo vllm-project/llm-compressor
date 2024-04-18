@@ -17,8 +17,8 @@ import shutil
 
 import pytest
 import torch
-from safetensors.torch import save_file
 from compressed_tensors import BitmaskCompressor, BitmaskConfig, BitmaskTensor
+from safetensors.torch import save_file
 
 
 @pytest.mark.parametrize(
