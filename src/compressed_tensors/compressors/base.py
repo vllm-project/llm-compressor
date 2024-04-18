@@ -15,9 +15,9 @@
 import operator
 from typing import Dict, Generator, Tuple
 
-from sparsetensors.base import SPARSITY_CONFIG_NAME
-from sparsetensors.config import CompressionConfig
-from sparsetensors.registry import RegistryMixin
+from compressed_tensors.base import SPARSITY_CONFIG_NAME
+from compressed_tensors.config import CompressionConfig
+from compressed_tensors.registry import RegistryMixin
 from torch import Tensor
 from torch.nn import Module, Parameter
 from tqdm import tqdm

@@ -17,10 +17,10 @@ import logging
 from typing import Optional
 
 import torch
-from sparsetensors.quantization.lifecycle.forward import wrap_module_forward_quantized
-from sparsetensors.quantization.quant_args import QuantizationArgs
-from sparsetensors.quantization.quant_config import QuantizationStatus
-from sparsetensors.quantization.quant_scheme import QuantizationScheme
+from compressed_tensors.quantization.lifecycle.forward import wrap_module_forward_quantized
+from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_config import QuantizationStatus
+from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module, Parameter
 
 

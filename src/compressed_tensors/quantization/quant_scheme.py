@@ -15,7 +15,7 @@
 from typing import List, Optional
 
 from pydantic import BaseModel
-from sparsetensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 
 __all__ = ["QuantizationScheme"]

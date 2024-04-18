@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import pytest
-from sparsetensors import (
+from compressed_tensors import (
     BitmaskCompressor,
     BitmaskConfig,
     CompressionConfig,

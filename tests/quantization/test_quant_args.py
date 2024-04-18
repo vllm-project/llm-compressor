@@ -14,7 +14,7 @@
 
 import pytest
 from pydantic import ValidationError
-from sparsetensors.quantization import (
+from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,

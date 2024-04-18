@@ -13,8 +13,8 @@
 # limitations under the License.
 
 
-from sparsetensors.quantization.lifecycle import apply_quantization_config
-from sparsetensors.quantization.quant_config import (
+from compressed_tensors.quantization.lifecycle import apply_quantization_config
+from compressed_tensors.quantization.quant_config import (
     QuantizationConfig,
     QuantizationStatus,
 )
