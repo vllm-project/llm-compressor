@@ -47,6 +47,6 @@ def calculate_qparams(
         # scales from a 0 range should be set to 1
         scales[observed_range == 0] = 1
 
-        zero_points = ((0 - min_vals) / scales + bit_min).to(torch.int8)
+        zero_points = torch.round(((0.0 - min_vals) / scales + bit_min)).to(torch.int8)
 
     return scales, zero_points
