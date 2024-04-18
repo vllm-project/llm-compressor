@@ -1,7 +1,6 @@
 {
 	"quant_method": "sparseml",
 	"format": "fakequant",
-	"quantization_status": "frozen",
 	"global_compression_ratio": null,
 	"config_groups": {
         "group_1": {
@@ -14,7 +13,7 @@
             "input_activations": {
                 "num_bits": 8,
                 "type": "int",
-                "symmetric": true,
+                "symmetric": false,
                 "strategy": "tensor"
             },
             "targets": ["Linear"]
@@ -23,17 +22,11 @@
             "weights": {
                 "num_bits": 8,
                 "type": "int",
-                "symmetric": false,
+                "symmetric": true,
                 "strategy": "tensor"
             },
-            "input_activations": null,
             "targets": ["Embedding"]
         }
     },
-	"ignore": [
-        "LlamaRotaryEmbedding", "LlamaRMSNorm", "SiLUActivation", 
-        "model.layers.1.mlp.down_proj", "MatMulLeftInput_QK", "MatMulRightInput_QK",
-        "MatMulOutput_QK", "MatMulLeftInput_PV", "MatMulRightInput_PV", 
-        "MatMulOutput_PV"
-    ]
+	"ignore": ["model.layers.0.mlp.down_proj"]
 }

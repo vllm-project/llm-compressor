@@ -28,7 +28,7 @@ __all__ = ["MinMaxObserver"]
 class MinMaxObserver(Observer):
     """
     Implements a dynamic quantization observer that sets the scale and
-    zero point based on the latest observed value
+    zero point based on the overall min and max value
     """
 
     def __init__(self, quantization_args: QuantizationArgs):
@@ -43,15 +43,14 @@ class MinMaxObserver(Observer):
         :param observed: observed tensor to calculate quantization parameters for
         :return: tuple of scale and zero point derived from the observed tensor
         """
-        # TODO: Add support for full range of quantization Args, only supports 8bit
-        #       per tensor
+
         min_val = torch.tensor([observed.min()])
         max_val = torch.tensor([observed.max()])
 
-        # update running average
+        # update global min and max
         if self.counter > 0:
-            self.min_val = (self.min_val * self.counter + min_val) / (self.counter + 1)
-            self.max_val = (self.max_val * self.counter + max_val) / (self.counter + 1)
+            self.min_val = torch.min(min_val, self.min_val)
+            self.max_val = torch.max(max_val, self.max_val)
         else:
             self.min_val = min_val
             self.max_val = max_val
@@ -61,5 +60,4 @@ class MinMaxObserver(Observer):
         max_val = torch.max(self.max_val, torch.zeros_like(self.max_val))
 
         self.counter += 1
-
         return calculate_qparams(min_val, max_val, self.quantization_args)
