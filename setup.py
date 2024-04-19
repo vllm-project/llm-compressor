@@ -18,7 +18,7 @@ from typing import List, Dict
 
 def _setup_packages() -> List:
     return find_packages(
-        "src", include=["compressed-tensors", "compressed-tensors.*"], exclude=["*.__pycache__.*"]
+        "src", include=["compressed_tensors", "compressed_tensors.*"], exclude=["*.__pycache__.*"]
     )
     
 def _setup_install_requires() -> List:
