@@ -14,7 +14,7 @@
 
 import re
 from collections import OrderedDict
-from typing import Iterable, Optional
+from typing import Dict, Iterable, Optional
 
 from compressed_tensors.quantization.lifecycle.calibration import (
     set_module_for_calibration,
@@ -28,13 +28,59 @@ from compressed_tensors.quantization.quant_config import (
     QuantizationStatus,
 )
 from compressed_tensors.quantization.utils import iter_named_leaf_modules
+from compressed_tensors.utils.safetensors_load import get_safetensors_folder
 from torch.nn import Module
 
 
 __all__ = [
+    "load_pretrained_quantization",
     "apply_quantization_config",
     "apply_quantization_status",
 ]
+
+from compressed_tensors.quantization.utils.helpers import is_module_quantized
+from compressed_tensors.utils.safetensors_load import get_quantization_state_dict
+
+
+def load_pretrained_quantization(model: Module, model_name_or_path: str):
+    """
+    Loads the quantization parameters (scale and zero point) from model_name_or_path to
+    a model that has already been initialized with a quantization config
+
+    :param model: model to load pretrained quantization parameters to
+    :param model_name_or_path: Hugging Face stub or local folder containing a quantized
+    model, which is used to load quantization parameters
+    """
+    model_path = get_safetensors_folder(model_name_or_path)
+    state_dict = get_quantization_state_dict(model_path)
+
+    for name, submodule in iter_named_leaf_modules(model):
+        if not is_module_quantized(submodule):
+            continue
+        if submodule.quantization_scheme.weights is not None:
+            base_name = "weight"
+            _load_quant_args_from_state_dict(
+                base_name=base_name,
+                module_name=name,
+                module=submodule,
+                state_dict=state_dict,
+            )
+        if submodule.quantization_scheme.input_activations is not None:
+            base_name = "input"
+            _load_quant_args_from_state_dict(
+                base_name=base_name,
+                module_name=name,
+                module=submodule,
+                state_dict=state_dict,
+            )
+        if submodule.quantization_scheme.output_activations is not None:
+            base_name = "output"
+            _load_quant_args_from_state_dict(
+                base_name=base_name,
+                module_name=name,
+                module=submodule,
+                state_dict=state_dict,
+            )
 
 
 def apply_quantization_config(model: Module, config: QuantizationConfig):
@@ -103,3 +149,25 @@ def _find_first_match(value: str, targets: Iterable[str]) -> Optional[str]:
         elif target == value:
             return target
     return None
+
+
+def _load_quant_args_from_state_dict(
+    base_name: str, module_name: str, module: Module, state_dict: Dict
+):
+    """
+    Loads scale and zero point from a state_dict into the specified module
+
+    :param base_name: quantization target, one of: weights, input_activations or
+    output_activations
+    :param module_name: pytorch module name to look up in state_dict
+    :module: pytorch module associated with module_name
+    :state_dict: state_dict to search for matching quantization parameters
+    """
+    scale_name = f"{base_name}_scale"
+    zp_name = f"{base_name}_zero_point"
+    device = next(module.parameters()).device
+
+    scale = getattr(module, scale_name)
+    zp = getattr(module, zp_name)
+    scale.data = state_dict[f"{module_name}.{scale_name}"].to(device)
+    zp.data = state_dict[f"{module_name}.{zp_name}"].to(device)

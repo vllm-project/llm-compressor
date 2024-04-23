@@ -18,6 +18,8 @@ import re
 import struct
 from typing import Dict, List, Optional
 
+from safetensors import safe_open
+from torch import Tensor
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, cached_file
 
 
@@ -28,6 +30,7 @@ __all__ = [
     "merge_names",
     "get_weight_mappings",
     "get_nested_weight_mappings",
+    "get_quantization_state_dict",
 ]
 
 
@@ -45,7 +48,7 @@ def get_safetensors_folder(
     """
     if os.path.exists(pretrained_model_name_or_path):
         # argument is a path to a local folder
-        return pretrained_model_name_or_path
+        return os.path.abspath(pretrained_model_name_or_path)
 
     safetensors_path = cached_file(
         pretrained_model_name_or_path,
@@ -194,3 +197,30 @@ def get_nested_weight_mappings(
                 nested_weight_mappings[dense_param][param_name] = weight_mappings[key]
 
     return nested_weight_mappings
+
+
+def get_quantization_state_dict(model_path: str) -> Dict[str, Tensor]:
+    weight_mappings = get_weight_mappings(model_path)
+    state_dict = {}
+    for weight_name, safe_path in weight_mappings.items():
+        if not _is_quantization_weight(weight_name):
+            continue
+        with safe_open(safe_path, framework="pt", device="cpu") as f:
+            state_dict[weight_name] = f.get_tensor(weight_name)
+
+    return state_dict
+
+
+def _is_quantization_weight(name: str) -> bool:
+    """
+    Checks is a parameter name is associated with a quantization parameter
+
+    :param name: parameter name to check
+    :return: True if parameter name is a quantization parameter, else False
+    """
+    if name.endswith("_scale"):
+        return True
+    if name.endswith("zero_point"):
+        return True
+
+    return False

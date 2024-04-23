@@ -18,6 +18,7 @@ from typing import Dict, Generator, Tuple
 from compressed_tensors.base import SPARSITY_CONFIG_NAME
 from compressed_tensors.config import CompressionConfig
 from compressed_tensors.registry import RegistryMixin
+from compressed_tensors.utils import get_safetensors_folder
 from torch import Tensor
 from torch.nn import Module, Parameter
 from tqdm import tqdm
@@ -62,6 +63,7 @@ class ModelCompressor(RegistryMixin):
         :param model_path: path to compressed weights
         :param model: pytorch model to load decompressed weights into
         """
+        model_path = get_safetensors_folder(model_path)
         dense_gen = self.decompress(model_path)
         for name, data in tqdm(dense_gen, desc="Decompressing model"):
             # loading the decompressed weights into the model

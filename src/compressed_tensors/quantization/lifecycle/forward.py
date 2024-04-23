@@ -82,6 +82,7 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
 
         if scheme.weights is not None:
             # calibrate and (fake) quantize weights when applicable
+            unquantized_weight = self.weight.data.clone()
             self.weight.data = _maybe_calibrate_or_quantize(
                 module, self.weight, "weight", scheme.weights
             )
@@ -96,6 +97,10 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
             output = _maybe_calibrate_or_quantize(
                 module, output, "output", scheme.output_activations
             )
+
+        # restore back to unquantized_value
+        if scheme.weights is not None:
+            self.weight.data = unquantized_weight
 
         return output
 
