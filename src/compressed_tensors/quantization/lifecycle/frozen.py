@@ -30,17 +30,17 @@ def freeze_module_quantization(module: Module):
 
     :param module: module to freeze quantization for
     """
-    if not getattr(module, "quantization_scheme", None):
+    scheme = getattr(module, "quantization_scheme", None)
+    if not scheme:
         # no quantization scheme nothing to do
         return
 
-    # delete observers from module
-    observer_names = []
-    for submodule_name, _ in module.named_modules():
-        if "." not in submodule_name and submodule_name.endswith("_observer"):
-            # delete any observers that belong directly to this module
-            observer_names.append(submodule_name)
-    for observer_name in observer_names:
-        delattr(module, observer_name)
+    # delete observers from module if not dynamic
+    if scheme.input_activations and not scheme.input_activations.dynamic:
+        delattr(module, "input_observer")
+    if scheme.weights and not scheme.weights.dynamic:
+        delattr(module, "weight_observer")
+    if scheme.output_activations and not scheme.output_activations.dynamic:
+        delattr(module, "output_observer")
 
     module.quantization_status = QuantizationStatus.FROZEN

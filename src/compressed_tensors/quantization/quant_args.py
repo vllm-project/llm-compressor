@@ -53,6 +53,11 @@ class QuantizationArgs(BaseModel):
     :param group_size: group length to use for the group strategy
     :param block_structure: 2d block structure to use for the block strategy, must be
     of the format "2x4", "8x16", etc.
+    :param dynamic: set True to perform dynamic quantization - values will not be
+        calibrated during calibration phase, instead during inference new quantization
+        ranges will be observed with every sample. Defaults to False for static
+        quantization. Note that enabling dynamic quantization will change the default
+        observer to a memoryless one
     """
 
     num_bits: int = 8
@@ -61,6 +66,7 @@ class QuantizationArgs(BaseModel):
     strategy: QuantizationStrategy = QuantizationStrategy.TENSOR
     group_size: Optional[int] = None
     block_structure: Optional[str] = None
+    dynamic: bool = False
     observer: str = Field(
         default="minmax",
         description=(
@@ -81,5 +87,10 @@ class QuantizationArgs(BaseModel):
         :return: torch quantization FakeQuantize built based on these QuantizationArgs
         """
         from compressed_tensors.quantization.observers.base import Observer
+
+        if self.observer == "minmax" and self.dynamic:
+            # override defualt observer for dynamic, you never want minmax which
+            # keeps state across samples for dynamic
+            self.observer = "memoryless"
 
         return Observer.load_from_registry(self.observer, quantization_args=self)

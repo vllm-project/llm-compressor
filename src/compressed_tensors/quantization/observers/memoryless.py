@@ -23,10 +23,10 @@ from torch import FloatTensor, IntTensor, Tensor
 __all__ = ["MemorylessObserver"]
 
 
-@Observer.register("memoryless")
+@Observer.register("memoryless", alias=["dynamic"])
 class MemorylessObserver(Observer):
     """
-    Implements a dynamic quantization observer that sets the scale and
+    Implements a quantization observer that sets the scale and
     zero point based on the latest observed value without tracking state
     """
 

@@ -80,6 +80,13 @@ def initialize_module_for_quantization(
 def _initialize_scale_zero_point_observer(
     module: Module, base_name: str, quantization_args: QuantizationArgs
 ):
+    # initialize observer module and attach as submodule
+    observer = quantization_args.get_observer()
+    module.register_module(f"{base_name}_observer", observer)
+
+    if quantization_args.dynamic:
+        return  # no need to register a scale and zero point for a dynamic observer
+
     device = next(module.parameters()).device
 
     # initializes empty scale and zero point parameters for the module
@@ -90,7 +97,3 @@ def _initialize_scale_zero_point_observer(
         torch.empty(0, device=device, dtype=int), requires_grad=False
     )
     module.register_parameter(f"{base_name}_zero_point", init_zero_point)
-
-    # initialize observer module and attach as submodule
-    observer = quantization_args.get_observer()
-    module.register_module(f"{base_name}_observer", observer)
