@@ -14,7 +14,10 @@
 
 
 from setuptools import setup, find_packages
-from typing import List, Dict
+from typing import List, Dict, Tuple
+
+def _setup_long_description() -> Tuple[str, str]:
+    return open("README.md", "r", encoding="utf-8").read(), "text/markdown"
 
 def _setup_packages() -> List:
     return find_packages(
@@ -22,7 +25,7 @@ def _setup_packages() -> List:
     )
     
 def _setup_install_requires() -> List:
-    return ["torch>=1.7.0", "transformers<=4.40", "pydantic<2.7"]
+    return ["torch>=1.7.0", "transformers<4.41", "pydantic<2.7"]
 
 def _setup_extras() -> Dict:
     return {"dev": ["black==22.12.0", "isort==5.8.0", "wheel>=0.36.2", "flake8>=3.8.3", "pytest>=6.0.0", "nbconvert>=7.16.3"]}
@@ -32,7 +35,11 @@ setup(
     version="0.3.0",
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",
+    license="Apache 2.0",
     description="Library for utilization of compressed safetensors of neural network models",
+    long_description=_setup_long_description()[0],
+    long_description_content_type=_setup_long_description()[1],
+    url="https://github.com/neuralmagic/compressed-tensors",
     extras_require=_setup_extras(),
     install_requires=_setup_install_requires(),
     package_dir={"": "src"},
