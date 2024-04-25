@@ -1,4 +1,4 @@
-BUILDDIR := $(PWD)
+
 PYCHECKDIRS := src tests
 PYCHECKGLOBS := 'src/**/*.py' 'tests/**/*.py' 'utils/**/*.py' 'examples/**/*.py' setup.py
 # run checks on all files for the repo
@@ -22,6 +22,10 @@ style:
 test:
 	@echo "Running python tests";
 	pytest tests;
+
+# creates wheel file
+build:
+	python3 setup.py sdist bdist_wheel $(BUILD_ARGS)
 
 # clean package
 clean:

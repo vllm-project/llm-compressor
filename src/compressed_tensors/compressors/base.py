@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import operator
-from typing import Dict, Generator, Tuple
+from typing import Dict, Generator, Optional, Tuple
 
 from compressed_tensors.base import SPARSITY_CONFIG_NAME
 from compressed_tensors.config import CompressionConfig
@@ -34,7 +34,7 @@ class ModelCompressor(RegistryMixin):
     :param config: config specifying compression parameters
     """
 
-    def __init__(self, config: CompressionConfig):
+    def __init__(self, config: Optional[CompressionConfig] = None):
         self.config = config
 
     def compress(self, model_state: Dict[str, Tensor]) -> Dict[str, Tensor]:
@@ -46,12 +46,16 @@ class ModelCompressor(RegistryMixin):
         """
         raise NotImplementedError()
 
-    def decompress(self, model_path: str) -> Generator[Tuple[str, Tensor], None, None]:
+    def decompress(
+        self, path_to_model_or_tensors: str
+    ) -> Generator[Tuple[str, Tensor], None, None]:
         """
-        Reads a compressed state dict located at model_path and returns a
-        generator for sequentially decompressing back to a dense state dict
+        Reads a compressed state dict located at path_to_model_or_tensors
+        and returns a generator for sequentially decompressing back to a
+        dense state dict
 
-        :param model_path: path to compressed safetensors model
+        :param model_path: path to compressed safetensors model (directory with
+            one or more safetensors files) or compressed tensors file
         :return: compressed state dict
         """
         raise NotImplementedError()

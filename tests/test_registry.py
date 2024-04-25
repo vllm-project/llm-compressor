@@ -17,6 +17,7 @@ from compressed_tensors import (
     BitmaskCompressor,
     BitmaskConfig,
     CompressionConfig,
+    CompressionFormat,
     DenseCompressor,
     DenseSparsityConfig,
     ModelCompressor,
@@ -26,8 +27,8 @@ from compressed_tensors import (
 @pytest.mark.parametrize(
     "name,type",
     [
-        ["sparse_bitmask", BitmaskConfig],
-        ["dense_sparsity", DenseSparsityConfig],
+        [CompressionFormat.sparse_bitmask.value, BitmaskConfig],
+        [CompressionFormat.dense_sparsity.value, DenseSparsityConfig],
     ],
 )
 def test_configs(name, type):
@@ -38,7 +39,10 @@ def test_configs(name, type):
 
 @pytest.mark.parametrize(
     "name,type",
-    [["sparse_bitmask", BitmaskCompressor], ["dense_sparsity", DenseCompressor]],
+    [
+        [CompressionFormat.sparse_bitmask.value, BitmaskCompressor],
+        [CompressionFormat.dense_sparsity.value, DenseCompressor],
+    ],
 )
 def test_compressors(name, type):
     compressor = ModelCompressor.load_from_registry(

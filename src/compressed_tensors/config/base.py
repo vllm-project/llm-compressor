@@ -12,13 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from enum import Enum
 from typing import Optional
 
 from compressed_tensors.registry import RegistryMixin
 from pydantic import BaseModel
 
 
-__all__ = ["CompressionConfig"]
+__all__ = ["CompressionConfig", "CompressionFormat"]
+
+
+class CompressionFormat(Enum):
+    dense_sparsity = "dense-sparsity"
+    sparse_bitmask = "sparse-bitmask"
 
 
 class CompressionConfig(RegistryMixin, BaseModel):

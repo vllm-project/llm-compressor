@@ -14,13 +14,13 @@
 
 from typing import Optional
 
-from compressed_tensors.config.base import CompressionConfig
+from compressed_tensors.config import CompressionConfig, CompressionFormat
 
 
 __all__ = ["BitmaskConfig"]
 
 
-@CompressionConfig.register(name="sparse_bitmask")
+@CompressionConfig.register(name=CompressionFormat.sparse_bitmask.value)
 class BitmaskConfig(CompressionConfig):
     """
     Configuration for storing a sparse model using
@@ -31,6 +31,6 @@ class BitmaskConfig(CompressionConfig):
     "unstructured", "2:4", "8:16" etc
     """
 
-    format: str = "sparse_bitmask"
+    format: str = CompressionFormat.sparse_bitmask.value
     global_sparsity: Optional[float] = 0.0
     sparsity_structure: Optional[str] = "unstructured"

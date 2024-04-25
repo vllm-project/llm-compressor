@@ -18,6 +18,7 @@ from typing import Dict, Generator, List, Tuple, Union
 import numpy
 import torch
 from compressed_tensors.compressors import ModelCompressor
+from compressed_tensors.config import CompressionFormat
 from compressed_tensors.utils import get_nested_weight_mappings, merge_names
 from safetensors import safe_open
 from torch import Tensor
@@ -36,7 +37,7 @@ __all__ = [
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-@ModelCompressor.register(name="sparse_bitmask")
+@ModelCompressor.register(name=CompressionFormat.sparse_bitmask.value)
 class BitmaskCompressor(ModelCompressor):
     """
     Compression for sparse models using bitmasks. Non-zero weights are stored in a 1d
@@ -70,22 +71,26 @@ class BitmaskCompressor(ModelCompressor):
 
         return compressed_dict
 
-    def decompress(self, model_path: str) -> Generator[Tuple[str, Tensor], None, None]:
+    def decompress(
+        self, path_to_model_or_tensors: str, device: str = "cpu"
+    ) -> Generator[Tuple[str, Tensor], None, None]:
         """
-        Reads a bitmask compressed state dict located at model_path and returns a
-        generator for sequentially decompressing back to a dense state dict
+        Reads a bitmask compressed state dict located at path_to_model_or_tensors
+        and returns a generator for sequentially decompressing back to a dense state dict
 
-        :param model_path: path to compressed safetensors model
+        :param model_path: path to compressed safetensors model (directory with
+            one or more safetensors files) or compressed tensors file
+        :param device: device to load decompressed weights onto
         :return: iterator for generating decompressed weights
         """
         weight_mappings = get_nested_weight_mappings(
-            model_path, self.COMPRESSION_PARAM_NAMES
+            path_to_model_or_tensors, self.COMPRESSION_PARAM_NAMES
         )
         for weight_name in weight_mappings.keys():
             weight_data = {}
             for param_name, safe_path in weight_mappings[weight_name].items():
                 full_name = merge_names(weight_name, param_name)
-                with safe_open(safe_path, framework="pt", device="cpu") as f:
+                with safe_open(safe_path, framework="pt", device=device) as f:
                     weight_data[param_name] = f.get_tensor(full_name)
             data = BitmaskTensor(**weight_data)
             decompressed = data.decompress()

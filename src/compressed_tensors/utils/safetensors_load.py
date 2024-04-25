@@ -120,7 +120,7 @@ def merge_names(parent_name: str, child_name: str) -> str:
     return parent_name + "." + child_name
 
 
-def get_weight_mappings(model_path: str) -> Dict[str, str]:
+def get_weight_mappings(path_to_model_or_tensors: str) -> Dict[str, str]:
     """
     Takes a path to a state dict saved in safetensors format and returns a mapping
     from parameterized layer name to file location.
@@ -134,31 +134,42 @@ def get_weight_mappings(model_path: str) -> Dict[str, str]:
 
     This generalizes to cases where the model is split into multiple safetensors files
 
-    :param model_path: path to safetensors state dict, must contain either a single
-    safetensors file or multiple files with an index
+    :param path_to_model_or_tensors: path to directory that contains
+        safetensors (must contain either a single file or multiple files with an index),
+        or a path to a single safetensors file
     :return: mapping of parameterized layer name to file location
     """
-    safetensors_path = os.path.join(model_path, SAFE_WEIGHTS_NAME)
-    index_path = os.path.join(model_path, SAFE_WEIGHTS_INDEX_NAME)
-    if os.path.exists(safetensors_path):
-        # we have a single safetensors file to read
-        header = get_safetensors_header(safetensors_path)
-        for key in header.keys():
-            header[key] = SAFE_WEIGHTS_NAME
-        header.pop("__metadata__", None)
-    elif os.path.exists(index_path):
-        # we have multiple safetensors file, read from index
-        with open(index_path, "r", encoding="utf-8") as f:
-            index = json.load(f)
-        header = index["weight_map"]
-    else:
-        raise ValueError(
-            f"Could not find a safetensors weight or index file at {model_path}"
-        )
 
-    # convert weight locations to full paths
-    for key, value in header.items():
-        header[key] = os.path.join(model_path, value)
+    if os.path.isfile(path_to_model_or_tensors):
+        # we have a single safetensors file to read
+        header = get_safetensors_header(path_to_model_or_tensors)
+        for key in header.keys():
+            header[key] = path_to_model_or_tensors
+        header.pop("__metadata__", None)
+    else:
+        # we have a directory with multiple safetensors files
+        safetensors_path = os.path.join(path_to_model_or_tensors, SAFE_WEIGHTS_NAME)
+        index_path = os.path.join(path_to_model_or_tensors, SAFE_WEIGHTS_INDEX_NAME)
+        if os.path.exists(safetensors_path):
+            # we have a single safetensors file to read
+            header = get_safetensors_header(safetensors_path)
+            for key in header.keys():
+                header[key] = SAFE_WEIGHTS_NAME
+            header.pop("__metadata__", None)
+        elif os.path.exists(index_path):
+            # we have multiple safetensors file, read from index
+            with open(index_path, "r", encoding="utf-8") as f:
+                index = json.load(f)
+            header = index["weight_map"]
+        else:
+            raise ValueError(
+                "Could not find a safetensors weight "
+                f"or index file at {path_to_model_or_tensors}"
+            )
+
+        # convert weight locations to full paths
+        for key, value in header.items():
+            header[key] = os.path.join(path_to_model_or_tensors, value)
 
     return header
 
