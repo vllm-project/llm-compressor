@@ -80,3 +80,6 @@ save_compressed_model(model, "compressed_model.safetensors", compression_format=
 # load compressed model weights (`dict` turns generator into a dictionary)
 state_dict = dict(load_compressed("compressed_model.safetensors", compression_config))
 ```
+
+For more in-depth tutorial on bitmask compression, refer to the [notebook](https://github.com/neuralmagic/compressed-tensors/blob/d707c5b84bc3fef164aebdcd97cb6eaa571982f8/examples/bitmask_compression.ipynb).
+

@@ -16,10 +16,5 @@
 
 from .base import ModelCompressor
 from .dense import DenseCompressor
-from .helpers import (
-    infer_compressor_from_model_config,
-    load_compressed,
-    save_compressed,
-    save_compressed_model,
-)
+from .helpers import load_compressed, save_compressed, save_compressed_model
 from .sparse_bitmask import BitmaskCompressor, BitmaskTensor

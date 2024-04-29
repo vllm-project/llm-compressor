@@ -16,43 +16,19 @@ from pathlib import Path
 from typing import Dict, Generator, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.base import SPARSITY_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import CompressionConfig, CompressionFormat
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from safetensors import safe_open
 from safetensors.torch import save_file
 from torch import Tensor
-from transformers import AutoConfig
 
 
 __all__ = [
-    "infer_compressor_from_model_config",
     "load_compressed",
     "save_compressed",
     "save_compressed_model",
 ]
-
-
-def infer_compressor_from_model_config(
-    pretrained_model_name_or_path: str,
-) -> Optional[ModelCompressor]:
-    """
-    Given a path to a model config, extract a sparsity config if it exists and return
-    the associated ModelCompressor
-
-    :param pretrained_model_name_or_path: path to model config on disk or HF hub
-    :return: matching compressor if config contains a sparsity config
-    """
-    config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
-    sparsity_config = getattr(config, SPARSITY_CONFIG_NAME, None)
-    if sparsity_config is None:
-        return None
-
-    format = sparsity_config.get("format")
-    sparsity_config = CompressionConfig.load_from_registry(format, **sparsity_config)
-    compressor = ModelCompressor.load_from_registry(format, config=sparsity_config)
-    return compressor
 
 
 def save_compressed(
