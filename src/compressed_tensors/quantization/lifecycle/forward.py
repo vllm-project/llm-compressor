@@ -21,7 +21,7 @@ from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module
 
 
-__all__ = ["wrap_module_forward_quantized"]
+__all__ = ["wrap_module_forward_quantized", "maybe_calibrate_or_quantize"]
 
 
 @torch.no_grad()
@@ -76,14 +76,14 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
 
         if scheme.input_activations is not None:
             # calibrate and (fake) quantize input activations when applicable
-            input_ = _maybe_calibrate_or_quantize(
+            input_ = maybe_calibrate_or_quantize(
                 module, input_, "input", scheme.input_activations
             )
 
         if scheme.weights is not None:
             # calibrate and (fake) quantize weights when applicable
             unquantized_weight = self.weight.data.clone()
-            self.weight.data = _maybe_calibrate_or_quantize(
+            self.weight.data = maybe_calibrate_or_quantize(
                 module, self.weight, "weight", scheme.weights
             )
 
@@ -94,7 +94,7 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
 
         if scheme.output_activations is not None:
             # calibrate and (fake) quantize output activations when applicable
-            output = _maybe_calibrate_or_quantize(
+            output = maybe_calibrate_or_quantize(
                 module, output, "output", scheme.output_activations
             )
 
@@ -110,7 +110,7 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
     setattr(module, "forward", bound_wrapped_forward)
 
 
-def _maybe_calibrate_or_quantize(
+def maybe_calibrate_or_quantize(
     module: Module, value: torch.Tensor, base_name: str, args: "QuantizationArgs"
 ) -> torch.Tensor:
     # only run quantized for the included stages
@@ -132,6 +132,7 @@ def _maybe_calibrate_or_quantize(
         if module.quantization_status == QuantizationStatus.CALIBRATION:
             # calibration mode - get new quant params from observer
             observer = getattr(module, f"{base_name}_observer")
+
             updated_scale, updated_zero_point = observer(value)
 
             # update scale and zero point

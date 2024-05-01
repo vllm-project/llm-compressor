@@ -1,4 +1,4 @@
-# compressed-tensors
+# compressed_tensors
 
 This repository extends a [safetensors](https://github.com/huggingface/safetensors) format to efficiently store sparse and/or quantized tensors on disk. `compressed-tensors` format supports multiple compression types to minimize the disk space and facilitate the tensor manipulation.
 
@@ -82,4 +82,3 @@ state_dict = dict(load_compressed("compressed_model.safetensors", compression_co
 ```
 
 For more in-depth tutorial on bitmask compression, refer to the [notebook](https://github.com/neuralmagic/compressed-tensors/blob/d707c5b84bc3fef164aebdcd97cb6eaa571982f8/examples/bitmask_compression.ipynb).
-
