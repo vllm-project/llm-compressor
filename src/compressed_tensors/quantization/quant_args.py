@@ -15,7 +15,7 @@
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 
 __all__ = ["QuantizationType", "QuantizationStrategy", "QuantizationArgs"]
@@ -39,6 +39,7 @@ class QuantizationStrategy(str, Enum):
     CHANNEL = "channel"
     GROUP = "group"
     BLOCK = "block"
+    TOKEN = "token"
 
 
 class QuantizationArgs(BaseModel):
@@ -63,8 +64,8 @@ class QuantizationArgs(BaseModel):
     num_bits: int = 8
     type: QuantizationType = QuantizationType.INT
     symmetric: bool = True
-    strategy: QuantizationStrategy = QuantizationStrategy.TENSOR
     group_size: Optional[int] = None
+    strategy: Optional[QuantizationStrategy] = None
     block_structure: Optional[str] = None
     dynamic: bool = False
     observer: str = Field(
@@ -94,3 +95,31 @@ class QuantizationArgs(BaseModel):
             self.observer = "memoryless"
 
         return Observer.load_from_registry(self.observer, quantization_args=self)
+
+    @validator("strategy", pre=True, always=True)
+    def validate_strategy(cls, value, values):
+        group_size = values.get("group_size")
+
+        # use group_size to determinine strategy if not given explicity
+        if group_size is not None and value is None:
+            if group_size > 0:
+                return QuantizationStrategy.GROUP
+
+            elif group_size == -1:
+                return QuantizationStrategy.CHANNEL
+
+            else:
+                raise ValueError(
+                    f"group_size={group_size} with strategy {value} is invald. "
+                    "group_size > 0 for strategy='group' and "
+                    "group_size = -1 for 'channel'"
+                )
+
+        if value == QuantizationStrategy.GROUP:
+            if group_size is None:
+                raise ValueError(f"strategy {value} requires group_size to be set.")
+
+        if value is None:
+            return QuantizationStrategy.TENSOR
+
+        return value

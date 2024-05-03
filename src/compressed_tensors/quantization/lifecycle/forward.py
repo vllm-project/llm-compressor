@@ -13,9 +13,13 @@
 # limitations under the License.
 
 from functools import wraps
+from math import ceil
 
 import torch
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import (
+    QuantizationArgs,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.quant_config import QuantizationStatus
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module
@@ -32,10 +36,9 @@ def quantize(
     q_min: torch.Tensor,
     q_max: torch.Tensor,
 ) -> torch.Tensor:
+
     return torch.clamp(
-        torch.round(
-            x / scale + zero_point,
-        ),
+        torch.round(x / scale + zero_point),
         q_min,
         q_max,
     )
@@ -57,12 +60,88 @@ def fake_quantize(
     zero_point: torch.Tensor,
     args: QuantizationArgs,
 ) -> torch.Tensor:
+    """
+    Fake quantize the input tensor x depending on the group_size.
+    if group_size is greater than 0, then q/dq by groups. The groups
+    must be divisible by the column size
+    if group_size is -1, then channel wise q/dq. THe input scale and
+    zero_points are reshaped to support vectorization (Assumes 1 is
+    the channel dimension)
+
+    :param x: Input tensor
+    :param scale: scale tensor
+    :param zero_point: zero point tensor
+    :param args: quantization args that contain group_size info
+    :return: fake quantized tensor
+
+    """
     bit_range = 2**args.num_bits
     max_q = torch.tensor(bit_range / 2 - 1, device=x.device)
     min_q = torch.tensor(-bit_range / 2, device=x.device)
-    Q = torch.zeros_like(x)
-    Q = quantize(x, scale, zero_point, min_q, max_q)
-    return dequantize(Q, scale, zero_point)
+
+    group_size = args.group_size
+
+    # group
+    if args.strategy == QuantizationStrategy.GROUP:
+
+        DQ = torch.zeros_like(x)
+
+        # TODO: vectorize the for loop
+        # TODO: fix genetric assumption about the tensor size for computing group
+
+        # TODO: make validation step for inputs
+
+        while scale.ndim < 2:
+            # pad scale and zero point dims for slicing
+            scale = scale.unsqueeze(1)
+            zero_point = zero_point.unsqueeze(1)
+
+        columns = x.shape[1]
+        if columns >= group_size:
+            if columns % group_size != 0:
+                raise ValueError(
+                    "tesnor column shape must be divisble "
+                    f"by the given group_size {group_size}"
+                )
+        for i in range(ceil(columns / group_size)):
+            # scale.shape should be [nchan, ndim]
+            # sc.shape should be [nchan, 1] after unsqueeze
+
+            sc = scale[:, i].unsqueeze(1)
+            zp = zero_point[:, i].unsqueeze(1)
+
+            idx = i * group_size
+            Q = quantize(x[:, idx : (idx + group_size)], sc, zp, min_q, max_q)
+            DQ[:, idx : (idx + group_size)] = dequantize(Q, sc, zp)
+
+    # channel-wise
+    elif args.strategy == QuantizationStrategy.CHANNEL:  # group_size == -1
+        # before: scale shape = [channel_size]
+        # after: scale shape = [1, channel_size]
+        scale = scale.unsqueeze(0)
+        zero_point = zero_point.unsqueeze(0)
+
+        Q = quantize(x, scale, zero_point, min_q, max_q)
+        DQ = dequantize(Q, scale, zero_point)
+
+    # per-token
+    elif args.strategy == QuantizationStrategy.TOKEN:
+        # before: scale shape = [num_tokens]
+        # after: scale shape = [num_tokens, 1]
+        # x.shape = 1, num_tokens, 1]
+        # scale gets broadcasted as expected withput having [1, num_tokens, 1] shape
+
+        scale = scale.unsqueeze(1)
+        zero_point = zero_point.unsqueeze(1)
+
+        Q = quantize(x, scale, zero_point, min_q, max_q)
+        DQ = dequantize(Q, scale, zero_point)
+
+    else:
+        Q = quantize(x, scale, zero_point, min_q, max_q)
+        DQ = dequantize(Q, scale, zero_point)
+
+    return DQ
 
 
 def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
@@ -139,5 +218,4 @@ def maybe_calibrate_or_quantize(
             device = next(module.parameters()).device
             scale.data = updated_scale.to(device)
             zero_point.data = updated_zero_point.to(device)
-
     return fake_quantize(value, scale, zero_point, args)
