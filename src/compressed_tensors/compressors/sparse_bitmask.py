@@ -67,7 +67,7 @@ class BitmaskCompressor(ModelCompressor):
                         f"found an existing entry for {key}. The existing entry will "
                         "be replaced."
                     )
-            compressed_dict |= bitmask_dict
+            compressed_dict.update(bitmask_dict)
 
         return compressed_dict
 
