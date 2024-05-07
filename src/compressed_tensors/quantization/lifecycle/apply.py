@@ -19,6 +19,9 @@ from typing import Dict, Iterable, Optional
 from compressed_tensors.quantization.lifecycle.calibration import (
     set_module_for_calibration,
 )
+from compressed_tensors.quantization.lifecycle.compressed import (
+    compress_quantized_weights,
+)
 from compressed_tensors.quantization.lifecycle.frozen import freeze_module_quantization
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
@@ -118,12 +121,19 @@ def apply_quantization_status(model: Module, status: QuantizationStatus):
     :param model: model to apply quantization to
     :param status: status to update the module to
     """
-    if status >= QuantizationStatus.INITIALIZED:
+    current_status = _infer_status(model)
+
+    if status >= QuantizationStatus.INITIALIZED > current_status:
         model.apply(initialize_module_for_quantization)
-    if status >= QuantizationStatus.CALIBRATION:
+
+    if current_status < status >= QuantizationStatus.CALIBRATION > current_status:
         model.apply(set_module_for_calibration)
-    if status >= QuantizationStatus.FROZEN:
+
+    if current_status < status >= QuantizationStatus.FROZEN > current_status:
         model.apply(freeze_module_quantization)
+
+    if current_status < status >= QuantizationStatus.COMPRESSED > current_status:
+        model.apply(compress_quantized_weights)
 
 
 def find_first_name_or_class_match(
@@ -153,6 +163,14 @@ def _find_first_match(
                 return target
         elif target == value:
             return target
+    return None
+
+
+def _infer_status(model: Module) -> Optional[QuantizationStatus]:
+    for module in model.modules():
+        status = getattr(module, "quantization_status", None)
+        if status is not None:
+            return status
     return None
 
 

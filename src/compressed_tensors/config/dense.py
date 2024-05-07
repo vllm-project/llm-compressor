@@ -14,14 +14,14 @@
 
 from typing import Optional
 
-from compressed_tensors.config import CompressionConfig, CompressionFormat
+from compressed_tensors.config import CompressionFormat, SparsityCompressionConfig
 
 
 __all__ = ["DenseSparsityConfig"]
 
 
-@CompressionConfig.register(name=CompressionFormat.dense_sparsity.value)
-class DenseSparsityConfig(CompressionConfig):
+@SparsityCompressionConfig.register(name=CompressionFormat.dense.value)
+class DenseSparsityConfig(SparsityCompressionConfig):
     """
     Identity configuration for storing a sparse model in
     an uncompressed dense format
@@ -31,6 +31,6 @@ class DenseSparsityConfig(CompressionConfig):
     "unstructured", "2:4", "8:16" etc
     """
 
-    format: str = CompressionFormat.dense_sparsity.value
+    format: str = CompressionFormat.dense.value
     global_sparsity: Optional[float] = 0.0
     sparsity_structure: Optional[str] = "unstructured"

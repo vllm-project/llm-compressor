@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
 
-from compressed_tensors.quantization.lifecycle import apply_quantization_config
+import torch
+from compressed_tensors.quantization.lifecycle import (
+    apply_quantization_config,
+    apply_quantization_status,
+)
 from compressed_tensors.quantization.quant_config import (
     QuantizationConfig,
     QuantizationStatus,
@@ -22,7 +27,7 @@ from transformers import AutoModelForCausalLM
 
 
 def test_apply_quantization_config_tinyllama():
-    quant_config = get_sample_tinyllama_quant_config()
+    quant_config = get_sample_tinyllama_quant_config(status="calibration")
     model = get_tinyllama_model()
 
     # check that model is not already quantized
@@ -55,6 +60,23 @@ def test_apply_quantization_config_tinyllama():
     assert num_embeddings == 1
     assert num_rotary_embeddings == 22
 
+    # test quantization compression
+    # sample forward pass to fill scales, zps
+    model(torch.zeros((1, 1), dtype=int), torch.zeros((1, 1), dtype=int))
+    apply_quantization_status(model, QuantizationStatus.COMPRESSED)
+    for name, module in model.named_modules():
+        if name in quant_config.ignore:
+            continue
+        module_type = module.__class__.__name__
+        if module_type == "Linear":
+            _test_layer_quantization_status(
+                module,
+                inputs=True,
+                weights=True,
+                expected_status=QuantizationStatus.COMPRESSED,
+                expected_dtype=torch.int8,
+            )
+
 
 def test_serialize_config_tinyllama():
     quant_config = get_sample_tinyllama_quant_config()
@@ -74,18 +96,26 @@ def test_serialize_config_tinyllama():
     assert serialized_config.config_groups["group_1"].targets == ["Linear"]
     assert serialized_config.config_groups["group_1"].input_activations is not None
     assert serialized_config.quantization_status == QuantizationStatus.FROZEN
-    assert serialized_config.format == "fakequant"
+    assert serialized_config.format == "dense"
     assert serialized_config.quant_method == "sparseml"
     assert serialized_config.ignore == ["model.layers.1.mlp.down_proj"]
     assert serialized_config.global_compression_ratio > 1.0
     assert serialized_config.global_compression_ratio < 8.0
 
 
-def _test_layer_quantization_status(module, inputs: bool, weights: bool):
+def _test_layer_quantization_status(
+    module,
+    inputs: bool,
+    weights: bool,
+    expected_status: Optional[QuantizationStatus] = None,
+    expected_dtype: Optional[torch.dtype] = None,
+):
     # check if quantization is applied at all (true if inputs or weights targeted)
     quantized = inputs or weights
     assert hasattr(module, "quantization_scheme") == quantized
     assert hasattr(module, "quantization_status") == quantized
+    if expected_status is not None:
+        assert module.quantization_status is expected_status
 
     # check inputs matches expected
     assert hasattr(module, "input_scale") == inputs
@@ -94,6 +124,8 @@ def _test_layer_quantization_status(module, inputs: bool, weights: bool):
     # check weights matches expected
     assert hasattr(module, "weight_scale") == weights
     assert hasattr(module, "weight_zero_point") == weights
+    if weights and expected_dtype is not None:
+        assert module.weight.dtype is expected_dtype
 
 
 def get_tinyllama_model():
@@ -102,11 +134,11 @@ def get_tinyllama_model():
     )
 
 
-def get_sample_tinyllama_quant_config():
+def get_sample_tinyllama_quant_config(status: str = "frozen"):
     config_dict = {
         "quant_method": "sparseml",
         "format": "fakequant",
-        "quantization_status": "frozen",
+        "quantization_status": status,
         "global_compression_ratio": None,
         "config_groups": {
             "group_1": {

@@ -17,7 +17,7 @@ from typing import Dict, Generator, List, Tuple, Union
 
 import numpy
 import torch
-from compressed_tensors.compressors import ModelCompressor
+from compressed_tensors.compressors import Compressor
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.utils import get_nested_weight_mappings, merge_names
 from safetensors import safe_open
@@ -37,8 +37,8 @@ __all__ = [
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-@ModelCompressor.register(name=CompressionFormat.sparse_bitmask.value)
-class BitmaskCompressor(ModelCompressor):
+@Compressor.register(name=CompressionFormat.sparse_bitmask.value)
+class BitmaskCompressor(Compressor):
     """
     Compression for sparse models using bitmasks. Non-zero weights are stored in a 1d
     values tensor, with their locations stored in a 2d bitmask
@@ -67,7 +67,7 @@ class BitmaskCompressor(ModelCompressor):
                         f"found an existing entry for {key}. The existing entry will "
                         "be replaced."
                     )
-            compressed_dict.update(bitmask_dict)
+            compressed_dict |= bitmask_dict
 
         return compressed_dict
 

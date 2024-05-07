@@ -14,6 +14,7 @@
 
 from functools import wraps
 from math import ceil
+from typing import Optional
 
 import torch
 from compressed_tensors.quantization.quant_args import (
@@ -33,15 +34,23 @@ def quantize(
     x: torch.Tensor,
     scale: torch.Tensor,
     zero_point: torch.Tensor,
-    q_min: torch.Tensor,
-    q_max: torch.Tensor,
+    args: QuantizationArgs,
+    dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
+    bit_range = 2**args.num_bits
+    q_max = torch.tensor(bit_range / 2 - 1, device=x.device)
+    q_min = torch.tensor(-bit_range / 2, device=x.device)
 
-    return torch.clamp(
+    quantized_value = torch.clamp(
         torch.round(x / scale + zero_point),
         q_min,
         q_max,
     )
+
+    if dtype is not None:
+        quantized_value = quantized_value.to(dtype)
+
+    return quantized_value
 
 
 @torch.no_grad()
@@ -75,10 +84,6 @@ def fake_quantize(
     :return: fake quantized tensor
 
     """
-    bit_range = 2**args.num_bits
-    max_q = torch.tensor(bit_range / 2 - 1, device=x.device)
-    min_q = torch.tensor(-bit_range / 2, device=x.device)
-
     group_size = args.group_size
 
     # group
@@ -111,7 +116,7 @@ def fake_quantize(
             zp = zero_point[:, i].unsqueeze(1)
 
             idx = i * group_size
-            Q = quantize(x[:, idx : (idx + group_size)], sc, zp, min_q, max_q)
+            Q = quantize(x[:, idx : (idx + group_size)], sc, zp, args)
             DQ[:, idx : (idx + group_size)] = dequantize(Q, sc, zp)
 
     # channel-wise
@@ -121,7 +126,7 @@ def fake_quantize(
         scale = scale.unsqueeze(0)
         zero_point = zero_point.unsqueeze(0)
 
-        Q = quantize(x, scale, zero_point, min_q, max_q)
+        Q = quantize(x, scale, zero_point, args)
         DQ = dequantize(Q, scale, zero_point)
 
     # per-token
@@ -134,11 +139,11 @@ def fake_quantize(
         scale = scale.unsqueeze(1)
         zero_point = zero_point.unsqueeze(1)
 
-        Q = quantize(x, scale, zero_point, min_q, max_q)
+        Q = quantize(x, scale, zero_point, args)
         DQ = dequantize(Q, scale, zero_point)
 
     else:
-        Q = quantize(x, scale, zero_point, min_q, max_q)
+        Q = quantize(x, scale, zero_point, args)
         DQ = dequantize(Q, scale, zero_point)
 
     return DQ

@@ -16,11 +16,11 @@ import pytest
 from compressed_tensors import (
     BitmaskCompressor,
     BitmaskConfig,
-    CompressionConfig,
     CompressionFormat,
+    Compressor,
     DenseCompressor,
     DenseSparsityConfig,
-    ModelCompressor,
+    SparsityCompressionConfig,
 )
 
 
@@ -28,11 +28,11 @@ from compressed_tensors import (
     "name,type",
     [
         [CompressionFormat.sparse_bitmask.value, BitmaskConfig],
-        [CompressionFormat.dense_sparsity.value, DenseSparsityConfig],
+        [CompressionFormat.dense.value, DenseSparsityConfig],
     ],
 )
 def test_configs(name, type):
-    config = CompressionConfig.load_from_registry(name)
+    config = SparsityCompressionConfig.load_from_registry(name)
     assert isinstance(config, type)
     assert config.format == name
 
@@ -41,13 +41,13 @@ def test_configs(name, type):
     "name,type",
     [
         [CompressionFormat.sparse_bitmask.value, BitmaskCompressor],
-        [CompressionFormat.dense_sparsity.value, DenseCompressor],
+        [CompressionFormat.dense.value, DenseCompressor],
     ],
 )
 def test_compressors(name, type):
-    compressor = ModelCompressor.load_from_registry(
-        name, config=CompressionConfig(format="none")
+    compressor = Compressor.load_from_registry(
+        name, config=SparsityCompressionConfig(format="none")
     )
     assert isinstance(compressor, type)
-    assert isinstance(compressor.config, CompressionConfig)
+    assert isinstance(compressor.config, SparsityCompressionConfig)
     assert compressor.config.format == "none"

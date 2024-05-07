@@ -15,6 +15,7 @@
 from typing import Tuple
 
 import torch
+from compressed_tensors.quantization.observers.base import Observer
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -78,11 +79,25 @@ def module_type(module: Module) -> str:
 
 
 def iter_named_leaf_modules(model: Module) -> Tuple[str, Module]:
-    # yields modules that do not have any submodules
-    # TODO: potentially expand to add list of allowed submodules such as observers
+    """
+    Yields modules that do not have any submodules except observers. The observers
+    themselves are not yielded
+
+    :param model: model to get leaf modules of
+    :returns: generator tuple of (name, leaf_submodule)
+    """
     for name, submodule in model.named_modules():
-        if len(list(submodule.children())) == 0:
+        children = list(submodule.children())
+        if len(children) == 0 and not isinstance(submodule, Observer):
             yield name, submodule
+        else:
+            has_non_observer_children = False
+            for child in children:
+                if not isinstance(child, Observer):
+                    has_non_observer_children = True
+
+            if not has_non_observer_children:
+                yield name, submodule
 
 
 def calculate_compression_ratio(model: Module) -> float:

@@ -97,7 +97,7 @@ def test_lifecyle(create_quantization_scheme):
     for _ in range(10):
         layer(torch.randn(4, 4))
 
-    assert initialized_layer_input_zero_point != layer.input_zero_point
+    assert initialized_layer_input_zero_point != 0
     assert initialized_layer_input_scale != layer.input_scale
     assert initialized_layer_weight_scale == layer.weight_scale
 

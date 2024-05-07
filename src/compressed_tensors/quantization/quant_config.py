@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from compressed_tensors.base import QUANTIZATION_CONFIG_NAME
+from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from compressed_tensors.quantization.utils import (
     calculate_compression_ratio,
@@ -62,9 +63,32 @@ class QuantizationStatus(str, Enum):
         return
 
     def __ge__(self, other):
+        if other is None:
+            return True
         if not isinstance(other, self.__class__):
             raise NotImplementedError
         return LIFECYCLE_ORDER.index(self) >= LIFECYCLE_ORDER.index(other)
+
+    def __gt__(self, other):
+        if other is None:
+            return True
+        if not isinstance(other, self.__class__):
+            raise NotImplementedError
+        return LIFECYCLE_ORDER.index(self) > LIFECYCLE_ORDER.index(other)
+
+    def __lt__(self, other):
+        if other is None:
+            return False
+        if not isinstance(other, self.__class__):
+            raise NotImplementedError
+        return LIFECYCLE_ORDER.index(self) < LIFECYCLE_ORDER.index(other)
+
+    def __le__(self, other):
+        if other is None:
+            return False
+        if not isinstance(other, self.__class__):
+            raise NotImplementedError
+        return LIFECYCLE_ORDER.index(self) <= LIFECYCLE_ORDER.index(other)
 
 
 LIFECYCLE_ORDER = [
@@ -116,7 +140,9 @@ class QuantizationConfig(BaseModel):
         return QuantizationConfig.parse_obj(quantization_config)
 
     @staticmethod
-    def from_pretrained(model: Module) -> "QuantizationConfig":
+    def from_pretrained(
+        model: Module, format: Optional[str] = None
+    ) -> Optional["QuantizationConfig"]:
         """
         Converts a model into its associated QuantizationConfig based on the
         QuantizationScheme attached to each quanitzed module
@@ -147,6 +173,9 @@ class QuantizationConfig(BaseModel):
                 if not match_found:
                     quant_scheme_to_layers.append(scheme)
 
+        if len(quant_scheme_to_layers) == 0:  # No quantized layers
+            return None
+
         # clean up ignore list, we can leave out layers types if none of the
         # instances are quantized
         consolidated_ignore = []
@@ -162,10 +191,20 @@ class QuantizationConfig(BaseModel):
             group_name = "group_" + str(idx)
             config_groups[group_name] = scheme
 
+        # TODO: this is incorrect in compressed mode, since we are overwriting the
+        # original weight we lose the uncompressed bit_depth indo
         compression_ratio = calculate_compression_ratio(model)
+
+        if format is None:
+            if quantization_status == QuantizationStatus.COMPRESSED:
+                format = CompressionFormat.int_quantized.value
+            else:
+                format = CompressionFormat.dense.value
+
         return QuantizationConfig(
             config_groups=config_groups,
             quantization_status=quantization_status,
             global_compression_ratio=compression_ratio,
+            format=format,
             ignore=consolidated_ignore,
         )

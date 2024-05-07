@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Dict, Generator, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.compressors import ModelCompressor
-from compressed_tensors.config import CompressionConfig, CompressionFormat
+from compressed_tensors.compressors import Compressor
+from compressed_tensors.config import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from safetensors import safe_open
 from safetensors.torch import save_file
@@ -48,20 +48,20 @@ def save_compressed(
     if tensors is None or len(tensors) == 0:
         raise ValueError("No tensors or empty tensors provided to compress")
 
-    # if no compression_format specified, default to `dense_sparsity`
-    compression_format = compression_format or CompressionFormat.dense_sparsity.value
+    # if no compression_format specified, default to `dense`
+    compression_format = compression_format or CompressionFormat.dense.value
 
     if not (
-        compression_format in ModelCompressor.registered_names()
-        or compression_format in ModelCompressor.registered_aliases()
+        compression_format in Compressor.registered_names()
+        or compression_format in Compressor.registered_aliases()
     ):
         raise ValueError(
             f"Unknown compression format: {compression_format}. "
-            f"Must be one of {set(ModelCompressor.registered_names() + ModelCompressor.registered_aliases())}"  # noqa E501
+            f"Must be one of {set(Compressor.registered_names() + Compressor.registered_aliases())}"  # noqa E501
         )
 
     # compress
-    compressor = ModelCompressor.load_from_registry(compression_format)
+    compressor = Compressor.load_from_registry(compression_format)
     # save compressed tensors
     compressed_tensors = compressor.compress(tensors)
     save_file(compressed_tensors, save_path)
@@ -69,7 +69,7 @@ def save_compressed(
 
 def load_compressed(
     compressed_tensors: Union[str, Path],
-    compression_config: CompressionConfig = None,
+    compression_config: SparsityCompressionConfig = None,
     device: Optional[str] = "cpu",
 ) -> Generator[Tuple[str, Tensor], None, None]:
     """
@@ -90,9 +90,9 @@ def load_compressed(
 
     if (
         compression_config is None
-        or compression_config.format == CompressionFormat.dense_sparsity.value
+        or compression_config.format == CompressionFormat.dense.value
     ):
-        # if no compression_config specified, or `dense_sparsity` format specified,
+        # if no compression_config specified, or `dense` format specified,
         # assume tensors are not compressed on disk
         weight_mappings = get_weight_mappings(compressed_tensors)
         for weight_name, file_with_weight_name in weight_mappings.items():
@@ -102,7 +102,7 @@ def load_compressed(
     else:
         # decompress tensors
         compression_format = compression_config.format
-        compressor = ModelCompressor.load_from_registry(
+        compressor = Compressor.load_from_registry(
             compression_format, config=compression_config
         )
         yield from compressor.decompress(compressed_tensors, device=device)

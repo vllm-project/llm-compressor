@@ -35,6 +35,10 @@ def freeze_module_quantization(module: Module):
         # no quantization scheme nothing to do
         return
 
+    if module.quantization_status == QuantizationStatus.FROZEN:
+        # nothing to do, already frozen
+        return
+
     # delete observers from module if not dynamic
     if scheme.input_activations and not scheme.input_activations.dynamic:
         delattr(module, "input_observer")

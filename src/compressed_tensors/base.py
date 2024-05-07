@@ -13,4 +13,5 @@
 # limitations under the License.
 
 SPARSITY_CONFIG_NAME = "sparsity_config"
-QUANTIZATION_CONFIG_NAME = "sparseml_quantization_config"
+QUANTIZATION_CONFIG_NAME = "quantization_config"
+COMPRESSION_CONFIG_NAME = "compression_config"

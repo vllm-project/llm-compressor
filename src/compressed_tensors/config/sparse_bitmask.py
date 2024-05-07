@@ -14,14 +14,14 @@
 
 from typing import Optional
 
-from compressed_tensors.config import CompressionConfig, CompressionFormat
+from compressed_tensors.config import CompressionFormat, SparsityCompressionConfig
 
 
 __all__ = ["BitmaskConfig"]
 
 
-@CompressionConfig.register(name=CompressionFormat.sparse_bitmask.value)
-class BitmaskConfig(CompressionConfig):
+@SparsityCompressionConfig.register(name=CompressionFormat.sparse_bitmask.value)
+class BitmaskConfig(SparsityCompressionConfig):
     """
     Configuration for storing a sparse model using
     bitmask compression
