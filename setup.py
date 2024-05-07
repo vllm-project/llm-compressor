@@ -32,7 +32,7 @@ def _setup_extras() -> Dict:
 
 setup(
     name="compressed-tensors",
-    version="0.3.2",
+    version="0.3.3",
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",
     license="Apache 2.0",
