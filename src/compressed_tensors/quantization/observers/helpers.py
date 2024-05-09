@@ -41,10 +41,10 @@ def calculate_qparams(
     bit_min = -(bit_range + 1) / 2
     bit_max = bit_min + bit_range
     if quantization_args.symmetric:
-        zero_points = torch.tensor(0, device=device).to(torch.int8)
         max_val_pos = torch.max(-min_vals, max_vals)
         scales = max_val_pos / (float(bit_range) / 2)
         scales = torch.clamp(scales, min=torch.finfo(torch.float32).eps)
+        zero_points = torch.zeros(scales.shape, device=device, dtype=torch.int8)
     else:
         scales = (max_vals - min_vals) / float(bit_range)
         scales = torch.clamp(scales, min=torch.finfo(torch.float32).eps)

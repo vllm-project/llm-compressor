@@ -111,9 +111,8 @@ def fake_quantize(
         for i in range(ceil(columns / group_size)):
             # scale.shape should be [nchan, ndim]
             # sc.shape should be [nchan, 1] after unsqueeze
-
-            sc = scale[:, i].unsqueeze(1)
-            zp = zero_point[:, i].unsqueeze(1)
+            sc = scale[:, i].view(-1, 1)
+            zp = zero_point[:, i].view(-1, 1)
 
             idx = i * group_size
             Q = quantize(x[:, idx : (idx + group_size)], sc, zp, args)
