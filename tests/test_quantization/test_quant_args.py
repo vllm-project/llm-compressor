@@ -48,8 +48,18 @@ def test_block():
     assert block.block_structure == kwargs["block_structure"]
 
 
+def test_infer_strategy():
+    args = QuantizationArgs(group_size=128)
+    assert args.strategy == QuantizationStrategy.GROUP
+
+    args = QuantizationArgs(group_size=-1)
+    assert args.strategy == QuantizationStrategy.CHANNEL
+
+
 def test_invalid():
     with pytest.raises(ValidationError):
         _ = QuantizationArgs(type="invalid")
     with pytest.raises(ValidationError):
         _ = QuantizationArgs(strategy="invalid")
+    with pytest.raises(ValidationError):
+        _ = QuantizationArgs(strategy=QuantizationStrategy.GROUP)

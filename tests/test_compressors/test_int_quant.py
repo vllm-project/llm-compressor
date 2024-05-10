@@ -14,20 +14,25 @@
 
 import shutil
 
+import pytest
 import torch
 from compressed_tensors import IntQuantizationCompressor
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
+    QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 from safetensors.torch import save_file
 
 
-def get_dummy_quant_config():
+def get_dummy_quant_config(strategy, group_size=None):
     config_groups = {
-        "group_1": QuantizationScheme(targets=["Linear"], weights=QuantizationArgs()),
+        "group_1": QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(strategy=strategy, group_size=group_size),
+        ),
     }
     ignore = ["lm_head"]
     quant_config = QuantizationConfig(
@@ -38,13 +43,31 @@ def get_dummy_quant_config():
     return quant_config
 
 
-def test_quant_format():
+@pytest.mark.parametrize(
+    "strategy,group_size,sc,zp",
+    [
+        [QuantizationStrategy.TENSOR, None, 0.01, 0],
+        [
+            QuantizationStrategy.GROUP,
+            128,
+            torch.rand((512, 8, 1)) * 0.01,
+            torch.zeros((512, 8, 1), dtype=torch.int8),
+        ],
+        [
+            QuantizationStrategy.CHANNEL,
+            128,
+            torch.rand((512, 1)) * 0.01,
+            torch.zeros((512, 1), dtype=torch.int8),
+        ],
+    ],
+)
+def test_quant_format(strategy, group_size, sc, zp):
     dense_state_dict = {
         "dummy.weight": torch.rand((512, 1024)),
-        "dummy.weight_scale": torch.tensor(0.01, dtype=torch.float32),
-        "dummy.weight_zero_point": torch.tensor(0, dtype=torch.int32),
+        "dummy.weight_scale": torch.tensor(sc, dtype=torch.float32),
+        "dummy.weight_zero_point": torch.tensor(zp, dtype=torch.int32),
     }
-    quant_config = get_dummy_quant_config()
+    quant_config = get_dummy_quant_config(strategy=strategy, group_size=group_size)
 
     compressor = IntQuantizationCompressor(config=quant_config)
     quantized_modules_to_args = {"dummy": quant_config.config_groups["group_1"].weights}
@@ -61,16 +84,34 @@ def test_quant_format():
     assert compressed_state_dict["dummy.weight_zero_point"].dtype == torch.int32
 
 
-def test_reload_match(tmp_path):
+@pytest.mark.parametrize(
+    "strategy,group_size,sc,zp",
+    [
+        [QuantizationStrategy.TENSOR, None, 0.01, 0],
+        [
+            QuantizationStrategy.GROUP,
+            128,
+            torch.rand((300, 8, 1)) * 0.01,
+            torch.zeros((300, 8, 1), dtype=torch.int8),
+        ],
+        [
+            QuantizationStrategy.CHANNEL,
+            128,
+            torch.rand((300, 1)) * 0.01,
+            torch.zeros((300, 1), dtype=torch.int8),
+        ],
+    ],
+)
+def test_reload_match(strategy, group_size, sc, zp, tmp_path):
     dense_state_dict = {
-        "dummy.weight": torch.rand((511, 350)),
-        "dummy.weight_scale": torch.tensor(0.01, dtype=torch.float32),
-        "dummy.weight_zero_point": torch.tensor(0, dtype=torch.int32),
-        "dummy2.weight": torch.rand((128, 280)),
-        "dummy2.weight_scale": torch.tensor(0.02, dtype=torch.float32),
-        "dummy2.weight_zero_point": torch.tensor(15, dtype=torch.int32),
+        "dummy.weight": torch.rand((300, 1024)),
+        "dummy.weight_scale": torch.tensor(sc, dtype=torch.float32),
+        "dummy.weight_zero_point": torch.tensor(zp, dtype=torch.int32),
+        "dummy2.weight": torch.rand((300, 1024)),
+        "dummy2.weight_scale": torch.tensor(sc, dtype=torch.float32),
+        "dummy2.weight_zero_point": torch.tensor(zp, dtype=torch.int32),
     }
-    quant_config = get_dummy_quant_config()
+    quant_config = get_dummy_quant_config(strategy=strategy, group_size=group_size)
 
     compressor = IntQuantizationCompressor(config=quant_config)
     quantized_modules_to_args = {
