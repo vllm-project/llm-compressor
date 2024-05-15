@@ -229,7 +229,10 @@ def _process_quantization(
 def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
     # expects a module already initialized and injected with the parameters in
     # initialize_module_for_quantization
-    forward_func_orig = module.forward.__func__
+    if hasattr(module.forward, "__func__"):
+        forward_func_orig = module.forward.__func__
+    else:
+        forward_func_orig = module.forward.func
 
     @wraps(forward_func_orig)  # ensures docstring, names, etc are propagated
     def wrapped_forward(self, *args, **kwargs):
