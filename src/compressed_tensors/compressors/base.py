@@ -54,6 +54,7 @@ class Compressor(RegistryMixin):
 
         :param model_path: path to compressed safetensors model (directory with
             one or more safetensors files) or compressed tensors file
+        :param device: optional device to load intermediate weights into
         :return: compressed state dict
         """
         raise NotImplementedError()

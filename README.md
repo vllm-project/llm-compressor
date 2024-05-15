@@ -82,3 +82,44 @@ state_dict = dict(load_compressed("compressed_model.safetensors", compression_co
 ```
 
 For more in-depth tutorial on bitmask compression, refer to the [notebook](https://github.com/neuralmagic/compressed-tensors/blob/d707c5b84bc3fef164aebdcd97cb6eaa571982f8/examples/bitmask_compression.ipynb).
+
+
+## Saving a Compressed Model with PTQ
+
+We can use compressed-tensors to run basic post training quantization (PTQ) and save the quantized model compressed on disk
+
+```python
+model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cuda:0")
+
+config = QuantizationConfig.parse_file("./examples/bit_packing/int4_config.json")
+config.quantization_status = QuantizationStatus.CALIBRATION
+apply_quantization_config(model, config)
+
+dataset = load_dataset("ptb_text_only")["train"]
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+def tokenize_function(examples):
+    return tokenizer(examples["sentence"], padding=False, truncation=True, max_length=1024)
+
+tokenized_dataset = dataset.map(tokenize_function, batched=True)
+data_loader = DataLoader(tokenized_dataset, batch_size=1, collate_fn=DefaultDataCollator())
+
+with torch.no_grad():
+    for idx, sample in tqdm(enumerate(data_loader), desc="Running calibration"):
+        sample = {key: value.to(device) for key,value in sample.items()}
+        _ = model(**sample)
+
+        if idx >= 512:
+            break
+
+model.apply(freeze_module_quantization)
+model.apply(compress_quantized_weights)
+
+output_dir = "./ex_llama1.1b_w4a16_packed_quantize"
+compressor = ModelCompressor(quantization_config=config)
+compressed_state_dict = compressor.compress(model)
+model.save_pretrained(output_dir, state_dict=compressed_state_dict)
+```
+
+For more in-depth tutorial on quantization compression, refer to the [notebook](./examples/quantize_and_pack_int4.ipynb).

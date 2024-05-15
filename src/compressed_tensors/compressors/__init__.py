@@ -19,4 +19,5 @@ from .dense import DenseCompressor
 from .helpers import load_compressed, save_compressed, save_compressed_model
 from .int_quantized import IntQuantizationCompressor
 from .model_compressor import ModelCompressor
+from .pack_quantized import PackedQuantizationCompressor
 from .sparse_bitmask import BitmaskCompressor, BitmaskTensor

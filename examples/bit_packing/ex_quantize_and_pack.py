@@ -26,15 +26,16 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollato
 from torch.utils.data import DataLoader
 from sparseml.pytorch.utils import tensors_to_device
 import torch
+from compressed_tensors.compressors import ModelCompressor
 
-config_file = "example_quant_config.json"
+config_file = "int4_config.json"
 model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 dataset_name = "open_platypus"
 split = "train"
-num_calibration_samples = 512
-max_seq_length = 1024
+num_calibration_samples = 128
+max_seq_length = 512
 pad_to_max_length = False
-output_dir = "./llama1.1b_new_quant_out"
+output_dir = "./llama1.1b_new_quant_out_test_packing"
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device)
@@ -79,9 +80,8 @@ with torch.no_grad():
 # freeze params after calibration
 model.apply(freeze_module_quantization)
 
-# save quantized model
-from sparseml.transformers.sparsification.compressed_tensors_utils import (
-    modify_save_pretrained,
-)
-modify_save_pretrained(model) 
-model.save_pretrained(output_dir)
+# apply compression
+compressor = ModelCompressor(quantization_config=config)
+compressed_state_dict = compressor.compress(model)
+model.save_pretrained(output_dir, state_dict=compressed_state_dict)
+compressor.update_config(output_dir)

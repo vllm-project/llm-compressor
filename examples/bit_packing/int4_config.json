@@ -1,0 +1,17 @@
+{
+	"quant_method": "sparseml",
+	"format": "pack-quantized",
+	"global_compression_ratio": null,
+	"config_groups": {
+        "group_1": {
+            "weights": {
+                "num_bits": 4,
+                "type": "int",
+                "symmetric": false,
+                "strategy": "tensor"
+            },
+            "targets": ["Linear"]
+        }
+    },
+	"ignore": ["lm_head"]
+}
