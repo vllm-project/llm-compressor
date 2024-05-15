@@ -1,4 +1,6 @@
+.PHONY: build docs test
 
+BUILD_ARGS :=  # set nightly to build nightly release
 PYCHECKDIRS := src tests
 PYCHECKGLOBS := 'src/**/*.py' 'tests/**/*.py' 'utils/**/*.py' 'examples/**/*.py' setup.py
 # run checks on all files for the repo
@@ -25,7 +27,8 @@ test:
 
 # creates wheel file
 build:
-	python3 setup.py sdist bdist_wheel $(BUILD_ARGS)
+	@echo "Building the wheel for the repository";
+	python3 setup.py sdist bdist_wheel $(BUILD_ARGS);
 
 # clean package
 clean:
