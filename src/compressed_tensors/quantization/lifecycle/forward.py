@@ -150,7 +150,6 @@ def _process_quantization(
     q_min = torch.tensor(-bit_range / 2, device=x.device)
     group_size = args.group_size
 
-    # group
     if args.strategy == QuantizationStrategy.GROUP:
 
         if do_dequantize:  # if dequantizing the output should be a fp type
@@ -195,29 +194,7 @@ def _process_quantization(
                 )
                 output[:, idx : (idx + group_size)] = _dequantize(input, sc, zp)
 
-    # channel-wise
-    elif args.strategy == QuantizationStrategy.CHANNEL:  # group_size == -1
-        if do_quantize:
-            output = _quantize(x, scale, zero_point, q_min, q_max, dtype=dtype)
-        if do_dequantize:
-            output = _dequantize(output if do_quantize else x, scale, zero_point)
-
-    # per-token
-    elif args.strategy == QuantizationStrategy.TOKEN:
-        # before: scale shape = [num_tokens]
-        # after: scale shape = [num_tokens, 1]
-        # x.shape = 1, num_tokens, 1]
-        # scale gets broadcasted as expected withput having [1, num_tokens, 1] shape
-
-        scale = scale.unsqueeze(1)
-        zero_point = zero_point.unsqueeze(1)
-
-        if do_quantize:
-            output = _quantize(x, scale, zero_point, q_min, q_max, dtype=dtype)
-        if do_dequantize:
-            output = _dequantize(output if do_quantize else x, scale, zero_point)
-
-    else:
+    else:  # covers channel, token and tensor strategies
         if do_quantize:
             output = _quantize(x, scale, zero_point, q_min, q_max, dtype=dtype)
         if do_dequantize:

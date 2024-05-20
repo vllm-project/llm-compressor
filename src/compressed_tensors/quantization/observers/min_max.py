@@ -74,7 +74,3 @@ class MovingAverageMinMaxObserver(Observer):
             )
 
         return calculate_qparams(self.min_val, self.max_val, self.quantization_args)
-
-    def get_qparams_along_dim(self, observed, dim: int):
-        reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
-        return self.calculate_qparams(observed, reduce_dims=reduce_dims)
