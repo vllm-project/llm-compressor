@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.quant_args import (
@@ -93,15 +93,18 @@ class Observer(Module, RegistryMixin):
             elif self.quantization_args.strategy == QuantizationStrategy.GROUP:
                 columns = observed.shape[1]
                 scales, zero_points = [], []
-                for i in range(0, columns, self.quantization_args.group_size):
+                group_idxs = range(0, columns, self.quantization_args.group_size)
+                for group_id, group_idx in enumerate(group_idxs):
                     scale, zero_point = self.get_qparams_along_dim(
-                        observed[:, i : (i + group_size)],
+                        observed[:, group_idx : (group_idx + group_size)],
                         0,
+                        tensor_id=group_id,
                     )
                     scales.append(scale)
                     zero_points.append(zero_point)
-                self._scale = torch.stack(scales, dim=1, out=self._scale)
-                self._zero_point = torch.stack(zero_points, dim=1, out=self._zero_point)
+
+                self._scale = torch.cat(scales, dim=1, out=self._scale)
+                self._zero_point = torch.cat(zero_points, dim=1, out=self._zero_point)
 
             elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
                 # assume observed is transposed, because its the output, hence use dim 0
@@ -116,6 +119,10 @@ class Observer(Module, RegistryMixin):
 
         return self._scale, self._zero_point
 
-    def get_qparams_along_dim(self, observed, dim: int):
+    def get_qparams_along_dim(
+        self, observed, dim: int, tensor_id: Optional[Any] = None
+    ):
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
-        return self.calculate_qparams(observed, reduce_dims=reduce_dims)
+        return self.calculate_qparams(
+            observed, reduce_dims=reduce_dims, tensor_id=tensor_id
+        )

@@ -77,8 +77,8 @@ def test_min_max_observer_value_update():
     curr_min = 1
     for i, tensor in enumerate(tensors):
         observer(tensor)
-        curr_max = max(observer.max_val, curr_max)
-        curr_min = min(observer.min_val, curr_max)
+        curr_max = max(observer.max_val.get("default"), curr_max)
+        curr_min = min(observer.min_val.get("default"), curr_max)
 
         if i < 2:
             assert curr_max == 1

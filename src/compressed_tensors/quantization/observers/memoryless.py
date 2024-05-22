@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.observers.base import Observer
@@ -33,12 +33,14 @@ class MemorylessObserver(Observer):
     def calculate_qparams(
         self,
         observed: Tensor,
+        tensor_id: Optional[Any] = None,
         reduce_dims: Optional[Tuple[int]] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Returns the min and max values of observed tensor
 
         :param observed: observed tensor to calculate quantization parameters for
+        :param tensor_id: optional id for tensor; not used for memoryless
         :param reduce_dims: optional tuple of dimensions to reduce along,
             returned scale and zero point will be shaped (1,) along the
             reduced dimensions

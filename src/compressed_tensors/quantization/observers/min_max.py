@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.observers.base import Observer
@@ -36,14 +36,15 @@ class MovingAverageMinMaxObserver(Observer):
     ):
         super().__init__(quantization_args=quantization_args)
 
-        self.min_val = None
-        self.max_val = None
+        self.min_val = {}
+        self.max_val = {}
         self.averaging_constant = averaging_constant
 
     def calculate_qparams(
         self,
         observed: Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
+        tensor_id: Optional[Any] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Updates the observed min and max using a moving average smoothed by the
@@ -53,8 +54,11 @@ class MovingAverageMinMaxObserver(Observer):
         :param reduce_dims: optional tuple of dimensions to reduce along,
             returned scale and zero point will be shaped (1,) along the
             reduced dimensions
+        :param tensor_id: Optional id if different ranges of observed tensors are
+            passed, useful for sharding tensors by group_size
         :return: tuple of scale and zero point derived from the observed tensor
         """
+        tensor_id = tensor_id or "default"
 
         if not reduce_dims:
             min_val, max_val = torch.aminmax(observed)
@@ -62,15 +66,31 @@ class MovingAverageMinMaxObserver(Observer):
             min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
 
-        if self.min_val is None and self.max_val is None:
-            self.min_val = min_val
-            self.max_val = max_val
+        running_min_val = self.min_val.get(tensor_id, None)
+        running_max_val = self.max_val.get(tensor_id, None)
+
+        if running_min_val is None or running_max_val is None:
+            updated_min_val = min_val
+            updated_max_val = max_val
         else:
-            self.min_val = self.min_val + self.averaging_constant * (
-                min_val - self.min_val
+            updated_min_val = running_min_val + self.averaging_constant * (
+                min_val - running_min_val
             )
-            self.max_val = self.max_val + self.averaging_constant * (
-                max_val - self.max_val
+            updated_max_val = running_max_val + self.averaging_constant * (
+                max_val - running_max_val
             )
 
-        return calculate_qparams(self.min_val, self.max_val, self.quantization_args)
+        self.min_val[tensor_id] = updated_min_val
+        self.max_val[tensor_id] = updated_max_val
+
+        return calculate_qparams(
+            updated_min_val, updated_max_val, self.quantization_args
+        )
+
+    def get_qparams_along_dim(
+        self, observed, dim: int, tensor_id: Optional[Any] = None
+    ):
+        reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
+        return self.calculate_qparams(
+            observed, reduce_dims=reduce_dims, tensor_id=tensor_id
+        )

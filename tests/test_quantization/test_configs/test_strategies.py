@@ -88,12 +88,10 @@ def test_group(input_symmetry, weight_symmetry, model_shape, group_size):
     assert list(model.weight_scale.shape) == [
         model_shape[1],
         int(model_shape[0] / group_size),
-        1,
     ]
     assert list(model.weight_zero_point.shape) == [
         model_shape[1],
         int(model_shape[0] / group_size),
-        1,
     ]
 
 
