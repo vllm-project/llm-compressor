@@ -90,7 +90,9 @@ def _initialize_scale_zero_point_observer(
     device = next(module.parameters()).device
 
     # initializes empty scale and zero point parameters for the module
-    init_scale = Parameter(torch.empty(0, device=device), requires_grad=False)
+    init_scale = Parameter(
+        torch.empty(0, dtype=torch.float16, device=device), requires_grad=False
+    )
     module.register_parameter(f"{base_name}_scale", init_scale)
 
     init_zero_point = Parameter(

@@ -249,8 +249,9 @@ class ModelCompressor:
         for name, data in tqdm(dense_weight_generator, desc="Decompressing model"):
             # loading the decompressed weights into the model
             model_device = operator.attrgetter(name)(model).device
-            data_new = Parameter(data.to(model_device))
             data_old = operator.attrgetter(name)(model)
+            data_dtype = data_old.dtype
+            data_new = Parameter(data.to(model_device).to(data_dtype))
             data_old.data = data_new.data
 
 

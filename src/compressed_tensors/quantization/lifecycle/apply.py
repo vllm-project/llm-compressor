@@ -193,7 +193,9 @@ def _load_quant_args_from_state_dict(
     zp_name = f"{base_name}_zero_point"
     device = next(module.parameters()).device
 
-    scale = getattr(module, scale_name)
-    zp = getattr(module, zp_name)
-    scale.data = state_dict[f"{module_name}.{scale_name}"].to(device)
-    zp.data = state_dict[f"{module_name}.{zp_name}"].to(device)
+    scale = getattr(module, scale_name, None)
+    zp = getattr(module, zp_name, None)
+    if scale is not None:
+        scale.data = state_dict[f"{module_name}.{scale_name}"].to(device)
+    if zp is not None:
+        zp.data = state_dict[f"{module_name}.{zp_name}"].to(device)
