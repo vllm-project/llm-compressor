@@ -44,24 +44,26 @@ def get_dummy_quant_config(strategy, group_size=None):
 
 
 @pytest.mark.parametrize(
-    "strategy,group_size,sc,zp",
+    "strategy,symmetric,group_size,sc,zp",
     [
-        [QuantizationStrategy.TENSOR, None, 0.01, 0],
+        [QuantizationStrategy.TENSOR, True, None, 0.01, 0],
         [
             QuantizationStrategy.GROUP,
+            True,
             128,
             torch.rand((512, 8, 1)) * 0.01,
             torch.zeros((512, 8, 1), dtype=torch.int8),
         ],
         [
             QuantizationStrategy.CHANNEL,
+            False,
             128,
             torch.rand((512, 1)) * 0.01,
-            torch.zeros((512, 1), dtype=torch.int8),
+            ((torch.rand((512, 1)) - 0.5) * 127).to(torch.int8),
         ],
     ],
 )
-def test_quant_format(strategy, group_size, sc, zp):
+def test_quant_format(strategy, symmetric, group_size, sc, zp):
     dense_state_dict = {
         "dummy.weight": torch.rand((512, 1024)),
         "dummy.weight_scale": torch.tensor(sc, dtype=torch.float32),
@@ -75,13 +77,17 @@ def test_quant_format(strategy, group_size, sc, zp):
         dense_state_dict, model_quant_args=quantized_modules_to_args
     )
 
-    # state_dict params should be the same
-    assert len(dense_state_dict) == len(compressed_state_dict)
+    # state_dict params should be the same, minus the zero_point if symmetric
+    if symmetric:
+        assert len(dense_state_dict) == len(compressed_state_dict) + 1
+    else:
+        assert len(dense_state_dict) == len(compressed_state_dict)
 
     # check compressed to int8
     assert compressed_state_dict["dummy.weight"].dtype == torch.int8
     assert compressed_state_dict["dummy.weight_scale"].dtype == torch.float32
-    assert compressed_state_dict["dummy.weight_zero_point"].dtype == torch.int32
+    if not symmetric:
+        assert compressed_state_dict["dummy.weight_zero_point"].dtype == torch.int32
 
 
 @pytest.mark.parametrize(
