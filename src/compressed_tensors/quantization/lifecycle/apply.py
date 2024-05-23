@@ -198,4 +198,6 @@ def _load_quant_args_from_state_dict(
     if scale is not None:
         scale.data = state_dict[f"{module_name}.{scale_name}"].to(device)
     if zp is not None:
-        zp.data = state_dict[f"{module_name}.{zp_name}"].to(device)
+        zp = state_dict.get(f"{module_name}.{zp_name}", None)
+        if zp is not None:  # load the non-zero zero points
+            zp.data = state_dict[f"{module_name}.{zp_name}"].to(device)
