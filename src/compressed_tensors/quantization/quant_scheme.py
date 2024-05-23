@@ -22,6 +22,7 @@ from pydantic import BaseModel
 __all__ = [
     "QuantizationScheme",
     "preset_name_to_scheme",
+    "is_preset_scheme",
 ]
 
 
@@ -96,6 +97,14 @@ def preset_name_to_scheme(name: str, targets: List[str]) -> QuantizationScheme:
         targets=targets,
         **scheme_args,
     )
+
+
+def is_preset_scheme(name: str) -> bool:
+    """
+    :param name: preset quantization settings name
+    :return: True if the name is a preset scheme name
+    """
+    return name.upper() in PRESET_SCHEMES
 
 
 W8A8 = dict(
