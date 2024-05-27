@@ -75,10 +75,10 @@ def test_quant_format(shape):
     assert len(dense_state_dict) == len(compressed_state_dict)
 
     # check compressed and packed
-    assert compressed_state_dict["dummy.weight"].dtype == torch.int32
+    assert compressed_state_dict["dummy.weight_packed"].dtype == torch.int32
     expected_rows = shape[0]
     expected_columns = math.ceil(shape[1] / 8)  # round each row up to nearest int32
-    assert compressed_state_dict["dummy.weight"].shape == (
+    assert compressed_state_dict["dummy.weight_packed"].shape == (
         expected_rows,
         expected_columns,
     )
