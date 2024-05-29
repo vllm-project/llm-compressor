@@ -97,8 +97,8 @@ def test_quant_format(strategy, symmetric, group_size, sc, zp):
         [
             QuantizationStrategy.GROUP,
             128,
-            torch.rand((300, 8, 1)) * 0.01,
-            torch.zeros((300, 8, 1), dtype=torch.int8),
+            torch.rand((300, 8)) * 0.01,
+            torch.zeros((300, 8), dtype=torch.int8),
         ],
         [
             QuantizationStrategy.CHANNEL,

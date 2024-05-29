@@ -89,11 +89,17 @@ def dequantize(
         if scale.ndim == 0:
             args = QuantizationArgs(strategy=QuantizationStrategy.TENSOR)
         elif scale.ndim == 2:
-            args = QuantizationArgs(strategy=QuantizationStrategy.CHANNEL)
-        elif scale.ndim == 3:
-            group_size = int(x_q.shape[1] / scale.shape[1])
-            args = QuantizationArgs(
-                strategy=QuantizationStrategy.GROUP, group_size=group_size
+            if scale.shape[1] == 1:
+                args = QuantizationArgs(strategy=QuantizationStrategy.CHANNEL)
+            else:
+                group_size = int(x_q.shape[1] / scale.shape[1])
+                args = QuantizationArgs(
+                    strategy=QuantizationStrategy.GROUP, group_size=group_size
+                )
+        else:
+            raise ValueError(
+                f"Could not infer a quantization strategy from scale with {scale.ndim} "
+                "dimmensions. Expected 0-2 dimmensions."
             )
     return _process_quantization(
         x=x_q,
@@ -152,7 +158,8 @@ def _process_quantization(
 
     if args.strategy == QuantizationStrategy.GROUP:
 
-        if do_dequantize:  # if dequantizing the output should be a fp type
+        if do_dequantize and not do_quantize:
+            # if dequantizing a quantized type infer the output type from the scale
             output = torch.zeros_like(x, dtype=scale.dtype)
         else:
             output_dtype = dtype if dtype is not None else x.dtype
