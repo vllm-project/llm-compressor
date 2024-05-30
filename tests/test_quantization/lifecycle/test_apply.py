@@ -130,7 +130,8 @@ def _test_layer_quantization_status(
 
 def get_tinyllama_model():
     return AutoModelForCausalLM.from_pretrained(
-        "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+        "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
+        torch_dtype="auto",
     )
 
 

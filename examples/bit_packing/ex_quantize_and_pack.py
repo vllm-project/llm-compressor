@@ -38,7 +38,7 @@ pad_to_max_length = False
 output_dir = "./llama1.1b_new_quant_out_test_packing"
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device)
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype="auto")
 model.eval()  # no grad or updates needed for base model
 config = QuantizationConfig.parse_file(config_file)
 

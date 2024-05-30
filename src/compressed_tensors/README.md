@@ -7,7 +7,7 @@
 
 ## SafeTensors File Format
 
-For each parameter in the uncompressed state_dict, we store the following attributes 
+For each parameter in the uncompressed state_dict, we store the following attributes
 needed for decompression in the compressed state_dict:
 
 * compressed tensor
@@ -44,7 +44,7 @@ Config information gets stored in the HF config file
 }
 ```
 
-## Saving/Loading Interface 
+## Saving/Loading Interface
 
 Loading in a compressed model requires no interface changes
 
@@ -56,12 +56,13 @@ model_path = "/PATH/TO/COMPRESSED_MODEL"
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_name_or_path=model_path,
+    torch_dtype="auto",
     **model_kwargs,
 )
 ```
 
 Saving a compressed model with an explicitly provided compression config. The config
-is saved to the model's `config.json` file. **Note:** the model must have been 
+is saved to the model's `config.json` file. **Note:** the model must have been
 initialized with SparseAutoModelForCausalLM.from_pretrained()
 
 ```python
@@ -85,7 +86,7 @@ model.save_pretrained(
 )
 ```
 
-Saving a model in the dense format. If the model has at least 5% global sparsity a 
+Saving a model in the dense format. If the model has at least 5% global sparsity a
 sparsity config will still be included in `config.json` with format `dense_sparsity`
 
 ```python
@@ -95,7 +96,7 @@ model.save_pretrained(
 ```
 
 Saving a model in the dense format, bypassing the sparsity config calculation. When the
-`skip_compression_stats` flag is set, no sparsity config will be written to 
+`skip_compression_stats` flag is set, no sparsity config will be written to
 `config.json`
 
 ```python
@@ -107,11 +108,11 @@ model.save_pretrained(
 
 ## Enable Compression During One-Shot and Sparse Finetunining
 Models that are saved in a supported compressed format on disk will automatically be
-decompressed when loaded as input to `sparseml.transformers.oneshot` or 
+decompressed when loaded as input to `sparseml.transformers.oneshot` or
 `sparseml.transformers.train`
 
-To enable compression on save after oneshot or finetuning simply add the 
-`save_compressed=True` argument to `sparseml.transformers.oneshot` or 
+To enable compression on save after oneshot or finetuning simply add the
+`save_compressed=True` argument to `sparseml.transformers.oneshot` or
 `sparseml.transformers.train`
 
 ```python
@@ -128,7 +129,7 @@ train(
 
 ## Example Code
 
-Loads a 60% sparse model, compresses it using the inferred bitmask compression, then 
+Loads a 60% sparse model, compresses it using the inferred bitmask compression, then
 reloads the compressed model.
 
 ```python
@@ -142,7 +143,7 @@ RECIPE = "zoo:llama2-7b-open_platypus_orca_llama2_pretrain-pruned60"
 
 torch.cuda.set_device(0)
 with measure_cuda_memory() as m:
-    model = SparseAutoModelForCausalLM.from_pretrained(MODEL_PATH, device_map="cuda:0")
+    model = SparseAutoModelForCausalLM.from_pretrained(MODEL_PATH, device_map="cuda:0", torch_dtype="auto")
 print(f"Load dense model peak GPU {m.overall_peak_memory / float(2**30):.4f} GB")
 
 sparsity_config = getattr(model,"sparsity_config", None)
@@ -154,7 +155,7 @@ print(f"Save compressed model peak GPU {m.overall_peak_memory / float(2**30):.4f
 torch.cuda.set_device(1)
 with measure_cuda_memory() as m:
     model_again = SparseAutoModelForCausalLM.from_pretrained(
-        OUTPUT_PATH, device_map="cuda:1"
+        OUTPUT_PATH, device_map="cuda:1", torch_dtype="auto"
     )
 print(f"Load compressed model peak GPU {m.overall_peak_memory / float(2**30):.4f} GB")
 sparsity_config = getattr(model_again,"sparsity_config", None)

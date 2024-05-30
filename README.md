@@ -68,7 +68,7 @@ from compressed_tensors import save_compressed_model, load_compressed, BitmaskCo
 from transformers import AutoModelForCausalLM
 
 model_name = "neuralmagic/llama2.c-stories110M-pruned50"
-model = AutoModelForCausalLM.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto")
 
 original_state_dict = model.state_dict()
 
@@ -90,7 +90,7 @@ We can use compressed-tensors to run basic post training quantization (PTQ) and 
 
 ```python
 model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cuda:0")
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map="cuda:0", torch_dtype="auto")
 
 config = QuantizationConfig.parse_file("./examples/bit_packing/int4_config.json")
 config.quantization_status = QuantizationStatus.CALIBRATION

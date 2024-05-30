@@ -37,7 +37,7 @@ pad_to_max_length = False
 output_dir = "./llama1.1b_new_quant_out"
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device)
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype="auto")
 model.eval()  # no grad or updates needed for base model
 config = QuantizationConfig.parse_file(config_file)
 
@@ -83,5 +83,5 @@ model.apply(freeze_module_quantization)
 from sparseml.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
 )
-modify_save_pretrained(model) 
+modify_save_pretrained(model)
 model.save_pretrained(output_dir)
