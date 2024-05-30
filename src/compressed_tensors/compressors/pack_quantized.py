@@ -62,13 +62,14 @@ class PackedQuantizationCompressor(Compressor):
         :return: compressed state dict
         """
         compressed_dict = {}
+        weight_suffix = ".weight"
         _LOGGER.debug(
             f"Compressing model with {len(model_state)} parameterized layers..."
         )
 
         for name, value in tqdm(model_state.items(), desc="Compressing model"):
-            if name.endswith(".weight"):
-                prefix = name.removesuffix(".weight")
+            if name.endswith(weight_suffix):
+                prefix = name[: -(len(weight_suffix))]
                 scale = model_state.get(merge_names(prefix, "weight_scale"), None)
                 zp = model_state.get(merge_names(prefix, "weight_zero_point"), None)
                 shape = torch.tensor(value.shape)

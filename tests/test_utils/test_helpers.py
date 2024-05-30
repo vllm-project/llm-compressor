@@ -31,7 +31,9 @@ def tensors():
 @pytest.fixture
 def llama_model(tmp_path):
     model_name = "neuralmagic/llama2.c-stories110M-pruned50"
-    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto", cache_dir=tmp_path)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, torch_dtype="auto", cache_dir=tmp_path
+    )
     yield model
 
 
