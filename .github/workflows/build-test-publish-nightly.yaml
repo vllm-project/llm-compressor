@@ -2,7 +2,7 @@ name: Build, test, and publish nightly wheel
 
 on:
   schedule:
-    - cron: '0 18 * * *'
+    - cron: '0 22 * * *'
 
 jobs:
   build-test-publish-nightly-wheel:
