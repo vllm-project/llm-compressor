@@ -16,6 +16,7 @@ import json
 import logging
 import operator
 import os
+from copy import deepcopy
 from typing import Dict, Optional, Union
 
 from compressed_tensors.base import (
@@ -90,9 +91,8 @@ class ModelCompressor:
         if compression_config is None:
             return None
 
-        sparsity_config = compression_config.get(SPARSITY_CONFIG_NAME, None)
-        quantization_config = compression_config.get(QUANTIZATION_CONFIG_NAME, None)
-
+        sparsity_config = cls.parse_sparsity_config(compression_config)
+        quantization_config = cls.parse_quantization_config(compression_config)
         if sparsity_config is None and quantization_config is None:
             return None
 
@@ -141,6 +141,21 @@ class ModelCompressor:
         return cls(
             sparsity_config=sparsity_config, quantization_config=quantization_config
         )
+
+    @staticmethod
+    def parse_sparsity_config(compression_config: Dict) -> Union[Dict, None]:
+        if compression_config is None:
+            return None
+        return compression_config.get(SPARSITY_CONFIG_NAME, None)
+
+    @staticmethod
+    def parse_quantization_config(compression_config: Dict) -> Union[Dict, None]:
+        quantization_config = deepcopy(compression_config)
+        quantization_config.pop(SPARSITY_CONFIG_NAME, None)
+        if len(quantization_config) == 0:
+            quantization_config = None
+
+        return quantization_config
 
     def __init__(
         self,
@@ -234,9 +249,7 @@ class ModelCompressor:
         config_data[COMPRESSION_CONFIG_NAME] = {}
         if self.quantization_config is not None:
             quant_config_data = self.quantization_config.model_dump()
-            config_data[COMPRESSION_CONFIG_NAME][
-                QUANTIZATION_CONFIG_NAME
-            ] = quant_config_data
+            config_data[COMPRESSION_CONFIG_NAME] = quant_config_data
         if self.sparsity_config is not None:
             sparsity_config_data = self.sparsity_config.model_dump()
             config_data[COMPRESSION_CONFIG_NAME][

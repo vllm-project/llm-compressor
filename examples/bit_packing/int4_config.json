@@ -1,5 +1,5 @@
 {
-	"quant_method": "sparseml",
+	"quant_method": "compressed-tensors",
 	"format": "pack-quantized",
 	"global_compression_ratio": null,
 	"config_groups": {

@@ -15,7 +15,6 @@
 
 from typing import Optional
 
-from compressed_tensors.base import SPARSITY_CONFIG_NAME
 from transformers import AutoConfig
 
 
@@ -38,7 +37,7 @@ def infer_compressor_from_model_config(
     from compressed_tensors.config import CompressionConfig
 
     config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
-    sparsity_config = getattr(config, SPARSITY_CONFIG_NAME, None)
+    sparsity_config = ModelCompressor.parse_sparsity_config(config)
     if sparsity_config is None:
         return None
 

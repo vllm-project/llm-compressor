@@ -15,7 +15,6 @@
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
-from compressed_tensors.base import QUANTIZATION_CONFIG_NAME
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization.quant_scheme import (
     QuantizationScheme,
@@ -29,13 +28,14 @@ from compressed_tensors.quantization.utils import (
 )
 from pydantic import BaseModel, Field
 from torch.nn import Module
-from transformers import AutoConfig
 
 
 __all__ = [
     "QuantizationStatus",
     "QuantizationConfig",
     "LIFECYCLE_ORDER",
+    "DEFAULT_QUANTIZATION_METHOD",
+    "DEFAULT_QUANTIZATION_FORMAT",
 ]
 
 
@@ -101,6 +101,9 @@ LIFECYCLE_ORDER = [
     QuantizationStatus.COMPRESSED,
 ]
 
+DEFAULT_QUANTIZATION_METHOD = "compressed-tensors"
+DEFAULT_QUANTIZATION_FORMAT = "fakequant"
+
 
 class QuantizationConfig(BaseModel):
     """
@@ -122,8 +125,8 @@ class QuantizationConfig(BaseModel):
     """
 
     config_groups: Dict[str, Union[QuantizationScheme, List[str]]]
-    quant_method: str = "sparseml"
-    format: str = "fakequant"
+    quant_method: str = DEFAULT_QUANTIZATION_METHOD
+    format: str = DEFAULT_QUANTIZATION_FORMAT
     quantization_status: QuantizationStatus = QuantizationStatus.INITIALIZED
     global_compression_ratio: Optional[float] = None
     ignore: Optional[List[str]] = Field(default_factory=list)
@@ -140,21 +143,6 @@ class QuantizationConfig(BaseModel):
                 name=group_name,
                 targets=targets_or_scheme,
             )
-
-    @staticmethod
-    def from_model_config(model_name_or_path) -> "QuantizationConfig":
-        """
-        Given a path to a model config, extract a quantization config if it exists
-
-        :param pretrained_model_name_or_path: path to model config on disk or HF hub
-        :return: instantiated QuantizationConfig if config contains a quant config
-        """
-        config = AutoConfig.from_pretrained(model_name_or_path)
-        quantization_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
-        if quantization_config is None:
-            return None
-
-        return QuantizationConfig.parse_obj(quantization_config)
 
     @staticmethod
     def from_pretrained(

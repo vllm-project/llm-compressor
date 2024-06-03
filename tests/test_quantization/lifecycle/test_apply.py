@@ -15,13 +15,15 @@
 from typing import Optional
 
 import torch
+from compressed_tensors.config import CompressionFormat
+from compressed_tensors.quantization import (
+    DEFAULT_QUANTIZATION_METHOD,
+    QuantizationConfig,
+    QuantizationStatus,
+)
 from compressed_tensors.quantization.lifecycle import (
     apply_quantization_config,
     apply_quantization_status,
-)
-from compressed_tensors.quantization.quant_config import (
-    QuantizationConfig,
-    QuantizationStatus,
 )
 from transformers import AutoModelForCausalLM
 
@@ -96,8 +98,8 @@ def test_serialize_config_tinyllama():
     assert serialized_config.config_groups["group_1"].targets == ["Linear"]
     assert serialized_config.config_groups["group_1"].input_activations is not None
     assert serialized_config.quantization_status == QuantizationStatus.FROZEN
-    assert serialized_config.format == "dense"
-    assert serialized_config.quant_method == "sparseml"
+    assert serialized_config.format == CompressionFormat.dense.value
+    assert serialized_config.quant_method == DEFAULT_QUANTIZATION_METHOD
     assert serialized_config.ignore == ["model.layers.1.mlp.down_proj"]
     assert serialized_config.global_compression_ratio > 1.0
     assert serialized_config.global_compression_ratio < 8.0
@@ -137,7 +139,7 @@ def get_tinyllama_model():
 
 def get_sample_tinyllama_quant_config(status: str = "frozen"):
     config_dict = {
-        "quant_method": "sparseml",
+        "quant_method": "compressed_tensors",
         "format": "fakequant",
         "quantization_status": status,
         "global_compression_ratio": None,
