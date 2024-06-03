@@ -36,6 +36,7 @@ from compressed_tensors.quantization.utils import (
     iter_named_leaf_modules,
 )
 from compressed_tensors.utils import get_safetensors_folder
+from compressed_tensors.utils.helpers import fix_fsdp_module_name
 from torch import Tensor
 from torch.nn import Module, Parameter
 from tqdm import tqdm
@@ -260,6 +261,7 @@ def _get_weight_arg_mappings(model: Module) -> Dict:
     for name, submodule in iter_named_leaf_modules(model):
         if is_module_quantized(submodule):
             if submodule.quantization_scheme.weights is not None:
+                name = fix_fsdp_module_name(name)
                 quantized_modules_to_args[name] = submodule.quantization_scheme.weights
 
     return quantized_modules_to_args

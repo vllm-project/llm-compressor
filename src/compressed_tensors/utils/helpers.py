@@ -16,17 +16,17 @@
 from typing import Optional
 
 from compressed_tensors.base import SPARSITY_CONFIG_NAME
-from compressed_tensors.compressors import ModelCompressor
-from compressed_tensors.config import CompressionConfig
 from transformers import AutoConfig
 
 
-__all__ = ["infer_compressor_from_model_config"]
+__all__ = ["infer_compressor_from_model_config", "fix_fsdp_module_name"]
+
+FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
 
 
 def infer_compressor_from_model_config(
     pretrained_model_name_or_path: str,
-) -> Optional[ModelCompressor]:
+) -> Optional["ModelCompressor"]:  # noqa: F821
     """
     Given a path to a model config, extract a sparsity config if it exists and return
     the associated ModelCompressor
@@ -34,6 +34,9 @@ def infer_compressor_from_model_config(
     :param pretrained_model_name_or_path: path to model config on disk or HF hub
     :return: matching compressor if config contains a sparsity config
     """
+    from compressed_tensors.compressors import ModelCompressor
+    from compressed_tensors.config import CompressionConfig
+
     config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
     sparsity_config = getattr(config, SPARSITY_CONFIG_NAME, None)
     if sparsity_config is None:
@@ -43,3 +46,19 @@ def infer_compressor_from_model_config(
     sparsity_config = CompressionConfig.load_from_registry(format, **sparsity_config)
     compressor = ModelCompressor.load_from_registry(format, config=sparsity_config)
     return compressor
+
+
+# TODO: There is already the same function in
+# SparseML, should be moved to a shared location
+# in the future
+def fix_fsdp_module_name(name: str) -> str:
+    """
+    Remove FSDP wrapper prefixes from a module name
+    Accounts for scenario where FSDP_WRAPPER_NAME is
+    at the end of the name, as well as in the middle.
+    :param name: name to strip
+    :return: stripped name
+    """
+    return name.replace(FSDP_WRAPPER_NAME + ".", "").replace(
+        "." + FSDP_WRAPPER_NAME, ""
+    )
