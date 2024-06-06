@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization.quant_args import (
@@ -114,15 +114,21 @@ class Observer(Module, RegistryMixin):
                 # use dim 1, assume the obsersed.shape = [batch, token, hidden]
                 # should be batch, token
                 self._scale, self._zero_point = self.get_qparams_along_dim(
-                    observed, dim=1
+                    observed,
+                    dim={0, 1},
                 )
 
         return self._scale, self._zero_point
 
     def get_qparams_along_dim(
-        self, observed, dim: int, tensor_id: Optional[Any] = None
+        self,
+        observed,
+        dim: Union[int, Iterable[int]],
+        tensor_id: Optional[Any] = None,
     ):
-        reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
+        dim = set(dim)
+
+        reduce_dims = tuple(idx for idx in range(observed.ndim) if idx not in dim)
         return self.calculate_qparams(
             observed, reduce_dims=reduce_dims, tensor_id=tensor_id
         )

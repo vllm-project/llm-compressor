@@ -112,8 +112,8 @@ def test_token(input_symmetry, weight_symmetry, input_shape):
     inputs = torch.randn(input_shape)
     model(inputs)
 
-    assert list(model.input_scale.shape) == [1, input_shape[1]]
-    assert list(model.input_zero_point.shape) == [1, input_shape[1]]
+    assert list(model.input_scale.shape) == [1, 1]
+    assert list(model.input_zero_point.shape) == [1, 1]
 
     assert list(model.weight_scale.shape) == [256, 1]
     assert list(model.weight_zero_point.shape) == [256, 1]
