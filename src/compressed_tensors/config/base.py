@@ -27,6 +27,7 @@ class CompressionFormat(Enum):
     sparse_bitmask = "sparse-bitmask"
     int_quantized = "int-quantized"
     pack_quantized = "pack-quantized"
+    marlin_24 = "marlin-24"
 
 
 class SparsityCompressionConfig(RegistryMixin, BaseModel):

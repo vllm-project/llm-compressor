@@ -45,7 +45,7 @@ from transformers import AutoConfig
 from transformers.file_utils import CONFIG_NAME
 
 
-__all__ = ["ModelCompressor"]
+__all__ = ["ModelCompressor", "map_modules_to_quant_args"]
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ class ModelCompressor:
             state_dict = model.state_dict()
 
         compressed_state_dict = state_dict
-        quantized_modules_to_args = _get_weight_arg_mappings(model)
+        quantized_modules_to_args = map_modules_to_quant_args(model)
         if self.quantization_compressor is not None:
             compressed_state_dict = self.quantization_compressor.compress(
                 state_dict, model_quant_args=quantized_modules_to_args
@@ -269,7 +269,7 @@ class ModelCompressor:
             data_old.data = data_new.data
 
 
-def _get_weight_arg_mappings(model: Module) -> Dict:
+def map_modules_to_quant_args(model: Module) -> Dict:
     quantized_modules_to_args = {}
     for name, submodule in iter_named_leaf_modules(model):
         if is_module_quantized(submodule):

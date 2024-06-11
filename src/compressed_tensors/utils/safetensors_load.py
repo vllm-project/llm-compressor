@@ -31,6 +31,7 @@ __all__ = [
     "get_weight_mappings",
     "get_nested_weight_mappings",
     "get_quantization_state_dict",
+    "is_quantization_param",
 ]
 
 
@@ -214,7 +215,7 @@ def get_quantization_state_dict(model_path: str) -> Dict[str, Tensor]:
     weight_mappings = get_weight_mappings(model_path)
     state_dict = {}
     for weight_name, safe_path in weight_mappings.items():
-        if not _is_quantization_weight(weight_name):
+        if not is_quantization_param(weight_name):
             continue
         with safe_open(safe_path, framework="pt", device="cpu") as f:
             state_dict[weight_name] = f.get_tensor(weight_name)
@@ -222,7 +223,7 @@ def get_quantization_state_dict(model_path: str) -> Dict[str, Tensor]:
     return state_dict
 
 
-def _is_quantization_weight(name: str) -> bool:
+def is_quantization_param(name: str) -> bool:
     """
     Checks is a parameter name is associated with a quantization parameter
 
