@@ -62,8 +62,8 @@ class Marlin24Compressor(Compressor):
             group_size = quant_args.group_size
             symmetric = quant_args.symmetric
             if (
-                strategy is not QuantizationStrategy.GROUP
-                and strategy is not QuantizationStrategy.CHANNEL
+                strategy is not QuantizationStrategy.GROUP.value
+                and strategy is not QuantizationStrategy.CHANNEL.value
             ):
                 raise ValueError(
                     f"Marlin24 Compressor is only valid for group and channel "
