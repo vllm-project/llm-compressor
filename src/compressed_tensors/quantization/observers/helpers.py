@@ -51,4 +51,8 @@ def calculate_qparams(
         zero_points = bit_min - torch.round(min_vals / scales)
         zero_points = torch.clamp(zero_points, bit_min, bit_max).to(torch.int8)
 
+    if scales.ndim == 0:
+        scales = scales.reshape(1)
+        zero_points = zero_points.reshape(1)
+
     return scales, zero_points

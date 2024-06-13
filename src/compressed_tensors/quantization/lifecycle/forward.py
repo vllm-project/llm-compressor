@@ -94,7 +94,7 @@ def dequantize(
     :return: dequantized float tensor
     """
     if args is None:
-        if scale.ndim == 0:
+        if scale.ndim == 0 or scale.ndim == 1:
             args = QuantizationArgs(strategy=QuantizationStrategy.TENSOR)
         elif scale.ndim == 2:
             if scale.shape[1] == 1:

@@ -144,6 +144,10 @@ class QuantizationConfig(BaseModel):
                 targets=targets_or_scheme,
             )
 
+    def to_dict(self):
+        # for compatibility with HFQuantizer
+        return self.dict()
+
     @staticmethod
     def from_pretrained(
         model: Module, format: Optional[str] = None

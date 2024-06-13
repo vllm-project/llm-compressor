@@ -123,11 +123,14 @@ def apply_quantization_config(model: Module, config: QuantizationConfig):
         if target is not None:
             # target matched - add layer and scheme to target list
             submodule.quantization_scheme = target_to_scheme[target]
-    if set(config.ignore) - set(ignored_submodules):
-        _LOGGER.warning(
-            "Some layers that were to be ignored were "
-            f"not found in the model: {set(config.ignore) - set(ignored_submodules)}"
-        )
+
+    if config.ignore is not None and ignored_submodules is not None:
+        if set(config.ignore) - set(ignored_submodules):
+            _LOGGER.warning(
+                "Some layers that were to be ignored were "
+                "not found in the model: "
+                f"{set(config.ignore) - set(ignored_submodules)}"
+            )
     # apply current quantization status across all targeted layers
     apply_quantization_status(model, config.quantization_status)
 
@@ -146,7 +149,6 @@ def apply_quantization_status(model: Module, status: QuantizationStatus):
 
     if current_status < status >= QuantizationStatus.CALIBRATION > current_status:
         model.apply(set_module_for_calibration)
-
     if current_status < status >= QuantizationStatus.FROZEN > current_status:
         model.apply(freeze_module_quantization)
 
@@ -160,9 +162,10 @@ def find_first_name_or_class_match(
     # first element of targets that matches the given name
     # if no name matches returns first target that matches the class name
     # returns None otherwise
-    return _find_first_match(name, targets) or _find_first_match(
-        module.__class__.__name__, targets, check_contains
-    )
+    if isinstance(targets, Iterable):
+        return _find_first_match(name, targets) or _find_first_match(
+            module.__class__.__name__, targets, check_contains
+        )
 
 
 def _find_first_match(
@@ -212,7 +215,12 @@ def _load_quant_args_from_state_dict(
     scale = getattr(module, scale_name, None)
     zp = getattr(module, zp_name, None)
     if scale is not None:
-        scale.data = state_dict[f"{module_name}.{scale_name}"].to(device)
+        state_dict_scale = state_dict.get(f"{module_name}.{scale_name}")
+        if state_dict_scale is not None:
+            scale.data = state_dict_scale.to(device).to(scale.dtype)
+        else:
+            scale.data = scale.data.to(device)
+
     if zp is not None:
         zp_from_state = state_dict.get(f"{module_name}.{zp_name}", None)
         if zp_from_state is not None:  # load the non-zero zero points

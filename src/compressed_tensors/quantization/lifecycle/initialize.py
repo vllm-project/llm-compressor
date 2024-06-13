@@ -20,7 +20,10 @@ import torch
 from compressed_tensors.quantization.lifecycle.forward import (
     wrap_module_forward_quantized,
 )
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import (
+    QuantizationArgs,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.quant_config import QuantizationStatus
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module, Parameter
@@ -58,7 +61,12 @@ def initialize_module_for_quantization(
         _initialize_scale_zero_point_observer(module, "input", scheme.input_activations)
     if scheme.weights is not None:
         if hasattr(module, "weight"):
-            _initialize_scale_zero_point_observer(module, "weight", scheme.weights)
+            weight_shape = None
+            if isinstance(module, torch.nn.Linear):
+                weight_shape = module.weight.shape
+            _initialize_scale_zero_point_observer(
+                module, "weight", scheme.weights, weight_shape=weight_shape
+            )
         else:
             _LOGGER.warning(
                 f"module type {type(module)} targeted for weight quantization but "
@@ -78,7 +86,10 @@ def initialize_module_for_quantization(
 
 
 def _initialize_scale_zero_point_observer(
-    module: Module, base_name: str, quantization_args: QuantizationArgs
+    module: Module,
+    base_name: str,
+    quantization_args: QuantizationArgs,
+    weight_shape: Optional[torch.Size] = None,
 ):
     # initialize observer module and attach as submodule
     observer = quantization_args.get_observer()
@@ -89,13 +100,28 @@ def _initialize_scale_zero_point_observer(
 
     device = next(module.parameters()).device
 
+    # infer expected scale/zero point shape
+    expected_shape = 1  # per tensor
+
+    if base_name == "weight" and weight_shape is not None:
+        if quantization_args.strategy == QuantizationStrategy.CHANNEL:
+            # (output_channels, 1)
+            expected_shape = (weight_shape[0], 1)
+        elif quantization_args.strategy == QuantizationStrategy.GROUP:
+            expected_shape = (
+                weight_shape[0],
+                weight_shape[1] // quantization_args.group_size,
+            )
+
     # initializes empty scale and zero point parameters for the module
     init_scale = Parameter(
-        torch.empty(0, dtype=torch.float16, device=device), requires_grad=False
+        torch.empty(expected_shape, dtype=module.weight.dtype, device=device),
+        requires_grad=False,
     )
     module.register_parameter(f"{base_name}_scale", init_scale)
 
     init_zero_point = Parameter(
-        torch.empty(0, device=device, dtype=int), requires_grad=False
+        torch.empty(expected_shape, device=device, dtype=int),
+        requires_grad=False,
     )
     module.register_parameter(f"{base_name}_zero_point", init_zero_point)

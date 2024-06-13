@@ -57,9 +57,9 @@ def test_maybe_calibrate_or_quantize(create_quantization_scheme, quantization_st
     quantization_args = QuantizationArgs(num_bits=num_bits, symmetric=True)
     layer = Linear(4, 4)
     layer.weight.data *= 100
+    layer.quantization_status = QuantizationStatus(quantization_status)
 
     initialize_module_for_quantization(layer, quantization_scheme)
-    layer.quantization_status = QuantizationStatus(quantization_status)
 
     # only calibration updates the scale and zero-point
     if layer.quantization_status == QuantizationStatus.INITIALIZED:

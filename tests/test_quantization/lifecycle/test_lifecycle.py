@@ -71,10 +71,10 @@ def test_lifecyle(create_quantization_scheme):
     assert layer.quantization_status == QuantizationStatus.CALIBRATION
 
     # do a calibration step
-    assert torch.numel(layer.input_zero_point.data) == 0
-    assert torch.numel(layer.input_scale) == 0
-    assert torch.numel(layer.weight_scale) == 0
-    assert torch.numel(layer.weight_zero_point) == 0
+    assert torch.numel(layer.input_zero_point.data) == 1
+    assert torch.numel(layer.input_scale) == 1
+    assert torch.numel(layer.weight_scale) == 1
+    assert torch.numel(layer.weight_zero_point) == 1
 
     layer(torch.randn(4, 4))
 
