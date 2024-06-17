@@ -16,14 +16,17 @@
 Functionality for storing and setting the version info for SparseML
 """
 
-from datetime import date
-
 
 version_base = "0.4.0"
 is_release = False  # change to True to set the generated version as a release version
 
 
-def _generate_version():
+def _generate_version(
+    is_release: bool,
+    version_base: str,
+):
+    from datetime import date
+
     if is_release:
         return version_base
     else:
@@ -41,7 +44,7 @@ __all__ = [
     "version_build",
     "version_major_minor",
 ]
-__version__ = _generate_version()
+__version__ = _generate_version(is_release, version_base)
 
 version = __version__
 version_major, version_minor, version_patch, version_build = version.split(".") + (
