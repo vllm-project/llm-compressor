@@ -28,12 +28,12 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
 
     def test_oneshot_and_finetune_with_tokenizer(self):
         import torch
+        from datasets import load_dataset
 
         from sparseml.transformers import (
             SparseAutoModelForCausalLM,
             SparseAutoTokenizer,
             compress,
-            load_dataset,
         )
 
         recipe_str = "tests/sparseml/transformers/finetune/test_alternate_recipe.yaml"
@@ -47,7 +47,6 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
 
         dataset_config_name = "wikitext-2-raw-v1"
         dataset = load_dataset("wikitext", dataset_config_name, split="train[:50%]")
-        # dataset ="wikitext"
 
         concatenate_data = True
         run_stages = True

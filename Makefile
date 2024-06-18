@@ -1,7 +1,9 @@
+TODO: update for upstream push
+
 .PHONY: build docs test
 
 BUILDDIR := $(PWD)
-CHECKDIRS := integrations src tests utils status examples setup.py
+CHECKDIRS := integrations src tests utils examples setup.py
 CHECKGLOBS := 'integrations/**/*.py' 'src/**/*.py' 'tests/**/*.py' 'utils/**/*.py' 'status/**/*.py' setup.py
 DOCDIR := docs
 MDCHECKGLOBS := 'docs/**/*.md' 'docs/**/*.rst' 'integrations/**/*.md'
@@ -11,48 +13,11 @@ SPARSEZOO_TEST_MODE := "true"
 BUILD_ARGS :=  # set nightly to build nightly release
 TARGETS := ""  # targets for running pytests: deepsparse,keras,onnx,pytorch,pytorch_models,export,pytorch_datasets,tensorflow_v1,tensorflow_v1_models,tensorflow_v1_datasets
 PYTEST_ARGS ?= ""
-PYTEST_INTEG_ARGS ?= ""
-ifneq ($(findstring deepsparse,$(TARGETS)),deepsparse)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/deepsparse
-endif
 ifneq ($(findstring transformers,$(TARGETS)),transformers)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/transformers
 endif
-ifneq ($(findstring export,$(TARGETS)),export)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/export
-endif
-ifneq ($(findstring keras,$(TARGETS)),keras)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/keras
-endif
-ifneq ($(findstring onnx,$(TARGETS)),onnx)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/onnx
-endif
 ifneq ($(findstring pytorch,$(TARGETS)),pytorch)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/pytorch
-endif
-ifneq ($(findstring pytorch_models,$(TARGETS)),pytorch_models)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/pytorch/models
-endif
-ifneq ($(findstring pytorch_datasets,$(TARGETS)),pytorch_datasets)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/pytorch/datasets
-endif
-ifneq ($(findstring tensorflow_v1,$(TARGETS)),tensorflow_v1)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/tensorflow_v1
-endif
-ifneq ($(findstring tensorflow_v1_models,$(TARGETS)),tensorflow_v1_models)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/tensorflow_v1/models
-endif
-ifneq ($(findstring tensorflow_v1_datasets,$(TARGETS)),tensorflow_v1_datasets)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/tensorflow_v1/datasets
-endif
-ifneq ($(findstring image_classification,$(TARGETS)),image_classification)
-    PYTEST_INTEGRATION_ARGS := $(PYTEST_INTEGRATION_ARGS) --ignore tests/integrations/image_classification
-endif
-ifneq ($(findstring transformers,$(TARGETS)),transformers)
-    PYTEST_INTEGRATION_ARGS := $(PYTEST_INTEGRATION_ARGS) --ignore tests/integrations/transformers
-endif
-ifneq ($(findstring yolov5,$(TARGETS)),yolov5)
-    PYTEST_INTEGRATION_ARGS := $(PYTEST_INTEGRATION_ARGS) --ignore tests/integrations/yolov5
 endif
 
 
@@ -76,12 +41,7 @@ style:
 # run tests for the repo
 test:
 	@echo "Running python tests";
-	SPARSEZOO_TEST_MODE="true" pytest tests $(PYTEST_ARGS) --ignore tests/integrations
-
-# run integration tests
-testinteg:
-	@echo "Running integration tests";
-	SPARSEZOO_TEST_MODE="true" pytest -x -ls tests/integrations $(PYTEST_INTEGRATION_ARGS)
+	SPARSEZOO_TEST_MODE="true" pytest tests $(PYTEST_ARGS)
 
 # create docs
 docs:

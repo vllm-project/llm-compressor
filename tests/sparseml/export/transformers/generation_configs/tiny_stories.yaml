@@ -1,4 +1,0 @@
-cadence: "commit"
-test_type: "sanity"
-stub: "roneneldan/TinyStories-1M"
-task: text-generation

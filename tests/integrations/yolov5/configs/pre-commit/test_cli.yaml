@@ -1,6 +1,0 @@
-cadence: "pre-commit"
-export:
-  command_args:
-    weights: "zoo:cv/detection/yolov5-n6/pytorch/ultralytics/coco/base-none"
-    one_shot: "zoo:cv/detection/yolov5-s/pytorch/ultralytics/voc/pruned65_quant-none"
-    dynamic: True

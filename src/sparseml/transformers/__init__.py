@@ -17,11 +17,6 @@ Tools for integrating SparseML with transformers training flows
 """
 
 # flake8: noqa
-from sparseml.analytics import sparseml_analytics as _analytics
-from sparseml.transformers.base import check_transformers_install
-
-check_transformers_install()
-_analytics.send_event("python__transformers__init")
 
 
 # isort: skip_file
@@ -33,5 +28,4 @@ from .sparsification import (
     SparseAutoConfig,
     SparseAutoTokenizer,
 )
-from .export import *
 from .finetune import *

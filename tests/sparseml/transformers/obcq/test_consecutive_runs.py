@@ -51,7 +51,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         )
         first_tiny_model = get_session_model()
         layer_0_sparse = tensor_sparsity(
-            first_tiny_model.model.layers[0].self_attn.k_proj.module.weight
+            first_tiny_model.model.layers[0].self_attn.k_proj.weight
         )
         assert math.isclose(layer_0_sparse.item(), 0.5, rel_tol=tolerance)
         assert qat_active(first_tiny_model)
@@ -75,7 +75,7 @@ class TestConsecutiveRuns(unittest.TestCase):
 
         second_tiny_model = get_session_model()
         layer_0_sparse = tensor_sparsity(
-            second_tiny_model.model.layers[0].self_attn.k_proj.module.weight
+            second_tiny_model.model.layers[0].self_attn.k_proj.weight
         )
         assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
         assert qat_active(second_tiny_model)

@@ -1,16 +1,23 @@
 test_stage:
   quant_modifiers:
-    LegacyQuantizationModifier:
+    QuantizationModifier:
       ignore:
-        - LlamaRotaryEmbedding
-        - LlamaRMSNorm
-        - SiLU
         - model.layers.0.mlp.down_proj
         - model.layers.1.mlp.down_proj
         - model.layers.2.mlp.down_proj
         - model.layers.3.mlp.down_proj
         - model.layers.4.mlp.down_proj
         - model.layers.5.mlp.down_proj
+      config_groups:
+          group_0:
+              weights:
+                  num_bits: 8
+                  type: "int"
+                  symmetric: False
+                  strategy: "tensor"
+              input_activations: null
+              output_activations: null
+              targets: ["Linear"]
   pruning_modifiers:
     ConstantPruningModifier:
       targets: [

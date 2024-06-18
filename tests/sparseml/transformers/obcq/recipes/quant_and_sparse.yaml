@@ -12,17 +12,13 @@ test_stage:
         [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
         [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
       ]
-    LegacyQuantizationModifier:
-      ignore:
-        - LlamaRotaryEmbedding
-        - LlamaRMSNorm
-        - SiLU
-      scheme_overrides:
-        Embedding:
-          input_activations: null
-          weights:
-            num_bits: 8
-            symmetric: False
+    QuantizationModifier:
+      ignore: ["lm_head"]
+      config_groups:
+          group_0:
+              targets: ["Linear"]
+              weights:
+                  num_bits: 8
     GPTQModifier:
       block_size: 128
       sequential_update: False

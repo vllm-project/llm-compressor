@@ -110,7 +110,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
         # model is loaded
         assert second_tiny_model is not None
 
-        targetted_layer = second_tiny_model.model.layers[0].self_attn.k_proj.module
+        targetted_layer = second_tiny_model.model.layers[0].self_attn.k_proj
         target_layer_sparsity = tensor_sparsity(targetted_layer.weight)
 
         # sparsity is as expected, i.e close to self.final_sparsity

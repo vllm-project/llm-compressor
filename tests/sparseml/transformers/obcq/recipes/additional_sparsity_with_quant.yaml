@@ -6,24 +6,19 @@ test_stage:
         [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
         [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
       ]
-    LegacyQuantizationModifier:
+    QuantizationModifier:
       ignore:
-        - LlamaRotaryEmbedding
-        - LlamaRMSNorm
-        - SiLU
         - model.layers.0.mlp.down_proj
         - model.layers.1.mlp.down_proj
         - model.layers.2.mlp.down_proj
         - model.layers.3.mlp.down_proj
         - model.layers.4.mlp.down_proj
         - model.layers.5.mlp.down_proj
-      post_oneshot_calibration: True
-      scheme_overrides:
-        Embedding:
-          input_activations: null
-          weights:
-            num_bits: 8
-            symmetric: False
+      config_groups:
+          group_0:
+              targets: ["Linear"]
+              weights:
+                  num_bits: 8
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128

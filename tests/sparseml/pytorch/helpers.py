@@ -30,15 +30,12 @@ from torch.nn import (
 from torch.optim import SGD, Adam
 from torch.utils.data import Dataset
 
-from sparseml.pytorch.sparsification import PYTORCH_FRAMEWORK
-
 
 __all__ = [
     "SAMPLE_STAGED_RECIPE",
     "test_epoch",
     "test_steps_per_epoch",
     "test_loss",
-    "framework",
     "LinearNet",
     "MLPNet",
     "FlatMLPNet",
@@ -64,11 +61,6 @@ def test_steps_per_epoch() -> int:
 @pytest.fixture
 def test_loss() -> Tensor:
     return torch.tensor(0.0)
-
-
-@pytest.fixture
-def framework() -> str:
-    return PYTORCH_FRAMEWORK
 
 
 LayerDesc = namedtuple("LayerDesc", ["name", "input_size", "output_size", "bias"])
