@@ -28,24 +28,11 @@ jobs:
           (git branch --show-current | grep -E "release/")
           && echo "::set-output name=branch::$(git branch --show-current)"
           || echo "::set-output name=branch::main"
-      - name: "Checking if sparseml was changed"
-        id: base-check
-        run: >
-          ((git diff --name-only origin/main HEAD | grep -E "[src|tests]/sparseml|setup.py|.github")
-          || (echo $GITHUB_REF | grep -E "refs/heads/[release/|main]"))
-          && echo "::set-output name=output::1" || echo "::set-output name=output::0"
-      - name: "Checking if sparseml.transformers was changed"
-        id: transformers-check
-        run: >
-          ((git diff --name-only origin/main HEAD | grep -E "[src|tests]/sparseml/transformers|setup.py|.github")
-          || (echo $GITHUB_REF | grep -E "refs/heads/[release/|main]"))
-          && echo "::set-output name=output::1" || echo "::set-output name=output::0"
   base-tests:
     runs-on: ubuntu-22.04
     env:
       SPARSEZOO_TEST_MODE: "true"
     needs: test-setup
-    if: ${{needs.test-setup.outputs.base == 1}}
     steps:
       - uses: actions/setup-python@v4
         with:
@@ -74,7 +61,6 @@ jobs:
       CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
       CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
     needs: test-setup
-    if: ${{needs.test-setup.outputs.pytorch == 1}}
     steps:
       - uses: actions/setup-python@v4
         with:
@@ -113,7 +99,6 @@ jobs:
       CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
       CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
     needs: test-setup
-    if: ${{needs.test-setup.outputs.pytorch == 1}}
     steps:
       - uses: actions/setup-python@v4
         with:
@@ -152,7 +137,6 @@ jobs:
       CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
       CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
     needs: test-setup
-    if: ${{needs.test-setup.outputs.transformers == 1}}
     steps:
       - uses: actions/setup-python@v4
         with:

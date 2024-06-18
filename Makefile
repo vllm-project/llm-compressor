@@ -13,15 +13,11 @@ SPARSEZOO_TEST_MODE := "true"
 BUILD_ARGS :=  # set nightly to build nightly release
 TARGETS := ""  # targets for running pytests: deepsparse,keras,onnx,pytorch,pytorch_models,export,pytorch_datasets,tensorflow_v1,tensorflow_v1_models,tensorflow_v1_datasets
 PYTEST_ARGS ?= ""
-PYTEST_INTEG_ARGS ?= ""
 ifneq ($(findstring transformers,$(TARGETS)),transformers)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/transformers
 endif
 ifneq ($(findstring pytorch,$(TARGETS)),pytorch)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/pytorch
-endif
-ifneq ($(findstring transformers,$(TARGETS)),transformers)
-    PYTEST_INTEGRATION_ARGS := $(PYTEST_INTEGRATION_ARGS) --ignore tests/integrations/transformers
 endif
 
 
@@ -45,12 +41,7 @@ style:
 # run tests for the repo
 test:
 	@echo "Running python tests";
-	SPARSEZOO_TEST_MODE="true" pytest tests $(PYTEST_ARGS) --ignore tests/integrations
-
-# run integration tests
-testinteg:
-	@echo "Running integration tests";
-	SPARSEZOO_TEST_MODE="true" pytest -x -ls tests/integrations $(PYTEST_INTEGRATION_ARGS)
+	SPARSEZOO_TEST_MODE="true" pytest tests $(PYTEST_ARGS)
 
 # create docs
 docs:
