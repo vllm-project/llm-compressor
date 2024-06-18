@@ -1,8 +1,0 @@
-modifiers:
-  - !ACDCPruningModifier
-    compression_sparsity: 0.9
-    start_epoch: 0.0
-    end_epoch: 1.0
-    global_sparsity: False
-    update_frequency: 1.0
-    params: __ALL_PRUNABLE__
