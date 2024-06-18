@@ -62,27 +62,8 @@ _deps = [
     "GPUtil>=1.4.0",
     "protobuf>=3.12.2,<=3.20.3",
     "click>=7.1.2,!=8.0.0",  # latest version < 8.0 + blocked version with reported bug
-]
-_nm_deps = [f"{'sparsezoo' if is_release else 'sparsezoo-nightly'}>=1.7.0"]
-_deepsparse_deps = [f"{'deepsparse' if is_release else 'deepsparse-nightly'}>=1.7.0"]
-_deepsparse_ent_deps = ["deepsparse-ent>=1.7.0"]
-
-_onnxruntime_deps = ["onnxruntime>=1.0.0"]
-_clip_deps = ["open_clip_torch==2.20.0"]
-supported_torch_version = "torch>=1.7.0"
-_pytorch_deps = [
-    supported_torch_version,
+    "torch>=1.7.0",
     "gputils",
-]
-_pytorch_all_deps = _pytorch_deps + [
-    "torchvision>=0.3.0,<0.17",
-    "torchaudio<=2.0.1",
-]
-_pytorch_vision_deps = _pytorch_deps + [
-    "torchvision>=0.3.0,<0.17",
-    "opencv-python<=4.6.0.66",
-]
-_transformers_deps = _pytorch_deps + [
     "transformers<4.41",
     "datasets<2.19",
     "dvc",
@@ -92,25 +73,11 @@ _transformers_deps = _pytorch_deps + [
     "evaluate>=0.4.1",
     "accelerate>=0.20.3",
     "safetensors>=0.4.1",
+    "sentencepiece",
     "compressed-tensors" if is_release else "compressed-tensors-nightly",
 ]
-_llm_deps = _transformers_deps + ["sentencepiece"]
-_yolov5_deps = _pytorch_vision_deps + [
-    f"{'nm-yolov5' if is_release else 'nm-yolov5-nightly'}<={version_nm_deps}"
-]
-_notebook_deps = [
-    "jupyter>=1.0.0",
-    "ipywidgets>=7.0.0",
-]
-_tensorflow_v1_deps = ["tensorflow<2.0.0", "tensorboard<2.0.0", "tf2onnx>=1.0.0,<1.6"]
-_tensorflow_v1_gpu_deps = [
-    "tensorflow-gpu<2.0.0",
-    "tensorboard<2.0.0",
-    "tf2onnx>=1.0.0,<1.6",
-]
-_keras_deps = ["tensorflow~=2.2.0", "keras2onnx>=1.0.0"]
 
-_open_pif_paf_deps = ["openpifpaf==0.13.6"]
+_nm_deps = [f"{'sparsezoo' if is_release else 'sparsezoo-nightly'}>=1.7.0"]
 
 _dev_deps = [
     "beautifulsoup4==4.9.3",
@@ -142,12 +109,6 @@ _docs_deps = [
 ]
 
 
-_ultralytics_deps = [
-    "ultralytics==8.0.124",
-    supported_torch_version,
-]
-
-
 def _setup_packages() -> List:
     return find_packages(
         "src", include=["sparseml", "sparseml.*"], exclude=["*.__pycache__.*"]
@@ -163,26 +124,7 @@ def _setup_install_requires() -> List:
 
 
 def _setup_extras() -> Dict:
-    return {
-        "clip": _clip_deps,
-        "dev": _dev_deps,
-        "docs": _docs_deps,
-        "deepsparse": _deepsparse_deps,
-        "deepsparse-ent": _deepsparse_ent_deps,
-        "openpifpaf": _open_pif_paf_deps,
-        "onnxruntime": _onnxruntime_deps,
-        "torch": _pytorch_deps,
-        "torch_all": _pytorch_all_deps,
-        "torchvision": _pytorch_vision_deps,
-        "transformers": _transformers_deps,
-        "llm": _llm_deps,
-        "notebook": _notebook_deps,
-        "tf_v1": _tensorflow_v1_deps,
-        "tf_v1_gpu": _tensorflow_v1_gpu_deps,
-        "tf_keras": _keras_deps,
-        "ultralytics": _ultralytics_deps,
-        "yolov5": _yolov5_deps,
-    }
+    return {"dev": _dev_deps, "docs": _docs_deps}
 
 
 def _setup_entry_points() -> Dict:
@@ -196,6 +138,11 @@ def _setup_entry_points() -> Dict:
             "sparseml.transformers.text_generation.oneshot=sparseml.transformers.finetune.text_generation:oneshot",  # noqa 501
         ]
     }
+
+    # eval entrypoint
+    entry_points["console_scripts"].append(
+        "sparseml.evaluate=sparseml.evaluation.cli:main"
+    )
 
     return entry_points
 
