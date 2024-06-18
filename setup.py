@@ -188,37 +188,6 @@ def _setup_extras() -> Dict:
 def _setup_entry_points() -> Dict:
     entry_points = {
         "console_scripts": [
-            # export
-            "sparseml.export=sparseml.export.export:main",
-            # sparsification
-            "sparseml.framework=sparseml.framework.info:_main",
-            "sparseml.sparsification=sparseml.sparsification.info:_main",
-        ]
-    }
-
-    # transformers integration
-    for task in [
-        "masked_language_modeling",
-        "question_answering",
-        "text_classification",
-        "token_classification",
-    ]:
-        entry_points["console_scripts"].extend(
-            [
-                f"sparseml.transformers.{task}=sparseml.transformers.{task}:main",
-                f"sparseml.transformers.train.{task}=sparseml.transformers.{task}:main",
-            ]
-        )
-
-    entry_points["console_scripts"].extend(
-        [
-            "sparseml.transformers.export_onnx=sparseml.transformers.export:main",
-            "sparseml.transformers.export_onnx_refactor=sparseml.transformers.sparsification.obcq.export:main",  # noqa 501
-        ]
-    )
-
-    entry_points["console_scripts"].extend(
-        [
             "sparseml.transformers.text_generation.apply=sparseml.transformers.finetune.text_generation:apply",  # noqa 501
             "sparseml.transformers.text_generation.compress=sparseml.transformers.finetune.text_generation:apply",  # noqa 501
             "sparseml.transformers.text_generation.train=sparseml.transformers.finetune.text_generation:train",  # noqa 501
@@ -226,83 +195,7 @@ def _setup_entry_points() -> Dict:
             "sparseml.transformers.text_generation.eval=sparseml.transformers.finetune.text_generation:eval",  # noqa 501
             "sparseml.transformers.text_generation.oneshot=sparseml.transformers.finetune.text_generation:oneshot",  # noqa 501
         ]
-    )
-
-    # image classification integration
-
-    entry_points["console_scripts"].extend(
-        [
-            "sparseml.image_classification.export_onnx="
-            "sparseml.pytorch.torchvision.export_onnx:main",
-            "sparseml.image_classification.train="
-            "sparseml.pytorch.torchvision.train:cli",
-        ]
-    )
-
-    entry_points["console_scripts"].extend(
-        [
-            "sparseml.pytorch.image_classification.export_onnx="
-            "sparseml.pytorch.image_classification.export:main",
-            "sparseml.pytorch.image_classification.train="
-            "sparseml.pytorch.image_classification.train:main",
-            "sparseml.pytorch.image_classification.lr_analysis="
-            "sparseml.pytorch.image_classification.lr_analysis:main",
-            "sparseml.pytorch.image_classification.pr_sensitivity="
-            "sparseml.pytorch.image_classification.pr_sensitivity:main",
-        ]
-    )
-
-    # object detection integration
-
-    entry_points["console_scripts"].extend(
-        [
-            "sparseml.yolov5.export_onnx=sparseml.yolov5.scripts:export",
-            "sparseml.yolov5.train=sparseml.yolov5.scripts:train",
-            "sparseml.yolov5.validation=sparseml.yolov5.scripts:val",
-        ]
-    )
-
-    # instance segmentation integration
-
-    yolact_top_level_callable = "sparseml.yolact"
-    yolact_scripts_path = "sparseml.yolact.scripts"
-
-    entry_points["console_scripts"].extend(
-        [
-            f"{yolact_top_level_callable}.export_onnx={yolact_scripts_path}:export",
-            f"{yolact_top_level_callable}.train={yolact_scripts_path}:train",
-            f"{yolact_top_level_callable}.validation={yolact_scripts_path}:val",
-            f"{yolact_top_level_callable}.download={yolact_scripts_path}:download",
-        ]
-    )
-
-    # recipe_template entrypoint
-
-    entry_points["console_scripts"].append(
-        "sparseml.recipe_template=sparseml.pytorch.recipe_template.cli:main"
-    )
-
-    # pose detection entrypoint
-
-    entry_points["console_scripts"].extend(
-        [
-            "sparseml.openpifpaf.train=sparseml.openpifpaf.train:main",
-            "sparseml.openpifpaf.export_onnx=sparseml.openpifpaf.export:main",
-        ]
-    )
-
-    entry_points["console_scripts"].extend(
-        [
-            "sparseml.ultralytics.train=sparseml.yolov8.train:main",
-            "sparseml.ultralytics.val=sparseml.yolov8.val:main",
-            "sparseml.ultralytics.export_onnx=sparseml.yolov8.export:main",
-        ]
-    )
-
-    # eval entrypoint
-    entry_points["console_scripts"].append(
-        "sparseml.evaluate=sparseml.evaluation.cli:main"
-    )
+    }
 
     return entry_points
 

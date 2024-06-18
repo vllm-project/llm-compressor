@@ -33,8 +33,8 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             SparseAutoModelForCausalLM,
             SparseAutoTokenizer,
             compress,
-            load_dataset,
         )
+        from datasets import load_dataset
 
         recipe_str = "tests/sparseml/transformers/finetune/test_alternate_recipe.yaml"
         model = SparseAutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
@@ -47,7 +47,6 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
 
         dataset_config_name = "wikitext-2-raw-v1"
         dataset = load_dataset("wikitext", dataset_config_name, split="train[:50%]")
-        # dataset ="wikitext"
 
         concatenate_data = True
         run_stages = True

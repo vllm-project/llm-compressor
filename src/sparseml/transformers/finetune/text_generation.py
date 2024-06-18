@@ -29,7 +29,7 @@ from sparseml import pre_initialize_structure, reset_session
 from sparseml.core.framework import Framework
 from sparseml.core.recipe import Recipe, StageRunType
 from sparseml.pytorch.model_load.helpers import (
-    apply_recipe_structure_to_model,
+    initialize_recipe,
     fallback_to_cpu,
     get_session_model,
     parse_dtype,
@@ -316,7 +316,7 @@ def main(
     pre_initialize_structure(model=model, framework=Framework.pytorch)
 
     # intialize session manager
-    apply_recipe_structure_to_model(model, None, model_path)
+    initialize_recipe(model, None)
 
     # Load datasets
     stage_runner = StageRunner(

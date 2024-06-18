@@ -23,15 +23,10 @@ import torch
 from torch import Tensor
 from torch.nn import BatchNorm2d, Conv2d, Linear, Module, ReLU, Sequential
 from torch.optim import SGD
-from torch.utils.data import DataLoader
-
-from sparseml.pytorch.datasets import RandNDataset
 from sparseml.pytorch.utils import (
     MEMORY_BOUNDED,
     default_device,
-    early_stop_data_loader,
     get_optim_learning_rate,
-    infinite_data_loader,
     mask_difference,
     memory_aware_threshold,
     set_optim_learning_rate,
@@ -77,43 +72,6 @@ def test_get_set_optim_learning_rate():
 
     check_lr = get_optim_learning_rate(optim)
     assert abs(check_lr - 0.0001) < 1e-9
-
-
-def test_early_stop_data_loader():
-    dataset = RandNDataset(100, (3, 32, 32), True)
-    data_loader = DataLoader(dataset)
-
-    check_loader = early_stop_data_loader(data_loader, early_stop_steps=10)
-    check_count = 0
-
-    for _ in check_loader:
-        check_count += 1
-
-    assert check_count == 10
-
-    check_loader = early_stop_data_loader(data_loader, early_stop_steps=-1)
-    check_count = 0
-
-    for _ in check_loader:
-        check_count += 1
-
-    assert check_count == 100
-
-
-def test_infinite_data_loader():
-    dataset = RandNDataset(100, (3, 32, 32), True)
-    data_loader = DataLoader(dataset)
-
-    check_loader = infinite_data_loader(data_loader)
-    check_count = 0
-
-    for _ in check_loader:
-        check_count += 1
-
-        if check_count >= 150:
-            break
-
-    assert check_count == 150
 
 
 @pytest.mark.skipif(

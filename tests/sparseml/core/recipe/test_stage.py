@@ -22,7 +22,12 @@ def test_run_type_as_param():
         run_type: oneshot
         some_modifiers:
             QuantizationModifier:
-                ignore: ["ReLU", "input"]
+                ignore: ["lm_head"]
+                config_groups:
+                    group_0:
+                        targets: ["Linear"]
+                        weights:
+                            num_bits: 8
     second_stage:
         run_type: train
         some_modifiers:
@@ -40,7 +45,12 @@ def test_run_type_as_name():
     first_oneshot_stage:
         some_modifiers:
             QuantizationModifier:
-                ignore: ["ReLU", "input"]
+                ignore: ["lm_head"]
+                config_groups:
+                    group_0:
+                        targets: ["Linear"]
+                        weights:
+                            num_bits: 8
     second_train_stage:
         some_modifiers:
             ConstantPruningModifier:
@@ -57,7 +67,12 @@ def test_no_run_type():
     first_stage:
         some_modifiers:
             QuantizationModifier:
-                ignore: ["ReLU", "input"]
+                ignore: ["lm_head"]
+                config_groups:
+                    group_0:
+                        targets: ["Linear"]
+                        weights:
+                            num_bits: 8
     second_stage:
         some_modifiers:
             ConstantPruningModifier:

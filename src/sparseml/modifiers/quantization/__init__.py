@@ -13,3 +13,6 @@
 # limitations under the License.
 
 # flake8: noqa
+
+from .quantization import *
+from .gptq import *

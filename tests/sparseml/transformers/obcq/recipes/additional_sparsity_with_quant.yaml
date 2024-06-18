@@ -1,0 +1,38 @@
+test_stage:
+  obcq_modifiers:
+    SmoothQuantModifier:
+      smoothing_strength: 0.5
+      mappings: [
+        [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
+        [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
+      ]
+    QuantizationModifier:
+      ignore:
+        - model.layers.0.mlp.down_proj
+        - model.layers.1.mlp.down_proj
+        - model.layers.2.mlp.down_proj
+        - model.layers.3.mlp.down_proj
+        - model.layers.4.mlp.down_proj
+        - model.layers.5.mlp.down_proj
+      config_groups:
+          group_0:
+              targets: ["Linear"]
+              weights:
+                  num_bits: 8
+    SparseGPTModifier:
+      sparsity: 0.7
+      block_size: 128
+      sequential_update: False
+      percdamp: 0.01
+      mask_structure: "0:0"
+      targets: [
+        "model.layers.0",
+      ]
+      preserve_sparsity_mask: True
+    GPTQModifier:
+      sequential_update: False
+      dampening_frac: 0.01
+      targets: [
+        "model.layers.0",
+      ]
+      block_size: 128

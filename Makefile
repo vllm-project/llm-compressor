@@ -20,14 +20,8 @@ endif
 ifneq ($(findstring transformers,$(TARGETS)),transformers)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/transformers
 endif
-ifneq ($(findstring export,$(TARGETS)),export)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/export
-endif
 ifneq ($(findstring keras,$(TARGETS)),keras)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/keras
-endif
-ifneq ($(findstring onnx,$(TARGETS)),onnx)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/onnx
 endif
 ifneq ($(findstring pytorch,$(TARGETS)),pytorch)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparseml/pytorch

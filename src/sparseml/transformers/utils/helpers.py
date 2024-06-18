@@ -35,7 +35,6 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import PaddingStrategy
 
 from huggingface_hub import HUGGINGFACE_CO_URL_HOME, HfFileSystem, hf_hub_download
-from sparseml.export.helpers import ONNX_MODEL_NAME
 from sparseml.utils import download_zoo_training_dir
 from sparseml.utils.fsdp.context import main_process_first_context
 from sparsezoo import Model, setup_model
@@ -46,10 +45,8 @@ _LOGGER = logging.getLogger(__name__)
 
 __all__ = [
     "RECIPE_NAME",
-    "save_zoo_directory",
     "detect_last_checkpoint",
     "TaskNames",
-    "is_transformer_model",
     "resolve_sequence_length",
     "ALL_TASK_NAMES",
     "create_fake_dataloader",
@@ -73,18 +70,15 @@ class TaskNames(Enum):
 
 
 ALL_TASK_NAMES = list(set.union(*[task_names.value for task_names in TaskNames]))
-ONNX_MODEL_NAME_INTERMEDIATE = "model-orig.onnx"
 RECIPE_NAME = "recipe.yaml"
 
 MANDATORY_DEPLOYMENT_FILES = {
-    ONNX_MODEL_NAME,
     "tokenizer_config.json",
     "config.json",
 }
 OPTIONAL_DEPLOYMENT_FILES = {"tokenizer.json", "tokenizer.model"}
 NLG_MANDATORY_DEPLOYMENT_FILES = {"special_tokens_map.json"}
 NLG_OPTIONAL_DEPLOYMENT_FILES = {
-    ONNX_MODEL_NAME_INTERMEDIATE,
     "vocab.json",
     "merges.txt",
 }
@@ -97,69 +91,6 @@ POSSIBLE_TOKENIZER_FILES = {
     "tokenizer_config.json",
 }
 RELEVANT_HF_SUFFIXES = ["json", "md", "bin", "safetensors", "yaml", "yml", "py"]
-
-
-def is_transformer_model(source_path: Union[Path, str]) -> bool:
-    """
-    :param source_path: The path to the model
-    :return: Whether the model is a transformers model or not
-    """
-    if not os.path.isdir(source_path):
-        raise ValueError(f"Path {source_path} is not a valid directory")
-    expected_files = MANDATORY_DEPLOYMENT_FILES.difference({ONNX_MODEL_NAME})
-    return expected_files.issubset(os.listdir(source_path))
-
-
-def save_zoo_directory(
-    output_dir: str,
-    training_outputs_dir: str,
-    logs_path: Optional[str] = None,
-):
-    """
-    Takes the `training_outputs_dir`
-    (the directory where the pipeline saves its training artifacts),
-    and saves the training artifacts to `output_dir` as a sparsezoo Model class object.
-
-    :param output_dir: The output path where the artifacts are saved
-        (adhering to the structure of sparsezoo Model class object)
-    :param training_outputs_dir: The path to the existing directory
-        with the saved training artifacts
-    :param logs_path: Optional directory where the training logs reside
-    """
-    for root_file in ["sample-inputs", "sample-outputs"]:
-        root_file_path = os.path.join(training_outputs_dir, root_file)
-        if not os.path.exists(root_file_path):
-            _LOGGER.warning(
-                f"File {root_file_path} missing. To create this file, "
-                "make sure that the export script is being ran with"
-                "`--num_export_samples` argument."
-            )
-    for root_file in ["model.onnx", "deployment"]:
-        root_file_path = os.path.join(training_outputs_dir, root_file)
-        if not os.path.exists(root_file_path):
-            raise ValueError(
-                f"File {root_file_path} missing. To create this file, "
-                "make sure that the `export` script (for exporting "
-                "transformer models) has been evoked."
-            )
-
-    setup_model(
-        output_dir=output_dir,
-        training=os.path.join(training_outputs_dir, "training"),
-        deployment=os.path.join(training_outputs_dir, "deployment"),
-        onnx_model=os.path.join(training_outputs_dir, "model.onnx"),
-        sample_inputs=os.path.join(training_outputs_dir, "sample-inputs"),
-        sample_outputs=os.path.join(training_outputs_dir, "sample-outputs"),
-        model_card=os.path.join(training_outputs_dir, "model.md"),
-        logs=logs_path,
-        sample_labels=None,
-        sample_originals=None,
-        analysis=None,
-        benchmarks=None,
-        eval_results=None,
-        recipes=None,
-    )
-    _LOGGER.info(f"Created sparsezoo Model directory locally in {output_dir}")
 
 
 def detect_last_checkpoint(
