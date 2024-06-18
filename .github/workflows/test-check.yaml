@@ -142,30 +142,6 @@ jobs:
         run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
         run: make test TARGETS=pytorch
-  compat-pytorch-1_9-onnx-tests:
-    runs-on: ubuntu-22.04
-    env:
-      SPARSEZOO_TEST_MODE: "true"
-    needs: test-setup
-    if: ${{needs.test-setup.outputs.onnx == 1}}
-    steps:
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          repository: "neuralmagic/sparsezoo"
-          path: "sparsezoo"
-          ref: ${{needs.test-setup.outputs.branch}}
-      - name: "⚙️ Install sparsezoo dependencies"
-        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
-      - name: "Clean sparsezoo directory"
-        run: rm -r sparsezoo/
-      - name: "⚙️ Install dependencies"
-        run: pip3 install .[dev] torch==1.9.1
-      - name: "🔬 Running onnx tests"
-        run: make test TARGETS=onnx
   transformers-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
