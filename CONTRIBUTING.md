@@ -14,6 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
+TODO: update for upstream push
+
 # Contributing to SparseML
 
 If you’re reading this, hopefully we have piqued your interest to take the next step. Join us and help make SparseML even better! As a contributor, here are some community guidelines we would like you to follow:

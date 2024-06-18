@@ -1,8 +1,0 @@
-transformers
-torch
-faiss
-tqdm
-elasticsearch
-streamlit
-requests
-sparseml
