@@ -36,7 +36,6 @@ __all__ = [
     "test_epoch",
     "test_steps_per_epoch",
     "test_loss",
-    "framework",
     "LinearNet",
     "MLPNet",
     "FlatMLPNet",

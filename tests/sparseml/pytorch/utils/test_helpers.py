@@ -23,6 +23,7 @@ import torch
 from torch import Tensor
 from torch.nn import BatchNorm2d, Conv2d, Linear, Module, ReLU, Sequential
 from torch.optim import SGD
+
 from sparseml.pytorch.utils import (
     MEMORY_BOUNDED,
     default_device,

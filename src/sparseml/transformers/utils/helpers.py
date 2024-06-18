@@ -37,7 +37,7 @@ from transformers.utils import PaddingStrategy
 from huggingface_hub import HUGGINGFACE_CO_URL_HOME, HfFileSystem, hf_hub_download
 from sparseml.utils import download_zoo_training_dir
 from sparseml.utils.fsdp.context import main_process_first_context
-from sparsezoo import Model, setup_model
+from sparsezoo import Model
 
 
 _LOGGER = logging.getLogger(__name__)

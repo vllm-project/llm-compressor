@@ -14,5 +14,5 @@
 
 # flake8: noqa
 
-from .quantization import *
 from .gptq import *
+from .quantization import *

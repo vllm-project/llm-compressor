@@ -22,7 +22,6 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import DefaultDataCollator
 
-from compressed_tensors.quantization import fake_quantize
 from compressed_tensors.quantization.utils import is_module_quantized
 from parameterized import parameterized_class
 from sparseml.pytorch.utils import tensors_to_device

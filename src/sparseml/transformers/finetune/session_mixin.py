@@ -27,10 +27,10 @@ from transformers.trainer_utils import get_last_checkpoint
 
 import sparseml
 from sparseml.core.framework import Framework
+from sparseml.core.logger import LoggerManager
 from sparseml.core.session import callbacks
 from sparseml.pytorch.model_load.helpers import RECIPE_FILE_NAME, get_session_model
 from sparseml.pytorch.utils import ModuleSparsificationInfo
-from sparseml.core.logger import LoggerManager
 from sparseml.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,

@@ -32,19 +32,18 @@ COMPLETED_STAGES_FILENAME = "completed_stages.json"
 __all__ = [
     "log_model_load",
     "initialize_recipe",
-    "reload_model_state",
-    "reload_model_from_checkpoint",
     "save_model_and_recipe",
     "fallback_to_cpu",
     "parse_dtype",
     "get_session_model",
     "get_completed_stages",
-    "save_completed_stages"
+    "save_completed_stages",
 ]
 
 _LOGGER = logging.getLogger(__name__)
 
 RECIPE_FILE_NAME = "recipe.yaml"
+
 
 def log_model_load(
     model: Module, model_name_or_path: str, model_type: str, delayed_load: bool
@@ -110,22 +109,6 @@ def initialize_recipe(model: Module, recipe_path: str):
         else f"a staged recipe with {num_stages} stages"
     )
     _LOGGER.info(f"Applied {msg} to the model")
-
-def reload_model_from_checkpoint(model: Module, checkpoint: Optional[str] = None):
-    """
-    Reload the model state dict from a specified checkpoint if provided
-
-    :model: loaded pytorch module
-    :checkpoint: path to checkpoint file to load
-    """
-    if checkpoint is None:
-        return
-
-    orig_state_dict = model.state_dict()
-
-    # reload the state dict for the model from the checkpoint
-    if reload_model_state(model, checkpoint, orig_state_dict):
-        _LOGGER.info(f"Reloaded model state from checkpoint {checkpoint}")
 
 
 def save_model_and_recipe(

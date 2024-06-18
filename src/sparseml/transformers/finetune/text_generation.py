@@ -29,9 +29,9 @@ from sparseml import pre_initialize_structure, reset_session
 from sparseml.core.framework import Framework
 from sparseml.core.recipe import Recipe, StageRunType
 from sparseml.pytorch.model_load.helpers import (
-    initialize_recipe,
     fallback_to_cpu,
     get_session_model,
+    initialize_recipe,
     parse_dtype,
 )
 from sparseml.transformers import SparseAutoTokenizer

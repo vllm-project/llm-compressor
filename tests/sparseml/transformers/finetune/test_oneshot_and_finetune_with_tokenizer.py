@@ -28,13 +28,13 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
 
     def test_oneshot_and_finetune_with_tokenizer(self):
         import torch
+        from datasets import load_dataset
 
         from sparseml.transformers import (
             SparseAutoModelForCausalLM,
             SparseAutoTokenizer,
             compress,
         )
-        from datasets import load_dataset
 
         recipe_str = "tests/sparseml/transformers/finetune/test_alternate_recipe.yaml"
         model = SparseAutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
