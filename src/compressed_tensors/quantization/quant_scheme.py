@@ -108,10 +108,10 @@ def is_preset_scheme(name: str) -> bool:
 
 
 W8A8 = dict(
-    weights=QuantizationArgs(), input_activations=QuantizationArgs(symmetric=False)
+    weights=QuantizationArgs(), input_activations=QuantizationArgs(symmetric=True)
 )
 
-W4A16 = dict(weights=QuantizationArgs(num_bits=4, symmetric=False))
+W4A16 = dict(weights=QuantizationArgs(num_bits=4, symmetric=True))
 
 PRESET_SCHEMES = {
     "W8A8": W8A8,
