@@ -10,3 +10,10 @@ test_stage:
       block_size: 128
       sequential_update: False
       percdamp: 0.01
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 8
+          input_activations:
+            num_bits: 8
+          targets: ["Linear"]

@@ -14,4 +14,3 @@ test_stage:
         "model.layers.4",
         "model.layers.5"
       ]
-      target_ids: ["attention_mask", "position_ids"]  

@@ -20,12 +20,10 @@ from typing import Optional
 from transformers import PreTrainedModel
 
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
-from compressed_tensors.quantization.utils import is_model_quantized
 from sparseml.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
 from sparseml.transformers.compression.sparsity_config import SparsityConfigMetadata
-from sparseml.utils.pytorch import qat_active
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,21 +77,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             model = model_ref()
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.get("state_dict", None)
-
-            # check if we are in the old quantization framework
-            if qat_active(model) and not is_model_quantized(model):
-                _LOGGER.info(
-                    "Compression for models quantized with LegacyQuantizationModifer "
-                    "is not supported. Save will be run without compression and no "
-                    "sparsity statistics will be calculated. To save a quantized model "
-                    "in a compressed state please use QuantizationModifier instead."
-                )
-
-                original_save_pretrained.__get__(model, model_class)(
-                    save_directory, **kwargs
-                )
-
-                return
 
             if sparsity_config is not None:
                 sparsity_config.global_sparsity = (

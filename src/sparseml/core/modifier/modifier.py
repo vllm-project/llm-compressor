@@ -42,8 +42,8 @@ class Modifier(BaseModel, ModifierInterface, MultiFrameworkObject):
 
     index: Optional[int] = None
     group: Optional[str] = None
-    start: Optional[float] = None
-    end: Optional[float] = None
+    start: Optional[float] = -1
+    end: Optional[float] = -1
     update: Optional[float] = None
 
     initialized_structure_: bool = False

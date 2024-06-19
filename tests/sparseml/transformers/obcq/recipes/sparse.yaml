@@ -5,8 +5,5 @@ test_stage:
       block_size: 128
       sequential_update: False
       percdamp: 0.01
-      targets: [
-        "model.layers.0",
-        "model.layers.1",
-      ]
+      targets: ["model.layers.0", "model.layers.1"]
       mask_structure: "0:0"

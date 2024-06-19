@@ -6,7 +6,5 @@ test_stage:
       sequential_update: True
       percdamp: 0.01
       mask_structure: "0:0"
-      targets: [
-        "model.layers.0"
-      ]
-      target_ids: ["attention_mask", "position_ids"]  
+      targets: ["model.layers.0"]
+      preserve_sparsity_mask: True
