@@ -113,9 +113,7 @@ def is_preset_scheme(name: str) -> bool:
 
 W8A8 = dict(weights=QuantizationArgs(), input_activations=QuantizationArgs())
 
-W4A16 = dict(
-    weights=QuantizationArgs(num_bits=4, strategy=QuantizationStrategy.CHANNEL)
-)
+W4A16 = dict(weights=QuantizationArgs(num_bits=4, group_size=128))
 
 FP8 = dict(
     weights=QuantizationArgs(type=QuantizationType.FLOAT),
