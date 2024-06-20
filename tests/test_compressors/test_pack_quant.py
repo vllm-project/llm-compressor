@@ -110,10 +110,10 @@ def test_reload_match(tmp_path):
     dense_state_dict = {
         "dummy.weight": torch.rand((511, 350)),
         "dummy.weight_scale": torch.tensor(0.01, dtype=torch.float32),
-        "dummy.weight_zero_point": torch.tensor(0, dtype=torch.int32),
+        "dummy.weight_zero_point": torch.tensor(0, dtype=torch.int8),
         "dummy2.weight": torch.rand((128, 280)),
         "dummy2.weight_scale": torch.tensor(0.02, dtype=torch.float32),
-        "dummy2.weight_zero_point": torch.tensor(15, dtype=torch.int32),
+        "dummy2.weight_zero_point": torch.tensor(15, dtype=torch.int8),
     }
     quant_config = get_dummy_quant_config()
 

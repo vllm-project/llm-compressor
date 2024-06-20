@@ -126,10 +126,6 @@ class PackedQuantizationCompressor(Compressor):
             if "weight_scale" in weight_data:
                 zero_point = weight_data.get("weight_zero_point", None)
                 scale = weight_data["weight_scale"]
-                if zero_point is None:
-                    # zero_point assumed to be 0 if not included in state_dict
-                    zero_point = torch.zeros_like(scale)
-
                 weight = weight_data["weight_packed"]
                 original_shape = torch.Size(weight_data["weight_shape"])
                 unpacked = unpack_4bit_ints(weight, original_shape)

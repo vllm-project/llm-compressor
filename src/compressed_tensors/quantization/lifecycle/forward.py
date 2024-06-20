@@ -17,9 +17,11 @@ from math import ceil
 from typing import Optional
 
 import torch
+from compressed_tensors.quantization.observers.helpers import calculate_range
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
+    round_to_quantized_type,
 )
 from compressed_tensors.quantization.quant_config import QuantizationStatus
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
@@ -80,8 +82,9 @@ def quantize(
 def dequantize(
     x_q: torch.Tensor,
     scale: torch.Tensor,
-    zero_point: torch.Tensor,
+    zero_point: torch.Tensor = None,
     args: QuantizationArgs = None,
+    dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     """
     Dequantize a quantized input tensor x_q based on the strategy specified in args. If
@@ -91,16 +94,9 @@ def dequantize(
     :param scale: scale tensor
     :param zero_point: zero point tensor
     :param args: quantization args used to quantize x_q
+    :param dtype: optional dtype to cast the dequantized output to
     :return: dequantized float tensor
     """
-    # ensure all tensors are on the same device
-    # assumes that the target device is the input
-    # tensor's device
-    if x_q.device != scale.device:
-        scale = scale.to(x_q.device)
-    if x_q.device != zero_point.device:
-        zero_point = zero_point.to(x_q.device)
-        
     if args is None:
         if scale.ndim == 0 or scale.ndim == 1:
             args = QuantizationArgs(strategy=QuantizationStrategy.TENSOR)
@@ -115,8 +111,12 @@ def dequantize(
         else:
             raise ValueError(
                 f"Could not infer a quantization strategy from scale with {scale.ndim} "
-                "dimmensions. Expected 0-2 dimmensions."
+                "dimmensions. Expected 0 or 2 dimmensions."
             )
+
+    if dtype is None:
+        dtype = scale.dtype
+
     return _process_quantization(
         x=x_q,
         scale=scale,
@@ -124,6 +124,7 @@ def dequantize(
         args=args,
         do_quantize=False,
         do_dequantize=True,
+        dtype=dtype,
     )
 
 
@@ -167,19 +168,13 @@ def _process_quantization(
     do_quantize: bool = True,
     do_dequantize: bool = True,
 ) -> torch.Tensor:
-    bit_range = 2**args.num_bits
-    q_max = torch.tensor(bit_range / 2 - 1, device=x.device)
-    q_min = torch.tensor(-bit_range / 2, device=x.device)
+
+    q_min, q_max = calculate_range(args, x.device)
     group_size = args.group_size
 
     if args.strategy == QuantizationStrategy.GROUP:
-
-        if do_dequantize and not do_quantize:
-            # if dequantizing a quantized type infer the output type from the scale
-            output = torch.zeros_like(x, dtype=scale.dtype)
-        else:
-            output_dtype = dtype if dtype is not None else x.dtype
-            output = torch.zeros_like(x, dtype=output_dtype)
+        output_dtype = dtype if dtype is not None else x.dtype
+        output = torch.zeros_like(x).to(output_dtype)
 
         # TODO: vectorize the for loop
         # TODO: fix genetric assumption about the tensor size for computing group
@@ -189,7 +184,7 @@ def _process_quantization(
         while scale.ndim < 2:
             # pad scale and zero point dims for slicing
             scale = scale.unsqueeze(1)
-            zero_point = zero_point.unsqueeze(1)
+            zero_point = zero_point.unsqueeze(1) if zero_point is not None else None
 
         columns = x.shape[1]
         if columns >= group_size:
@@ -202,12 +197,18 @@ def _process_quantization(
             # scale.shape should be [nchan, ndim]
             # sc.shape should be [nchan, 1] after unsqueeze
             sc = scale[:, i].view(-1, 1)
-            zp = zero_point[:, i].view(-1, 1)
+            zp = zero_point[:, i].view(-1, 1) if zero_point is not None else None
 
             idx = i * group_size
             if do_quantize:
                 output[:, idx : (idx + group_size)] = _quantize(
-                    x[:, idx : (idx + group_size)], sc, zp, q_min, q_max, dtype=dtype
+                    x[:, idx : (idx + group_size)],
+                    sc,
+                    zp,
+                    q_min,
+                    q_max,
+                    args,
+                    dtype=dtype,
                 )
             if do_dequantize:
                 input = (
@@ -219,7 +220,15 @@ def _process_quantization(
 
     else:  # covers channel, token and tensor strategies
         if do_quantize:
-            output = _quantize(x, scale, zero_point, q_min, q_max, dtype=dtype)
+            output = _quantize(
+                x,
+                scale,
+                zero_point,
+                q_min,
+                q_max,
+                args,
+                dtype=dtype,
+            )
         if do_dequantize:
             output = _dequantize(output if do_quantize else x, scale, zero_point)
 
@@ -313,14 +322,18 @@ def _quantize(
     zero_point: torch.Tensor,
     q_min: torch.Tensor,
     q_max: torch.Tensor,
+    args: QuantizationArgs,
     dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
-    quantized_value = torch.clamp(
-        torch.round(x / scale + zero_point),
+
+    scaled = x / scale + zero_point.to(x.dtype)
+    # clamp first because cast isn't guaranteed to be saturated (ie for fp8)
+    clamped_value = torch.clamp(
+        scaled,
         q_min,
         q_max,
     )
-
+    quantized_value = round_to_quantized_type(clamped_value, args)
     if dtype is not None:
         quantized_value = quantized_value.to(dtype)
 
@@ -331,6 +344,16 @@ def _quantize(
 def _dequantize(
     x_q: torch.Tensor,
     scale: torch.Tensor,
-    zero_point: torch.Tensor,
+    zero_point: torch.Tensor = None,
+    dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
-    return (x_q - zero_point) * scale
+
+    dequant_value = x_q
+    if zero_point is not None:
+        dequant_value = dequant_value - zero_point.to(scale.dtype)
+    dequant_value = dequant_value.to(scale.dtype) * scale
+
+    if dtype is not None:
+        dequant_value = dequant_value.to(dtype)
+
+    return dequant_value

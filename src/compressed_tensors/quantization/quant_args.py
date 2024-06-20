@@ -15,10 +15,19 @@
 from enum import Enum
 from typing import Any, Dict, Optional
 
+import torch
 from pydantic import BaseModel, Field, validator
 
 
-__all__ = ["QuantizationType", "QuantizationStrategy", "QuantizationArgs"]
+__all__ = [
+    "FP8_DTYPE",
+    "QuantizationType",
+    "QuantizationStrategy",
+    "QuantizationArgs",
+    "round_to_quantized_type",
+]
+
+FP8_DTYPE = torch.float8_e4m3fn
 
 
 class QuantizationType(str, Enum):
@@ -123,3 +132,38 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             return QuantizationStrategy.TENSOR
 
         return value
+
+    def pytorch_dtype(self) -> torch.dtype:
+        if self.type == QuantizationType.FLOAT:
+            return FP8_DTYPE
+        elif self.type == QuantizationType.INT:
+            if self.num_bits <= 8:
+                return torch.int8
+            elif self.num_bits <= 16:
+                return torch.int16
+            else:
+                return torch.int32
+        else:
+            raise ValueError(f"Invalid quantization type {self.type}")
+
+
+def round_to_quantized_type(
+    tensor: torch.Tensor, args: QuantizationArgs
+) -> torch.Tensor:
+    """
+    Rounds each element of the input tensor to the nearest quantized representation,
+    keeping to original dtype
+
+    :param tensor: tensor to round
+    :param args: QuantizationArgs to pull appropriate dtype from
+    :return: rounded tensor
+    """
+    original_dtype = tensor.dtype
+    if args.type == QuantizationType.FLOAT:
+        rounded = tensor.to(FP8_DTYPE)
+    elif args.type == QuantizationType.INT:
+        rounded = torch.round(tensor)
+    else:
+        raise ValueError(f"Invalid quantization type {args.type}")
+
+    return rounded.to(original_dtype)

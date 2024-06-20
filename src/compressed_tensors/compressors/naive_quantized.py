@@ -27,17 +27,21 @@ from torch import Tensor
 from tqdm import tqdm
 
 
-__all__ = ["IntQuantizationCompressor"]
+__all__ = [
+    "QuantizationCompressor",
+    "IntQuantizationCompressor",
+    "FloatQuantizationCompressor",
+]
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-@Compressor.register(name=CompressionFormat.int_quantized.value)
-class IntQuantizationCompressor(Compressor):
+@Compressor.register(name=CompressionFormat.naive_quantized.value)
+class QuantizationCompressor(Compressor):
     """
-    Integer compression for quantized models. Weight of each quantized layer is
-    converted from its original float type to the format specified by the layer's
-    quantization scheme.
+    Implements naive compression for quantized models. Weight of each
+    quantized layer is converted from its original float type to the closest Pytorch
+    type to the type specified by the layer's QuantizationArgs.
     """
 
     COMPRESSION_PARAM_NAMES = ["weight", "weight_scale", "weight_zero_point"]
@@ -77,7 +81,7 @@ class IntQuantizationCompressor(Compressor):
                             scale=scale,
                             zero_point=zp,
                             args=quant_args,
-                            dtype=torch.int8,
+                            dtype=quant_args.pytorch_dtype(),
                         )
             elif name.endswith("zero_point"):
                 if torch.all(value == 0):
@@ -114,13 +118,27 @@ class IntQuantizationCompressor(Compressor):
             if "weight_scale" in weight_data:
                 zero_point = weight_data.get("weight_zero_point", None)
                 scale = weight_data["weight_scale"]
-                if zero_point is None:
-                    # zero_point assumed to be 0 if not included in state_dict
-                    zero_point = torch.zeros_like(scale)
-
                 decompressed = dequantize(
                     x_q=weight_data["weight"],
                     scale=scale,
                     zero_point=zero_point,
                 )
                 yield merge_names(weight_name, "weight"), decompressed
+
+
+@Compressor.register(name=CompressionFormat.int_quantized.value)
+class IntQuantizationCompressor(QuantizationCompressor):
+    """
+    Alias for integer quantized models
+    """
+
+    pass
+
+
+@Compressor.register(name=CompressionFormat.float_quantized.value)
+class FloatQuantizationCompressor(QuantizationCompressor):
+    """
+    Alias for fp quantized models
+    """
+
+    pass
