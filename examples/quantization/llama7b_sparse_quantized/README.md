@@ -1,6 +1,6 @@
 # Creating a Sparse Quantized Llama7b Model
 
-This example uses SparseML and Compressed-Tensors to create a 2:4 sparse and quantized Llama2-7b model.
+This example uses LLMCompressor and Compressed-Tensors to create a 2:4 sparse and quantized Llama2-7b model.
 The model is calibrated and trained with the ultachat200k dataset.
 At least 75GB of GPU memory is required to run this example.
 
@@ -21,7 +21,7 @@ and quantize to 4 bits in one show using GPTQ.
 
 ```python
 import torch
-from sparseml.transformers import SparseAutoModelForCausalLM
+from llmcompressor.transformers import SparseAutoModelForCausalLM
 
 model_stub = "zoo:llama2-7b-ultrachat200k_llama2_pretrain-base"
 model = SparseAutoModelForCausalLM.from_pretrained(
@@ -40,7 +40,7 @@ The hardcoded kwargs may be altered based on each model's needs.
 After running, the sparsified model will be saved to `output_llama7b_2:4_w4a16_channel`.
 
 ```python
-from sparseml.transformers import apply
+from llmcompressor.transformers import apply
 
 output_dir = "output_llama7b_2:4_w4a16_channel"
 
@@ -71,7 +71,7 @@ run the following:
 
 ```python
 import torch
-from sparseml.transformers import SparseAutoModelForCausalLM
+from llmcompressor.transformers import SparseAutoModelForCausalLM
 
 compressed_output_dir = "output_llama7b_2:4_w4a16_channel_compressed"
 model = SparseAutoModelForCausalLM.from_pretrained(output_dir, torch_dtype=torch.bfloat16)

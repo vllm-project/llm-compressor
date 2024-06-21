@@ -1,9 +1,8 @@
 import torch
 
-from sparseml.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
-
-# define a sparseml recipe for GPTQ W8A8 quantization
+# define a llmcompressor recipe for GPTQ W8A8 quantization
 recipe = """
 quant_stage:
     quant_modifiers:

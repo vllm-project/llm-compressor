@@ -1,6 +1,0 @@
-cadence: "commit"
-test_type: "smoke"
-tokenize: False
-model: "Xenova/llama2.c-stories15M"
-dataset: open_platypus
-recipe: "tests/sparseml/transformers/oneshot/oneshot_configs/recipes/recipe.yaml"

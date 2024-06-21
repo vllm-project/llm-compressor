@@ -21,5 +21,5 @@ RUN python3.10 -m pip install torch==${TORCH_VERSION}+cu${CUDA} torchvision==${T
     && python3.10 -m pip install -e "./sparseml[dev]"
 
 HEALTHCHECK CMD python3.10 -c 'import sparseml'
-RUN python3.10 -m pip list | grep sparseml
+RUN python3.10 -m pip list | grep llmcompressor
 CMD bash

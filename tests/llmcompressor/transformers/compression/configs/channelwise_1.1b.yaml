@@ -1,0 +1,5 @@
+cadence: "nightly"
+test_type: "regression"
+model_stub: "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+new_recipe: "tests/llmcompressor/transformers/compression/recipes/new_quant_channel.yaml"
+ppl_threshold: 20

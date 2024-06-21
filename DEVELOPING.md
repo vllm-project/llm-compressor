@@ -29,7 +29,7 @@ Here are some details to get started.
 
 ```bash
 git clone https://github.com/neuralmagic/sparseml.git
-cd sparseml
+cd llmcompressor
 python3 -m pip install -e "./[dev]"
 ```
 
@@ -73,20 +73,20 @@ File any error found before changes as an Issue and fix any errors found after m
 
 ## GitHub Workflow
 
-1. Fork the `neuralmagic/sparseml` repository into your GitHub account: https://github.com/neuralmagic/sparseml/fork.
+1. Fork the `TODO/llmcompressor` repository into your GitHub account: https://github.com/TODO/llmcompressor/fork.
 
 2. Clone your fork of the GitHub repository, replacing `<username>` with your GitHub username.
 
    Use ssh (recommended):
 
    ```bash
-   git clone git@github.com:<username>/sparseml.git
+   git clone git@github.com:<username>/llmcompressor.git
    ```
 
    Or https:
 
    ```bash
-   git clone https://github.com/<username>/sparseml.git
+   git clone https://github.com/<username>/llmcompressor.git
    ```
 
 3. Add a remote to keep up with upstream changes.
@@ -138,10 +138,10 @@ File any error found before changes as an Issue and fix any errors found after m
    Go to your fork main page
 
    ```bash
-   https://github.com/<username>/sparseml
+   https://github.com/<username>/llmcompressor
    ```
 
-   If you recently pushed your changes GitHub will automatically pop up a `Compare & pull request` button for any branches you recently pushed to. If you click that button it will automatically offer you to submit your pull-request to the `neuralmagic/sparseml` repository.
+   If you recently pushed your changes GitHub will automatically pop up a `Compare & pull request` button for any branches you recently pushed to. If you click that button it will automatically offer you to submit your pull-request to the `TODO/llmcompressor` repository.
 
    - Give your pull-request a meaningful title.
      You'll know your title is properly formatted once the `Semantic Pull Request` GitHub check

@@ -9,7 +9,7 @@ examples/transformers/output/
 examples/transformers/runs/
 examples/transformers/wandb/
 /imagenet-schedule-training/
-/sparseml/models/pretrained/
+/llmcompressor/models/pretrained/
 notebooks/logs/*
 notebooks/tensorflow*_classification_pruning/
 /.ipynb_checkpoints
@@ -17,9 +17,9 @@ examples/pytorch-torchvision/torchvision_models/
 notebooks/pytorch_classification/
 notebooks/pytorch_detection/
 notebooks/tensorflow_v1_classification_pruning/
-sparseml/data/*
-sparseml/checkpoints
-sparseml/pruned
+llmcompressor/data/*
+llmcompressor/checkpoints
+llmcompressor/pruned
 tensorboard/*
 onnx/*
 repos/*

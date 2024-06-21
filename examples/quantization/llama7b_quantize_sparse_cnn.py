@@ -1,14 +1,13 @@
 import torch
 from datasets import load_dataset
 
-from sparseml.transformers import (
+from llmcompressor.transformers import (
     SparseAutoModelForCausalLM,
     SparseAutoTokenizer,
     oneshot,
 )
 
-
-# define a sparseml recipe for GPTQ W4A16 quantization
+# define a llmcompressor recipe for GPTQ W4A16 quantization
 recipe = """
 quant_stage:
     quant_modifiers:

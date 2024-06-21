@@ -1,8 +1,0 @@
-cadence: "commit"
-test_type: "sanity"
-model: "Xenova/llama2.c-stories15M"
-dataset: wikitext
-dataset_config_name: "wikitext-2-raw-v1"
-recipe: "tests/sparseml/transformers/finetune/test_alternate_recipe.yaml"
-num_train_epochs: 1
-concat_txt: False

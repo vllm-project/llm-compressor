@@ -85,10 +85,10 @@ RUN \
         $VENV/bin/pip install --no-cache-dir "sparseml-nightly==$VERSION"; \
       fi; \
     elif [ -z "$VERSION" ] ; then \
-      echo Installing latest sparseml ... from pypi && \
+      echo Installing latest llmcompressor ... from pypi && \
       $VENV/bin/pip install --no-cache-dir "sparseml"; \
     else \
-      echo Installing latest sparseml version="$VERSION" from pypi && \
+      echo Installing latest llmcompressor version="$VERSION" from pypi && \
       $VENV/bin/pip install --no-cache-dir "sparseml==$VERSION"; \
     fi;
 
@@ -151,6 +151,6 @@ ARG VENV
 COPY --from=build $VENV $VENV
 ENV PATH="${VENV}/bin:$PATH"
 HEALTHCHECK CMD python -c 'import sparseml'
-RUN pip list | grep sparseml
+RUN pip list | grep llmcompressor
 CMD bash
 

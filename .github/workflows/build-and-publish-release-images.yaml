@@ -43,7 +43,7 @@ jobs:
         run: |
           echo ${{ steps.extract_tag.outputs.tag }}
 
-      - name: Build and push sparseml latest using default cuda 11.1.1
+      - name: Build and push llmcompressor latest using default cuda 11.1.1
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: docker/build-push-action@v2
         with:
@@ -55,7 +55,7 @@ jobs:
           tags: |
             ghcr.io/neuralmagic/sparseml:latest
 
-      - name: Build and push sparseml with all dependencies and default cuda 11.1.1
+      - name: Build and push llmcompressor with all dependencies and default cuda 11.1.1
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: docker/build-push-action@v2
         with:
@@ -67,7 +67,7 @@ jobs:
           tags: |
             ghcr.io/neuralmagic/sparseml:${{ steps.extract_tag.outputs.tag }}
 
-      - name: Build and push sparseml with all dependencies and cuda 10.2
+      - name: Build and push llmcompressor with all dependencies and cuda 10.2
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: docker/build-push-action@v2
         with:
@@ -80,7 +80,7 @@ jobs:
           tags: |
             ghcr.io/neuralmagic/sparseml:${{ steps.extract_tag.outputs.tag }}-cu102
 
-      - name: Build and push sparseml-base cu11.1.1
+      - name: Build and push llmcompressor-base cu11.1.1
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: docker/build-push-action@v2
         with:
@@ -92,7 +92,7 @@ jobs:
           tags: |
             ghcr.io/neuralmagic/sparseml-base:${{ steps.extract_tag.outputs.tag }}
 
-      - name: Build and push sparseml-base cu10.2
+      - name: Build and push llmcompressor-base cu10.2
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: docker/build-push-action@v2
         with:

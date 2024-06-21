@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from sparseml.transformers.finetune.session_mixin import SessionManagerMixIn
 from trl import SFTTrainer as TRLSFTTrainer
 
+from llmcompressor.transformers.finetune.session_mixin import SessionManagerMixIn
 
 __all__ = ["SFTTrainer"]
 

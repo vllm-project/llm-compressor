@@ -13,15 +13,14 @@
 # limitations under the License.
 
 from datasets import load_dataset
+from trl import DataCollatorForCompletionOnlyLM
 
-from sparseml.transformers import (
+from llmcompressor.transformers import (
     SFTTrainer,
     SparseAutoModelForCausalLM,
     SparseAutoTokenizer,
     TrainingArguments,
 )
-from trl import DataCollatorForCompletionOnlyLM
-
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 output_dir = "./output_trl_sft_test_7b_gsm8k_sft_data"

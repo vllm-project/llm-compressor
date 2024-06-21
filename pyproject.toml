@@ -1,12 +1,28 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [tool.black]
 line-length = 88
-target-version = ['py36']
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+files = "src/guidellm"
+
+[tool.ruff]
+exclude = ["build", "dist", "env", ".venv"]
+lint.select = ["E", "F", "W"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = 'E203'
 
 [tool.pytest.ini_options]
-tmp_path_retention_policy = "none"
 markers = [
-    "integration: integration tests",
-    "unit: unit tests",
-    "custom: custom integration tests",
-    "smoke: smoke tests"
+    "smoke: quick tests to check basic functionality",
+    "sanity: tests to ensure that new changes do not break existing functionality",
+    "regression: detailed tests to ensure major functions work correctly"
 ]

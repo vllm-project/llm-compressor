@@ -14,12 +14,12 @@ dataset = "open_platypus"
 ```
 
 ## Step 2: Configure a `GPTQModifier`
-Modifiers in sparseml are used to apply optimizations to models. In this example we use a
+Modifiers in LLMCompressor are used to apply optimizations to models. In this example we use a
 `GPTQModifier` to apply the GPTQ algorithm to our model.  We target all `Linear` layers
 for 4-bit weight quantization.  These options may be swapped out for any valid `QuantizationScheme`.
 
 ```python
-from sparseml.modifiers.quantization.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
 gptq = GPTQModifier(
     targets="Linear",
@@ -35,7 +35,7 @@ Setting `save_compressed` to True runs the model through `compressed_tensors` co
 after the quantization is completed.
 
 ```python
-from sparseml.transformers import oneshot
+from llmcompressor.transformers import oneshot
 
 oneshot(
     model=model,

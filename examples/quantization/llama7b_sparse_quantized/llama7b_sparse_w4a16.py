@@ -1,7 +1,6 @@
 import torch
 
-from sparseml.transformers import SparseAutoModelForCausalLM, apply
-
+from llmcompressor.transformers import SparseAutoModelForCausalLM, apply
 
 # define a recipe to handle sparsity, finetuning and quantization
 recipe = "2:4_w4a16_recipe.yaml"

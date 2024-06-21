@@ -1,0 +1,7 @@
+cadence: "commit"
+test_type: "smoke"
+tokenize: False
+model: "Xenova/llama2.c-stories15M"
+dataset: "gsm8k"
+dataset_config_name: "main"
+recipe: "tests/llmcompressor/transformers/oneshot/oneshot_configs/recipes/recipe.yaml"

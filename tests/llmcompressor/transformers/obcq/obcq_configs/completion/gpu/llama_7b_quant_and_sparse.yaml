@@ -1,0 +1,8 @@
+cadence: "weekly"
+test_type: "regression"
+model: "zoo:llama2-7b-llama2_pretrain-base"
+dataset: open_platypus
+recipe: "tests/llmcompressor/transformers/obcq/recipes/quant_and_sparse.yaml"
+device: "cuda:0"
+num_samples: 512
+perplexity: 20

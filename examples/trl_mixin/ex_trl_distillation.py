@@ -14,7 +14,7 @@
 
 from transformers import DefaultDataCollator
 
-from sparseml.transformers import (
+from llmcompressor.transformers import (
     DataTrainingArguments,
     SFTTrainer,
     SparseAutoModelForCausalLM,
@@ -22,7 +22,6 @@ from sparseml.transformers import (
     TextGenerationDataset,
     TrainingArguments,
 )
-
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 teacher_path = "zoo:llama2-7b-gsm8k_llama2_pretrain-base"

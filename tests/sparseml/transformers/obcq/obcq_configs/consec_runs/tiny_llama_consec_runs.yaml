@@ -1,6 +1,0 @@
-cadence: "commit"
-test_type: "sanity"
-model: "Xenova/llama2.c-stories15M"
-dataset: open_platypus
-first_recipe: "tests/sparseml/transformers/obcq/recipes/quant_and_sparse.yaml"
-second_recipe: "tests/sparseml/transformers/obcq/recipes/additional_sparsity.yaml"
