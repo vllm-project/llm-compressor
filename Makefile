@@ -31,7 +31,7 @@ style:
 # run tests for the repo
 test:
 	@echo "Running python tests";
-	pytest tests $(PYTEST_ARGS)
+	SPARSEZOO_TEST_MODE="true" pytest tests $(PYTEST_ARGS)
 
 # creates wheel file
 build:
