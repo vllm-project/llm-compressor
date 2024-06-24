@@ -38,7 +38,7 @@ accelerate launch
     --splits "train"
 ```
 
-See [configure_fsdp.md](./examples/finetuning/configure_fsdp.md) for additional instructions on setting up FSDP configuration
+See [configure_fsdp.md](../../../../examples/finetuning/configure_fsdp.md) for additional instructions on setting up FSDP configuration
 
 ## Launching from Python
 
