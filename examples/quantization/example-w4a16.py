@@ -6,7 +6,7 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto"
+    MODEL_ID, device_map="auto", torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -45,7 +45,7 @@ quant_stage:
                         type: "int"
                         symmetric: true
                         strategy: "group"
-                        groupsize: 128
+                        group_size: 128
                     targets: ["Linear"]
 """
 

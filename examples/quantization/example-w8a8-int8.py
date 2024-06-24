@@ -3,9 +3,9 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from transformers import AutoTokenizer
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto"
+    MODEL_ID, device_map="auto", torch_dtype='auto',
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -15,7 +15,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES=512
+NUM_CALIBRATION_SAMPLES=32
 MAX_SEQUENCE_LENGTH=2048
 
 # Load dataset and preprocess.
