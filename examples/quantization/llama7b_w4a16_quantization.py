@@ -21,7 +21,7 @@ quant_stage:
 
 # setting device_map to auto to spread the model evenly across all available GPUs
 # load the model in as bfloat16 to save on memory and compute
-model_stub = "zoo:llama2-7b-ultrachat200k_llama2_pretrain-base"
+model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )

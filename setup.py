@@ -62,7 +62,6 @@ setup(
         "compressed-tensors"
         if version_info.is_release
         else "compressed-tensors-nightly",
-        "sparsezoo" if version_info.is_release else "sparsezoo-nightly",
     ],
     extras_require={
         "dev": [

@@ -10,7 +10,7 @@ Follow the steps below, or to run the example as `python examples/llama7b_sparse
 In this step, we select which model to use as a baseline for sparsification, a dataset to
 use for calibration and finetuning, and a recipe.
 
-Models can reference a local directory, model in the huggingface hub, or in the sparsezoo.
+Models can reference a local directory, or a model in the huggingface hub.
 
 Datasets can be from a local compatible directory or the huggingface hub.
 
@@ -23,7 +23,7 @@ and quantize to 4 bits in one show using GPTQ.
 import torch
 from llmcompressor.transformers import SparseAutoModelForCausalLM
 
-model_stub = "zoo:llama2-7b-ultrachat200k_llama2_pretrain-base"
+model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )

@@ -38,7 +38,7 @@ accelerate launch
     --splits "train"
 ```
 
-See [configure_fsdp.md](https://github.com/neuralmagic/llmcompressor/blob/main/integrations/huggingface-transformers/finetuning/configure_fsdp.md) for additional instructions on setting up FSDP configuration
+See [configure_fsdp.md](../../../../examples/finetuning/configure_fsdp.md) for additional instructions on setting up FSDP configuration
 
 ## Launching from Python
 
@@ -132,7 +132,7 @@ A recipe can be run stage-by-stage by setting `run_stages` to `True` or calling 
 a `run_type` attribute set to either `oneshot` or `train` when running in sequential 
 mode.
 
-See [example_alternating_recipe.yaml](../../../../integrations/huggingface-transformers/tutorials/text-generation/example_alternating_recipe.yaml) for an example 
+See [example_alternating_recipe.yaml](../../../../examples/finetuning/example_alternating_recipe.yaml) for an example 
 of a staged recipe for Llama. 
 
 ### Python Example

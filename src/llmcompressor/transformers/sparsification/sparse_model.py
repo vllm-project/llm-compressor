@@ -41,8 +41,8 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
     """
     SparseML wrapper for the AutoModelForCausalLM class
     Its lifecycle is defined as follows:
-    1. If pretrained_model_name_or_path is a SparseZoo stub
-       the appropriate SparseZoo model will be downloaded
+    1. If pretrained_model_name_or_path is a HuggingFace stub
+       the appropriate HuggingFace model will be downloaded
        (if required) and the path to the deployment directory
        of the model will be retrieved
     2. The original model definition will be loaded, without

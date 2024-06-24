@@ -14,7 +14,7 @@
 
 from typing import Dict
 
-from sparsezoo.utils.registry import RegistryMixin
+from compressed_tensors.registry import RegistryMixin
 
 
 class PreprocessingFunctionRegistry(RegistryMixin):

@@ -75,10 +75,9 @@ class TestSparsitiesGPU(unittest.TestCase):
 
         self.output = "./oneshot_output"
 
-        if "zoo:" in self.model:
-            self.model = SparseAutoModelForCausalLM.from_pretrained(
-                self.model, device_map=self.device, torch_dtype=torch.bfloat16
-            )
+        self.model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map=self.device, torch_dtype=torch.bfloat16
+        )
 
     def test_sparsities_gpu(self):
         from llmcompressor.pytorch.model_load.helpers import get_session_model
