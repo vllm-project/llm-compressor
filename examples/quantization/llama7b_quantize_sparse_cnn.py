@@ -3,9 +3,10 @@ from datasets import load_dataset
 
 from llmcompressor.transformers import (
     SparseAutoModelForCausalLM,
-    SparseAutoTokenizer,
     oneshot,
 )
+
+from transformers import AutoTokenizer
 
 # define a llmcompressor recipe for GPTQ W4A16 quantization
 recipe = """
@@ -30,7 +31,7 @@ model_stub = "neuralmagic/SparseLlama-2-7b-cnn-daily-mail-pruned_50.2of4"
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
-tokenizer = SparseAutoTokenizer.from_pretrained(model_stub)
+tokenizer = AutoTokenizer.from_pretrained(model_stub)
 
 # for quantization calibration, we will use a subset of the dataset that was used to
 # sparsify and finetune the model

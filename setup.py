@@ -64,8 +64,7 @@ setup(
         "sentencepiece",
         "compressed-tensors"
         if version_info.is_release
-        else "compressed-tensors-nightly",
-        "sparsezoo" if version_info.is_release else "sparsezoo-nightly",
+        else "compressed-tensors-nightly"
     ],
     extras_require={
         "dev": [

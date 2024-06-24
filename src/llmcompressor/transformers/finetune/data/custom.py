@@ -15,7 +15,6 @@ from copy import deepcopy
 from typing import Dict, List, Union
 
 from datasets.dataset_dict import Dataset, DatasetDict
-from sparsezoo.utils.helpers import import_from_path
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.transformers.utils.preprocessing_functions import (

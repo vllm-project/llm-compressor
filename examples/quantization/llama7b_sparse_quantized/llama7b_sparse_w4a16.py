@@ -6,7 +6,7 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, apply
 recipe = "2:4_w4a16_recipe.yaml"
 
 # load the model in as bfloat16 to save on memory and compute
-model_stub = "zoo:llama2-7b-ultrachat200k_llama2_pretrain-base"
+model_stub = "neuralmagic/Llama-2-7b-ultrachat200k”
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )

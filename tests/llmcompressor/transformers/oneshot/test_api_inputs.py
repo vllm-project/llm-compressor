@@ -25,12 +25,12 @@ class TestOneShotInputs(unittest.TestCase):
     tokenize = None
 
     def setUp(self):
+        from transformers import AutoTokenizer
         from llmcompressor.transformers import (
             SparseAutoModelForCausalLM,
-            SparseAutoTokenizer,
         )
 
-        self.tokenizer = SparseAutoTokenizer.from_pretrained(self.model)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model)
         self.model = SparseAutoModelForCausalLM.from_pretrained(self.model)
         self.output = "./oneshot_output"
         self.kwargs = {"dataset_config_name": self.dataset_config_name}

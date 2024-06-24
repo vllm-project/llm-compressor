@@ -23,7 +23,7 @@ from pathlib import PosixPath
 
 import datasets
 import transformers
-from transformers import AutoConfig, DefaultDataCollator, HfArgumentParser, set_seed
+from transformers import AutoConfig, DefaultDataCollator, HfArgumentParser, set_seed, AutoTokenizer
 
 from llmcompressor import pre_initialize_structure, reset_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -33,7 +33,6 @@ from llmcompressor.pytorch.model_load.helpers import (
     parse_dtype,
 )
 from llmcompressor.recipe import Recipe, StageRunType
-from llmcompressor.transformers import SparseAutoTokenizer
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
@@ -216,7 +215,7 @@ def intialize_model_from_path(
 def initialize_tokenizer_from_path(model_args, model, teacher):
     tokenizer_src = model_args.tokenizer
     tokenizer_src = tokenizer_src or get_shared_tokenizer_src(model, teacher)
-    tokenizer = SparseAutoTokenizer.from_pretrained(
+    tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_src,
         cache_dir=model_args.cache_dir,
         use_fast=True,
@@ -239,7 +238,7 @@ def main(
     Lifecycle:
         - SparseAutoModel.text_generation_from_pretrained if model provided as
             string for model and teacher
-        - SparseAutoTokenizer.from_pretrained() if tokenizer provided as
+        - AutoTokenizer.from_pretrained() if tokenizer provided as
             string for tokenizer
         - StageRunner.populate_datasets()
         - Trainer()

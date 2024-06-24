@@ -22,7 +22,6 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
-from sparsezoo import Model
 
 __all__ = [
     "ALL_TOKEN",
@@ -57,8 +56,7 @@ __all__ = [
     "json_to_jsonl",
     "deprecation_warning",
     "parse_kwarg_tuples",
-    "is_package_available",
-    "download_zoo_training_dir",
+    "is_package_available"
 ]
 
 
@@ -1001,26 +999,3 @@ def is_package_available(
         return package_exists, package_version
     else:
         return package_exists
-
-
-def download_zoo_training_dir(zoo_stub: str) -> str:
-    """
-    Helper function to download the training directory from a zoo stub,
-    takes care of downloading the missing files in the training
-    directory if any (This can happen if a some subset of files in the
-    training directory were downloaded before)
-
-    :param zoo_stub: The zoo stub to download the training directory from
-    :return: The path to the downloaded training directory
-    """
-    sparsezoo_model = Model(zoo_stub)
-    training_dir_path = sparsezoo_model.training.path
-
-    # download missing files if any this can happen if
-    # some subset of files in the training directory
-    # were downloaded before
-
-    for file_name in sparsezoo_model.training.files:
-        file_name.path
-
-    return training_dir_path

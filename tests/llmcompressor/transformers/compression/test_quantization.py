@@ -8,12 +8,11 @@ import torch
 from compressed_tensors.quantization.utils import is_module_quantized
 from parameterized import parameterized_class
 from torch.utils.data import DataLoader
-from transformers import DefaultDataCollator
+from transformers import DefaultDataCollator, AutoTokenizer
 
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers import (
     SparseAutoModelForCausalLM,
-    SparseAutoTokenizer,
     oneshot,
 )
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
@@ -147,7 +146,7 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @torch.no_grad()
     def test_perplexity(self):
-        tokenizer = SparseAutoTokenizer.from_pretrained(self.model_stub)
+        tokenizer = AutoTokenizer.from_pretrained(self.model_stub)
         data_args = DataTrainingArguments(
             dataset="ultrachat-200k",
             max_seq_length=self.max_seq_length,

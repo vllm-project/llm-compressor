@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from transformers import DefaultDataCollator
+from transformers import DefaultDataCollator, AutoTokenizer
 
 from llmcompressor.transformers import (
     DataTrainingArguments,
     SFTTrainer,
     SparseAutoModelForCausalLM,
-    SparseAutoTokenizer,
     TextGenerationDataset,
     TrainingArguments,
 )
@@ -34,7 +33,7 @@ teacher = SparseAutoModelForCausalLM.from_pretrained(
     teacher_path, torch_dtype="auto", device_map="auto"
 )
 
-tokenizer = SparseAutoTokenizer.from_pretrained(model_path)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
 
 # Load gsm8k using SparseML dataset tools
 data_args = DataTrainingArguments(

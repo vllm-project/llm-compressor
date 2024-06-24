@@ -23,7 +23,7 @@ and quantize to 4 bits in one show using GPTQ.
 import torch
 from llmcompressor.transformers import SparseAutoModelForCausalLM
 
-model_stub = "zoo:llama2-7b-ultrachat200k_llama2_pretrain-base"
+model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
