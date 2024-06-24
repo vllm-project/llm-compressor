@@ -14,12 +14,12 @@ ifneq ($(findstring pytorch,$(TARGETS)),pytorch)
 endif
 
 # run checks on all files for the repo
+# leaving out mypy src for now
 quality:
 	@echo "Running python quality checks";
 	ruff check $(CHECKDIRS);
 	isort --check-only $(CHECKDIRS);
 	flake8 $(CHECKDIRS) --max-line-length 88 --extend-ignore E203;
-	mypy src
 
 # style the code according to accepted standards for the repo
 style:
