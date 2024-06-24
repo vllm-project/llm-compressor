@@ -30,8 +30,6 @@ jobs:
           || echo "::set-output name=branch::main"
   base-tests:
     runs-on: ubuntu-22.04
-    env:
-      SPARSEZOO_TEST_MODE: "true"
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
@@ -84,7 +82,6 @@ jobs:
   compat-pytorch-1_9-pytorch-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
-      SPARSEZOO_TEST_MODE: "true"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
@@ -118,7 +115,6 @@ jobs:
   transformers-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
-      SPARSEZOO_TEST_MODE: "true"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
