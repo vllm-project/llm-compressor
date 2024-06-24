@@ -28,8 +28,8 @@ Here are some details to get started.
 **Development Installation**
 
 ```bash
-git clone https://github.com/neuralmagic/sparseml.git
-cd llmcompressor
+git https://github.com/vllm-project/llm-compressor
+cd llm-compressor
 python3 -m pip install -e "./[dev]"
 ```
 
@@ -73,7 +73,7 @@ File any error found before changes as an Issue and fix any errors found after m
 
 ## GitHub Workflow
 
-1. Fork the `TODO/llmcompressor` repository into your GitHub account: https://github.com/TODO/llmcompressor/fork.
+1. Fork the `llmcompressor` repository into your GitHub account: https://github.com/vllm-project/llm-compressor.
 
 2. Clone your fork of the GitHub repository, replacing `<username>` with your GitHub username.
 
