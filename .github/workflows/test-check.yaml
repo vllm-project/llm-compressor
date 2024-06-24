@@ -30,19 +30,31 @@ jobs:
           || echo "::set-output name=branch::main"
   base-tests:
     runs-on: ubuntu-22.04
+    env:
+      SPARSEZOO_TEST_MODE: "true"
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
+        with:
+          repository: "neuralmagic/sparsezoo"
+          path: "sparsezoo"
+          ref: ${{needs.test-setup.outputs.branch}}
+      - name: "⚙️ Install sparsezoo dependencies"
+        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
+      - name: "Clean sparsezoo directory"
+        run: rm -r sparsezoo/
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running base tests"
         run: make test
   pytorch-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
-    env:∂
+    env:
+      SPARSEZOO_TEST_MODE: "true"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
@@ -54,6 +66,15 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
+        with:
+          repository: "neuralmagic/sparsezoo"
+          path: "sparsezoo"
+          ref: ${{needs.test-setup.outputs.branch}}
+      - name: "⚙️ Install sparsezoo dependencies"
+        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
+      - name: "Clean sparsezoo directory"
+        run: rm -r sparsezoo/
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -71,6 +92,7 @@ jobs:
   compat-pytorch-1_9-pytorch-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
+      SPARSEZOO_TEST_MODE: "true"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
@@ -81,6 +103,16 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+      - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
+        with:
+          repository: "neuralmagic/sparsezoo"
+          path: "sparsezoo"
+          ref: ${{needs.test-setup.outputs.branch}}
+      - name: "⚙️ Install sparsezoo dependencies"
+        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
+      - name: "Clean sparsezoo directory"
+        run: rm -r sparsezoo/
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -98,6 +130,7 @@ jobs:
   transformers-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
+      SPARSEZOO_TEST_MODE: "true"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
@@ -109,6 +142,15 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
+        with:
+          repository: "neuralmagic/sparsezoo"
+          path: "sparsezoo"
+          ref: ${{needs.test-setup.outputs.branch}}
+      - name: "⚙️ Install sparsezoo dependencies"
+        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
+      - name: "Clean sparsezoo directory"
+        run: rm -r sparsezoo/
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
