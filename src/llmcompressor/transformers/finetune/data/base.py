@@ -16,7 +16,7 @@ import logging
 from typing import Optional, Union
 
 from datasets import Dataset, IterableDataset
-from sparsezoo.utils.registry import RegistryMixin
+from compressed_tensors.registry import RegistryMixin
 from transformers import AutoTokenizer
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments

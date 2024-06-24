@@ -146,10 +146,9 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
         self.device = "auto"
         self.output = "./oneshot_output"
 
-        if "zoo:" in self.model:
-            self.model = SparseAutoModelForCausalLM.from_pretrained(
-                self.model, device_map=self.device, torch_dtype=torch.bfloat16
-            )
+        self.model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map=self.device, torch_dtype=torch.bfloat16
+        )
 
     def test_oneshot_then_finetune_gpu(self):
         self._test_finetune_wout_recipe_custom_dataset()

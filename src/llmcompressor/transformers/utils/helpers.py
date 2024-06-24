@@ -182,7 +182,6 @@ def resolve_recipe(
         - a path to the model directory
         - a path to the model file
         - Hugging face model id
-        - SparseZoo stub
 
     :return: the resolved recipe
     """
@@ -222,7 +221,6 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         - a path to the model directory
         - a path to the model file
         - Hugging face model id
-        - SparseZoo stub
     :return the path to the recipe file if found, None otherwise
     """
     model_path = model_path.as_posix() if isinstance(model_path, Path) else model_path
@@ -300,7 +298,6 @@ def resolve_recipe_file(
         - a path to the model directory
         - a path to the model file
         - Hugging face model id
-        - SparseZoo stub
     :return the path to the recipe file if found, None otherwise
     """
     # preprocess arguments so that they are all strings
@@ -404,13 +401,11 @@ def fetch_recipe_path(target: str):
     Takes care of three scenarios:
     1. target is a local path to a model directory
         (looks for recipe.yaml in the directory)
-    2. target is a SparseZoo stub (downloads and
-        returns the path to the default recipe)
-    3. target is a HuggingFace stub (downloads and
+    2. target is a HuggingFace stub (downloads and
         returns the path to the default recipe)
 
     :param target: The target to fetch the recipe path for
-        can be a local path, SparseZoo stub, or HuggingFace stub
+        can be a local path or HuggingFace stub
     :return: The path to the recipe for the target
     """
     DEFAULT_RECIPE_NAME = "recipe.yaml"
@@ -492,11 +487,10 @@ def download_repo_from_huggingface_hub(repo_id, **kwargs):
 
 def download_model_directory(pretrained_model_name_or_path: str, **kwargs):
     """
-    Download the model directory from the HF hub or SparseZoo if the model
-    is not found locally
+    Download the model directory from the HF hub if the model is not found locally
 
     :param pretrained_model_name_or_path: the name of or path to the model to load
-        can be a SparseZoo/HuggingFace model stub
+        can be a HuggingFace model stub
     :param kwargs: additional keyword arguments to pass to the download function
     :return: the path to the downloaded model directory
     """

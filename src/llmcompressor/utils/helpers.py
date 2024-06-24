@@ -52,7 +52,6 @@ __all__ = [
     "NumpyArrayBatcher",
     "tensor_export",
     "tensors_export",
-    "parse_optimization_str",
     "json_to_jsonl",
     "deprecation_warning",
     "parse_kwarg_tuples",
@@ -831,22 +830,6 @@ def _tensors_export_batch(
     raise ValueError(
         "unrecognized type for tensors given of {}".format(tensors.__class__.__name__)
     )
-
-
-def parse_optimization_str(optim_full_name: str) -> Tuple[str, str, Any]:
-    """
-    :param optim_full_name: A name of a pretrained model optimization. i.e.
-        'pruned-moderate-deepsparse', 'pruned-aggressive', 'base'
-    :return: A tuple representing the corresponding SparseZoo model sparse_name,
-        sparse_category, and sparse_target values with appropriate defaults when
-        not present.
-    """
-    optim_defaults = ["base", "none", None]
-    optim_split_name = optim_full_name.split("-")
-    while len(optim_split_name) < len(optim_defaults):
-        optim_split_name.append(optim_defaults[len(optim_split_name)])
-    sparse_name, sparse_category, sparse_target = optim_split_name[:3]
-    return sparse_name, sparse_category, sparse_target
 
 
 def json_to_jsonl(json_file_path: str, overwrite: bool = True):

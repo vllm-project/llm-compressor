@@ -26,7 +26,7 @@ class ModelArguments:
         metadata={
             "help": (
                 "A pretrained model or a string as a path to pretrained model, "
-                "sparsezoo stub, or model identifier from huggingface.co/models."
+                "HF stub, or model identifier from huggingface.co/models."
             )
         },
     )
