@@ -43,10 +43,6 @@ jobs:
           repository: "neuralmagic/sparsezoo"
           path: "sparsezoo"
           ref: ${{needs.test-setup.outputs.branch}}
-      - name: "⚙️ Install sparsezoo dependencies"
-        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
-      - name: "Clean sparsezoo directory"
-        run: rm -r sparsezoo/
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running base tests"
@@ -71,10 +67,6 @@ jobs:
           repository: "neuralmagic/sparsezoo"
           path: "sparsezoo"
           ref: ${{needs.test-setup.outputs.branch}}
-      - name: "⚙️ Install sparsezoo dependencies"
-        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
-      - name: "Clean sparsezoo directory"
-        run: rm -r sparsezoo/
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -109,10 +101,6 @@ jobs:
           repository: "neuralmagic/sparsezoo"
           path: "sparsezoo"
           ref: ${{needs.test-setup.outputs.branch}}
-      - name: "⚙️ Install sparsezoo dependencies"
-        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
-      - name: "Clean sparsezoo directory"
-        run: rm -r sparsezoo/
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -147,10 +135,6 @@ jobs:
           repository: "neuralmagic/sparsezoo"
           path: "sparsezoo"
           ref: ${{needs.test-setup.outputs.branch}}
-      - name: "⚙️ Install sparsezoo dependencies"
-        run: pip3 install -U pip && pip3 install setuptools sparsezoo/
-      - name: "Clean sparsezoo directory"
-        run: rm -r sparsezoo/
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"

@@ -21,10 +21,6 @@ jobs:
           repository: "neuralmagic/sparsezoo"
           path: "sparsezoo"
           ref: ${{needs.test-setup.outputs.branch}}
-      - name: "⚙️ Install sparsezoo dependencies"
-        run: pip3 install sparsezoo/
-      - name: "Clean sparsezoo directory"
-        run: rm -r sparsezoo/
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🧹 Running quality checks"
