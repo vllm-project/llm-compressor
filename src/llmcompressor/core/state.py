@@ -6,7 +6,7 @@ related to data, hardware, and model compression.
 """
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
@@ -111,8 +111,8 @@ class State:
     optim_wrapped: bool = None
     loss: Any = None
     batch_data: Any = None
-    data: Data = Data()
-    hardware: Hardware = Hardware()
+    data: Data = field(default_factory=Data)
+    hardware: Hardware = field(default_factory=Hardware)
     start_event: Optional[Event] = None
     last_event: Optional[Event] = None
     loggers: Optional[LoggerManager] = None
