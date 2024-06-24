@@ -15,12 +15,6 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          repository: "neuralmagic/sparsezoo"
-          path: "sparsezoo"
-          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🧹 Running quality checks"
