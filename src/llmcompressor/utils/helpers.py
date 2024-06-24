@@ -12,6 +12,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import sys
 import tarfile
 import warnings
@@ -55,7 +56,8 @@ __all__ = [
     "json_to_jsonl",
     "deprecation_warning",
     "parse_kwarg_tuples",
-    "is_package_available"
+    "is_package_available",
+    "import_from_path",
 ]
 
 
@@ -982,3 +984,29 @@ def is_package_available(
         return package_exists, package_version
     else:
         return package_exists
+
+
+def import_from_path(path: str) -> str:
+    """
+    Import the module and the name of the function/class separated by :
+    Examples:
+      path = "/path/to/file.py:func_or_class_name"
+      path = "/path/to/file:focn"
+      path = "path.to.file:focn"
+    :param path: path including the file path and object name
+    :return Function or class object
+    """
+    original_path, class_name = path.split(":")
+    _path = original_path
+
+    path = original_path.split(".py")[0]
+    path = re.sub(r"/+", ".", path)
+    try:
+        module = importlib.import_module(path)
+    except ImportError:
+        raise ImportError(f"Cannot find module with path {_path}")
+
+    try:
+        return getattr(module, class_name)
+    except AttributeError:
+        raise AttributeError(f"Cannot find {class_name} in {_path}")

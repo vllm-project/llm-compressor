@@ -8,13 +8,10 @@ import torch
 from compressed_tensors.quantization.utils import is_module_quantized
 from parameterized import parameterized_class
 from torch.utils.data import DataLoader
-from transformers import DefaultDataCollator, AutoTokenizer
+from transformers import AutoTokenizer, DefaultDataCollator
 
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers import (
-    SparseAutoModelForCausalLM,
-    oneshot,
-)
+from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from tests.testing_utils import parse_params, requires_gpu, requires_torch

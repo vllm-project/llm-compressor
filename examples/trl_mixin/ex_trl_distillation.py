@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from transformers import DefaultDataCollator, AutoTokenizer
+from transformers import AutoTokenizer, DefaultDataCollator
 
 from llmcompressor.transformers import (
     DataTrainingArguments,

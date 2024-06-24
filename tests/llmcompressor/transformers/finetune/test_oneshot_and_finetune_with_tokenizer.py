@@ -17,10 +17,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         from datasets import load_dataset
         from transformers import AutoTokenizer
 
-        from llmcompressor.transformers import (
-            SparseAutoModelForCausalLM,
-            compress,
-        )
+        from llmcompressor.transformers import SparseAutoModelForCausalLM, compress
 
         recipe_str = (
             "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"

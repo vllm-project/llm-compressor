@@ -61,7 +61,7 @@ setup(
         "accelerate>=0.20.3",
         "compressed-tensors"
         if version_info.is_release
-        else "compressed-tensors-nightly"
+        else "compressed-tensors-nightly",
     ],
     extras_require={
         "dev": [

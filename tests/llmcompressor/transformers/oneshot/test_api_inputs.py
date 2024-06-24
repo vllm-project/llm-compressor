@@ -26,9 +26,8 @@ class TestOneShotInputs(unittest.TestCase):
 
     def setUp(self):
         from transformers import AutoTokenizer
-        from llmcompressor.transformers import (
-            SparseAutoModelForCausalLM,
-        )
+
+        from llmcompressor.transformers import SparseAutoModelForCausalLM
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model)
         self.model = SparseAutoModelForCausalLM.from_pretrained(self.model)

@@ -20,7 +20,7 @@ class TestOBCQCompletion(unittest.TestCase):
 
     def labeled_dataloader(self, dataset_name, model_name):
         from torch.utils.data import DataLoader
-        from transformers import DefaultDataCollator, AutoTokenizer
+        from transformers import AutoTokenizer, DefaultDataCollator
 
         from llmcompressor.transformers.finetune.data import TextGenerationDataset
         from llmcompressor.transformers.finetune.data.data_args import (
@@ -140,8 +140,6 @@ class TestOBCQCompletionGPU(TestOBCQCompletion):
         self.model_name = None
         self.output = "./oneshot_output"
 
-        # Temporary fix as oneshot seems to not work with zoo: models
-        # Need to keep th model name for the perplexity calculation post oneshot
         self.model_name = self.model
         self.model = SparseAutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
