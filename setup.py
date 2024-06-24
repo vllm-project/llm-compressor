@@ -62,8 +62,6 @@ setup(
         "accelerate>=0.20.3",
         "safetensors>=0.4.1",
         "sentencepiece",
-        "tensorboard",
-        "dvc",
         "compressed-tensors"
         if version_info.is_release
         else "compressed-tensors-nightly",
