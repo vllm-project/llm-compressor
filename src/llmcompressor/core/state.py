@@ -111,8 +111,8 @@ class State:
     optim_wrapped: bool = None
     loss: Any = None
     batch_data: Any = None
-    data: Data = field(default_factory=Data())
-    hardware: Hardware = field(default_factory=Hardware())
+    data: Data = field(default_factory=Data)
+    hardware: Hardware = field(default_factory=Hardware)
     start_event: Optional[Event] = None
     last_event: Optional[Event] = None
     loggers: Optional[LoggerManager] = None
