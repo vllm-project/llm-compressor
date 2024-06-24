@@ -29,7 +29,8 @@ This example uses 4-bit weight quantization, however the `scheme` may be changed
 target different quantization scenarios.
 
 
-### compression
+### Compression
+Compression is easily applied by selecting an algorithm (GPTQ) and calling the `oneshot` API.
 
 ```python
 from llmcompressor.transformers import oneshot
