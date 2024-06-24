@@ -231,7 +231,7 @@ class ModelCompressor:
         quantized_modules_to_args = map_modules_to_quant_args(model)
         if self.quantization_compressor is not None:
             compressed_state_dict = self.quantization_compressor.compress(
-                state_dict, model_quant_args=quantized_modules_to_args
+                state_dict, names_to_scheme=quantized_modules_to_args
             )
 
         if self.sparsity_compressor is not None:
@@ -260,9 +260,11 @@ class ModelCompressor:
             setattr(model, SPARSITY_CONFIG_NAME, self.sparsity_compressor.config)
 
         if self.quantization_compressor is not None:
-            apply_quantization_config(model, self.quantization_config)
+            names_to_scheme = apply_quantization_config(model, self.quantization_config)
             load_pretrained_quantization(model, model_path)
-            dense_gen = self.quantization_compressor.decompress(model_path)
+            dense_gen = self.quantization_compressor.decompress(
+                model_path, names_to_scheme=names_to_scheme
+            )
             self._replace_weights(dense_gen, model)
 
             def update_status(module):

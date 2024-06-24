@@ -96,7 +96,7 @@ def load_pretrained_quantization(model: Module, model_name_or_path: str):
             )
 
 
-def apply_quantization_config(model: Module, config: QuantizationConfig):
+def apply_quantization_config(model: Module, config: QuantizationConfig) -> Dict:
     """
     Initializes the model for quantization in-place based on the given config
 
@@ -106,6 +106,7 @@ def apply_quantization_config(model: Module, config: QuantizationConfig):
     # build mapping of targets to schemes for easier matching
     # use ordered dict to preserve target ordering in config
     target_to_scheme = OrderedDict()
+    names_to_scheme = OrderedDict()
     for scheme in config.config_groups.values():
         for target in scheme.targets:
             target_to_scheme[target] = scheme
@@ -123,6 +124,7 @@ def apply_quantization_config(model: Module, config: QuantizationConfig):
         if target is not None:
             # target matched - add layer and scheme to target list
             submodule.quantization_scheme = target_to_scheme[target]
+            names_to_scheme[name] = submodule.quantization_scheme.weights
 
     if config.ignore is not None and ignored_submodules is not None:
         if set(config.ignore) - set(ignored_submodules):
@@ -132,7 +134,9 @@ def apply_quantization_config(model: Module, config: QuantizationConfig):
                 f"{set(config.ignore) - set(ignored_submodules)}"
             )
     # apply current quantization status across all targeted layers
+
     apply_quantization_status(model, config.quantization_status)
+    return names_to_scheme
 
 
 def apply_quantization_status(model: Module, status: QuantizationStatus):

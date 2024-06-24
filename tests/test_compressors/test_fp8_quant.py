@@ -79,7 +79,7 @@ def test_quant_format(strategy, group_size, sc, zp):
     compressor = FloatQuantizationCompressor(config=quant_config)
     quantized_modules_to_args = {"dummy": quant_config.config_groups["group_1"].weights}
     compressed_state_dict = compressor.compress(
-        dense_state_dict, model_quant_args=quantized_modules_to_args
+        dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
 
     # state_dict params should be the same, minus the zero_point if symmetric
@@ -118,7 +118,7 @@ def test_reload_match(strategy, group_size, tmp_path):
         "dummy": quant_config.config_groups["group_1"].weights,
     }
     compressed_state_dict = compressor.compress(
-        model.state_dict(), model_quant_args=quantized_modules_to_args
+        model.state_dict(), names_to_scheme=quantized_modules_to_args
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
     reconstructed_dense_gen = compressor.decompress(tmp_path)

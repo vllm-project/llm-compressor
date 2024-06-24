@@ -107,7 +107,7 @@ class Marlin24Compressor(Compressor):
     def compress(
         self,
         model_state: Dict[str, Tensor],
-        model_quant_args: Dict[str, QuantizationArgs],
+        names_to_scheme: Dict[str, QuantizationArgs],
         **kwargs,
     ) -> Dict[str, Tensor]:
         """
@@ -115,11 +115,11 @@ class Marlin24Compressor(Compressor):
         with the Marlin24 kernel
 
         :param model_state: state dict of uncompressed model
-        :param model_quant_args: quantization args for each quantized weight, needed for
+        :param names_to_scheme: quantization args for each quantized weight, needed for
            quantize function to calculate bit depth
         :return: compressed state dict
         """
-        self.validate_quant_compatability(model_quant_args)
+        self.validate_quant_compatability(names_to_scheme)
 
         compressed_dict = {}
         weight_suffix = ".weight"
@@ -139,7 +139,7 @@ class Marlin24Compressor(Compressor):
                     value = value.to(torch.float16)
 
                     # quantize weight, keeping it as a float16 for now
-                    quant_args = model_quant_args[prefix]
+                    quant_args = names_to_scheme[prefix]
                     value = quantize(
                         x=value, scale=scale, zero_point=zp, args=quant_args
                     )

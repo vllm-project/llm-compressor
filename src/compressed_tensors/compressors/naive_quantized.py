@@ -49,14 +49,14 @@ class QuantizationCompressor(Compressor):
     def compress(
         self,
         model_state: Dict[str, Tensor],
-        model_quant_args: Dict[str, QuantizationArgs],
+        names_to_scheme: Dict[str, QuantizationArgs],
         **kwargs,
     ) -> Dict[str, Tensor]:
         """
         Compresses a dense state dict
 
         :param model_state: state dict of uncompressed model
-        :param model_quant_args: quantization args for each quantized weight, needed for
+        :param names_to_scheme: quantization args for each quantized weight, needed for
         quantize function to calculate bit depth
         :return: compressed state dict
         """
@@ -73,7 +73,7 @@ class QuantizationCompressor(Compressor):
                 zp = model_state.get(merge_names(prefix, "weight_zero_point"), None)
                 if scale is not None and zp is not None:
                     # weight is quantized, compress it
-                    quant_args = model_quant_args[prefix]
+                    quant_args = names_to_scheme[prefix]
                     if can_quantize(value, quant_args):
                         # only quantize if not already quantized
                         value = quantize(
