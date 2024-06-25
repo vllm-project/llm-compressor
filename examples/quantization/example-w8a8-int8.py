@@ -3,7 +3,7 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from transformers import AutoTokenizer
 
 # Select model and load it.
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype='auto',
 )
@@ -77,6 +77,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-DYNAMIC-PER-TOKEN"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic-Per-Token"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
