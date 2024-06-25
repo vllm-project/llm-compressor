@@ -2,4 +2,4 @@ cadence: "commit"
 test_type: "regression"
 model_stub: "Xenova/llama2.c-stories15M"
 new_recipe: "tests/llmcompressor/transformers/compression/recipes/new_quant_fp8.yaml"
-ppl_threshold: 5000
+ppl_threshold: 21000

@@ -1,8 +1,13 @@
 import torch
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationType,
+)
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 model_stub = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -22,7 +27,13 @@ def preprocess(batch):
 ds = load_dataset("mgoin/ultrachat_2k", split="train_sft")
 examples = ds.map(preprocess, remove_columns=ds.column_names)
 
-recipe = GPTQModifier(targets=["Linear"], scheme="FP8", ignore=["lm_head"])
+quant_args = QuantizationArgs(type=QuantizationType.FLOAT)
+quant_scheme = QuantizationScheme(
+    weights=quant_args, input_activations=quant_args, targets=["Linear"]
+)
+recipe = QuantizationModifier(
+    config_groups={"group_0": quant_scheme}, ignore=["lm_head"]
+)
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"

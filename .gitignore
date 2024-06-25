@@ -801,3 +801,4 @@ nm_temp_test_logs/*
 sparse_logs/*
 wandb/
 output_finetune/
+env_log.json
