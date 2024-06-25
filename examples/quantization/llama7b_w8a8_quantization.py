@@ -32,7 +32,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
 
-# uses SparseML's built-in preprocessing for ultra chat
+# uses LLM Compressor's built-in preprocessing for ultra chat
 dataset = "ultrachat-200k"
 
 # save location of quantized model out

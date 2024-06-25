@@ -39,7 +39,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class SparseAutoModelForCausalLM(AutoModelForCausalLM):
     """
-    SparseML wrapper for the AutoModelForCausalLM class
+    LLM Compressor wrapper for the AutoModelForCausalLM class
     Its lifecycle is defined as follows:
     1. If pretrained_model_name_or_path is a HuggingFace stub
        the appropriate HuggingFace model will be downloaded

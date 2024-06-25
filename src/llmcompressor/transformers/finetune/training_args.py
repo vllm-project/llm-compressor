@@ -23,7 +23,7 @@ __all__ = ["TrainingArguments"]
 @dataclass
 class TrainingArguments(HFTrainingArgs):
     """
-    Training arguments specific to SparseML Transformers workflow
+    Training arguments specific to LLM Compressor Transformers workflow
 
     :param best_model_after_epoch (`int`, *optional*, defaults to None):
         The epoch after which best model will be saved; used in conjunction
@@ -34,10 +34,7 @@ class TrainingArguments(HFTrainingArgs):
     recipe: Optional[str] = field(
         default=None,
         metadata={
-            "help": (
-                "Path to a SparseML sparsification recipe, see "
-                "https://github.com/neuralmagic/sparseml for more information"
-            ),
+            "help": "Path to a LLM Compressor sparsification recipe",
         },
     )
     recipe_args: Optional[List[str]] = field(

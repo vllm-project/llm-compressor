@@ -24,8 +24,6 @@ class Recipe(RecipeBase):
     A class to represent a recipe for a model.
     Recipes encode the instructions needed for modifying
     the model and/or training process as a list of modifiers.
-    (More information on supported modifiers can be found at
-    https://docs.neuralmagic.com/products/sparseml)
 
     Recipes can be created from a file, string, or HuggingFace stub.
     Acceptable file formats include both json and yaml, however,

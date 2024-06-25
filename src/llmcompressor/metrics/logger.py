@@ -388,7 +388,7 @@ class PythonLogger(LambdaLogger):
             )
             file_handler.setLevel(LOGGING_LEVELS["debug"])
             logger.addHandler(file_handler)
-            logger.info(f"Logging all SparseML modifier-level logs to {log_path}")
+            logger.info(f"Logging all LLM Compressor modifier-level logs to {log_path}")
 
         logger.setLevel(LOGGING_LEVELS["debug"])
         logger.propagate = False
