@@ -1,7 +1,7 @@
 # Creating a Quantized Llama Model in One Shot
 
 Quantizing a model to a lower precision can save on both memory and speed at inference time.
-This example demonstrates how to use the SparseML API to quantize a Llama model from 16 bits
+This example demonstrates how to use the LLM Compressor API to quantize a Llama model from 16 bits
 to 4 bits and save it to a compressed-tensors format for inference with vLLM.
 
 ## Step 1: Select a model and dataset

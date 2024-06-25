@@ -36,7 +36,7 @@ class TrainingLoopCallbacks(TrainerCallback):
     Used to update the model reference(for running with FSDP) and trigger the post-
     optim callbacks in each modifier.
 
-    :param sparseml_trainer: SparseML trainer that will call back into this object
+    :param trainer: LLM Compressor trainer that will call back into this object
     :param args: args to be passed to base TrainerCallback
     :param kwargs: key word arguments to be passed to base TrainerCallback
     """
@@ -98,7 +98,7 @@ class DisableHalfPrecisionCallback(TrainerCallback):
     """
     TrainerCallback for disabling FP16 training before QAT training begins
 
-    :param sparseml_trainer: SparseML trainer that will call back into this object
+    :param trainer: LLM Compressor trainer that will call back into this object
     :param args: args to be passed to base TrainerCallback
     :param kwargs: key word arguments to be passed to base TrainerCallback
     """

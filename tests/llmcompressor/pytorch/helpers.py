@@ -253,7 +253,7 @@ class _QATMatMul(Module):
     def __init__(self):
         super().__init__()
 
-        # behaves like normal torch.matmul unless a SparseML QuantizationModifier
+        # behaves like normal torch.matmul unless a LLM Compressor QuantizationModifier
         # is initialized
         self.wrap_qat = True
         self.qat_wrapper_kwargs = {

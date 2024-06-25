@@ -1,25 +1,7 @@
-<!--
-Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
+# Developing LLM Compressor
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-   http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing,
-software distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
--->
-
-TODO: update for upstream push
-
-# Developing SparseML
-
-SparseML is developed and tested using Python 3.8-3.11.
-To develop SparseML, you will also need the development dependencies and to follow the styling guidelines.
+LLM Compressor is developed and tested using Python 3.8-3.11.
+To develop LLM Compressor, you will also need the development dependencies and to follow the styling guidelines.
 
 Here are some details to get started.
 
@@ -33,17 +15,7 @@ cd llm-compressor
 python3 -m pip install -e "./[dev]"
 ```
 
-This will clone the SparseML repo, install it, and install the development dependencies.
-
-To develop framework specific features, you will also need the relevant framework packages.
-Those can be installed by adding the framework name to the install extras. Frameworks include
-`torch`, `keras`, and `tensorflow_v1`. For example:
-```bash
-python3 -m pip install -e "./[dev,torch]"
-```
-
-Note: Running all pytorch tests using `make test TARGETS=torch`, also requires `torchvision`
-and `onnxruntime` install all these dependencies using `python3 -m pip install -e "./[dev, torch, torchvision, onnxruntime]"`
+This will clone the LLM Compressor repo, install it, and install the development dependencies.
 
 **Code Styling and Formatting checks**
 
@@ -52,22 +24,16 @@ make style
 make quality
 ```
 
-This will run automatic code styling using `black` and `isort` and test that the
+This will run automatic code styling using `ruff`, `flake8`, `black`, `isort`, and `mypy` to test that the
 repository's code matches its standards.
 
 **EXAMPLE: test changes locally**
 
 ```bash
-make test TARGETS=<CSV of frameworks to run>
+make test
 ```
 
-This will run the targeted SparseML unit tests for the frameworks specified.
-The targets should be specified, because not all framework dependencies can be installed to run all tests.
-
-To run just PyTorch tests, run
-```bash
-make test TARGETS=pytorch
-```
+This will run the targeted LLM Compressor unit tests for the frameworks specified.
 
 File any error found before changes as an Issue and fix any errors found after making changes before submitting a Pull Request.
 
@@ -92,7 +58,7 @@ File any error found before changes as an Issue and fix any errors found after m
 3. Add a remote to keep up with upstream changes.
 
    ```bash
-   git remote add upstream https://github.com/neuralmagic/sparseml.git
+   git remote add upstream https://github.com/vllm-project/llm-compressor.git
    ```
 
    If you already have a copy, fetch upstream changes.

@@ -62,8 +62,8 @@ METADATA_ARGS = [
 
 class SessionManagerMixIn:
     """
-    Mix-In class to extend the Hugging Face Trainer class to support SparseML recipes
-    for one-shot and finetuning flows.
+    Mix-In class to extend the Hugging Face Trainer class to support LLM Compressor
+    recipes for one-shot and finetuning flows.
 
     :param recipe: path to recipe file to apply during training
     :param recipe_args: additional kwargs to use for evaluating recipe
@@ -164,7 +164,7 @@ class SessionManagerMixIn:
         if self.recipe is None:
             _LOGGER.warning(
                 "No training recipe was provided, finetuning will be run "
-                "without event callbacks to SparseML. To supply a recipe "
+                "without event callbacks to LLM Comrpessor. To supply a recipe "
                 "pass a yaml file or string to the `recipe` argument."
             )
 
@@ -187,7 +187,7 @@ class SessionManagerMixIn:
             recipe_stage=stage,
             recipe_args=self.recipe_args,
         )
-        _LOGGER.info(f"Initialized SparseML structure from recipe {self.recipe}")
+        _LOGGER.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
         torch.cuda.empty_cache()
 
     def finalize_session(self):
@@ -201,7 +201,7 @@ class SessionManagerMixIn:
         with summon_full_params_context(self.model, offload_to_cpu=True):
             # in order to update each layer we need to gathers all its parameters
             finalize()
-        _LOGGER.info("Finalized SparseML session")
+        _LOGGER.info("Finalized LLM Compressor session")
         model = get_session_model()
         self.model = model
         torch.cuda.empty_cache()
@@ -227,7 +227,7 @@ class SessionManagerMixIn:
             _LOGGER.warning(
                 "Training is being run with a streamed dataset, "
                 "steps_per_epoch cannot be determined and will default to "
-                "1. SparseML modifiers utilizing this statistic may not "
+                "1. LLM Compressor modifiers utilizing this statistic may not "
                 "behave as expected. "
             )
             self.total_steps_per_epoch = 1
@@ -295,7 +295,7 @@ class SessionManagerMixIn:
 
         # take the mean across multiple GPUs
         # this is done outside the compute_loss function in the parent, replicating it
-        # here for SparseML logging and distillation
+        # here for LLM Compressor logging and distillation
         loss = loss.mean()
 
         # Log step-wise loss and perplexity, for llama-recipes comparison
@@ -470,7 +470,9 @@ class SessionManagerMixIn:
             with open(recipe_path, "w") as fp:
                 fp.write(recipe_yaml_str)
 
-            _LOGGER.info(f"Saved SparseML recipe with model state to {recipe_path}")
+            _LOGGER.info(
+                f"Saved LLM Compressor recipe with model state to {recipe_path}"
+            )
 
         self.accelerator.wait_for_everyone()
 
@@ -577,7 +579,7 @@ class SessionManagerMixIn:
 
         if not kwargs or "resume_from_checkpoint" not in kwargs:
             _LOGGER.warning(
-                "resume_from_checkpoint not passed into SparseMLTrainer.train. "
+                "resume_from_checkpoint not passed into LLM Compressor Trainer.train. "
                 "This will cause issues with restoring recipes when "
                 "running from a checkpoint."
             )
