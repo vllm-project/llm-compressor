@@ -80,13 +80,14 @@ class TestOBCQCompletion(unittest.TestCase):
             dataloader = self.labeled_dataloader(dataset, self.model)
 
         total_new_ppl = 0.0
+        model_device = next(first_tiny_model.parameters()).device
         for idx, sample in enumerate(dataloader):
             if idx >= iter:
                 break
 
             with torch.no_grad():
                 new_output = first_tiny_model(
-                    **(tensors_to_device(sample, self.device))
+                    **(tensors_to_device(sample, model_device))
                 )
             new_ppl = torch.exp(new_output.loss)
             total_new_ppl += new_ppl
