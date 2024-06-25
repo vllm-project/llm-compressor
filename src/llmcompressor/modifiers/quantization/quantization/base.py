@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from compressed_tensors.quantization import (
     QuantizationConfig,
@@ -7,6 +7,8 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
     apply_quantization_config,
     freeze_module_quantization,
+    is_preset_scheme,
+    preset_name_to_scheme,
     set_module_for_calibration,
 )
 from pydantic import Field
@@ -33,6 +35,12 @@ class QuantizationModifier(Modifier):
         modules. Modules not matching a scheme target will NOT be quantized.
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
+    :param scheme: a single quantization scheme to apply to the model. This is a
+        dictionary that supports all keys from QuantizationScheme except targets, which
+        will be set to the targets parameter set at the modifier level. Can also be set
+        to a dictionary of the format `preset_scheme_name: targets` for example:
+        `W8A8: ['Linear']` for weight and activation 8-bit.
+    :param targets: list of layer names to quantize if a scheme is provided
     :param disable_quantization_observer_epoch: Epoch to disable updates to the module
         quantization observers. At this point, quantized weights and zero points will
         not be updated. Leave None to not disable observers during QAT. Default is None
@@ -40,8 +48,10 @@ class QuantizationModifier(Modifier):
         When None, the entire calibration_dataloader is used
     """
 
-    config_groups: Dict[str, QuantizationScheme]
+    config_groups: Optional[Dict[str, QuantizationScheme]] = None
     ignore: List[str] = Field(default_factory=list)
+    targets: Union[str, List[str], None] = None
+    scheme: Optional[Union[str, Dict[str, Any]]] = None
     disable_quantization_observer_epoch: Optional[float] = None
     num_calibration_steps: Optional[int] = None
 
@@ -94,6 +104,34 @@ class QuantizationModifier(Modifier):
         pass
 
     def create_init_config(self) -> QuantizationConfig:
+        if self.targets is not None and isinstance(self.targets, str):
+            self.targets = [self.targets]
+
+        if self.scheme is not None:
+            # takes precedence over config_groups
+
+            if isinstance(self.scheme, str) and is_preset_scheme(self.scheme):
+                # attach targets to scheme
+                self.scheme = {self.scheme: self.targets}
+
+            self.config_groups = {}
+            for idx, key in enumerate(self.scheme.keys()):
+                if is_preset_scheme(key):
+                    scheme = preset_name_to_scheme(key, self.scheme[key])
+                else:
+                    scheme = QuantizationScheme.model_validate(
+                        {"targets": self.scheme[key], **self.scheme}
+                    )
+
+                group_name = f"group_{idx}"
+                self.config_groups[group_name] = scheme
+
+        if self.config_groups is None or len(self.config_groups) == 0:
+            default_quant_scheme = QuantizationScheme.default_scheme(
+                targets=self.targets
+            )
+            self.config_groups = {"group_0": default_quant_scheme}
+
         return QuantizationConfig(
             config_groups=self.config_groups,
             quantization_status=QuantizationStatus.INITIALIZED,
