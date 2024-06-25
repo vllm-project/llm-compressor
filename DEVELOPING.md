@@ -24,7 +24,7 @@ make style
 make quality
 ```
 
-This will run automatic code styling using `ruff`, `flake8`, `black`, `isort`, and `mypy` to test that the
+This will run automatic code styling using `ruff`, `flake8`, `black`, and `isort` to test that the
 repository's code matches its standards.
 
 **EXAMPLE: test changes locally**

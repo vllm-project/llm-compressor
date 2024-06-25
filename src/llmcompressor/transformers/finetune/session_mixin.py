@@ -164,7 +164,7 @@ class SessionManagerMixIn:
         if self.recipe is None:
             _LOGGER.warning(
                 "No training recipe was provided, finetuning will be run "
-                "without event callbacks to LLM Comrpessor. To supply a recipe "
+                "without event callbacks to LLM Compressor. To supply a recipe "
                 "pass a yaml file or string to the `recipe` argument."
             )
 

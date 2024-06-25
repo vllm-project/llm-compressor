@@ -34,9 +34,7 @@ class TrainingArguments(HFTrainingArgs):
     recipe: Optional[str] = field(
         default=None,
         metadata={
-            "help": (
-                "Path to a LLM Compressor sparsification recipe"
-            ),
+            "help": "Path to a LLM Compressor sparsification recipe",
         },
     )
     recipe_args: Optional[List[str]] = field(
