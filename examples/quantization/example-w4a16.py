@@ -16,7 +16,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES=32 # FIXME
+NUM_CALIBRATION_SAMPLES=512
 MAX_SEQUENCE_LENGTH=2048
 
 # Load dataset and preprocess.
