@@ -108,7 +108,7 @@ class TestQuantizationMatches(unittest.TestCase):
             n_scale, n_zp, n_weight = reloaded_weights[name]
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
             assert torch.equal(o_scale, n_scale)
-            assert o_zp.dtype == n_zp.dtype == torch.int8
+            assert o_zp.dtype == n_zp.dtype
             assert torch.equal(o_zp, n_zp)
 
             # we don't expect an exact match here because o_weight still has the
@@ -119,7 +119,7 @@ class TestQuantizationMatches(unittest.TestCase):
             n_scale, n_zp = reloaded_inputs[name]
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
             assert torch.equal(o_scale, n_scale)
-            assert o_zp.dtype == n_zp.dtype == torch.int8
+            assert o_zp.dtype == n_zp.dtype
             assert torch.equal(o_zp, n_zp)
 
     def _get_dataloader(self, data_args, tokenizer):

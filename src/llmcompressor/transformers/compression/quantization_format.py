@@ -30,9 +30,11 @@ def infer_quantization_format(
         return quantization_format
 
     if save_compressed:
-        quant_depths = _get_quant_depths(model)
-        if quant_depths == [4]:  # save packed if everything is int4
+        quant_types = _get_quant_types(model)
+        if quant_types == ["int4"]:  # save packed if everything is int4
             return CompressionFormat.pack_quantized
+        elif quant_types == ["float8"]:
+            return CompressionFormat.float_quantized
 
         # otherwise just quantize to int8
         return CompressionFormat.int_quantized
@@ -41,17 +43,19 @@ def infer_quantization_format(
         return None
 
 
-def _get_quant_depths(model):
+def _get_quant_types(model):
     """
-    Gets a list of all the quantized bit depths present in model
+    Gets a list of all the quantized types present in model
     """
-    quant_depths = []
+    quant_info = []
     for _, submodule in iter_named_leaf_modules(model):
         if is_module_quantized(submodule):
             weight_scheme = submodule.quantization_scheme.weights
             if weight_scheme is not None:
                 weight_bit_depth = weight_scheme.num_bits
-                if weight_bit_depth not in quant_depths:
-                    quant_depths.append(weight_bit_depth)
+                weight_type = weight_scheme.type
+                weight_info = f"{weight_type}{weight_bit_depth}"
+                if weight_info not in quant_info:
+                    quant_info.append(weight_info)
 
-    return quant_depths
+    return quant_info
