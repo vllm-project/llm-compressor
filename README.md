@@ -8,6 +8,20 @@ llm-compressor is designed to be flexible and easy to use on top of PyTorch and 
 Compression algorithms are implemented as `Modifiers` which can be applied to create optimized models for inference.
 The library also emphasises support for deployment on vLLM through export to the compressed-tensors format.
 
+### Supported Formats
+* Integer Quantization: W8A8 (int8)
+* Mixed Precision: W4A16, W8A16
+* Floating Point Quantization: W8A8 (fp8)
+* 2:4 Semi-structured Sparsity
+* Unstructured Sparsity
+
+### Supported Techniques
+* PTQ (Post Training Quantization)
+* GPTQ
+* SmoothQuant
+* SparseGPT
+* QAT (coming soon)
+
 ## Installation
 
 ### Pip
@@ -40,7 +54,7 @@ from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 gptq = GPTQModifier(scheme="W4A16", targets="Linear")
 
 oneshot(
-    model="TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",  # sample model
+    model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",  # sample model
     dataset="open_platypus",  # calibration dataset, swap with yours
     recipe=gptq,
     save_compressed=True,
@@ -58,7 +72,7 @@ To run inference with vLLM, first install vLLM from pip `pip install vllm`.
 from vllm import LLM
 
 model = LLM("llama-compressed-quickstart")
-output = model.genetate("I love 4 bit models because")
+output = model.generate("I love 4 bit models because")
 ```
 
 
@@ -69,9 +83,9 @@ open an [issue](https://github.com/vllm-project/llm-compressor/issues) and we wi
 
 * One-Shot API Documentation (Coming Soon!)
 * Modifiers Documentation (Coming Soon!)
-* [One-Shot Quantization](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization/llama7b_one_shot_quantization.md)
-* [Creating a Sparse-Quantized Llama-7b model](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization/llama7b_one_shot_quantization.md)
+* [One-Shot Quantization](examples/quantization/llama7b_one_shot_quantization.md)
+* [Creating a Sparse-Quantized Llama-7b model](examples/quantization/llama7b_one_shot_quantization.md)
 
 ## Contribute
 We appreciate contributions to the code, examples, integrations, and documentation as well as bug reports and feature requests!
-[Learn how here](https://github.com/vllm-project/llm-compressor/blob/main/CONTRIBUTING.md).
+[Learn how here](CONTRIBUTING.md).
