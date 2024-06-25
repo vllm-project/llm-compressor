@@ -15,18 +15,15 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
     def test_oneshot_and_finetune_with_tokenizer(self):
         import torch
         from datasets import load_dataset
+        from transformers import AutoTokenizer
 
-        from llmcompressor.transformers import (
-            SparseAutoModelForCausalLM,
-            SparseAutoTokenizer,
-            compress,
-        )
+        from llmcompressor.transformers import SparseAutoModelForCausalLM, compress
 
         recipe_str = (
             "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"
         )
         model = SparseAutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
-        tokenizer = SparseAutoTokenizer.from_pretrained(
+        tokenizer = AutoTokenizer.from_pretrained(
             "Xenova/llama2.c-stories15M",
         )
         device = "cuda:0"

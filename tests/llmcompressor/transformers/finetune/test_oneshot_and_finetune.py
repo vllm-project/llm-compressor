@@ -82,10 +82,9 @@ class TestOneshotAndFinetuneGPU(TestOneshotAndFinetune):
         self.device = "auto"
         self.output = "./finetune_output"
 
-        if "zoo:" in self.model:
-            self.model = SparseAutoModelForCausalLM.from_pretrained(
-                self.model, device_map=self.device, torch_dtype=torch.bfloat16
-            )
+        self.model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map=self.device, torch_dtype=torch.bfloat16
+        )
 
     def test_oneshot_then_finetune_gpu(self):
         self._test_oneshot_and_finetune()

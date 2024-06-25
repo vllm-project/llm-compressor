@@ -1,6 +1,6 @@
 cadence: "weekly"
 test_type: "regression"
-model: "zoo:llama2-7b-llama2_pretrain-base"
+model: "meta-llama/Llama-2-7b-hf"
 dataset: open_platypus
 recipe: "tests/llmcompressor/transformers/obcq/recipes/quant_and_sparse.yaml"
 device: "cuda:0"

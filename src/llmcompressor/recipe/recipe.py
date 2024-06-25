@@ -27,7 +27,7 @@ class Recipe(RecipeBase):
     (More information on supported modifiers can be found at
     https://docs.neuralmagic.com/products/sparseml)
 
-    Recipes can be created from a file, string, or SparseZoo stub.
+    Recipes can be created from a file, string, or HuggingFace stub.
     Acceptable file formats include both json and yaml, however,
     when serializing a recipe, yaml will be used by default.
     """
@@ -96,7 +96,7 @@ class Recipe(RecipeBase):
         >>> recipe = Recipe.create_instance(recipe_str)
 
         :param path_or_modifiers: The path to the recipe file or
-            SparseZoo stub or the recipe string (must be a valid
+            or the recipe string (must be a valid
             json/yaml file or a valid json/yaml string). Can also
             accept a RecipeModifier instance, or a list of
             RecipeModifiers

@@ -32,12 +32,10 @@ import requests
 import torch
 import transformers
 from huggingface_hub import HUGGINGFACE_CO_URL_HOME, HfFileSystem, hf_hub_download
-from sparsezoo import Model
 from transformers import AutoConfig
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import PaddingStrategy
 
-from llmcompressor.utils import download_zoo_training_dir
 from llmcompressor.utils.fsdp.context import main_process_first_context
 
 _LOGGER = logging.getLogger(__name__)
@@ -184,7 +182,6 @@ def resolve_recipe(
         - a path to the model directory
         - a path to the model file
         - Hugging face model id
-        - SparseZoo stub
 
     :return: the resolved recipe
     """
@@ -224,7 +221,6 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         - a path to the model directory
         - a path to the model file
         - Hugging face model id
-        - SparseZoo stub
     :return the path to the recipe file if found, None otherwise
     """
     model_path = model_path.as_posix() if isinstance(model_path, Path) else model_path
@@ -241,10 +237,6 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
             return recipe
         _LOGGER.debug(f"No recipe found in the model_path: {model_path}")
         return None
-
-    elif model_path.startswith("zoo:"):
-        # model_path is a sparsezoo stub
-        return recipe_from_sparsezoo_stub(stub=model_path)
 
     recipe = recipe_from_huggingface_model_id(model_path)[0]
 
@@ -294,33 +286,6 @@ def recipe_from_huggingface_model_id(
     return recipe, True
 
 
-def recipe_from_sparsezoo_stub(
-    stub: str, recipe_file_name: Optional[str] = None
-) -> Optional[str]:
-    """
-    Attempts to find the recipe for the sparsezoo stub.
-
-    :param stub: The sparsezoo stub to find the recipe for
-    :param recipe_file_name: The name of the recipe file to find.
-        If None, the default recipe will be returned. Default: None
-    :return: The path to the recipe file if found, None otherwise
-    """
-    if recipe_file_name is None:
-        recipe = Model(stub).recipes.default.path
-        _LOGGER.info(f"Found recipe: {recipe}")
-        return recipe
-    else:
-        for recipe in Model(stub).recipes.recipes:
-            if recipe.name == recipe_file_name:
-                recipe = recipe.path
-                _LOGGER.info(f"Found recipe: {recipe}")
-                return recipe
-        _LOGGER.warning(
-            f"Unable to find recipe: {recipe_file_name} " f"for sparsezoo stub: {stub}."
-        )
-        return None
-
-
 def resolve_recipe_file(
     requested_recipe: Union[str, Path], model_path: Union[str, Path]
 ) -> Union[str, Path, None]:
@@ -333,7 +298,6 @@ def resolve_recipe_file(
         - a path to the model directory
         - a path to the model file
         - Hugging face model id
-        - SparseZoo stub
     :return the path to the recipe file if found, None otherwise
     """
     # preprocess arguments so that they are all strings
@@ -348,13 +312,9 @@ def resolve_recipe_file(
     )
 
     if not os.path.isdir(model_path):
-        # pathway for model_path that is not a directory
-        if model_path.startswith("zoo:"):
-            default_recipe = recipe_from_sparsezoo_stub(model_path)
-        else:
-            default_recipe, model_exists = recipe_from_huggingface_model_id(model_path)
-            if not model_exists:
-                raise ValueError(f"Unrecognized model_path: {model_path}")
+        default_recipe, model_exists = recipe_from_huggingface_model_id(model_path)
+        if not model_exists:
+            raise ValueError(f"Unrecognized model_path: {model_path}")
 
         if not default_recipe == requested_recipe and default_recipe is not None:
             _LOGGER.warning(
@@ -441,13 +401,11 @@ def fetch_recipe_path(target: str):
     Takes care of three scenarios:
     1. target is a local path to a model directory
         (looks for recipe.yaml in the directory)
-    2. target is a SparseZoo stub (downloads and
-        returns the path to the default recipe)
-    3. target is a HuggingFace stub (downloads and
+    2. target is a HuggingFace stub (downloads and
         returns the path to the default recipe)
 
     :param target: The target to fetch the recipe path for
-        can be a local path, SparseZoo stub, or HuggingFace stub
+        can be a local path or HuggingFace stub
     :return: The path to the recipe for the target
     """
     DEFAULT_RECIPE_NAME = "recipe.yaml"
@@ -459,13 +417,6 @@ def fetch_recipe_path(target: str):
     # Recipe must be downloaded
 
     recipe_path = None
-    if target.startswith("zoo:"):
-        # target is a SparseZoo stub
-        sparsezoo_model = Model(source=target)
-        with suppress(Exception):
-            # suppress any errors if the recipe is not found on SparseZoo
-            recipe_path = sparsezoo_model.recipes.default().path
-        return recipe_path
 
     # target is a HuggingFace stub
     with suppress(Exception):
@@ -536,11 +487,10 @@ def download_repo_from_huggingface_hub(repo_id, **kwargs):
 
 def download_model_directory(pretrained_model_name_or_path: str, **kwargs):
     """
-    Download the model directory from the HF hub or SparseZoo if the model
-    is not found locally
+    Download the model directory from the HF hub if the model is not found locally
 
     :param pretrained_model_name_or_path: the name of or path to the model to load
-        can be a SparseZoo/HuggingFace model stub
+        can be a HuggingFace model stub
     :param kwargs: additional keyword arguments to pass to the download function
     :return: the path to the downloaded model directory
     """
@@ -553,13 +503,6 @@ def download_model_directory(pretrained_model_name_or_path: str, **kwargs):
         return pretrained_model_name_or_path
 
     with main_process_first_context():
-        if pretrained_model_name_or_path.startswith("zoo:"):
-            _LOGGER.debug(
-                "Passed zoo stub to SparseAutoModelForCausalLM object. "
-                "Loading model from SparseZoo training files..."
-            )
-            return download_zoo_training_dir(zoo_stub=pretrained_model_name_or_path)
-
         _LOGGER.debug("Downloading model from HuggingFace Hub.")
         return download_repo_from_huggingface_hub(
             repo_id=pretrained_model_name_or_path, **kwargs

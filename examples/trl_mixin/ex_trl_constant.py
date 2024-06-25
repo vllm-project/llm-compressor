@@ -13,12 +13,12 @@
 # limitations under the License.
 
 from datasets import load_dataset
+from transformers import AutoTokenizer
 from trl import DataCollatorForCompletionOnlyLM
 
 from llmcompressor.transformers import (
     SFTTrainer,
     SparseAutoModelForCausalLM,
-    SparseAutoTokenizer,
     TrainingArguments,
 )
 
@@ -27,7 +27,7 @@ output_dir = "./output_trl_sft_test_7b_gsm8k_sft_data"
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_path, torch_dtype="auto", device_map="auto"
 )
-tokenizer = SparseAutoTokenizer.from_pretrained(model_path)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
 tokenizer.pad_token = tokenizer.eos_token
 
 # recipe for maintaining model sparsity during finetuning
