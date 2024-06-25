@@ -5,8 +5,8 @@ from transformers import AutoTokenizer
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
-model_stub = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
-output_dir = "/cache/llm-compressor/tiny_fp8_test"
+model_stub = "meta-llama/Meta-Llama-3-8B-Instruct"
+output_dir = "Meta-Llama-3-8B-Instruct-FP8-Compressed"
 num_calibration_samples = 512
 
 tokenizer = AutoTokenizer.from_pretrained(model_stub, use_fast=True)
