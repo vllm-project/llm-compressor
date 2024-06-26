@@ -93,7 +93,7 @@ class QuantizationCompressor(Compressor):
         return compressed_dict
 
     def decompress(
-        self, path_to_model_or_tensors: str, device: str = "cpu"
+        self, path_to_model_or_tensors: str, device: str = "cpu", **kwargs
     ) -> Generator[Tuple[str, Tensor], None, None]:
         """
         Reads a compressed state dict located at path_to_model_or_tensors

@@ -72,7 +72,7 @@ class BitmaskCompressor(Compressor):
         return compressed_dict
 
     def decompress(
-        self, path_to_model_or_tensors: str, device: str = "cpu"
+        self, path_to_model_or_tensors: str, device: str = "cpu", **kwargs
     ) -> Generator[Tuple[str, Tensor], None, None]:
         """
         Reads a bitmask compressed state dict located

@@ -17,7 +17,6 @@ from typing import List, Optional
 
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
-    QuantizationStrategy,
     QuantizationType,
 )
 from pydantic import BaseModel
