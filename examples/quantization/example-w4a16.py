@@ -29,9 +29,7 @@ def preprocess(example):
 ds = ds.map(preprocess)
 
 # Configure algorithms. In this case, we:
-#   * apply SmoothQuant to make the activations easier to quantize
-#   * quantize the weights to 8 bit with GPTQ with a static per channel strategy
-#   * quantize the activations to 8 bit with a dynamic per token strategy
+#   * quantize the weights to 4 bit with GPTQ with a group size 128 strategy
 recipe = """
 quant_stage:
     quant_modifiers:
