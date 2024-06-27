@@ -27,11 +27,11 @@ def preprocess(example):
     )}
 ds = ds.map(preprocess)
 
+# Tokenize inputs.
 def tokenize(sample):
     return tokenizer(
         sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False
     )
-
 ds = ds.map(
     tokenize, remove_columns=ds.column_names
 )
