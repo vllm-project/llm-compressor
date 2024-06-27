@@ -76,7 +76,9 @@ def test_lifecyle(create_quantization_scheme):
     assert torch.numel(layer.weight_scale) == 1
     assert torch.numel(layer.weight_zero_point) == 1
 
-    layer(torch.randn(4, 4))
+    random_input = torch.randn(4, 4)
+    random_input[0][0] = 42  # skew distribution to force non-zero zp
+    layer(random_input)
 
     # zero-points and scale should be updated after forward pass
     assert torch.numel(layer.input_zero_point.data) > 0
@@ -95,7 +97,9 @@ def test_lifecyle(create_quantization_scheme):
     initialized_layer_weight_scale = deepcopy(layer.weight_scale)
     # calibrate the layers with each iteration
     for _ in range(10):
-        layer(torch.randn(4, 4))
+        random_input = torch.randn(4, 4)
+        random_input[0][0] = 42  # skew distribution to force non-zero zp
+        layer(random_input)
 
     assert initialized_layer_input_zero_point != 0
     assert initialized_layer_input_scale != layer.input_scale
