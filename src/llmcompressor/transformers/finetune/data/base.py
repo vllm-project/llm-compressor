@@ -210,6 +210,7 @@ class TextGenerationDataset(RegistryMixin):
             desc="Adding labels",
         )
         print(dataset.column_names)
+
         return dataset
 
     def map(

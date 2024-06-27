@@ -29,14 +29,12 @@ ds = ds.map(preprocess)
 
 def tokenize(sample):
     return tokenizer(
-        sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, skip_special_tokens=True
+        sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False
     )
 
 ds = ds.map(
     tokenize, remove_columns=ds.column_names
 )
-
-breakpoint()
 
 # Configure algorithms. In this case, we:
 #   * quantize the weights to fp8 with simple PTQ quantization modifier
@@ -80,6 +78,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-FP8-BOS"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-FP8-SQ"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
