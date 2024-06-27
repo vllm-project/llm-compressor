@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Union
 
 from compressed_tensors.config import CompressionFormat
+from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.quant_scheme import (
     QuantizationScheme,
     preset_name_to_scheme,
@@ -25,6 +26,7 @@ from compressed_tensors.quantization.utils import (
     is_module_quantized,
     iter_named_leaf_modules,
     module_type,
+    parse_out_kv_cache_args,
 )
 from pydantic import BaseModel, Field
 from torch.nn import Module
@@ -117,7 +119,18 @@ class QuantizationConfig(BaseModel):
     other quantization configs
     :param format: specifies how the quantized model is stored on disk
     :quantization_status: specifies the current status of all quantized layers. It is
-    assumed all layers are in the same state.
+        assumed all layers are in the same state.
+    :param kv_cache_scheme: optional QuantizationArgs, that specify the
+        quantization of the kv cache. If None, kv cache is not quantized.
+        When applying kv cache quantization to transformer AutoModelForCausalLM,
+        the kv_cache_scheme gets converted into a QuantizationScheme that:
+            - targets the `q_proj` and `k_proj` modules of the model. The outputs
+              of those modules are the keys and values that might be cached
+            - quantizes the outputs of the aformentioned layers, so that
+              keys and values are compressed before storing them in the cache
+        There is an explicit assumption that the model contains modules with
+        `k_proj` and `v_proj` in their names. If this is not the case
+        and kv_cache_scheme != None, the quantization of kv cache will fail
     :global_compression_ratio: optional informational config to report the model
     compression ratio acheived by the quantization config
     :ignore: optional list of layers to ignore from config_groups. Layers in this list
@@ -126,6 +139,7 @@ class QuantizationConfig(BaseModel):
 
     config_groups: Dict[str, Union[QuantizationScheme, List[str]]]
     quant_method: str = DEFAULT_QUANTIZATION_METHOD
+    kv_cache_scheme: Optional[QuantizationArgs] = None
     format: str = DEFAULT_QUANTIZATION_FORMAT
     quantization_status: QuantizationStatus = QuantizationStatus.INITIALIZED
     global_compression_ratio: Optional[float] = None
@@ -154,7 +168,7 @@ class QuantizationConfig(BaseModel):
     ) -> Optional["QuantizationConfig"]:
         """
         Converts a model into its associated QuantizationConfig based on the
-        QuantizationScheme attached to each quanitzed module
+        QuantizationScheme attached to each quantized module
 
         :param model: model to calculate quantization scheme of
         :return: filled out QuantizationScheme for the input model
@@ -195,6 +209,13 @@ class QuantizationConfig(BaseModel):
             # else we leave it off the ignore list, doesn't fall under any of the
             # existing quantization schemes so it won't be quantized
 
+        kv_cache_args, quant_scheme_to_layers = parse_out_kv_cache_args(
+            quant_scheme_to_layers
+        )
+        kv_cache_scheme = (
+            kv_cache_args.model_dump() if kv_cache_args is not None else kv_cache_args
+        )
+
         config_groups = {}
         for idx, scheme in enumerate(quant_scheme_to_layers):
             group_name = "group_" + str(idx)
@@ -213,6 +234,7 @@ class QuantizationConfig(BaseModel):
         return QuantizationConfig(
             config_groups=config_groups,
             quantization_status=quantization_status,
+            kv_cache_scheme=kv_cache_scheme,
             global_compression_ratio=compression_ratio,
             format=format,
             ignore=consolidated_ignore,

@@ -13,10 +13,13 @@
 # limitations under the License.
 
 import logging
-from typing import Optional, Tuple
+import re
+from typing import List, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.observers.base import Observer
+from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -30,8 +33,12 @@ __all__ = [
     "calculate_compression_ratio",
     "get_torch_bit_depth",
     "can_quantize",
+    "parse_out_kv_cache_args",
+    "KV_CACHE_TARGETS",
+    "is_kv_cache_quant_scheme",
 ]
 
+KV_CACHE_TARGETS = ["re:.*k_proj", "re:.*v_proj"]
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
@@ -182,3 +189,62 @@ def calculate_compression_ratio(model: Module) -> float:
             total_uncompressed += uncompressed_bits * num_weights
 
     return total_uncompressed / total_compressed
+
+
+def is_kv_cache_quant_scheme(scheme: QuantizationScheme) -> bool:
+    """
+    Check whether the QuantizationScheme targets the kv cache.
+    It does if all the following criteria are met:
+    - the scheme targets either exactly match the KV_CACHE_TARGETS
+        or the match KV_CACHE_TARGETS regex pattern
+    - the scheme quantizes output_activations (we want to quantize the
+        outputs from the KV_CACHE_TARGETS, as their correspond to the
+        keys and values that are to be saved in the cache)
+
+    :param scheme: The QuantizationScheme to investigate
+    :return: boolean flag
+    """
+    if len(scheme.targets) == 1:
+        # match on the KV_CACHE_TARGETS regex pattern
+        # if there is only one target
+        is_match_targets = any(
+            [re.match(pattern[3:], scheme.targets[0]) for pattern in KV_CACHE_TARGETS]
+        )
+    else:
+        # match on the exact KV_CACHE_TARGETS
+        # if there are multiple targets
+        is_match_targets = set(KV_CACHE_TARGETS) == set(scheme.targets)
+
+    is_match_output_activations = scheme.output_activations is not None
+    return is_match_targets and is_match_output_activations
+
+
+def parse_out_kv_cache_args(
+    quant_scheme_to_layers: List[QuantizationScheme],
+) -> Tuple[Optional[QuantizationArgs], List[QuantizationScheme]]:
+    """
+    If possible, parse out the kv cache specific QuantizationArgs
+    from the list of the QuantizationSchemes. If no kv cache
+    specific QuantizationArgs available, this function acts
+    as an identity function
+
+    :param quant_scheme_to_layers: list of QuantizationSchemes
+    :return: kv_cache_args (optional) and the (remaining or original)
+        list of the QuantizationSchemes
+    """
+    kv_cache_quant_scheme_to_layers = [
+        scheme for scheme in quant_scheme_to_layers if is_kv_cache_quant_scheme(scheme)
+    ]
+    quant_scheme_to_layers = [
+        scheme
+        for scheme in quant_scheme_to_layers
+        if not is_kv_cache_quant_scheme(scheme)
+    ]
+
+    if kv_cache_quant_scheme_to_layers:
+        kv_cache_quant_scheme_to_layers = kv_cache_quant_scheme_to_layers[0]
+        kv_cache_args = kv_cache_quant_scheme_to_layers.output_activations
+    else:
+        kv_cache_args = None
+
+    return kv_cache_args, quant_scheme_to_layers
