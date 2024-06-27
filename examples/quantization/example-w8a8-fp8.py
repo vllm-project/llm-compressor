@@ -27,6 +27,17 @@ def preprocess(example):
     )}
 ds = ds.map(preprocess)
 
+def tokenize(sample):
+    return tokenizer(
+        sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, skip_special_tokens=True
+    )
+
+ds = ds.map(
+    tokenize, remove_columns=ds.column_names
+)
+
+breakpoint()
+
 # Configure algorithms. In this case, we:
 #   * quantize the weights to fp8 with simple PTQ quantization modifier
 #   * quantize the activations to fp8 with simple PTQ quantization modifier
