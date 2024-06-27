@@ -8,11 +8,11 @@ test_stage:
                         num_bits: 4
                         type: "int"
                         symmetric: False
-                        strategy: "channel"
+                        strategy: "group"
+                        group_size: 128
                     input_activations: null
                     output_activations: null
                     targets: ["Linear"]
         GPTQModifier:
             block_size: 128
             sequential_update: False
-            
