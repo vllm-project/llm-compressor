@@ -125,6 +125,7 @@ class TextGenerationDataset(RegistryMixin):
                 padding=self.padding,
                 max_length=self.max_seq_length,
                 truncation=True,
+                add_special_tokens=False,
             )
 
             # store unpadded prompt so we can mask out correct number of elements
@@ -210,7 +211,7 @@ class TextGenerationDataset(RegistryMixin):
             desc="Adding labels",
         )
         print(dataset.column_names)
-
+        breakpoint()
         return dataset
 
     def map(
