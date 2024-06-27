@@ -2,11 +2,7 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    QuantizationScheme,
-    is_preset_scheme,
-    preset_name_to_scheme,
-)
+from compressed_tensors.quantization import QuantizationScheme
 from pydantic import Field
 from torch.nn import Module
 
@@ -288,6 +284,8 @@ class GPTQModifier(Modifier):
 
         quantization_args_names = [
             "config_groups",
+            "targets",
+            "scheme",
             "num_calibration_steps",
             "ignore",
             "disable_quantization_observer_epoch",
@@ -299,33 +297,6 @@ class GPTQModifier(Modifier):
             if getattr(self, key, False)
         }
 
-        if isinstance(self.targets, str):
-            self.targets = [self.targets]
-
-        if self.scheme is not None:
-            # takes precedence over config_groups
-
-            if isinstance(self.scheme, str) and is_preset_scheme(self.scheme):
-                # attach targets to scheme
-                self.scheme = {self.scheme: self.targets}
-
-            quant_args["config_groups"] = {}
-            for idx, key in enumerate(self.scheme.keys()):
-                if is_preset_scheme(key):
-                    scheme = preset_name_to_scheme(key, self.scheme[key])
-                else:
-                    scheme = QuantizationScheme.model_validate(
-                        {"targets": self.scheme[key], **self.scheme}
-                    )
-
-                group_name = f"group_{idx}"
-                quant_args["config_groups"][group_name] = scheme
-
-        if "config_groups" not in quant_args or len("config_groups") == 0:
-            default_quant_scheme = QuantizationScheme.default_scheme(
-                targets=self.targets
-            )
-            quant_args["config_groups"] = {"group_0": default_quant_scheme}
         _LOGGER.info(f"Building quantization modifier with args: {quant_args}")
         vllm_quant_config = {"QuantizationModifier": quant_args}
         self._build_quant_modifier_from_dict(vllm_quant_config)

@@ -1,9 +1,4 @@
 import torch
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationScheme,
-    QuantizationType,
-)
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
@@ -27,13 +22,7 @@ def preprocess(batch):
 ds = load_dataset("mgoin/ultrachat_2k", split="train_sft")
 examples = ds.map(preprocess, remove_columns=ds.column_names)
 
-quant_args = QuantizationArgs(type=QuantizationType.FLOAT)
-quant_scheme = QuantizationScheme(
-    weights=quant_args, input_activations=quant_args, targets=["Linear"]
-)
-recipe = QuantizationModifier(
-    config_groups={"group_0": quant_scheme}, ignore=["lm_head"]
-)
+recipe = QuantizationModifier(targets="Linear", scheme="FP8")
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
