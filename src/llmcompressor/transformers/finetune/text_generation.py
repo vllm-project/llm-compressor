@@ -17,12 +17,12 @@
 # Adapted from https://github.com/huggingface/transformers
 # neuralmagic: no copyright
 
-import logging
 import os
 from pathlib import PosixPath
 
 import datasets
 import transformers
+from loguru import logger
 from transformers import (
     AutoConfig,
     AutoTokenizer,
@@ -31,7 +31,8 @@ from transformers import (
     set_seed,
 )
 
-from llmcompressor import pre_initialize_structure, reset_session
+from llmcompressor.core import pre_initialize_structure, reset_session
+from llmcompressor.logger import configure_logger
 from llmcompressor.pytorch.model_load.helpers import (
     fallback_to_cpu,
     get_session_model,
@@ -50,13 +51,12 @@ from llmcompressor.transformers.sparsification.sparse_model import (
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
-
 
 def train(**kwargs):
     """
     CLI entrypoint for running training
     """
+    configure_logger()
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
     main(model_args, data_args, training_args)
@@ -66,6 +66,7 @@ def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
+    configure_logger()
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.do_eval = True
     main(model_args, data_args, training_args)
@@ -75,6 +76,7 @@ def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
+    configure_logger()
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.do_oneshot = True
     main(model_args, data_args, training_args)
@@ -88,6 +90,7 @@ def apply(**kwargs):
     """
     CLI entrypoint for any of training, eval, predict or oneshot
     """
+    configure_logger()
     report_to = kwargs.get("report_to", None)
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.run_stages = True
@@ -179,7 +182,7 @@ def intialize_model_from_path(
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
     if not fsdp_enabled and training_args.do_oneshot:
         device_map = training_args.oneshot_device
-        _LOGGER.warning(f"Moving {model_path} to device {device_map} for One-Shot")
+        logger.warning(f"Moving {model_path} to device {device_map} for One-Shot")
     elif not fsdp_enabled:
         device_map = "auto"
     model_kwargs = {
@@ -260,19 +263,19 @@ def main(
     """
     # Temporary warning, to be removed
     if model_args.tie_word_embeddings is True:
-        _LOGGER.warning(
+        logger.warning(
             "The tie_word_embeddings flag is by default set to False. "
             "This guarantees that the one-shot algorithm saves the final "
             "weights without errors. Detected tie_word_embeddings=True. "
             "This may cause issues with the one-shot algorithm on save. "
         )
-    # Setup logging
+    # Setup logger
     log_level = training_args.get_process_log_level()
-    _LOGGER.setLevel(log_level)
-    datasets.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.enable_default_handler()
-    transformers.utils.logging.enable_explicit_format()
+    logger.setLevel(log_level)
+    datasets.utils.logger.set_verbosity(log_level)
+    transformers.utils.logger.set_verbosity(log_level)
+    transformers.utils.logger.enable_default_handler()
+    transformers.utils.logger.enable_explicit_format()
 
     # Setup based on stage types if running stage mode
     if training_args.run_stages and training_args.recipe is not None:
@@ -285,13 +288,13 @@ def main(
                 training_args.do_train = True
 
     # Summary on each process
-    _LOGGER.warning(
+    logger.warning(
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, "
         f"n_gpu: {training_args.n_gpu}, "
         f"distributed training: {bool(training_args.local_rank != -1)}, "
         f"16-bits training: {training_args.fp16}"
     )
-    _LOGGER.info(f"Training/evaluation parameters {training_args}")
+    logger.info(f"Training/evaluation parameters {training_args}")
 
     # Detecting last checkpoint.
     last_checkpoint = None

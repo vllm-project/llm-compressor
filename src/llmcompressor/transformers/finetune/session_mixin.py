@@ -1,11 +1,11 @@
 import inspect
-import logging
 import math
 import os
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+from loguru import logger
 from torch.nn import Module
 from torch.utils.data import DataLoader, IterableDataset
 from transformers.trainer_callback import TrainerState
@@ -35,7 +35,6 @@ __all__ = [
     "SessionManagerMixIn",
 ]
 
-_LOGGER = logging.getLogger(__name__)
 TRAINER_STATE_NAME = "trainer_state.json"
 METADATA_ARGS = [
     "per_device_train_batch_size",
@@ -148,7 +147,7 @@ class SessionManagerMixIn:
         self.model_wrapped = self.model = model
 
         if self.recipe is None:
-            _LOGGER.warning(
+            logger.warning(
                 "No training recipe was provided, finetuning will be run "
                 "without event callbacks to LLM Compressor. To supply a recipe "
                 "pass a yaml file or string to the `recipe` argument."
@@ -173,7 +172,7 @@ class SessionManagerMixIn:
             recipe_stage=stage,
             recipe_args=self.recipe_args,
         )
-        _LOGGER.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
+        logger.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
         torch.cuda.empty_cache()
 
     def finalize_session(self):
@@ -187,7 +186,7 @@ class SessionManagerMixIn:
         with summon_full_params_context(self.model, offload_to_cpu=True):
             # in order to update each layer we need to gathers all its parameters
             finalize()
-        _LOGGER.info("Finalized LLM Compressor session")
+        logger.info("Finalized LLM Compressor session")
         model = get_session_model()
         self.model = model
         torch.cuda.empty_cache()
@@ -210,7 +209,7 @@ class SessionManagerMixIn:
         )
 
         if isinstance(self.train_dataset, IterableDataset):
-            _LOGGER.warning(
+            logger.warning(
                 "Training is being run with a streamed dataset, "
                 "steps_per_epoch cannot be determined and will default to "
                 "1. LLM Compressor modifiers utilizing this statistic may not "
@@ -456,7 +455,7 @@ class SessionManagerMixIn:
             with open(recipe_path, "w") as fp:
                 fp.write(recipe_yaml_str)
 
-            _LOGGER.info(
+            logger.info(
                 f"Saved LLM Compressor recipe with model state to {recipe_path}"
             )
 
@@ -485,14 +484,14 @@ class SessionManagerMixIn:
         """
         sparsification_info = ModuleSparsificationInfo(self.model)
 
-        _LOGGER.info(
+        logger.info(
             f"Sparsification info for {type(self.model).__name__}: "
             f"{sparsification_info.params_total} total params. "
         )
         sparsity_percent_formatted = "{:.2f}".format(
             sparsification_info.params_prunable_sparse_percent
         )
-        _LOGGER.info(
+        logger.info(
             f"There are {sparsification_info.params_prunable_total} prunable "
             f"params which have {sparsity_percent_formatted}% "
             "avg sparsity."
@@ -501,7 +500,7 @@ class SessionManagerMixIn:
         quant_percent_formatted = "{:.2f}".format(
             sparsification_info.params_quantized_percent
         )
-        _LOGGER.info(
+        logger.info(
             f"There are {sparsification_info.params_quantizable} quantizable "
             f"params, with a quantization percentage of "
             f"{quant_percent_formatted}%."
@@ -540,7 +539,7 @@ class SessionManagerMixIn:
 
         for arg in metadata_args:
             if arg not in args_dict.keys():
-                logging.warning(
+                logger.warning(
                     f"Required metadata argument {arg} was not found "
                     f"in the training arguments. Setting {arg} to None."
                 )
@@ -564,7 +563,7 @@ class SessionManagerMixIn:
         epoch = 0.0
 
         if not kwargs or "resume_from_checkpoint" not in kwargs:
-            _LOGGER.warning(
+            logger.warning(
                 "resume_from_checkpoint not passed into LLM Compressor Trainer.train. "
                 "This will cause issues with restoring recipes when "
                 "running from a checkpoint."

@@ -1,9 +1,9 @@
 import json
-import logging
 import os
 from typing import Any, Dict, List, Optional
 
 import torch
+from loguru import logger
 from safetensors import safe_open
 from torch.nn import Module
 
@@ -23,8 +23,6 @@ __all__ = [
     "save_completed_stages",
 ]
 
-_LOGGER = logging.getLogger(__name__)
-
 RECIPE_FILE_NAME = "recipe.yaml"
 
 
@@ -43,7 +41,7 @@ def log_model_load(
         recipe instantiation due to QAT or other architectural state changes
     """
     if delayed_load:
-        _LOGGER.info(
+        logger.info(
             f"Delayed load of model {model_name_or_path} detected. "
             f"Will print out model information once LLMCompressor recipes have loaded"
         )
@@ -51,7 +49,7 @@ def log_model_load(
 
     sparsification_info = ModuleSparsificationInfo(model)
 
-    _LOGGER.info(
+    logger.info(
         f"Loaded {model_type} from {model_name_or_path} "
         f"with {sparsification_info.params_total} total params. "
         f"Of those there are {sparsification_info.params_prunable_total} prunable "
@@ -61,7 +59,7 @@ def log_model_load(
     model_type = (
         "sparse" if sparsification_info.params_prunable_sparse_percent > 5 else "dense"
     )
-    _LOGGER.info(
+    logger.info(
         f"{model_type} model detected, "
         f"all sparsification info: {sparsification_info}"
     )
@@ -89,7 +87,7 @@ def initialize_recipe(model: Module, recipe_path: str):
         if num_stages == 1
         else f"a staged recipe with {num_stages} stages"
     )
-    _LOGGER.info(f"Applied {msg} to the model")
+    logger.info(f"Applied {msg} to the model")
 
 
 def save_model_and_recipe(
@@ -116,7 +114,7 @@ def save_model_and_recipe(
     if tokenizer is not None:
         tokenizer.save_pretrained(save_path)
 
-    _LOGGER.info("Saving output to {}".format(os.path.abspath(save_path)))
+    logger.info("Saving output to {}".format(os.path.abspath(save_path)))
 
     recipe_path = os.path.join(save_path, RECIPE_FILE_NAME)
     session = active_session()
@@ -133,7 +131,7 @@ def fallback_to_cpu(device: str) -> str:
     :return: device modified for CUDA status
     """
     if "cuda" in device and not torch.cuda.is_available():
-        _LOGGER.warning(
+        logger.warning(
             f"Requested {device} but CUDA is not available, falling back to CPU"
         )
         return "cpu"

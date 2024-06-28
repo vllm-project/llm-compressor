@@ -1,10 +1,10 @@
 import inspect
-import logging
 from pathlib import Path
 from typing import Optional, Union
 
 import torch
 from compressed_tensors.compressors import ModelCompressor
+from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM, PreTrainedModel
 
@@ -18,9 +18,6 @@ from llmcompressor.transformers.utils.helpers import (
 )
 
 __all__ = ["SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
-
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class SparseAutoModelForCausalLM(AutoModelForCausalLM):
@@ -78,23 +75,17 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         # instantiate compressor from model config
         compressor = ModelCompressor.from_pretrained(pretrained_model_name_or_path)
 
-        # temporarily set the log level to error, to ignore printing out long missing
-        # and unexpected key error messages (these are EXPECTED for quantized models)
-        logger = logging.getLogger("transformers.modeling_utils")
-        restore_log_level = logger.getEffectiveLevel()
-        logger.setLevel(level=logging.ERROR)
         model = super(AutoModelForCausalLM, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
         if model.dtype != model.config.torch_dtype:
-            _LOGGER.warning(
+            logger.warning(
                 f"The dtype of the loaded model: {model.dtype} is different "
                 "from from the dtype specified in the model config: "
                 f"{model.config.torch_dtype}."
                 "To load the model in the format that it was previously saved in, "
                 "set torch_dtype=`auto` in the SparseAutoModel creation call."
             )
-        logger.setLevel(level=restore_log_level)
         # override the PreTrainedModel instance with compression save function
         modify_save_pretrained(model)
 

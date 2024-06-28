@@ -1,7 +1,8 @@
-import logging
 import operator
 from pathlib import Path
 from typing import Optional
+
+from loguru import logger
 
 try:
     from torch.distributed.fsdp import (
@@ -27,8 +28,6 @@ __all__ = [
     "get_fsdp_parent",
     "find_and_move_state_dicts_to_cpu",
 ]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def is_fsdp_model(model: Module) -> bool:
@@ -119,7 +118,7 @@ def find_and_move_state_dicts_to_cpu(output_dir: str):
                 loaded_dict[key] = value.cpu()
 
         torch.save(loaded_dict, model_file)
-        _LOGGER.info(f"Moved state dict {model_file} to cpu")
+        logger.info(f"Moved state dict {model_file} to cpu")
 
 
 def save_pretrained_fsdp(

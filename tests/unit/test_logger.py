@@ -1,79 +1,103 @@
-import os
-
 import pytest
-from loguru import logger
 
-from llmcompressor import configure_logger
-from llmcompressor.logger import _logger_setup
-
-LEVELS = {
-    "TRACE": 5,
-    "DEBUG": 10,
-    "INFO": 20,
-    "SUCCESS": 25,
-    "WARNING": 30,
-    "ERROR": 40,
-    "CRITICAL": 50,
-}
+from llmcompressor import LoggerConfig, configure_logger, logger
 
 
-@pytest.mark.smoke
-def test_default_logger_setup():
-    configure_logger()
-    assert logger._core.handlers, "No handlers are set for the metrics"
+@pytest.fixture(autouse=True)
+def reset_logger():
+    # Ensure logger is reset before each test
+    logger.remove()
+    yield
+    logger.remove()
 
 
-@pytest.mark.smoke
-def test_console_logger_setup():
-    configure_logger(console_log_level="DEBUG")
-    handlers = [hand for hand in logger._core.handlers.values()]
-    assert handlers, "No handlers are set for the metrics"
+def test_default_logger_settings(capsys):
+    # Default settings should log to console with INFO level and no file logging
+    logger.info("Info message")
+    logger.debug("Debug message")
 
-    handler = next(
-        (hand for hand in handlers if f"level={LEVELS['DEBUG']}" in str(hand)), None
+    captured = capsys.readouterr()
+    assert "Info message" in captured.out
+    assert "Debug message" not in captured.out
+
+
+def test_configure_logger_console_settings(capsys):
+    # Test configuring the logger to change console log level
+    config = LoggerConfig(console_log_level="DEBUG")
+    configure_logger(config=config)
+    logger.info("Info message")
+    logger.debug("Debug message")
+
+    captured = capsys.readouterr()
+    assert "Info message" in captured.out
+    assert "Debug message" in captured.out
+
+
+def test_configure_logger_file_settings(tmp_path):
+    # Test configuring the logger to log to a file
+    log_file = tmp_path / "test.log"
+    config = LoggerConfig(log_file=str(log_file), log_file_level="DEBUG")
+    configure_logger(config=config)
+    logger.info("Info message")
+    logger.debug("Debug message")
+
+    with open(log_file, "r") as f:
+        log_contents = f.read()
+    assert "Info message" in log_contents
+    assert "Debug message" in log_contents
+
+
+def test_configure_logger_console_and_file(capsys, tmp_path):
+    # Test configuring the logger to change both console and file settings
+    log_file = tmp_path / "test.log"
+    config = LoggerConfig(
+        console_log_level="ERROR", log_file=str(log_file), log_file_level="INFO"
     )
-    assert handler is not None, "DEBUG level console handler is not set"
+    configure_logger(config=config)
+    logger.info("Info message")
+    logger.error("Error message")
+
+    captured = capsys.readouterr()
+    assert "Info message" not in captured.out
+    assert "Error message" in captured.out
+
+    with open(log_file, "r") as f:
+        log_contents = f.read()
+    assert "Info message" in log_contents
+    assert "Error message" in log_contents
 
 
-@pytest.mark.sanity
-def test_file_logger_setup(tmp_path):
-    log_file = f"{tmp_path}/test.log"
-    configure_logger(log_file=log_file, log_file_level="ERROR")
-    handlers = [hand for hand in logger._core.handlers.values()]
-    assert handlers, "No handlers are set for the metrics"
+def test_environment_variable_override(monkeypatch, capsys, tmp_path):
+    # Test environment variables override settings
+    monkeypatch.setenv("GUIDE_LLM_LOG_LEVEL", "ERROR")
+    monkeypatch.setenv("GUIDE_LLM_LOG_FILE", str(tmp_path / "env_test.log"))
+    monkeypatch.setenv("GUIDE_LLM_LOG_FILE_LEVEL", "DEBUG")
 
-    handler = next(
-        (hand for hand in handlers if f"level={LEVELS['ERROR']}" in str(hand)), None
-    )
-    assert handler is not None, "ERROR level file handler is not set"
+    configure_logger(config=LoggerConfig())
+    logger.info("Info message")
+    logger.error("Error message")
+    logger.debug("Debug message")
+
+    captured = capsys.readouterr()
+    assert "Info message" not in captured.out
+    assert "Error message" in captured.out
+    assert "Debug message" not in captured.out
+
+    with open(tmp_path / "env_test.log", "r") as f:
+        log_contents = f.read()
+    assert "Info message" in log_contents
+    assert "Error message" in log_contents
+    assert "Debug message" in log_contents
 
 
-@pytest.mark.sanity
-def test_env_variable_setup(monkeypatch):
-    monkeypatch.setenv("LLM_COMPRESSOR_LOG_LEVEL", "WARNING")
-    monkeypatch.setenv("LLM_COMPRESSOR_LOG_FILE", "env_log.json")
-    monkeypatch.setenv("LLM_COMPRESSOR_LOG_FILE_LEVEL", "ERROR")
+def test_environment_variable_disable_logging(monkeypatch, capsys):
+    # Test environment variable to disable logging
+    monkeypatch.setenv("GUIDE_LLM_LOG_DISABLED", "true")
 
-    _logger_setup(
-        api_request=False,
-        console_log_level=os.getenv("LLM_COMPRESSOR_LOG_LEVEL"),
-        log_file=os.getenv("LLM_COMPRESSOR_LOG_FILE"),
-        log_file_level=os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL"),
-    )
+    configure_logger(config=LoggerConfig())
+    logger.info("Info message")
+    logger.error("Error message")
 
-    handlers = [hand for hand in logger._core.handlers.values()]
-    assert handlers, "No handlers are set for the metrics"
-
-    console_handler = next(
-        (hand for hand in handlers if f"level={LEVELS['WARNING']}" in str(hand)), None
-    )
-    assert (
-        console_handler is not None
-    ), "WARNING level console handler is not set from env variable"
-
-    file_handler = next(
-        (hand for hand in handlers if f"level={LEVELS['ERROR']}" in str(hand)), None
-    )
-    assert (
-        file_handler is not None
-    ), "ERROR level file handler is not set from env variable"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

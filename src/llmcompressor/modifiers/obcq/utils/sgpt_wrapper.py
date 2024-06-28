@@ -8,15 +8,13 @@ except ImportError as err:
     transformers = None
     transformers_err = err
 
-import logging
 import math
 
 import torch
 import torch.nn as nn
+from loguru import logger
 
 __all__ = ["SparseGptWrapper"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class SparseGptWrapper(ModuleCompressionWrapper):
@@ -194,8 +192,8 @@ class SparseGptWrapper(ModuleCompressionWrapper):
             else:
                 W[:, i2:] -= Err1.matmul(Hinv[i1:i2, i2:])
 
-        _LOGGER.info("time %.2f" % (time.time() - tick))
-        _LOGGER.info("error %.2f" % torch.sum(Losses).item())
+        logger.info("time %.2f" % (time.time() - tick))
+        logger.info("error %.2f" % torch.sum(Losses).item())
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
