@@ -2,9 +2,9 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import QuantizationScheme
+from loguru import logger
 from pydantic import Field
 from torch.nn import Module
-from loguru import logger
 
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import Modifier, ModifierFactory

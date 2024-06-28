@@ -1,6 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
 
-from loguru import logger
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -11,13 +10,13 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
     set_module_for_calibration,
 )
+from loguru import logger
 from pydantic import Field
 from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
-
 
 __all__ = ["QuantizationModifier"]
 
