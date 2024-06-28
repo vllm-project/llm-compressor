@@ -1,4 +1,5 @@
 import inspect
+import logging
 from pathlib import Path
 from typing import Optional, Union
 
@@ -75,6 +76,12 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         # instantiate compressor from model config
         compressor = ModelCompressor.from_pretrained(pretrained_model_name_or_path)
 
+        # temporarily set the log level to error, to ignore printing out long missing
+        # and unexpected key error messages (these are EXPECTED for quantized models)
+        transformers_logger = logging.getLogger("transformers.modeling_utils")
+        restore_log_level = transformers_logger.getEffectiveLevel()
+        transformers_logger.setLevel(level=logging.ERROR)
+
         model = super(AutoModelForCausalLM, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
@@ -86,6 +93,10 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
                 "To load the model in the format that it was previously saved in, "
                 "set torch_dtype=`auto` in the SparseAutoModel creation call."
             )
+
+        # restore transformers logging level now that model shell is loaded
+        transformers_logger.setLevel(level=restore_log_level)
+
         # override the PreTrainedModel instance with compression save function
         modify_save_pretrained(model)
 

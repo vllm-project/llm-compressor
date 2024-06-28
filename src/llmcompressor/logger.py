@@ -47,21 +47,12 @@ __all__ = ["LoggerConfig", "configure_logger", "logger"]
 class LoggerConfig:
     disabled: bool = False
     clear_loggers: bool = True
-    console_log_level: Optional[str] = None
+    console_log_level: Optional[str] = "INFO"
     log_file: Optional[str] = None
     log_file_level: Optional[str] = None
 
 
-_ENV_CONFIG = LoggerConfig(
-    disabled=os.getenv("LLM_COMPRESSOR_LOG_DISABLED") == "true",
-    clear_loggers=os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS") == "true",
-    console_log_level=os.getenv("LLM_COMPRESSOR_LOG_LEVEL"),
-    log_file=os.getenv("LLM_COMPRESSOR_LOG_FILE"),
-    log_file_level=os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL"),
-)
-
-
-def configure_logger(config: LoggerConfig):
+def configure_logger(config: Optional[LoggerConfig] = None):
     """
     Configure the metrics for LLM Compressor.
     This function sets up the console and file logging
@@ -72,16 +63,24 @@ def configure_logger(config: LoggerConfig):
     :param config: The configuration for the logger to use.
     :type config: LoggerConfig
     """
+
+    _ENV_CONFIG = LoggerConfig(
+        disabled=os.getenv("LLM_COMPRESSOR_LOG_DISABLED") == "true",
+        clear_loggers=os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS") == "true",
+        console_log_level=os.getenv("LLM_COMPRESSOR_LOG_LEVEL"),
+        log_file=os.getenv("LLM_COMPRESSOR_LOG_FILE"),
+        log_file_level=os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL"),
+    )
+
     if not config:
-        logger_config = _ENV_CONFIG
-    else:
-        # override from environment variables, if set
-        logger_config = LoggerConfig(
-            disabled=_ENV_CONFIG.disabled or config.disabled,
-            console_log_level=_ENV_CONFIG.console_log_level or config.console_log_level,
-            log_file=_ENV_CONFIG.log_file or config.log_file,
-            log_file_level=_ENV_CONFIG.log_file_level or config.log_file_level,
-        )
+        config = LoggerConfig()
+    # override from environment variables, if set
+    logger_config = LoggerConfig(
+        disabled=_ENV_CONFIG.disabled or config.disabled,
+        console_log_level=_ENV_CONFIG.console_log_level or config.console_log_level,
+        log_file=_ENV_CONFIG.log_file or config.log_file,
+        log_file_level=_ENV_CONFIG.log_file_level or config.log_file_level,
+    )
 
     if logger_config.disabled:
         logger.disable("llmcompressor")

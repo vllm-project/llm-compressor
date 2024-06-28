@@ -20,8 +20,6 @@
 import os
 from pathlib import PosixPath
 
-import datasets
-import transformers
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -269,13 +267,17 @@ def main(
             "weights without errors. Detected tie_word_embeddings=True. "
             "This may cause issues with the one-shot algorithm on save. "
         )
+
     # Setup logger
-    log_level = training_args.get_process_log_level()
-    logger.setLevel(log_level)
-    datasets.utils.logger.set_verbosity(log_level)
-    transformers.utils.logger.set_verbosity(log_level)
-    transformers.utils.logger.enable_default_handler()
-    transformers.utils.logger.enable_explicit_format()
+    # TODO: taking this out for now, these aren't valid calls and I was unsure what
+    # the intended purpose was originally
+    #
+    # log_level = training_args.get_process_log_level()
+    # logger.set_verbosity(log_level)
+    # datasets.utils.logger.set_verbosity(log_level)
+    # transformers.utils.logger.set_verbosity(log_level)
+    # transformers.utils.logger.enable_default_handler()
+    # transformers.utils.logger.enable_explicit_format()
 
     # Setup based on stage types if running stage mode
     if training_args.run_stages and training_args.recipe is not None:

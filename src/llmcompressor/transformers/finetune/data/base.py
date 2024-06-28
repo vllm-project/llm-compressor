@@ -193,7 +193,6 @@ class TextGenerationDataset(RegistryMixin):
             load_from_cache_file=not self.data_args.overwrite_cache,
             desc="Adding labels",
         )
-        print(dataset.column_names)
 
         return dataset
 

@@ -12,6 +12,8 @@ def reset_logger():
 
 
 def test_default_logger_settings(capsys):
+    configure_logger()
+
     # Default settings should log to console with INFO level and no file logging
     logger.info("Info message")
     logger.debug("Debug message")
@@ -69,9 +71,9 @@ def test_configure_logger_console_and_file(capsys, tmp_path):
 
 def test_environment_variable_override(monkeypatch, capsys, tmp_path):
     # Test environment variables override settings
-    monkeypatch.setenv("GUIDE_LLM_LOG_LEVEL", "ERROR")
-    monkeypatch.setenv("GUIDE_LLM_LOG_FILE", str(tmp_path / "env_test.log"))
-    monkeypatch.setenv("GUIDE_LLM_LOG_FILE_LEVEL", "DEBUG")
+    monkeypatch.setenv("LLM_COMPRESSOR_LOG_LEVEL", "ERROR")
+    monkeypatch.setenv("LLM_COMPRESSOR_LOG_FILE", str(tmp_path / "env_test.log"))
+    monkeypatch.setenv("LLM_COMPRESSOR_LOG_FILE_LEVEL", "DEBUG")
 
     configure_logger(config=LoggerConfig())
     logger.info("Info message")
@@ -92,7 +94,7 @@ def test_environment_variable_override(monkeypatch, capsys, tmp_path):
 
 def test_environment_variable_disable_logging(monkeypatch, capsys):
     # Test environment variable to disable logging
-    monkeypatch.setenv("GUIDE_LLM_LOG_DISABLED", "true")
+    monkeypatch.setenv("LLM_COMPRESSOR_LOG_DISABLED", "true")
 
     configure_logger(config=LoggerConfig())
     logger.info("Info message")
