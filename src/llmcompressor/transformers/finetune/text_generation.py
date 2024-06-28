@@ -54,7 +54,6 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    configure_logger()
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
     main(model_args, data_args, training_args)
@@ -64,7 +63,6 @@ def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    configure_logger()
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.do_eval = True
     main(model_args, data_args, training_args)
@@ -74,7 +72,6 @@ def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
-    configure_logger()
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.do_oneshot = True
     main(model_args, data_args, training_args)
@@ -88,7 +85,6 @@ def apply(**kwargs):
     """
     CLI entrypoint for any of training, eval, predict or oneshot
     """
-    configure_logger()
     report_to = kwargs.get("report_to", None)
     model_args, data_args, training_args = parse_args(**kwargs)
     training_args.run_stages = True
@@ -259,6 +255,8 @@ def main(
     for training and eval
     :param training_args: Arguments pertaining to training loop configuration
     """
+    configure_logger()
+
     # Temporary warning, to be removed
     if model_args.tie_word_embeddings is True:
         logger.warning(
