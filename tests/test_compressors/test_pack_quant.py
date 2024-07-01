@@ -20,8 +20,8 @@ import pytest
 import torch
 from compressed_tensors import PackedQuantizationCompressor
 from compressed_tensors.compressors.pack_quantized import (
-    pack_4bit_ints,
-    unpack_4bit_ints,
+    pack_to_int32,
+    unpack_from_int32,
 )
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -95,14 +95,35 @@ def test_quant_format(shape):
         (torch.rand((32, 100)) * 16 - 8),
     ],
 )
-def test_repack(value):
+def test_repack_4bit(value):
     value = value.to(torch.int8)
     shape = value.shape
     assert not torch.any(value > 7).item()
     assert not torch.any(value < -8).item()
 
-    packed = pack_4bit_ints(value)
-    unpacked = unpack_4bit_ints(packed, shape)
+    packed = pack_to_int32(value, 4)
+    unpacked = unpack_from_int32(packed, 4, shape)
+    assert torch.equal(value, unpacked)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        torch.tensor([[30, 40], [50, 60]]),
+        torch.tensor(
+            [[10, 15, 20, 25, 30, 35, 40, 45], [-10, -20, -30, -40, -50, -60, -70, -80]]
+        ),
+        (torch.rand((32, 100)) * 256 - 128),
+    ],
+)
+def test_repack_8bit(value):
+    value = value.to(torch.int8)
+    shape = value.shape
+    assert not torch.any(value > 127).item()
+    assert not torch.any(value < -128).item()
+
+    packed = pack_to_int32(value, 8)
+    unpacked = unpack_from_int32(packed, 8, shape)
     assert torch.equal(value, unpacked)
 
 
