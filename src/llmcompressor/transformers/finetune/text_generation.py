@@ -255,7 +255,6 @@ def main(
     for training and eval
     :param training_args: Arguments pertaining to training loop configuration
     """
-    configure_logger()
 
     # Temporary warning, to be removed
     if model_args.tie_word_embeddings is True:
