@@ -2,7 +2,6 @@
 Utility / helper functions
 """
 
-import logging
 import os
 import random
 import re
@@ -13,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 import numpy
 import torch
+from loguru import logger
 from packaging import version
 from torch import Tensor
 from torch.nn import Embedding, Linear, Module, Parameter
@@ -88,7 +88,6 @@ __all__ = [
 ]
 
 
-_LOGGER = logging.getLogger(__name__)
 _PARSED_TORCH_VERSION = version.parse(torch.__version__)
 
 
@@ -1033,11 +1032,11 @@ def thin_model_from_checkpoint(model: Module, state_dict: Dict[str, Any]):
                 layer.groups = layer.weight.shape[0] // layer.weight.shape[1]
 
         if first_thinned:
-            _LOGGER.info(
+            logger.info(
                 "Thinning module layers for compatibility with given state dict:"
             )
             first_thinned = False
-        _LOGGER.info(
+        logger.info(
             f"Thinned layer {layer_name} from shape {orig_shape} to "
             f"{layer.weight.shape}"
         )
@@ -1072,7 +1071,7 @@ def memory_aware_threshold(tensor: torch.Tensor, idx: int) -> Tensor:
         else:
             return torch.sort(tensor.reshape(-1))[0][idx]
     except RuntimeError:
-        _LOGGER.warning(
+        logger.warning(
             "Finding threshold from sparsity failed due to lack of memory, "
             "will attempt to recover. Consider setting env variable "
             f"{MEMORY_BOUNDED}=True in future runs."

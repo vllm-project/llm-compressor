@@ -1,10 +1,10 @@
-import logging
 import math
 import os
 import re
 from typing import List, Optional
 
 import torch
+from loguru import logger
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
@@ -30,8 +30,6 @@ from llmcompressor.utils.fsdp.helpers import (
     is_fsdp_model,
     unwrap_and_export_model,
 )
-
-_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 class StageRunner:
@@ -138,7 +136,7 @@ class StageRunner:
 
         :param stage: which stage of the recipe to run, or None to run whole recipe
         """
-        _LOGGER.info("*** One Shot ***")
+        logger.info("*** One Shot ***")
 
         calib_data = format_calibration_data(
             tokenized_dataset=self.get_dataset_split("calibration"),
@@ -195,7 +193,7 @@ class StageRunner:
         :param checkpoint: Optional checkpoint to resume from
         :param stage: which stage of the recipe to run, or None to run whole recipe
         """
-        _LOGGER.info("*** Train ***")
+        logger.info("*** Train ***")
         train_result = self.trainer.train(
             resume_from_checkpoint=checkpoint, stage=stage
         )
@@ -212,7 +210,7 @@ class StageRunner:
         """
         Run trainer's evaluation loop on eval_dataset, logging the desired metrics
         """
-        _LOGGER.info("*** Evaluate ***")
+        logger.info("*** Evaluate ***")
         metrics = self.trainer.evaluate(self.get_dataset_split("validation"))
 
         metrics["eval_samples"] = len(self.get_dataset_split("validation"))
@@ -223,7 +221,7 @@ class StageRunner:
         """
         Run trainer's prediction loop on predict_dataset, logging the desired metrics
         """
-        _LOGGER.info("*** Predict ***")
+        logger.info("*** Predict ***")
         results = self.trainer.predict(self.dataset["test"])
         metrics = results.metrics
 

@@ -1,9 +1,9 @@
-import logging
 import weakref
 from functools import wraps
 from typing import Optional
 
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
+from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.transformers.compression.quantization_format import (
@@ -12,8 +12,6 @@ from llmcompressor.transformers.compression.quantization_format import (
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 __all__ = ["modify_save_pretrained"]
 
@@ -76,7 +74,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 )
             elif not skip_compression_stats:
                 # try to infer a sparsity config from the model if none is provided
-                _LOGGER.info(
+                logger.info(
                     "Inferring a sparsity configuration requires a global sparsity "
                     "calculation. This can be costly for large models. To skip the "
                     "calculation of compression statistics set "

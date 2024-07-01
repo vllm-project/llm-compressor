@@ -1,8 +1,8 @@
-import logging
 import operator
 from typing import Dict
 
 import torch
+from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
@@ -14,8 +14,6 @@ from llmcompressor.utils.pytorch import set_layer
 from llmcompressor.utils.pytorch.module import get_prunable_layers
 
 __all__ = ["LayerCompressor"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class LayerCompressor:
@@ -128,7 +126,7 @@ class LayerCompressor:
         def prune(module):
             if isinstance(module, self.module_compressor_class):
                 full_name = self._get_full_submodule_name(module.name)
-                _LOGGER.info(f"Compressing {full_name}...")
+                logger.info(f"Compressing {full_name}...")
                 module.fasterprune(**self.args)
 
         self.layer.apply(prune)

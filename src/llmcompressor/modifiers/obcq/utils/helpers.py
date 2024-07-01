@@ -1,13 +1,12 @@
-import logging
 import operator
 from collections import defaultdict
 from math import ceil
 from typing import List, Optional
 
 import torch
+from loguru import logger
 from torch.nn.modules.sparse import Embedding
 
-_LOGGER = logging.getLogger(__name__)
 _DEFAULT_TARGET_IDS = ["attention_mask", "position_ids", "position_bias"]
 
 
@@ -148,7 +147,7 @@ def cache_attention_inputs(
 def ppl_eval_general(
     eval_logits, model, dataloader, dev, nsamples=None, max_samples_per_iteration=128
 ):
-    _LOGGER.info("Evaluating perplexity...")
+    logger.info("Evaluating perplexity...")
 
     if nsamples is None:
         nsamples = len(dataloader)
@@ -180,12 +179,16 @@ def ppl_eval_general(
         )
 
         number_tokens += labels.numel()
-        _LOGGER.info(torch.exp(neg_log_likelihood / number_tokens))
+        perplexity = torch.exp(neg_log_likelihood / number_tokens)
+        logger.debug(
+            f"Processed iteration {iteration} of {number_iterations} with perplexity: "
+            f"{perplexity}"
+        )
 
-    ppl = torch.exp(neg_log_likelihood / number_tokens)
-    _LOGGER.info(f"Perplexity: {ppl.item():3f}")
+    perplexity = torch.exp(neg_log_likelihood / number_tokens)
+    logger.info(f"Evaluated perplexity: {perplexity}")
 
-    return ppl.item()
+    return perplexity.item()
 
 
 def _get_pre_layer_modules(model_root, layers_name):

@@ -1,4 +1,3 @@
-import logging
 import math
 
 from transformers import TrainerCallback, TrainerControl, TrainingArguments
@@ -11,8 +10,6 @@ __all__ = [
     "DisableHalfPrecisionCallback",
     "TrainingLoopCallbacks",
 ]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class TrainingLoopCallbacks(TrainerCallback):

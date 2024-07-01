@@ -1,4 +1,3 @@
-import logging
 from typing import Any, Dict, List, Optional, Union
 
 from compressed_tensors.quantization import (
@@ -11,15 +10,13 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
     set_module_for_calibration,
 )
+from loguru import logger
 from pydantic import Field
 from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
-
-_LOGGER = logging.getLogger(__name__)
-
 
 __all__ = ["QuantizationModifier"]
 
@@ -169,7 +166,7 @@ class QuantizationModifier(Modifier):
 
     def _calibrate_if_possible(self, module: Module):
         if self.num_calibration_steps == 0 and self.calibration_dataloader_:
-            _LOGGER.warning(
+            logger.warning(
                 f"num_calibration_steps is {self.num_calibration_steps}."
                 f"Calibration data loader will not be used."
             )
@@ -187,7 +184,7 @@ class QuantizationModifier(Modifier):
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")
-        _LOGGER.info(
+        logger.info(
             f"Running {class_name} calibration with "
             f"{len(self.calibration_dataloader_)} samples..."
         )

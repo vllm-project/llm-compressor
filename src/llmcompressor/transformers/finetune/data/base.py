@@ -1,8 +1,8 @@
-import logging
 from typing import Optional, Union
 
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
+from loguru import logger
 from transformers import AutoTokenizer
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
@@ -11,8 +11,6 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     get_custom_datasets_from_path,
     get_raw_dataset,
 )
-
-_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -60,7 +58,7 @@ class TextGenerationDataset(RegistryMixin):
         max_seq_length = data_args.max_seq_length
         model_max_length = tokenizer.model_max_length if tokenizer else max_seq_length
         if self.tokenizer and max_seq_length > model_max_length:
-            _LOGGER.warning(
+            logger.warning(
                 f"The max_seq_length passed ({max_seq_length}) is larger than "
                 f"the maximum length for the model ({tokenizer.model_max_length}). "
                 f"Using max_seq_length={tokenizer.model_max_length}."
@@ -195,7 +193,6 @@ class TextGenerationDataset(RegistryMixin):
             load_from_cache_file=not self.data_args.overwrite_cache,
             desc="Adding labels",
         )
-        print(dataset.column_names)
 
         return dataset
 

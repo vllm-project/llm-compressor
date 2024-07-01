@@ -9,16 +9,14 @@ except ImportError as err:
     transformers = None
     transformers_err = err
 
-import logging
 import math
 from copy import copy
 
 import torch
 import torch.nn as nn
+from loguru import logger
 
 __all__ = ["GPTQWrapper"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class GPTQWrapper(ModuleCompressionWrapper):
@@ -205,8 +203,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
             else:
                 W[:, i2:] -= w_err
 
-        _LOGGER.info("time %.2f" % (time.time() - tick))
-        _LOGGER.info("error %.2f" % torch.sum(Losses).item())
+        logger.info("time %.2f" % (time.time() - tick))
+        logger.info("error %.2f" % torch.sum(Losses).item())
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()

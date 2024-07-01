@@ -1,8 +1,8 @@
-import logging
 import time
 
 import torch
 import torch.nn as nn
+from loguru import logger
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
 
@@ -16,8 +16,6 @@ __all__ = ["WandaWrapper"]
 
 
 DEBUG = False
-_LOGGER = logging.getLogger(__name__)
-
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
@@ -107,7 +105,7 @@ class WandaWrapper(ModuleCompressionWrapper):
 
         W[W_mask] = 0  # set weights to zero
 
-        _LOGGER.info("time %.2f" % (time.time() - tick))
+        logger.info("time %.2f" % (time.time() - tick))
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
