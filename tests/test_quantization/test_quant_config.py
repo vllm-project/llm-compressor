@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import pytest
 from compressed_tensors.quantization import (
     DEFAULT_QUANTIZATION_FORMAT,
@@ -60,3 +59,19 @@ def test_full_config():
 def test_need_config_groups():
     with pytest.raises(ValidationError):
         _ = QuantizationScheme()
+
+
+@pytest.mark.parametrize(
+    "scheme_name",
+    [
+        "W8A8",
+        "W4A16",
+    ],
+)
+def test_load_scheme_from_preset(scheme_name: str):
+    targets = ["Linear"]
+    config = QuantizationConfig(config_groups={scheme_name: targets})
+
+    assert scheme_name in config.config_groups
+    assert isinstance(config.config_groups[scheme_name], QuantizationScheme)
+    assert config.config_groups[scheme_name].targets == targets
