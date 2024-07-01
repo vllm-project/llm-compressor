@@ -1,5 +1,4 @@
 import pytest
-
 from llmcompressor import LoggerConfig, configure_logger, logger
 
 
@@ -19,7 +18,7 @@ def test_default_logger_settings(capsys):
     logger.debug("Debug message")
 
     captured = capsys.readouterr()
-    assert "Info message" in captured.out
+    assert captured.out.count("Info message") == 1
     assert "Debug message" not in captured.out
 
 
@@ -31,8 +30,8 @@ def test_configure_logger_console_settings(capsys):
     logger.debug("Debug message")
 
     captured = capsys.readouterr()
-    assert "Info message" in captured.out
-    assert "Debug message" in captured.out
+    assert captured.out.count("Info message") == 1
+    assert captured.out.count("Debug message") == 1
 
 
 def test_configure_logger_file_settings(tmp_path):
@@ -45,8 +44,8 @@ def test_configure_logger_file_settings(tmp_path):
 
     with open(log_file, "r") as f:
         log_contents = f.read()
-    assert "Info message" in log_contents
-    assert "Debug message" in log_contents
+    assert log_contents.count('"message": "Info message"') == 1
+    assert log_contents.count('"message": "Debug message"') == 1
 
 
 def test_configure_logger_console_and_file(capsys, tmp_path):
@@ -61,12 +60,12 @@ def test_configure_logger_console_and_file(capsys, tmp_path):
 
     captured = capsys.readouterr()
     assert "Info message" not in captured.out
-    assert "Error message" in captured.out
+    assert captured.out.count("Error message") == 1
 
     with open(log_file, "r") as f:
         log_contents = f.read()
-    assert "Info message" in log_contents
-    assert "Error message" in log_contents
+    assert log_contents.count('"message": "Info message"') == 1
+    assert log_contents.count('"message": "Error message"') == 1
 
 
 def test_environment_variable_override(monkeypatch, capsys, tmp_path):
@@ -82,14 +81,14 @@ def test_environment_variable_override(monkeypatch, capsys, tmp_path):
 
     captured = capsys.readouterr()
     assert "Info message" not in captured.out
-    assert "Error message" in captured.out
+    assert captured.out.count("Error message") == 1
     assert "Debug message" not in captured.out
 
     with open(tmp_path / "env_test.log", "r") as f:
         log_contents = f.read()
-    assert "Info message" in log_contents
-    assert "Error message" in log_contents
-    assert "Debug message" in log_contents
+    assert log_contents.count('"message": "Error message"') == 1
+    assert log_contents.count('"message": "Info message"') == 1
+    assert log_contents.count('"message": "Debug message"') == 1
 
 
 def test_environment_variable_disable_logging(monkeypatch, capsys):

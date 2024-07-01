@@ -30,7 +30,6 @@ from transformers import (
 )
 
 from llmcompressor.core import pre_initialize_structure, reset_session
-from llmcompressor.logger import configure_logger
 from llmcompressor.pytorch.model_load.helpers import (
     fallback_to_cpu,
     get_session_model,
@@ -264,17 +263,6 @@ def main(
             "weights without errors. Detected tie_word_embeddings=True. "
             "This may cause issues with the one-shot algorithm on save. "
         )
-
-    # Setup logger
-    # TODO: taking this out for now, these aren't valid calls and I was unsure what
-    # the intended purpose was originally
-    #
-    # log_level = training_args.get_process_log_level()
-    # logger.set_verbosity(log_level)
-    # datasets.utils.logger.set_verbosity(log_level)
-    # transformers.utils.logger.set_verbosity(log_level)
-    # transformers.utils.logger.enable_default_handler()
-    # transformers.utils.logger.enable_explicit_format()
 
     # Setup based on stage types if running stage mode
     if training_args.run_stages and training_args.recipe is not None:
