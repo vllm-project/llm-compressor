@@ -4,11 +4,11 @@
 
 > vLLM supports `fp8` compuation on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper generations).
 
-There are three steps:
+There are four steps:
 * Load model and tokenizer
 * Prepare calibration data
 * Apply quantization
-* Evaluate accuracy
+* Evaluate accuracy in vLLM
 
 ### Installation
 
@@ -22,10 +22,10 @@ pip install -e .
 
 ### Quickstart
 
-The example includes an end-to-end script for applying the quantization algorithm. The resulting model `Meta-Llama-3-8B-Instruct-W8A8-FP8` is ready to be loaded into vllm.
+The example includes an end-to-end script for applying the quantization algorithm. The resulting model `Meta-Llama-3-8B-Instruct-W8A8-FP8` is quantized to `fp8` and ready to be loaded into vLLM.
 
 ```bash
-python3 example-w8a8-fp8.py
+python3 llama-3-8b-example.py
 ```
 
 Now, we will step though the code.
