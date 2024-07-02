@@ -1,18 +1,12 @@
 ## `fp8` Weight and Activation Quantization
 
-`llm-compressor` supports quantizing weights and activations to `fp8` for inference time memory savings and acceleration.
+`llm-compressor` supports quantizing weights and activations to `fp8` for memory savings and inference acceleration with `vLLM`
 
-> vLLM supports `fp8` compuation on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper generations).
-
-There are four steps:
-* Load model and tokenizer
-* Prepare calibration data
-* Apply quantization
-* Evaluate accuracy in vLLM
+> `fp8` compuation is supported on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper).
 
 ### Installation
 
-To get started, install `llm-compressor`.
+To get started, install:
 
 ```bash
 git clone https://github.com/vllm-project/llm-compressor.git
@@ -28,9 +22,13 @@ The example includes an end-to-end script for applying the quantization algorith
 python3 llama-3-8b-example.py
 ```
 
-Now, we will step though the code.
-
 ### Code Walkthough
+
+Now, we will step though the code in the example. There are four steps:
+1) Load model
+2) Prepare calibration data
+3) Apply quantization
+4) Evaluate accuracy in vLLM
 
 #### 1) Load Model
 
@@ -47,7 +45,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
-#### 2) Prepare Calibration Dataset
+#### 2) Prepare Calibration Data
 
 Prepare the calibration data. When quantizing activations of a model to `fp8`, we need some sample data to estimate the activation scales. As a result, it is very useful to use calibration data that closely matches the type of data used in deployment. If you have fine-tuned a model, using a sample of your training data is a good idea.
 
@@ -107,7 +105,7 @@ tokenizer.save_pretrained(SAVE_DIR)
 
 We have successfully created an `fp8` model!
 
-#### 4) Load And Evaluate
+#### 4) Evaluate Accuracy
 
 With the model created, we can now load and run in vLLM (after installing).
 
@@ -119,6 +117,8 @@ model = LLM("./Meta-Llama-3-8B-Instruct-W8A8-FP8")
 We can evaluate accuracy with `lm_eval` (`pip install lm_eval==v0.4.3`):
 > Note: quantized models can be sensitive to the presence of the `bos` token. `lm_eval` does not add a `bos` token by default, so make sure to include the `add_bos_token=True` argument when running your evaluations.
 
+Run the following to test accuracy on GSM-8K:
+
 ```bash
 lm_eval --model vllm \
   --model_args pretrained="./Meta-Llama-3-8B-Instruct-W8A8-FP8",add_bos_token=true \
@@ -128,7 +128,8 @@ lm_eval --model vllm \
   --batch_size 'auto'
 ```
 
-The resulting model is accurate:
+We can see the resulting scores look good!
+
 ```bash
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
