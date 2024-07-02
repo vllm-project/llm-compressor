@@ -23,7 +23,7 @@ class SparseGptWrapper(ModuleCompressionWrapper):
 
     Lifecycle:
         - add_batch
-        - fasterprune
+        - compress
         - free
 
     :param name: name of module to run compression on
@@ -59,7 +59,7 @@ class SparseGptWrapper(ModuleCompressionWrapper):
         inp = math.sqrt(2 / self.nsamples) * inp.float()
         self.H += inp.matmul(inp.t()).to(self.dev)
 
-    def fasterprune(
+    def compress(
         self,
         sparsity: float,
         prunen: int = 0,
