@@ -27,7 +27,7 @@ class LayerCompressor:
             - compressible_modules()
             - module_compressor_class.register_forward_hook()
         - compress()
-            - module_compressor_class.fasterprune()
+            - module_compressor_class.compress()
         - post_compress()
         - revert_layer_wrappers()
 
@@ -123,13 +123,13 @@ class LayerCompressor:
         """
 
         @torch.no_grad()
-        def prune(module):
+        def compress_module(module):
             if isinstance(module, self.module_compressor_class):
                 full_name = self._get_full_submodule_name(module.name)
                 logger.info(f"Compressing {full_name}...")
-                module.fasterprune(**self.args)
+                module.compress(**self.args)
 
-        self.layer.apply(prune)
+        self.layer.apply(compress_module)
 
     def _get_full_submodule_name(self, name):
         full_name = ".".join(x for x in [self.name, name] if len(x) > 0)

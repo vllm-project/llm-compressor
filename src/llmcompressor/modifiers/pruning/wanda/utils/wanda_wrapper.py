@@ -29,7 +29,7 @@ class WandaWrapper(ModuleCompressionWrapper):
 
     Lifecycle:
         - add_batch
-        - fasterprune
+        - compress
         - free
 
     :param name: name of module to run compression on
@@ -60,7 +60,7 @@ class WandaWrapper(ModuleCompressionWrapper):
         inp = inp.type(torch.float32)
         self.scaler_row += torch.norm(inp, p=2, dim=1) ** 2 / self.nsamples
 
-    def fasterprune(
+    def compress(
         self,
         sparsity: float,
         prunen: int = 0,

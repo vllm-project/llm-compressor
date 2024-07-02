@@ -24,7 +24,7 @@ class ModuleCompressionWrapper(Module, ABC):
 
     Lifecycle:
         - add_batch
-        - fasterprune
+        - compress
         - free
 
     :param name: name of module to run compression on
@@ -75,11 +75,11 @@ class ModuleCompressionWrapper(Module, ABC):
         """
         raise NotImplementedError("Child class must implement `add_batch`")
 
-    def fasterprune(self, *args, **kwargs):
+    def compress(self, *args, **kwargs):
         """
         Run pruning on the layer up to the target sparsity
         """
-        raise NotImplementedError("Child class must implement `fasterprune`")
+        raise NotImplementedError("Child class must implement `compress`")
 
     def state_dict(self, destination=None, prefix="", keep_vars=False, **kwargs):
         """
