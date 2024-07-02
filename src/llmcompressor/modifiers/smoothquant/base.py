@@ -52,7 +52,7 @@ class SmoothQuantMapping:
     balance_layers: List[Module]
 
 
-class SmoothQuantModifier(Modifier, validate_assignment=True):
+class SmoothQuantModifier(Modifier):
     """
      Implements the SmoothQuant algorithm from https://arxiv.org/abs/2211.10438. This
      modifier performs a channel-wise smoothing of outliers in activations, making them
