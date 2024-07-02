@@ -1,8 +1,8 @@
-# `fp8` Weight and Activation Quantization
+# `int4` Weight Quantization
 
-`llm-compressor` supports quantizing weights and activations to `fp8` for memory savings and inference acceleration with `vLLM`
+`llm-compressor` supports quantizing weights to `int4` for memory savings and inference acceleration with `vLLM`
 
-> `fp8` compuation is supported on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper).
+> `int4` mixed precision compuation is supported on Nvidia GPUs with compute capability > 8.0 (Ampere, Ada Lovelace, Hopper).
 
 ## Installation
 
@@ -22,7 +22,7 @@ The example includes an end-to-end script for applying the quantization algorith
 python3 llama3_example.py
 ```
 
-The resulting model `Meta-Llama-3-8B-Instruct-W8A8-FP8` is ready to be loaded into vLLM.
+The resulting model `Meta-Llama-3-8B-Instruct-W4A16-G128` is ready to be loaded into vLLM.
 
 ## Code Walkthough
 
@@ -49,7 +49,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 ### 2) Prepare Calibration Data
 
-Prepare the calibration data. When quantizing activations of a model to `fp8`, we need some sample data to estimate the activation scales. As a result, it is very useful to use calibration data that closely matches the type of data used in deployment. If you have fine-tuned a model, using a sample of your training data is a good idea.
+Prepare the calibration data. When quantizing weigths of a model to `int4` using GPTQ, we need some sample data to run the GPTQ algorithms. As a result, it is very useful to use calibration data that closely matches the type of data used in deployment. If you have fine-tuned a model, using a sample of your training data is a good idea.
 
 In our case, we are quantizing an Instruction tuned generic model, so we will use the `ultrachat` dataset. Some best practices include:
 * 512 samples is a good place to start (increase if accuracy drops)
@@ -81,7 +81,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 With the dataset ready, we will now apply quantization.
 
-We first select the quantization algorithm. In our case, we will apply the default recipe for `fp8` (which uses static-per-tensor weights and static-per-tensor activations) to all linear layers.
+We first select the quantization algorithm.
+
+In our case, we will apply the default GPTQ recipe for `int4` (which uses static group size 128 scales) to all linear layers.
 > See the `Recipes` documentation for more information on making complex recipes
 
 ```python
@@ -89,7 +91,7 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Configure the quantization algorithm to run.
-recipe = QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head"])
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply quantization.
 oneshot(
@@ -100,12 +102,12 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-FP8"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 ```
 
-We have successfully created an `fp8` model!
+We have successfully created an `int4` model!
 
 ### 4) Evaluate Accuracy
 
@@ -113,7 +115,7 @@ With the model created, we can now load and run in vLLM (after installing).
 
 ```python
 from vllm import LLM
-model = LLM("./Meta-Llama-3-8B-Instruct-W8A8-FP8")
+model = LLM("./Meta-Llama-3-8B-Instruct-W4A16-G128")
 ```
 
 We can evaluate accuracy with `lm_eval` (`pip install lm_eval==v0.4.3`):
@@ -123,7 +125,7 @@ Run the following to test accuracy on GSM-8K:
 
 ```bash
 lm_eval --model vllm \
-  --model_args pretrained="./Meta-Llama-3-8B-Instruct-W8A8-FP8",add_bos_token=true \
+  --model_args pretrained="./Meta-Llama-3-8B-Instruct-W4A16-G128",add_bos_token=true \
   --tasks gsm8k \
   --num_fewshot 5 \
   --limit 250 \

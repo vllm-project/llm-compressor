@@ -1,12 +1,12 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype='auto',
+    MODEL_ID, device_map="auto", torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -30,16 +30,17 @@ ds = ds.map(preprocess)
 
 # Tokenize inputs.
 def tokenize(sample):
-    return tokenizer(sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False)
+    return tokenizer(
+        sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False
+    )
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-# In this case, we:
-#   * quantize the weights to fp8 with simple PTQ (static per tensor)
-#   * quantize the activations to fp8 with simple PTQ (static per tensor)
-recipe = QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head"])
+#   * quantize the weights to 4 bit with GPTQ with a group size 128
+# Note: to reduce GPU memory use `sequential_update=False`
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
-# Apply quantization.
+# Apply algorithms.
 oneshot(
     model=model,
     dataset=ds,
@@ -57,6 +58,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-FP8"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
