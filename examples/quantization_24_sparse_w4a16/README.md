@@ -1,3 +1,28 @@
+# `int4` Weight Quantization of a 2:4 Sparse Model
+
+`llm-compressor` supports quantizing weights while maintaining sparsity patterns for memory savings and inference acceleration with `vLLM`
+
+> `2:4 sparisty + int4/int8` mixed precision computation is supported in vLLM on Nvidia capability > 8.0 (Ampere, Ada Lovelace, Hopper).
+
+## Installation
+
+To get started, install:
+
+```bash
+git clone https://github.com/vllm-project/llm-compressor.git
+cd llm-compressor
+pip install -e .
+```
+
+## Quickstart
+
+The example includes an end-to-end script for applying the quantization algorithm.
+
+```bash
+python3 llama2_24sparse_example.py
+```
+
+
 # Creating a Sparse Quantized Llama7b Model
 
 This example uses LLMCompressor and Compressed-Tensors to create a 2:4 sparse and quantized Llama2-7b model.
