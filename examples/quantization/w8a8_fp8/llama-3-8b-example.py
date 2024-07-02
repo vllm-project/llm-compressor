@@ -1,6 +1,7 @@
 from datasets import load_dataset
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from transformers import AutoTokenizer
+from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -15,7 +16,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES=32
+NUM_CALIBRATION_SAMPLES=512
 MAX_SEQUENCE_LENGTH=2048
 
 # Load dataset and preprocess.
@@ -29,38 +30,16 @@ ds = ds.map(preprocess)
 
 # Tokenize inputs.
 def tokenize(sample):
-    return tokenizer(
-        sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False
-    )
-ds = ds.map(
-    tokenize, remove_columns=ds.column_names
-)
+    return tokenizer(sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False)
+ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# Configure algorithms. In this case, we:
-#   * quantize the weights to fp8 with simple PTQ quantization modifier
-#   * quantize the activations to fp8 with simple PTQ quantization modifier
-recipe = """
-quant_stage:
-    quant_modifiers:
-        QuantizationModifier:
-            sequential_update: false
-            ignore: ["lm_head"]
-            config_groups:
-                group_0:
-                    weights:
-                        num_bits: 8
-                        type: "float"
-                        symmetric: true
-                        strategy: "tensor"
-                    input_activations:
-                        num_bits: 8
-                        type: "float"
-                        symmetric: true
-                        strategy: "tensor"
-                    targets: ["Linear"]
-"""
+# Configure the quantization algorithm to run.
+# In this case, we:
+#   * quantize the weights to fp8 with simple PTQ (static per tensor)
+#   * quantize the activations to fp8 with simple PTQ (static per tensor)
+recipe = QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head"])
 
-# Apply algorithms.
+# Apply quantization.
 oneshot(
     model=model,
     dataset=ds,
@@ -78,6 +57,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-FP8-SQ"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
