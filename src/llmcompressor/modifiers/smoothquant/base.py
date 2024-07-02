@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
+from pydantic import field_validator
 
 import torch
 from loguru import logger
@@ -13,7 +14,13 @@ from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
 
+DEFAULT_SMOOTHQUANT_MAPPINGS = [
+    [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
+    [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
+]
+
 __all__ = ["SmoothQuantScale", "SmoothQuantMapping", "SmoothQuantModifier"]
+
 
 
 @dataclass
@@ -47,7 +54,7 @@ class SmoothQuantMapping:
     balance_layers: List[Module]
 
 
-class SmoothQuantModifier(Modifier):
+class SmoothQuantModifier(Modifier, validate_assignment = True):
     """
      Implements the SmoothQuant algorithm from https://arxiv.org/abs/2211.10438. This
      modifier performs a channel-wise smoothing of outliers in activations, making them
@@ -88,7 +95,7 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: List[Tuple]
+    mappings: List[Tuple] = DEFAULT_SMOOTHQUANT_MAPPINGS
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
