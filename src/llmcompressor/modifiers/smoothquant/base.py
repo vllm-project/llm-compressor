@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
-from pydantic import field_validator
 
 import torch
 from loguru import logger
@@ -16,11 +15,10 @@ MINIMUM_SMOOTHING_SCALE = 1e-5
 
 DEFAULT_SMOOTHQUANT_MAPPINGS = [
     [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
-    [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
+    [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"],
 ]
 
 __all__ = ["SmoothQuantScale", "SmoothQuantMapping", "SmoothQuantModifier"]
-
 
 
 @dataclass
@@ -54,7 +52,7 @@ class SmoothQuantMapping:
     balance_layers: List[Module]
 
 
-class SmoothQuantModifier(Modifier, validate_assignment = True):
+class SmoothQuantModifier(Modifier, validate_assignment=True):
     """
      Implements the SmoothQuant algorithm from https://arxiv.org/abs/2211.10438. This
      modifier performs a channel-wise smoothing of outliers in activations, making them

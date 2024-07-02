@@ -3,7 +3,10 @@ import unittest
 import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
-from llmcompressor.modifiers.smoothquant.base import SmoothQuantModifier, DEFAULT_SMOOTHQUANT_MAPPINGS
+from llmcompressor.modifiers.smoothquant.base import (
+    DEFAULT_SMOOTHQUANT_MAPPINGS,
+    SmoothQuantModifier,
+)
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 
@@ -33,6 +36,7 @@ class TestSmoothQuantIsRegistered(unittest.TestCase):
         self.assertEqual(modifier.smoothing_strength, self.kwargs["smoothing_strength"])
         self.assertEqual(modifier.mappings, self.kwargs["mappings"])
 
+
 @pytest.mark.unit
 class TestSmoothQuantDefaults(unittest.TestCase):
     def setUp(self):
@@ -46,7 +50,9 @@ class TestSmoothQuantDefaults(unittest.TestCase):
     def test_override_defaults(self):
         strength = 0.7
         dummy_map = [(["layer1", "layer2"], "layer3")]
-        non_default_sq = SmoothQuantModifier(smoothing_strength=strength, mappings=dummy_map)
+        non_default_sq = SmoothQuantModifier(
+            smoothing_strength=strength, mappings=dummy_map
+        )
 
         assert non_default_sq.smoothing_strength == strength
         assert non_default_sq.mappings == dummy_map
