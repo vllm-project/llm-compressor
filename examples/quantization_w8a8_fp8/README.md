@@ -1,10 +1,10 @@
-## `fp8` Weight and Activation Quantization
+# `fp8` Weight and Activation Quantization
 
 `llm-compressor` supports quantizing weights and activations to `fp8` for memory savings and inference acceleration with `vLLM`
 
 > `fp8` compuation is supported on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper).
 
-### Installation
+## Installation
 
 To get started, install:
 
@@ -14,7 +14,7 @@ cd llm-compressor
 pip install -e .
 ```
 
-### Quickstart
+## Quickstart
 
 The example includes an end-to-end script for applying the quantization algorithm. The resulting model `Meta-Llama-3-8B-Instruct-W8A8-FP8` is quantized to `fp8` and ready to be loaded into vLLM.
 
@@ -22,7 +22,7 @@ The example includes an end-to-end script for applying the quantization algorith
 python3 llama-3-8b-example.py
 ```
 
-### Code Walkthough
+## Code Walkthough
 
 Now, we will step though the code in the example. There are four steps:
 1) Load model
@@ -30,7 +30,7 @@ Now, we will step though the code in the example. There are four steps:
 3) Apply quantization
 4) Evaluate accuracy in vLLM
 
-#### 1) Load Model
+### 1) Load Model
 
 Load the model using `SparseAutoModelForCausalLM`, which is a wrapper around `AutoModel` for handling quantized saving and loading. Note that `SparseAutoModel` is compatible with `accelerate` so you can load your model onto multiple GPUs if needed.
 
@@ -45,7 +45,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
-#### 2) Prepare Calibration Data
+### 2) Prepare Calibration Data
 
 Prepare the calibration data. When quantizing activations of a model to `fp8`, we need some sample data to estimate the activation scales. As a result, it is very useful to use calibration data that closely matches the type of data used in deployment. If you have fine-tuned a model, using a sample of your training data is a good idea.
 
@@ -75,7 +75,7 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 ```
 
-#### 3) Apply Quantization
+### 3) Apply Quantization
 
 With the dataset ready, we will now apply quantization.
 
@@ -105,7 +105,7 @@ tokenizer.save_pretrained(SAVE_DIR)
 
 We have successfully created an `fp8` model!
 
-#### 4) Evaluate Accuracy
+### 4) Evaluate Accuracy
 
 With the model created, we can now load and run in vLLM (after installing).
 
@@ -137,6 +137,6 @@ We can see the resulting scores look good!
 |     |       |strict-match    |     5|exact_match|↑  |0.776|±  |0.0264|
 ```
 
-#### Questions or Feature Request?
+### Questions or Feature Request?
 
 Please open up an issue on `vllm-project/llm-compressor`
