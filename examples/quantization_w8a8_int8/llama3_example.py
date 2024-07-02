@@ -38,35 +38,11 @@ ds = ds.map(
 
 # Configure algorithms. In this case, we:
 #   * apply SmoothQuant to make the activations easier to quantize
-#   * quantize the weights to 8 bit with GPTQ with a static per channel strategy
-#   * quantize the activations to 8 bit with a dynamic per token strategy
-recipe = """
-quant_stage:
-    quant_modifiers:
-        SmoothQuantModifier:
-            smoothing_strength: 0.8
-            mappings: [
-                [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
-                [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
-            ]
-        GPTQModifier:
-            sequential_update: false
-            ignore: ["lm_head"]
-            config_groups:
-                group_0:
-                    weights:
-                        num_bits: 8
-                        type: "int"
-                        symmetric: true
-                        strategy: "channel"
-                    input_activations:
-                        num_bits: 8
-                        type: "int"
-                        symmetric: true
-                        dynamic: true
-                        strategy: "token"
-                    targets: ["Linear"]
-"""
+#   * quantize the weights to int8 with GPTQ (static per channel)
+#   * quantize the activations to int8 (dynamic per token)
+# Note: this scheme currently requires a more complex yaml recipe
+# Note: set sequential_update: true in the recipe to reduce memory
+recipe = "./recipe.yaml"
 
 # Apply algorithms.
 oneshot(
