@@ -1,4 +1,4 @@
-## Fp8 Quantization
+## `fp8` Quantization
 
 `llm-compressor` supports quantizing weights and activations to `fp8` for inference time memory savings and acceleration.
 
