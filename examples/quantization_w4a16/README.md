@@ -2,7 +2,7 @@
 
 `llm-compressor` supports quantizing weights to `int4` for memory savings and inference acceleration with `vLLM`
 
-> `int4` mixed precision compuation is supported on Nvidia GPUs with compute capability > 8.0 (Ampere, Ada Lovelace, Hopper).
+> `int4` mixed precision computation is supported on Nvidia GPUs with compute capability > 8.0 (Ampere, Ada Lovelace, Hopper).
 
 ## Installation
 
