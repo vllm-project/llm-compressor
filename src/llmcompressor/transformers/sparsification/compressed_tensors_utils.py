@@ -1,23 +1,9 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import logging
 import weakref
 from functools import wraps
 from typing import Optional
 
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
+from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.transformers.compression.quantization_format import (
@@ -26,8 +12,6 @@ from llmcompressor.transformers.compression.quantization_format import (
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 __all__ = ["modify_save_pretrained"]
 
@@ -90,7 +74,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 )
             elif not skip_compression_stats:
                 # try to infer a sparsity config from the model if none is provided
-                _LOGGER.info(
+                logger.info(
                     "Inferring a sparsity configuration requires a global sparsity "
                     "calculation. This can be costly for large models. To skip the "
                     "calculation of compression statistics set "

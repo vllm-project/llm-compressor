@@ -1,27 +1,12 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import logging
 import operator
 from collections import defaultdict
 from math import ceil
 from typing import List, Optional
 
 import torch
+from loguru import logger
 from torch.nn.modules.sparse import Embedding
 
-_LOGGER = logging.getLogger(__name__)
 _DEFAULT_TARGET_IDS = ["attention_mask", "position_ids", "position_bias"]
 
 
@@ -162,7 +147,7 @@ def cache_attention_inputs(
 def ppl_eval_general(
     eval_logits, model, dataloader, dev, nsamples=None, max_samples_per_iteration=128
 ):
-    _LOGGER.info("Evaluating perplexity...")
+    logger.info("Evaluating perplexity...")
 
     if nsamples is None:
         nsamples = len(dataloader)
@@ -194,12 +179,16 @@ def ppl_eval_general(
         )
 
         number_tokens += labels.numel()
-        _LOGGER.info(torch.exp(neg_log_likelihood / number_tokens))
+        perplexity = torch.exp(neg_log_likelihood / number_tokens)
+        logger.debug(
+            f"Processed iteration {iteration} of {number_iterations} with perplexity: "
+            f"{perplexity}"
+        )
 
-    ppl = torch.exp(neg_log_likelihood / number_tokens)
-    _LOGGER.info(f"Perplexity: {ppl.item():3f}")
+    perplexity = torch.exp(neg_log_likelihood / number_tokens)
+    logger.info(f"Evaluated perplexity: {perplexity}")
 
-    return ppl.item()
+    return perplexity.item()
 
 
 def _get_pre_layer_modules(model_root, layers_name):

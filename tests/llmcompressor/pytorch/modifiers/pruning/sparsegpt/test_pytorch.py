@@ -81,6 +81,7 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         modifier.on_initialize_structure(testing_harness.get_state())
         assert modifier.quantize
         assert isinstance(modifier.quantization_modifier_, QuantizationModifier)
+        modifier.quantization_modifier_.create_init_config()
         default_config_group_name = "group_0"
         should_be_default_quant_scheme = modifier.quantization_modifier_.config_groups[
             default_config_group_name

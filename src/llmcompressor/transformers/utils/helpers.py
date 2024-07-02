@@ -1,24 +1,9 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
-Helper variables and functions for integrating SparseML with huggingface/transformers
-flows
+Helper variables and functions for integrating LLM Compressor with
+huggingface/transformers flows
 """
 
 import inspect
-import logging
 import os
 from collections import OrderedDict
 from contextlib import suppress
@@ -32,14 +17,12 @@ import requests
 import torch
 import transformers
 from huggingface_hub import HUGGINGFACE_CO_URL_HOME, HfFileSystem, hf_hub_download
+from loguru import logger
 from transformers import AutoConfig
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import PaddingStrategy
 
 from llmcompressor.utils.fsdp.context import main_process_first_context
-
-_LOGGER = logging.getLogger(__name__)
-
 
 __all__ = [
     "RECIPE_NAME",
@@ -118,7 +101,7 @@ def detect_last_checkpoint(
         elif (
             last_checkpoint is not None and training_args.resume_from_checkpoint is None
         ):
-            _LOGGER.info(
+            logger.info(
                 f"Checkpoint detected, resuming training at {last_checkpoint}. To "
                 "avoid this behavior, change  the `--output_dir` or add "
                 "`--overwrite_output_dir` to train from scratch."
@@ -145,7 +128,7 @@ def resolve_sequence_length(config: AutoConfig) -> int:
             "from the HF transformers config. Please specify "
             "the sequence length with --sequence_length"
         )
-    _LOGGER.debug(
+    logger.debug(
         f"Using default sequence length of {sequence_length} "
         "(inferred from HF transformers config) "
     )
@@ -200,13 +183,13 @@ def resolve_recipe(
 
     elif isinstance(recipe, str):
         # recipe is a string containing the recipe
-        _LOGGER.debug(
+        logger.debug(
             "Applying the recipe string directly to the model, without "
             "checking for a potential existing recipe in the model_path."
         )
         return recipe
 
-    _LOGGER.info(
+    logger.info(
         "No recipe requested and no default recipe "
         f"found in {model_path}. Skipping recipe resolution."
     )
@@ -233,15 +216,15 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         )
         recipe = os.path.join(model_path, RECIPE_NAME)
         if os.path.isfile(recipe):
-            _LOGGER.info(f"Found recipe in the model_path: {recipe}")
+            logger.info(f"Found recipe in the model_path: {recipe}")
             return recipe
-        _LOGGER.debug(f"No recipe found in the model_path: {model_path}")
+        logger.debug(f"No recipe found in the model_path: {model_path}")
         return None
 
     recipe = recipe_from_huggingface_model_id(model_path)[0]
 
     if recipe is None:
-        _LOGGER.info("Failed to infer the recipe from the model_path")
+        logger.info("Failed to infer the recipe from the model_path")
     return recipe
 
 
@@ -262,22 +245,22 @@ def recipe_from_huggingface_model_id(
     model_id = os.path.join(HUGGINGFACE_CO_URL_HOME, model_path)
     request = requests.get(model_id)
     if not request.status_code == 200:
-        _LOGGER.debug(
+        logger.debug(
             "model_path is not a valid huggingface model id. "
             "Skipping recipe resolution."
         )
         return None, False
 
-    _LOGGER.info(
+    logger.info(
         "model_path is a huggingface model id. "
         "Attempting to download recipe from "
         f"{HUGGINGFACE_CO_URL_HOME}"
     )
     try:
         recipe = hf_hub_download(repo_id=model_path, filename=recipe_name)
-        _LOGGER.info(f"Found recipe: {recipe_name} for model id: {model_path}.")
+        logger.info(f"Found recipe: {recipe_name} for model id: {model_path}.")
     except Exception as e:
-        _LOGGER.info(
+        logger.info(
             f"Unable to to find recipe {recipe_name} "
             f"for model id: {model_path}: {e}. "
             "Skipping recipe resolution."
@@ -317,7 +300,7 @@ def resolve_recipe_file(
             raise ValueError(f"Unrecognized model_path: {model_path}")
 
         if not default_recipe == requested_recipe and default_recipe is not None:
-            _LOGGER.warning(
+            logger.warning(
                 f"Attempting to apply recipe: {requested_recipe} "
                 f"to the model at: {model_path}, "
                 f"but the model already has a recipe: {default_recipe}. "
@@ -337,7 +320,7 @@ def resolve_recipe_file(
         and requested_recipe
         and not default_and_request_recipes_identical
     ):
-        _LOGGER.warning(
+        logger.warning(
             f"Attempting to apply recipe: {requested_recipe} "
             f"to the model located in {model_path}, "
             f"but the model already has a recipe stored as {default_recipe}. "
@@ -345,7 +328,7 @@ def resolve_recipe_file(
         )
 
     elif not default_recipe_exists and requested_recipe:
-        _LOGGER.warning(
+        logger.warning(
             f"Attempting to apply {requested_recipe} "
             f"to the model located in {model_path}."
             "However, it is expected that the model "
@@ -356,7 +339,7 @@ def resolve_recipe_file(
         )
 
     elif default_recipe_exists:
-        _LOGGER.info(f"Using the default recipe: {requested_recipe}")
+        logger.info(f"Using the default recipe: {requested_recipe}")
 
     return requested_recipe
 
@@ -497,13 +480,13 @@ def download_model_directory(pretrained_model_name_or_path: str, **kwargs):
     pretrained_model_path: Path = Path(pretrained_model_name_or_path)
 
     if pretrained_model_path.exists():
-        _LOGGER.debug(
+        logger.debug(
             "Model directory already exists locally.",
         )
         return pretrained_model_name_or_path
 
     with main_process_first_context():
-        _LOGGER.debug("Downloading model from HuggingFace Hub.")
+        logger.debug("Downloading model from HuggingFace Hub.")
         return download_repo_from_huggingface_hub(
             repo_id=pretrained_model_name_or_path, **kwargs
         )

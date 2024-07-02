@@ -10,7 +10,6 @@ import glob
 import importlib.metadata
 import importlib.util
 import json
-import logging
 import os
 import re
 import sys
@@ -23,6 +22,7 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
+from loguru import logger
 
 __all__ = [
     "ALL_TOKEN",
@@ -67,8 +67,6 @@ FROM_PARAM_TOKEN = "__FROM_PARAM__"
 RECIPE_METADATA_KEY = "__metadata__"
 FRAMEWORK_METADATA_KEY = "framework_metadata"
 ROOT_PATH = Path(__file__).resolve().parents[1]
-_LOGGER = logging.getLogger(__name__)
-
 
 ##############################
 #
@@ -599,7 +597,7 @@ def load_labeled_data(
             if raise_on_error:
                 raise err
             else:
-                _LOGGER.error("Error creating labeled data: {}".format(err))
+                logger.error("Error creating labeled data: {}".format(err))
 
     return labeled_data
 
@@ -930,7 +928,7 @@ def parse_kwarg_tuples(kwargs: tuple) -> Dict:
         try:
             kwargs_values[i] = ast.literal_eval(value)
         except Exception as e:  # noqa E841
-            _LOGGER.debug(
+            logger.debug(
                 f"Failed to infer non-string type"
                 f"from kwarg value: {value}. It will"
                 f"be left as a string."
@@ -979,7 +977,7 @@ def is_package_available(
             package_exists = True
         except importlib.metadata.PackageNotFoundError:
             package_exists = False
-        _LOGGER.debug(f"Detected {package_name} version {package_version}")
+        logger.debug(f"Detected {package_name} version {package_version}")
     if return_version:
         return package_exists, package_version
     else:

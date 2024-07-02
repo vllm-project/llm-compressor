@@ -1,25 +1,11 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import inspect
-import logging
 import math
 import os
 from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+from loguru import logger
 from torch.nn import Module
 from torch.utils.data import DataLoader, IterableDataset
 from transformers.trainer_callback import TrainerState
@@ -49,7 +35,6 @@ __all__ = [
     "SessionManagerMixIn",
 ]
 
-_LOGGER = logging.getLogger(__name__)
 TRAINER_STATE_NAME = "trainer_state.json"
 METADATA_ARGS = [
     "per_device_train_batch_size",
@@ -62,8 +47,8 @@ METADATA_ARGS = [
 
 class SessionManagerMixIn:
     """
-    Mix-In class to extend the Hugging Face Trainer class to support SparseML recipes
-    for one-shot and finetuning flows.
+    Mix-In class to extend the Hugging Face Trainer class to support LLM Compressor
+    recipes for one-shot and finetuning flows.
 
     :param recipe: path to recipe file to apply during training
     :param recipe_args: additional kwargs to use for evaluating recipe
@@ -162,9 +147,9 @@ class SessionManagerMixIn:
         self.model_wrapped = self.model = model
 
         if self.recipe is None:
-            _LOGGER.warning(
+            logger.warning(
                 "No training recipe was provided, finetuning will be run "
-                "without event callbacks to SparseML. To supply a recipe "
+                "without event callbacks to LLM Compressor. To supply a recipe "
                 "pass a yaml file or string to the `recipe` argument."
             )
 
@@ -187,7 +172,7 @@ class SessionManagerMixIn:
             recipe_stage=stage,
             recipe_args=self.recipe_args,
         )
-        _LOGGER.info(f"Initialized SparseML structure from recipe {self.recipe}")
+        logger.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
         torch.cuda.empty_cache()
 
     def finalize_session(self):
@@ -201,7 +186,7 @@ class SessionManagerMixIn:
         with summon_full_params_context(self.model, offload_to_cpu=True):
             # in order to update each layer we need to gathers all its parameters
             finalize()
-        _LOGGER.info("Finalized SparseML session")
+        logger.info("Finalized LLM Compressor session")
         model = get_session_model()
         self.model = model
         torch.cuda.empty_cache()
@@ -224,10 +209,10 @@ class SessionManagerMixIn:
         )
 
         if isinstance(self.train_dataset, IterableDataset):
-            _LOGGER.warning(
+            logger.warning(
                 "Training is being run with a streamed dataset, "
                 "steps_per_epoch cannot be determined and will default to "
-                "1. SparseML modifiers utilizing this statistic may not "
+                "1. LLM Compressor modifiers utilizing this statistic may not "
                 "behave as expected. "
             )
             self.total_steps_per_epoch = 1
@@ -295,7 +280,7 @@ class SessionManagerMixIn:
 
         # take the mean across multiple GPUs
         # this is done outside the compute_loss function in the parent, replicating it
-        # here for SparseML logging and distillation
+        # here for LLM Compressor logging and distillation
         loss = loss.mean()
 
         # Log step-wise loss and perplexity, for llama-recipes comparison
@@ -470,7 +455,9 @@ class SessionManagerMixIn:
             with open(recipe_path, "w") as fp:
                 fp.write(recipe_yaml_str)
 
-            _LOGGER.info(f"Saved SparseML recipe with model state to {recipe_path}")
+            logger.info(
+                f"Saved LLM Compressor recipe with model state to {recipe_path}"
+            )
 
         self.accelerator.wait_for_everyone()
 
@@ -497,14 +484,14 @@ class SessionManagerMixIn:
         """
         sparsification_info = ModuleSparsificationInfo(self.model)
 
-        _LOGGER.info(
+        logger.info(
             f"Sparsification info for {type(self.model).__name__}: "
             f"{sparsification_info.params_total} total params. "
         )
         sparsity_percent_formatted = "{:.2f}".format(
             sparsification_info.params_prunable_sparse_percent
         )
-        _LOGGER.info(
+        logger.info(
             f"There are {sparsification_info.params_prunable_total} prunable "
             f"params which have {sparsity_percent_formatted}% "
             "avg sparsity."
@@ -513,7 +500,7 @@ class SessionManagerMixIn:
         quant_percent_formatted = "{:.2f}".format(
             sparsification_info.params_quantized_percent
         )
-        _LOGGER.info(
+        logger.info(
             f"There are {sparsification_info.params_quantizable} quantizable "
             f"params, with a quantization percentage of "
             f"{quant_percent_formatted}%."
@@ -552,7 +539,7 @@ class SessionManagerMixIn:
 
         for arg in metadata_args:
             if arg not in args_dict.keys():
-                logging.warning(
+                logger.warning(
                     f"Required metadata argument {arg} was not found "
                     f"in the training arguments. Setting {arg} to None."
                 )
@@ -576,8 +563,8 @@ class SessionManagerMixIn:
         epoch = 0.0
 
         if not kwargs or "resume_from_checkpoint" not in kwargs:
-            _LOGGER.warning(
-                "resume_from_checkpoint not passed into SparseMLTrainer.train. "
+            logger.warning(
+                "resume_from_checkpoint not passed into LLM Compressor Trainer.train. "
                 "This will cause issues with restoring recipes when "
                 "running from a checkpoint."
             )

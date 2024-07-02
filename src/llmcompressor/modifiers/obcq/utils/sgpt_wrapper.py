@@ -1,17 +1,3 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import time
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
@@ -22,15 +8,13 @@ except ImportError as err:
     transformers = None
     transformers_err = err
 
-import logging
 import math
 
 import torch
 import torch.nn as nn
+from loguru import logger
 
 __all__ = ["SparseGptWrapper"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class SparseGptWrapper(ModuleCompressionWrapper):
@@ -208,8 +192,8 @@ class SparseGptWrapper(ModuleCompressionWrapper):
             else:
                 W[:, i2:] -= Err1.matmul(Hinv[i1:i2, i2:])
 
-        _LOGGER.info("time %.2f" % (time.time() - tick))
-        _LOGGER.info("error %.2f" % torch.sum(Losses).item())
+        logger.info("time %.2f" % (time.time() - tick))
+        logger.info("error %.2f" % torch.sum(Losses).item())
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
