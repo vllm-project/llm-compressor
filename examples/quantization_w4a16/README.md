@@ -137,8 +137,8 @@ We can see the resulting scores look good!
 ```bash
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
-|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.776|±  |0.0264|
-|     |       |strict-match    |     5|exact_match|↑  |0.776|±  |0.0264|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.728|±  |0.0282|
+|     |       |strict-match    |     5|exact_match|↑  |0.720|±  |0.0285|
 ```
 
 ### Questions or Feature Request?
