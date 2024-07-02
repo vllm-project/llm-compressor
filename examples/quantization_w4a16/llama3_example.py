@@ -1,12 +1,15 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto",
+    MODEL_ID,
+    device_map="auto",
+    torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -16,23 +19,37 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES=512
-MAX_SEQUENCE_LENGTH=2048
+NUM_CALIBRATION_SAMPLES = 512
+MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+
+
 def preprocess(example):
-    return {"text": tokenizer.apply_chat_template(
-        example["messages"], tokenize=False,
-    )}
+    return {
+        "text": tokenizer.apply_chat_template(
+            example["messages"],
+            tokenize=False,
+        )
+    }
+
+
 ds = ds.map(preprocess)
+
 
 # Tokenize inputs.
 def tokenize(sample):
     return tokenizer(
-        sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False
+        sample["text"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
     )
+
+
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
