@@ -17,6 +17,7 @@ from typing import List, Optional
 
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
+    QuantizationStrategy,
     QuantizationType,
 )
 from pydantic import BaseModel
@@ -110,15 +111,55 @@ def is_preset_scheme(name: str) -> bool:
     return name.upper() in PRESET_SCHEMES
 
 
-W8A8 = dict(weights=QuantizationArgs(), input_activations=QuantizationArgs())
-
-W4A16 = dict(weights=QuantizationArgs(num_bits=4, group_size=128))
-
-FP8 = dict(
-    weights=QuantizationArgs(type=QuantizationType.FLOAT),
-    input_activations=QuantizationArgs(type=QuantizationType.FLOAT),
+W8A8 = dict(
+    weights=QuantizationArgs(
+        num_bits=8,
+        symmetric=True,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.CHANNEL,
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=8,
+        symmetric=True,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.TOKEN,
+        dynamic=True,
+    ),
 )
 
-PRESET_SCHEMES = {"W8A8": W8A8, "W4A16": W4A16, "FP8": FP8}
+W8A16 = dict(
+    weights=QuantizationArgs(
+        num_bits=8,
+        symmetric=True,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.CHANNEL,
+    )
+)
 
-PRESET_SCHEMES = {"W8A8": W8A8, "W4A16": W4A16, "FP8": FP8}
+W4A16 = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        symmetric=True,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=128,
+    )
+)
+
+FP8 = dict(
+    weights=QuantizationArgs(
+        num_bits=8,
+        symmetric=True,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR,
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=8,
+        symmetric=True,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR,
+        dynamic=False,
+    ),
+)
+
+PRESET_SCHEMES = {"W8A8": W8A8, "W8A16": W8A16, "W4A16": W4A16, "FP8": FP8}
