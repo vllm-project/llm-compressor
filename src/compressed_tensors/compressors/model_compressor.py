@@ -81,6 +81,7 @@ class ModelCompressor:
     def from_pretrained(
         cls,
         pretrained_model_name_or_path: str,
+        **kwargs,
     ) -> Optional["ModelCompressor"]:
         """
         Given a path to a model config, extract the sparsity and/or quantization
@@ -89,7 +90,7 @@ class ModelCompressor:
         :param pretrained_model_name_or_path: path to model config on disk or HF hub
         :return: compressor for the extracted configs
         """
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path)
+        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
         compression_config = getattr(config, COMPRESSION_CONFIG_NAME, None)
         return cls.from_compression_config(compression_config)
 
