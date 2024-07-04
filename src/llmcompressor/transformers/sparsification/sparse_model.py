@@ -5,6 +5,7 @@ from typing import Optional, Union
 
 import torch
 from compressed_tensors.compressors import ModelCompressor
+from compressed_tensors.quantization import apply_quantization_config, QuantizationStatus
 from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM, PreTrainedModel
@@ -40,6 +41,7 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
     def from_pretrained(
         cls,
         pretrained_model_name_or_path,
+        run_compressed: bool = False,
         recipe: Optional[Union[str, Path]] = None,
         *model_args,
         **kwargs,
@@ -103,8 +105,14 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         # If model is quantized or compressed on disk, initialize quantization
         # structure and run decompression
         if compressor is not None:
-            # initialize quantization and decompress weights
-            compressor.decompress(model_path=pretrained_model_name_or_path, model=model)
+            quantization_config = compressor.quantization_config
+            is_compressed = (quantization_config.quantization_status == QuantizationStatus.COMPRESSED)
+            if run_compressed and is_compressed:
+                # initialize quantization, don't decompress
+                apply_quantization_config(model, quantization_config)
+            else:
+                # initialize quantization and decompress weights
+                compressor.decompress(model_path=pretrained_model_name_or_path, model=model)
 
         recipe = resolve_recipe(recipe=recipe, model_path=pretrained_model_name_or_path)
         if recipe:
