@@ -140,10 +140,9 @@ We can see the resulting scores look good (`meta-llama/Llama-2-7b-chat-hf` achie
 ```bash
 |Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
 |-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
-|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.200|±  |0.0274|
-|     |       |strict-match    |     5|exact_match|↑  |0.200|±  |0.0272|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.248|±  |0.0274|
+|     |       |strict-match    |     5|exact_match|↑  |0.208|±  |0.0272|
 ```
-
 
 
 ### Questions or Feature Request?
