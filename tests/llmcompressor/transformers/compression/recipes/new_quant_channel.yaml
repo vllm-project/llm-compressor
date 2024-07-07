@@ -15,4 +15,4 @@ test_stage:
         GPTQModifier:
             block_size: 128
             sequential_update: False
-            targets: ["model.layers.0", "model.layers.1", "model.layers.2"]
+            

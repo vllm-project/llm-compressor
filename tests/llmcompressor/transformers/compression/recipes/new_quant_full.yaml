@@ -1,14 +1,16 @@
 test_stage:
     quant_modifiers:
-        QuantizationModifier:
+        GPTQModifier:
+            block_size: 128
+            sequential_update: False
             ignore: ["lm_head", "model.layers.0.mlp.down_proj"]
             config_groups:
                 group_0:
                     weights:
                         num_bits: 8
                         type: "int"
-                        symmetric: true
-                        strategy: "tensor"
+                        symmetric: false
+                        strategy: "channel"
                     input_activations:
                         num_bits: 8
                         type: "int"
@@ -16,16 +18,3 @@ test_stage:
                         strategy: "tensor"
                     output_activations: null
                     targets: ["Linear"]
-                group_1:
-                    weights:
-                        num_bits: 8
-                        type: "int"
-                        symmetric: true
-                        strategy: "tensor"
-                    input_activations: null
-                    output_activations: null
-                    targets: ["Embedding"]
-        GPTQModifier:
-            block_size: 128
-            sequential_update: False
-            targets: ["re:model.layers.\\d+$"]

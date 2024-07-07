@@ -15,7 +15,7 @@ A clear and concise description of what you expected to happen.
 Include all relevant environment information:
 1. OS [e.g. Ubuntu 18.04]:
 2. Python version [e.g. 3.7]:
-3. SparseML version or commit hash [e.g. 0.1.0, `f7245c8`]:
+3. LLM Compressor version or commit hash [e.g. 0.1.0, `f7245c8`]:
 4. ML framework version(s) [e.g. torch 1.7.1]:
 5. Other Python package versions [e.g. SparseZoo, DeepSparse, numpy, ONNX]:
 6. Other relevant environment information [e.g. hardware, CUDA version]:

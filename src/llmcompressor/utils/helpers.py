@@ -10,8 +10,8 @@ import glob
 import importlib.metadata
 import importlib.util
 import json
-import logging
 import os
+import re
 import sys
 import tarfile
 import warnings
@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
-from sparsezoo import Model
+from loguru import logger
 
 __all__ = [
     "ALL_TOKEN",
@@ -53,12 +53,11 @@ __all__ = [
     "NumpyArrayBatcher",
     "tensor_export",
     "tensors_export",
-    "parse_optimization_str",
     "json_to_jsonl",
     "deprecation_warning",
     "parse_kwarg_tuples",
     "is_package_available",
-    "download_zoo_training_dir",
+    "import_from_path",
 ]
 
 
@@ -68,8 +67,6 @@ FROM_PARAM_TOKEN = "__FROM_PARAM__"
 RECIPE_METADATA_KEY = "__metadata__"
 FRAMEWORK_METADATA_KEY = "framework_metadata"
 ROOT_PATH = Path(__file__).resolve().parents[1]
-_LOGGER = logging.getLogger(__name__)
-
 
 ##############################
 #
@@ -600,7 +597,7 @@ def load_labeled_data(
             if raise_on_error:
                 raise err
             else:
-                _LOGGER.error("Error creating labeled data: {}".format(err))
+                logger.error("Error creating labeled data: {}".format(err))
 
     return labeled_data
 
@@ -835,22 +832,6 @@ def _tensors_export_batch(
     )
 
 
-def parse_optimization_str(optim_full_name: str) -> Tuple[str, str, Any]:
-    """
-    :param optim_full_name: A name of a pretrained model optimization. i.e.
-        'pruned-moderate-deepsparse', 'pruned-aggressive', 'base'
-    :return: A tuple representing the corresponding SparseZoo model sparse_name,
-        sparse_category, and sparse_target values with appropriate defaults when
-        not present.
-    """
-    optim_defaults = ["base", "none", None]
-    optim_split_name = optim_full_name.split("-")
-    while len(optim_split_name) < len(optim_defaults):
-        optim_split_name.append(optim_defaults[len(optim_split_name)])
-    sparse_name, sparse_category, sparse_target = optim_split_name[:3]
-    return sparse_name, sparse_category, sparse_target
-
-
 def json_to_jsonl(json_file_path: str, overwrite: bool = True):
     """
     Converts a json list file to jsonl file format (used for sharding efficienty)
@@ -947,7 +928,7 @@ def parse_kwarg_tuples(kwargs: tuple) -> Dict:
         try:
             kwargs_values[i] = ast.literal_eval(value)
         except Exception as e:  # noqa E841
-            _LOGGER.debug(
+            logger.debug(
                 f"Failed to infer non-string type"
                 f"from kwarg value: {value}. It will"
                 f"be left as a string."
@@ -996,31 +977,34 @@ def is_package_available(
             package_exists = True
         except importlib.metadata.PackageNotFoundError:
             package_exists = False
-        _LOGGER.debug(f"Detected {package_name} version {package_version}")
+        logger.debug(f"Detected {package_name} version {package_version}")
     if return_version:
         return package_exists, package_version
     else:
         return package_exists
 
 
-def download_zoo_training_dir(zoo_stub: str) -> str:
+def import_from_path(path: str) -> str:
     """
-    Helper function to download the training directory from a zoo stub,
-    takes care of downloading the missing files in the training
-    directory if any (This can happen if a some subset of files in the
-    training directory were downloaded before)
-
-    :param zoo_stub: The zoo stub to download the training directory from
-    :return: The path to the downloaded training directory
+    Import the module and the name of the function/class separated by :
+    Examples:
+      path = "/path/to/file.py:func_or_class_name"
+      path = "/path/to/file:focn"
+      path = "path.to.file:focn"
+    :param path: path including the file path and object name
+    :return Function or class object
     """
-    sparsezoo_model = Model(zoo_stub)
-    training_dir_path = sparsezoo_model.training.path
+    original_path, class_name = path.split(":")
+    _path = original_path
 
-    # download missing files if any this can happen if
-    # some subset of files in the training directory
-    # were downloaded before
+    path = original_path.split(".py")[0]
+    path = re.sub(r"/+", ".", path)
+    try:
+        module = importlib.import_module(path)
+    except ImportError:
+        raise ImportError(f"Cannot find module with path {_path}")
 
-    for file_name in sparsezoo_model.training.files:
-        file_name.path
-
-    return training_dir_path
+    try:
+        return getattr(module, class_name)
+    except AttributeError:
+        raise AttributeError(f"Cannot find {class_name} in {_path}")

@@ -119,10 +119,9 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
     def setUp(self):
         from llmcompressor.transformers import SparseAutoModelForCausalLM
 
-        if "zoo:" in self.model:
-            self.model = SparseAutoModelForCausalLM.from_pretrained(
-                self.model, device_map=self.device
-            )
+        self.model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map=self.device
+        )
 
         self.output = "./oneshot_output"
         self.output_first = Path(self.output) / "test_1"

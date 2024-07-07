@@ -1,23 +1,8 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-
-import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.core import Event, State
@@ -26,9 +11,12 @@ from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forwar
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
 
-_LOGGER = logging.getLogger(__name__)
-
 MINIMUM_SMOOTHING_SCALE = 1e-5
+
+DEFAULT_SMOOTHQUANT_MAPPINGS = [
+    [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
+    [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"],
+]
 
 __all__ = ["SmoothQuantScale", "SmoothQuantMapping", "SmoothQuantModifier"]
 
@@ -105,7 +93,7 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: List[Tuple]
+    mappings: List[Tuple] = DEFAULT_SMOOTHQUANT_MAPPINGS
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
@@ -249,7 +237,7 @@ class SmoothQuantModifier(Modifier):
         forward passes with calibration_dataloader
         """
         class_name = self.__class__.__name__.replace("PyTorch", "")
-        _LOGGER.info(
+        logger.info(
             f"Running {class_name} calibration with "
             f"{len(calibration_dataloader)} samples..."
         )
@@ -282,7 +270,7 @@ class SmoothQuantModifier(Modifier):
 
         This modifies the weights of the model in-place.
         """
-        _LOGGER.info("Smoothing activation scales...")
+        logger.info("Smoothing activation scales...")
         for mapping in self.resolved_mappings_:
             activation_scales = (  # get dynamic range for each activation channel
                 self.scales_[mapping.smooth_name].max_channel_vals

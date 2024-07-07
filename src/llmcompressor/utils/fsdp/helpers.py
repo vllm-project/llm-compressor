@@ -1,21 +1,8 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import logging
 import operator
 from pathlib import Path
 from typing import Optional
+
+from loguru import logger
 
 try:
     from torch.distributed.fsdp import (
@@ -41,8 +28,6 @@ __all__ = [
     "get_fsdp_parent",
     "find_and_move_state_dicts_to_cpu",
 ]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def is_fsdp_model(model: Module) -> bool:
@@ -133,7 +118,7 @@ def find_and_move_state_dicts_to_cpu(output_dir: str):
                 loaded_dict[key] = value.cpu()
 
         torch.save(loaded_dict, model_file)
-        _LOGGER.info(f"Moved state dict {model_file} to cpu")
+        logger.info(f"Moved state dict {model_file} to cpu")
 
 
 def save_pretrained_fsdp(

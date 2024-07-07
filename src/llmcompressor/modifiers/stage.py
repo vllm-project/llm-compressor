@@ -1,6 +1,6 @@
-import logging
 from typing import List, Optional
 
+from loguru import logger
 from pydantic import BaseModel, Field
 
 from llmcompressor.core.events import Event
@@ -9,8 +9,6 @@ from llmcompressor.modifiers.interface import ModifierInterface
 from llmcompressor.modifiers.modifier import Modifier
 
 __all__ = ["StageModifiers"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class StageModifiers(ModifierInterface, BaseModel):
@@ -72,7 +70,7 @@ class StageModifiers(ModifierInterface, BaseModel):
                 at_least_one_initialized = True
         if not at_least_one_initialized:
             modifier_names = [type(mod).__name__ for mod in self.modifiers]
-            _LOGGER.warning(
+            logger.warning(
                 f"Found no initialized modifiers in stage {self.group}. "
                 "Found the following uninitialized modifiers: "
                 f"{modifier_names}"

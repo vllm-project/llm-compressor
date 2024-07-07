@@ -1,26 +1,8 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    QuantizationScheme,
-    is_preset_scheme,
-    preset_name_to_scheme,
-)
+from compressed_tensors.quantization import QuantizationScheme
+from loguru import logger
 from pydantic import Field
 from torch.nn import Module
 
@@ -37,8 +19,6 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 __all__ = ["GPTQModifier"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class GPTQModifier(Modifier):
@@ -133,14 +113,14 @@ class GPTQModifier(Modifier):
         quantization_already_active = qat_active(state.model)
         if isinstance(self.quantize, bool):
             if not self.quantize and quantization_already_active:
-                _LOGGER.warning(
+                logger.warning(
                     "GPTQ quantization is set to False, but a "
                     "quantization modifier is already active on the model "
                     "resetting quantize to True"
                 )
                 self.quantize = True
             elif self.quantize and not quantization_already_active:
-                _LOGGER.warning(
+                logger.warning(
                     "GPTQ quantization is set to True without an "
                     "active quantization modifier."
                 )
@@ -160,7 +140,7 @@ class GPTQModifier(Modifier):
                     f"{len(self.quantize)} modifiers"
                 )
             if quantization_already_active:
-                _LOGGER.warning(
+                logger.warning(
                     "Attempting to initialize quantization for GPTQ "
                     "but a quantization modifier has already been applied. "
                     "The quantization configuration defined under the "
@@ -248,7 +228,7 @@ class GPTQModifier(Modifier):
 
         for idx, (name, layer) in enumerate(self.compressible_layers_.items()):
             name = fix_fsdp_module_name(name)
-            _LOGGER.info(f"Preparing {name} for compression")
+            logger.info(f"Preparing {name} for compression")
             args = self._pruning_arguments()
             comp_cls = self._compression_class()
             compressor = LayerCompressor(comp_cls, self.model, layer, idx, name, args)
@@ -267,7 +247,7 @@ class GPTQModifier(Modifier):
         :param dataloader: calibration data for GPTQ
         """
         class_name = self.__class__.__name__.replace("PyTorch", "")
-        _LOGGER.info(
+        logger.info(
             f"Running {class_name} calibration with " f"{len(dataloader)} samples..."
         )
         if not self.sequential_update:
@@ -276,7 +256,7 @@ class GPTQModifier(Modifier):
 
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):
-            _LOGGER.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
+            logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
             # Prune/quantize using GPTQ
             if self.sequential_update:
@@ -284,7 +264,7 @@ class GPTQModifier(Modifier):
                 # want to compress, this will be really slow but allows compression in
                 # earlier layers to affect later layers
                 layer_compressor.pre_compress()
-                _LOGGER.info(f"Calibrating {layer_compressor.name}...")
+                logger.info(f"Calibrating {layer_compressor.name}...")
                 run_calibration_forward(self.model, dataloader, mask_padding=True)
             layer_compressor.compress()
             layer_compressor.post_compress()
@@ -302,6 +282,8 @@ class GPTQModifier(Modifier):
 
         quantization_args_names = [
             "config_groups",
+            "targets",
+            "scheme",
             "num_calibration_steps",
             "ignore",
             "disable_quantization_observer_epoch",
@@ -313,34 +295,7 @@ class GPTQModifier(Modifier):
             if getattr(self, key, False)
         }
 
-        if isinstance(self.targets, str):
-            self.targets = [self.targets]
-
-        if self.scheme is not None:
-            # takes precedence over config_groups
-
-            if isinstance(self.scheme, str) and is_preset_scheme(self.scheme):
-                # attach targets to scheme
-                self.scheme = {self.scheme: self.targets}
-
-            quant_args["config_groups"] = {}
-            for idx, key in enumerate(self.scheme.keys()):
-                if is_preset_scheme(key):
-                    scheme = preset_name_to_scheme(key, self.scheme[key])
-                else:
-                    scheme = QuantizationScheme.model_validate(
-                        {"targets": self.scheme[key], **self.scheme}
-                    )
-
-                group_name = f"group_{idx}"
-                quant_args["config_groups"][group_name] = scheme
-
-        if "config_groups" not in quant_args or len("config_groups") == 0:
-            default_quant_scheme = QuantizationScheme.default_scheme(
-                targets=self.targets
-            )
-            quant_args["config_groups"] = {"group_0": default_quant_scheme}
-        _LOGGER.info(f"Building quantization modifier with args: {quant_args}")
+        logger.info(f"Building quantization modifier with args: {quant_args}")
         vllm_quant_config = {"QuantizationModifier": quant_args}
         self._build_quant_modifier_from_dict(vllm_quant_config)
 

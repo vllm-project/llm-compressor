@@ -1,22 +1,8 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -32,8 +18,6 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 __all__ = ["SparseGPTModifier"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class SparseGPTModifier(Modifier):
@@ -166,7 +150,7 @@ class SparseGPTModifier(Modifier):
         self._infer_mask_block_size()
 
         if self.sparsity_profile is not None and self.sparsity_profile.lower() == "owl":
-            _LOGGER.info(
+            logger.info(
                 "Inferring layer-wise sparsities from "
                 f"{len(dataloader)} calibration samples..."
             )
@@ -174,7 +158,7 @@ class SparseGPTModifier(Modifier):
         self._validate_layerwise_sparsity()
 
         for idx, (name, layer) in enumerate(self.compressible_layers_.items()):
-            _LOGGER.info(f"Preparing {name} for compression")
+            logger.info(f"Preparing {name} for compression")
             if isinstance(self.sparsity, Dict):
                 layer_sparsity = self.sparsity[name]
             elif isinstance(self.sparsity, List):
@@ -216,8 +200,9 @@ class SparseGPTModifier(Modifier):
         :param dataloader: calibration data for WANDA
         """
         class_name = self.__class__.__name__.replace("PyTorch", "")
-        _LOGGER.info(
-            f"Running {class_name} calibration with " f"{len(dataloader)} samples..."
+        logger.info(
+            f"Running {class_name} calibration with "
+            f"{len(dataloader) if dataloader else 0} samples..."
         )
         if not self.sequential_update:
             # in non-sequential mode we run one forward batch for all modules
@@ -226,7 +211,7 @@ class SparseGPTModifier(Modifier):
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):
             layer_sparsity = layer_compressor.args["sparsity"]
-            _LOGGER.info(
+            logger.info(
                 f"\n===== Compressing layer {idx+1}/{num_layers} "
                 f"to sparsity {layer_sparsity} ====="
             )
@@ -237,7 +222,7 @@ class SparseGPTModifier(Modifier):
                 # want to compress, this will be really slow but allows compression in
                 # earlier layers to affect later layers
                 layer_compressor.pre_compress()
-                _LOGGER.info(f"Calibrating {layer_compressor.name}...")
+                logger.info(f"Calibrating {layer_compressor.name}...")
                 run_calibration_forward(self.model, dataloader, mask_padding=True)
             layer_compressor.compress()
             layer_compressor.post_compress()
@@ -253,8 +238,8 @@ class SparseGPTModifier(Modifier):
 
         if len(target_layers) != len(self.sparsity):
             raise ValueError(
-                "Number of layer targets must match the number of "
-                f"sparsities. Got {len(target_layers)} layers and "
+                "Number of layer targets must match the number of sparsities. "
+                "Received {len(target_layers)} layers and "
                 f"{len(self.sparsity)} sparsities"
             )
 
@@ -334,9 +319,9 @@ class SparseGPTModifier(Modifier):
             )
             for k in outlier_ratios
         }
-        _LOGGER.info(f"OWL sparsities for sp={self.sparsity} are:")
+        logger.info(f"OWL sparsities for sp={self.sparsity} are:")
         for k in sparsities:
-            _LOGGER.info(f"Sparsity for {k}: {sparsities[k]}")
+            logger.info(f"Sparsity for {k}: {sparsities[k]}")
         return sparsities
 
 

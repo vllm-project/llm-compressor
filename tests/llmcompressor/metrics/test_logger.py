@@ -9,7 +9,6 @@ from llmcompressor.metrics import (
     LoggerManager,
     PythonLogger,
     SparsificationGroupLogger,
-    TensorBoardLogger,
     WANDBLogger,
 )
 
@@ -18,7 +17,6 @@ from llmcompressor.metrics import (
     "logger",
     [
         PythonLogger(),
-        TensorBoardLogger(),
         LambdaLogger(
             lambda_func=lambda tag, value, values, step, wall_time, level: logging.info(
                 f"{tag}, {value}, {values}, {step}, {wall_time}, {level}"
@@ -38,7 +36,6 @@ from llmcompressor.metrics import (
         LoggerManager(),
         LoggerManager(
             [
-                TensorBoardLogger(),
                 WANDBLogger() if WANDBLogger.available() else PythonLogger(),
             ]
         ),

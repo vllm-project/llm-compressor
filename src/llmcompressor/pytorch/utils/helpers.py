@@ -1,22 +1,7 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """
 Utility / helper functions
 """
 
-import logging
 import os
 import random
 import re
@@ -27,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 import numpy
 import torch
+from loguru import logger
 from packaging import version
 from torch import Tensor
 from torch.nn import Embedding, Linear, Module, Parameter
@@ -44,8 +30,6 @@ except Exception as _err:
     QuantWrapper = None
     QATLinear = None
     QATConv2d = None
-
-from sparsezoo import Model
 
 from llmcompressor.utils import create_dirs, save_numpy
 
@@ -98,14 +82,12 @@ __all__ = [
     "thin_model_from_checkpoint",
     "MEMORY_BOUNDED",
     "memory_aware_threshold",
-    "download_framework_model_by_recipe_type",
     "detach",
     "adjust_quantization_for_onnx_export",
     "get_dependency_order",
 ]
 
 
-_LOGGER = logging.getLogger(__name__)
 _PARSED_TORCH_VERSION = version.parse(torch.__version__)
 
 
@@ -1050,11 +1032,11 @@ def thin_model_from_checkpoint(model: Module, state_dict: Dict[str, Any]):
                 layer.groups = layer.weight.shape[0] // layer.weight.shape[1]
 
         if first_thinned:
-            _LOGGER.info(
+            logger.info(
                 "Thinning module layers for compatibility with given state dict:"
             )
             first_thinned = False
-        _LOGGER.info(
+        logger.info(
             f"Thinned layer {layer_name} from shape {orig_shape} to "
             f"{layer.weight.shape}"
         )
@@ -1089,7 +1071,7 @@ def memory_aware_threshold(tensor: torch.Tensor, idx: int) -> Tensor:
         else:
             return torch.sort(tensor.reshape(-1))[0][idx]
     except RuntimeError:
-        _LOGGER.warning(
+        logger.warning(
             "Finding threshold from sparsity failed due to lack of memory, "
             "will attempt to recover. Consider setting env variable "
             f"{MEMORY_BOUNDED}=True in future runs."
@@ -1097,38 +1079,6 @@ def memory_aware_threshold(tensor: torch.Tensor, idx: int) -> Tensor:
         torch.cuda.empty_cache()
         os.environ[MEMORY_BOUNDED] = "True"
         return torch.kthvalue(tensor.view(-1), idx + 1)[0]
-
-
-def download_framework_model_by_recipe_type(
-    zoo_model: Model, recipe_name: Optional[str] = None, model_suffix: str = "pth"
-) -> str:
-    """
-    Extract the path of the framework model from the
-    zoo model, conditioned on the name of the recipe
-    By default, the function will return path to the final framework model
-    :params zoo_model: model object from sparsezoo
-    :params recipe_name: a name of the recipe (e.g. "transfer_learn", "original" etc.)
-    :params model_suffix: model_suffix that models are saved with
-    :return: path to the framework model
-    """
-
-    # default to model query params if available
-    recipe_name = recipe_name or (
-        zoo_model.stub_params.get("recipe_type") or zoo_model.stub_params.get("recipe")
-    )
-
-    framework_model = None
-    if recipe_name and "transfer" in recipe_name.lower():
-        # fetching the model for transfer learning
-        model_name = f"model.ckpt.{model_suffix}"
-        framework_model = zoo_model.training.default.get_file(model_name)
-
-    if framework_model is None:
-        # fetching the model for inference or fall back if model.ckpt.pth doesn't exist
-        model_name = f"model.{model_suffix}"
-        framework_model = zoo_model.training.default.get_file(model_name)
-
-    return framework_model.path
 
 
 def detach(x: Union[torch.Tensor, List, Tuple]):

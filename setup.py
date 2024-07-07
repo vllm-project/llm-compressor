@@ -56,12 +56,9 @@ setup(
         "tqdm>=4.0.0",
         "click>=7.1.2,!=8.0.0",  # 8.0.0 blocked due to reported bug
         "torch>=1.7.0",
-        "transformers<4.41",
+        "transformers>4.0,<5.0",
         "datasets<2.19",
-        "evaluate>=0.4.1",
         "accelerate>=0.20.3",
-        "safetensors>=0.4.1",
-        "sentencepiece",
         "compressed-tensors"
         if version_info.is_release
         else "compressed-tensors-nightly",
@@ -91,7 +88,6 @@ setup(
             "llmcompressor.transformers.text_generation.finetune=llmcompressor.transformers.finetune.text_generation:train",  # noqa 501
             "llmcompressor.transformers.text_generation.eval=llmcompressor.transformers.finetune.text_generation:eval",  # noqa 501
             "llmcompressor.transformers.text_generation.oneshot=llmcompressor.transformers.finetune.text_generation:oneshot",  # noqa 501
-            "llmcompressor.evaluate=llmcompressor.evaluation.cli:main",
         ]
     },
     python_requires=">=3.8.0,<3.12",

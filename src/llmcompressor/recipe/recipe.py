@@ -1,11 +1,11 @@
 import json
-import logging
 import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
+from loguru import logger
 from pydantic import Field, model_validator
 
 from llmcompressor.modifiers import Modifier, StageModifiers
@@ -16,18 +16,14 @@ from llmcompressor.recipe.stage import RecipeStage
 
 __all__ = ["Recipe", "RecipeTuple"]
 
-_LOGGER = logging.getLogger(__name__)
-
 
 class Recipe(RecipeBase):
     """
     A class to represent a recipe for a model.
     Recipes encode the instructions needed for modifying
     the model and/or training process as a list of modifiers.
-    (More information on supported modifiers can be found at
-    https://docs.neuralmagic.com/products/sparseml)
 
-    Recipes can be created from a file, string, or SparseZoo stub.
+    Recipes can be created from a file, string, or HuggingFace stub.
     Acceptable file formats include both json and yaml, however,
     when serializing a recipe, yaml will be used by default.
     """
@@ -57,7 +53,7 @@ class Recipe(RecipeBase):
             group_name will be assigned.
         :return: The Recipe instance created from the modifiers
         """
-        _LOGGER.info("Creating recipe from modifiers")
+        logger.info("Creating recipe from modifiers")
 
         # validate Modifiers
         if isinstance(modifiers, Modifier):
@@ -96,7 +92,7 @@ class Recipe(RecipeBase):
         >>> recipe = Recipe.create_instance(recipe_str)
 
         :param path_or_modifiers: The path to the recipe file or
-            SparseZoo stub or the recipe string (must be a valid
+            or the recipe string (must be a valid
             json/yaml file or a valid json/yaml string). Can also
             accept a RecipeModifier instance, or a list of
             RecipeModifiers
@@ -122,15 +118,15 @@ class Recipe(RecipeBase):
         if not os.path.isfile(path_or_modifiers):
             # not a local file
             # assume it's a string
-            _LOGGER.warning(
+            logger.warning(
                 "Could not process input as a file path or zoo stub, "
                 "attempting to process it as a string."
             )
-            _LOGGER.debug(f"Input string: {path_or_modifiers}")
+            logger.debug(f"Input string: {path_or_modifiers}")
             obj = _load_json_or_yaml_string(path_or_modifiers)
             return Recipe.model_validate(obj)
         else:
-            _LOGGER.info(f"Loading recipe from file {path_or_modifiers}")
+            logger.info(f"Loading recipe from file {path_or_modifiers}")
 
         with open(path_or_modifiers, "r") as file:
             content = file.read().strip()

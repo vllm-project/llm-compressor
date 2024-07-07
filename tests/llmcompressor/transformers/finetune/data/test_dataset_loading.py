@@ -219,32 +219,6 @@ class TestEvol(unittest.TestCase):
 
 
 @pytest.mark.unit
-class TestDVCLoading(unittest.TestCase):
-    def setUp(self):
-        self.data_args = DataTrainingArguments(
-            dataset="csv",
-            dataset_path="dvc://workshop/satellite-data/jan_train.csv",
-            dvc_data_repository="https://github.com/iterative/dataset-registry.git",
-        )
-
-    @pytest.fixture(autouse=True)
-    def prepare_fixture(self, tiny_llama_tokenizer):
-        self.tiny_llama_tokenizer = tiny_llama_tokenizer
-
-    def test_dvc_dataloading(self):
-        manager = TextGenerationDataset(
-            text_column="",
-            data_args=self.data_args,
-            split="train",
-            tokenizer=self.tiny_llama_tokenizer,
-        )
-
-        raw_dataset = manager.get_raw_dataset()
-        self.assertGreater(len(raw_dataset), 0)
-        self.assertIsInstance(raw_dataset[0], dict)
-
-
-@pytest.mark.unit
 class TestStreamLoading(unittest.TestCase):
     def setUp(self):
         self.data_args = DataTrainingArguments(

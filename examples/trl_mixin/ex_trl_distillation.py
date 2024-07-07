@@ -1,30 +1,15 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from transformers import DefaultDataCollator
+from transformers import AutoTokenizer, DefaultDataCollator
 
 from llmcompressor.transformers import (
     DataTrainingArguments,
     SFTTrainer,
     SparseAutoModelForCausalLM,
-    SparseAutoTokenizer,
     TextGenerationDataset,
     TrainingArguments,
 )
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
-teacher_path = "zoo:llama2-7b-gsm8k_llama2_pretrain-base"
+teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
 output_dir = "./output_trl_sft_test_7b_gsm8k"
 
 model = SparseAutoModelForCausalLM.from_pretrained(
@@ -34,7 +19,7 @@ teacher = SparseAutoModelForCausalLM.from_pretrained(
     teacher_path, torch_dtype="auto", device_map="auto"
 )
 
-tokenizer = SparseAutoTokenizer.from_pretrained(model_path)
+tokenizer = AutoTokenizer.from_pretrained(model_path)
 
 # Load gsm8k using SparseML dataset tools
 data_args = DataTrainingArguments(

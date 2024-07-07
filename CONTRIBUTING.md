@@ -1,86 +1,53 @@
-<!--
-Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
+# Contributing to LLM Compressor
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Thank you for your interest in contributing to LLM Compressor!
+Our community is open to everyone and welcomes all kinds of contributions, no matter how small or large.
+There are several ways you can contribute to the project:
 
-   http://www.apache.org/licenses/LICENSE-2.0
+- Identify and report any issues or bugs.
+- Request or add new compression methods or research.
+- Suggest or implement new features.
 
-Unless required by applicable law or agreed to in writing,
-software distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
--->
+However, remember that contributions aren't just about code.
+We believe in the power of community support; thus, answering queries, assisting others, and enhancing the documentation are highly regarded and beneficial contributions.
 
-TODO: update for upstream push
+Finally, one of the most impactful ways to support us is by raising awareness about LLM Compressor and the vLLM community.
+Talk about it in your blog posts, highlighting how it's driving your incredible projects.
+Express your support on Twitter if vLLM aids you, or simply offer your appreciation by starring our repository.
 
-# Contributing to SparseML
+## Setup for development
 
-If you’re reading this, hopefully we have piqued your interest to take the next step. Join us and help make SparseML even better! As a contributor, here are some community guidelines we would like you to follow:
+### Install from source
 
-- [Code of Conduct](#code-of-conduct)
-- [Ways to Contribute](#ways-to-contribute)
-- [Bugs and Feature Requests](#bugs-and-feature-requests)
-- [Question or Problem](#question-or-problem)
-- [Developing SparseML](DEVELOPING.md)
+```bash
+pip install -e ./[dev]
+```
 
-## Code of Conduct
+### Code Styling and Formatting checks
 
-Help us keep the software inclusive. Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md) in order to promote an environment that is friendly, fair, respectful, and safe. We want to inspire collaboration, innovation, and fun!
+```bash
+make style
+make quality
+```
 
-## Ways to Contribute
+### Testing
 
-Whether you’re a newbie, dabbler, or expert, we appreciate you jumping in.
+```bash
+make test
+```
 
-### Contributing Code
+## Contributing Guidelines
 
-- Make pull requests for addressing bugs, open issues, and documentation
-- Neural Magic as the maintainer will do reviews and final merge
+### Issue Reporting
 
-### Reporting In
+If you encounter a bug or have a feature request, please check our issues page first to see if someone else has already reported it.
+If not, please file a new issue, providing as much relevant information as possible.
 
-- See something, say something: bugs, documentation
-- Propose new feature requests to Neural Magic
+### Pull Requests & Code Reviews
 
-### Helping Others
+Please check the PR checklist in the [PR template](.github/PULL_REQUEST_TEMPLATE.md) for detailed guide for contribution.
 
-- Answer open discussion topics
-- Spread the word about SparseML
-- Teach and empower others. This is the way!
+### Thank You
 
-## Bugs and Feature Requests
-
-Please search through existing issues and requests first to avoid duplicates. Neural Magic will work with you further to take next steps.
-
-- Go to: [GitHub Issues](https://github.com/neuralmagic/llmcompressor/issues)
-
-For bugs, include:
-
-- brief summary
-- OS/Environment details
-- steps to reproduce (s.t.r.)
-- code snippets, screenshots/casts, log content, sample models
-- add the GitHub label "bug" to your post
-
-For feature requests, include:
-
-- problem you’re trying to solve
-- community benefits
-- other relevant details to support your proposal
-- add the GitHub label "enhancement" to your post
-
-For documentation edits, include:
-
-- current state, proposed state
-- if applicable, screenshots/casts
-- add the GitHub label "documentation" to your post
-
-## Question or Problem
-
-Sign up or log in to our [**Neural Magic Community Slack**](https://neuralmagic.com/community/). We are growing the community member by member and happy to see you there. Don’t forget to search through existing discussions to avoid duplication! Thanks!
-
-## Developing SparseML
-
-Made it this far? Review [Developing SparseML](DEVELOPING.md) to get started.
+Finally, thank you for taking the time to read these guidelines and for your interest in contributing to LLM Compressor.
+Your contributions make LLM Compressor a great tool for everyone!

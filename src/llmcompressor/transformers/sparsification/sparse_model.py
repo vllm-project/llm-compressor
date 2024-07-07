@@ -1,17 +1,3 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import inspect
 import logging
 from pathlib import Path
@@ -19,6 +5,7 @@ from typing import Optional, Union
 
 import torch
 from compressed_tensors.compressors import ModelCompressor
+from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM, PreTrainedModel
 
@@ -34,15 +21,12 @@ from llmcompressor.transformers.utils.helpers import (
 __all__ = ["SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
 
 
-_LOGGER = logging.getLogger(__name__)
-
-
 class SparseAutoModelForCausalLM(AutoModelForCausalLM):
     """
-    SparseML wrapper for the AutoModelForCausalLM class
+    LLM Compressor wrapper for the AutoModelForCausalLM class
     Its lifecycle is defined as follows:
-    1. If pretrained_model_name_or_path is a SparseZoo stub
-       the appropriate SparseZoo model will be downloaded
+    1. If pretrained_model_name_or_path is a HuggingFace stub
+       the appropriate HuggingFace model will be downloaded
        (if required) and the path to the deployment directory
        of the model will be retrieved
     2. The original model definition will be loaded, without
@@ -94,21 +78,25 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
 
         # temporarily set the log level to error, to ignore printing out long missing
         # and unexpected key error messages (these are EXPECTED for quantized models)
-        logger = logging.getLogger("transformers.modeling_utils")
-        restore_log_level = logger.getEffectiveLevel()
-        logger.setLevel(level=logging.ERROR)
+        transformers_logger = logging.getLogger("transformers.modeling_utils")
+        restore_log_level = transformers_logger.getEffectiveLevel()
+        transformers_logger.setLevel(level=logging.ERROR)
+
         model = super(AutoModelForCausalLM, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
         if model.dtype != model.config.torch_dtype:
-            _LOGGER.warning(
+            logger.warning(
                 f"The dtype of the loaded model: {model.dtype} is different "
                 "from from the dtype specified in the model config: "
                 f"{model.config.torch_dtype}."
                 "To load the model in the format that it was previously saved in, "
                 "set torch_dtype=`auto` in the SparseAutoModel creation call."
             )
-        logger.setLevel(level=restore_log_level)
+
+        # restore transformers logging level now that model shell is loaded
+        transformers_logger.setLevel(level=restore_log_level)
+
         # override the PreTrainedModel instance with compression save function
         modify_save_pretrained(model)
 

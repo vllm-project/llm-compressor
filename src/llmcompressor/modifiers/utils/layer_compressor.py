@@ -1,22 +1,8 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import logging
 import operator
 from typing import Dict
 
 import torch
+from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
@@ -28,8 +14,6 @@ from llmcompressor.utils.pytorch import set_layer
 from llmcompressor.utils.pytorch.module import get_prunable_layers
 
 __all__ = ["LayerCompressor"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class LayerCompressor:
@@ -43,7 +27,7 @@ class LayerCompressor:
             - compressible_modules()
             - module_compressor_class.register_forward_hook()
         - compress()
-            - module_compressor_class.fasterprune()
+            - module_compressor_class.compress()
         - post_compress()
         - revert_layer_wrappers()
 
@@ -139,13 +123,13 @@ class LayerCompressor:
         """
 
         @torch.no_grad()
-        def prune(module):
+        def compress_module(module):
             if isinstance(module, self.module_compressor_class):
                 full_name = self._get_full_submodule_name(module.name)
-                _LOGGER.info(f"Compressing {full_name}...")
-                module.fasterprune(**self.args)
+                logger.info(f"Compressing {full_name}...")
+                module.compress(**self.args)
 
-        self.layer.apply(prune)
+        self.layer.apply(compress_module)
 
     def _get_full_submodule_name(self, name):
         full_name = ".".join(x for x in [self.name, name] if len(x) > 0)
