@@ -29,7 +29,9 @@ pip install -e llm-compressor
 ```
 
 ## Quick Tour
-The following snippet is a minimal example for compression and inference of a `TinyLlama/TinyLlama-1.1B-Chat-v1.0`, but the model can be swapped for a local or remote HF-compatible checkpoint. This example uses 4-bit weight-only quantization, however the `scheme` may be changed to target different quantization algorithms.
+The following snippet is a minimal example with 4-bit weight-only quantization via GPTQ and inference of a `TinyLlama/TinyLlama-1.1B-Chat-v1.0`. 
+
+Note that the model can be swapped for a local or remote HF-compatible checkpoint and the `recipe` may be changed to target different quantization algorithms or formats.
 
 ### Compression
 Compression is easily applied by selecting an algorithm (GPTQ) and calling the `oneshot` API.
@@ -39,13 +41,13 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
 # Sets parameters for the GPTQ algorithms - target Linear layer weights at 4 bits
-gptq = GPTQModifier(scheme="W4A16", targets="Linear", ignore=["lm_head"])
+recipe = GPTQModifier(scheme="W4A16", targets="Linear", ignore=["lm_head"])
 
 # Apply GPTQ algorithm using open_platypus dataset for calibration.
 oneshot(
     model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    dataset="open_platypus",  # calibration dataset, swap with yours
-    recipe=gptq,
+    dataset="open_platypus",
+    recipe=recipe,
     save_compressed=True,
     output_dir="llama-compressed-quickstart",
     overwrite_output_dir=True,
@@ -55,7 +57,7 @@ oneshot(
 ```
 
 ### Inference with vLLM
-To run inference with vLLM, first install vLLM from pip `pip install vllm`.
+The checkpoint is ready to run with vLLM (after install `pip install vllm`).
 
 ```python
 from vllm import LLM
