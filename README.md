@@ -29,9 +29,7 @@ pip install -e llm-compressor
 ```
 
 ## Quick Tour
-The following snippet is a minimal example with 4-bit weight-only quantization via GPTQ and inference of a `TinyLlama/TinyLlama-1.1B-Chat-v1.0`. 
-
-Note that the model can be swapped for a local or remote HF-compatible checkpoint and the `recipe` may be changed to target different quantization algorithms or formats.
+The following snippet is a minimal example with 4-bit weight-only quantization via GPTQ and inference of a `TinyLlama/TinyLlama-1.1B-Chat-v1.0`. Note that the model can be swapped for a local or remote HF-compatible checkpoint and the `recipe` may be changed to target different quantization algorithms or formats.
 
 ### Compression
 Compression is easily applied by selecting an algorithm (GPTQ) and calling the `oneshot` API.
