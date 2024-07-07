@@ -1,6 +1,6 @@
 # `int4` Weight Quantization of a 2:4 Sparse Model
 
-`llm-compressor` supports quantizing weights while maintaining sparsity patterns for memory savings and inference acceleration with `vLLM`
+`llm-compressor` supports quantizing weights while maintaining sparsity patterns for memory savings and inference acceleration with `vLLM`.
 
 > `2:4 sparisty + int4/int8` mixed precision computation is supported in vLLM on Nvidia capability > 8.0 (Ampere, Ada Lovelace, Hopper).
 
@@ -16,94 +16,136 @@ pip install -e .
 
 ## Quickstart
 
-The example includes an end-to-end script for applying the quantization algorithm.
+The example includes an end-to-end script for applying the quantization algorithm to the 2:4 sparse model.
 
 ```bash
 python3 llama2_24sparse_example.py
 ```
 
+## Quickstart
 
-# Creating a Sparse Quantized Llama7b Model
+The resulting model `SparseLLama-2-7b-ultrachat_200k-pruned_50.2of4-W4A16-G128` is ready to be loaded into vLLM.
 
-This example uses LLMCompressor and Compressed-Tensors to create a 2:4 sparse and quantized Llama2-7b model.
-The model is calibrated and trained with the ultachat200k dataset.
-At least 75GB of GPU memory is required to run this example.
+## Code Walkthough
 
-Follow the steps below, or to run the example as `python examples/llama7b_sparse_quantized/llama7b_sparse_w4a16.py`
+Now, we will step though the code in the example. There are four steps:
+1) Load model
+2) Prepare calibration data
+3) Apply quantization
+4) Evaluate accuracy in vLLM
 
-## Step 1: Select a model, dataset, and recipe
-In this step, we select which model to use as a baseline for sparsification, a dataset to
-use for calibration and finetuning, and a recipe.
+### 1) Load Model
 
-Models can reference a local directory, or a model in the huggingface hub.
-
-Datasets can be from a local compatible directory or the huggingface hub.
-
-Recipes are YAML files that describe how a model should be optimized during or after training.
-The recipe used for this flow is located in [2:4_w4a16_recipe.yaml](./2:4_w4a16_recipe.yaml).
-It contains instructions to prune the model to 2:4 sparsity, run one epoch of recovery finetuning,
-and quantize to 4 bits in one show using GPTQ.
+Load the model using `SparseAutoModelForCausalLM`, which is a wrapper around `AutoModel` for handling quantized saving and loading. Note that `SparseAutoModel` is compatible with `accelerate` so you can load your model onto multiple GPUs if needed.
 
 ```python
-import torch
 from llmcompressor.transformers import SparseAutoModelForCausalLM
+from transformers import Tokenizer
 
-model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
+MODEL_ID = "nm-testing/SparseLLama-2-7b-ultrachat_200k-pruned_50.2of4"
 model = SparseAutoModelForCausalLM.from_pretrained(
-    model_stub, torch_dtype=torch.bfloat16, device_map="auto"
+    MODEL_ID, device_map="auto", torch_dtype="auto",
 )
-
-dataset = "ultrachat-200k"
-splits = {"calibration": "train_gen[:5%]", "train": "train_gen"}
-
-recipe = "2:4_w4a16_recipe.yaml"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
-## Step 2: Run sparsification using `apply`
-The `apply` function applies the given recipe to our model and dataset.
-The hardcoded kwargs may be altered based on each model's needs.
-After running, the sparsified model will be saved to `output_llama7b_2:4_w4a16_channel`.
+### 2) Prepare Calibration Data
+
+Prepare the calibration data. When quantizing weigths of a model to `int4` using GPTQ, we need some sample data to run the GPTQ algorithms. As a result, it is very useful to use calibration data that closely matches the type of data used in deployment. If you have fine-tuned a model, using a sample of your training data is a good idea.
+
+In our case, we are quantizing an Instruction tuned generic model, so we will use the `ultrachat` dataset. Some best practices include:
+* 512 samples is a good place to start (increase if accuracy drops)
+* 2048 sequence length is a good place to start
+* Use the chat template or instrucion template that the model is trained with
 
 ```python
-from llmcompressor.transformers import apply
+from datasets import load_dataset
 
-output_dir = "output_llama7b_2:4_w4a16_channel"
+NUM_CALIBRATION_SAMPLES=512
+MAX_SEQUENCE_LENGTH=2048
 
-apply(
+# Load dataset.
+ds = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft")
+ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+
+# Preprocess the data into the format the model is trained with.
+def preprocess(example):
+    return {"text": tokenizer.apply_chat_template(example["messages"], tokenize=False,)}
+ds = ds.map(preprocess)
+
+# Tokenize the data (be careful with bos tokens - we need add_special_tokens=False since the chat_template already added it).
+def tokenize(sample):
+    return tokenizer(sample["text"], padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False)
+ds = ds.map(tokenize, remove_columns=ds.column_names)
+```
+
+### 3) Apply Quantization
+
+With the dataset ready, we will now apply quantization.
+
+We first select the quantization algorithm.
+
+In our case, we will apply the default GPTQ recipe for `int4` (which uses static group size 128 scales) to all linear layers. Note that `llm-compressor`'s implementation of GPTQ will maintain the sparsity pattern.
+> See the `Recipes` documentation for more information on making complex recipes
+
+```python
+from llmcompressor.transformers import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
+
+# Configure the quantization algorithm to run. This more complex scheme requires a YAML based recipe.
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+
+# Apply quantization.
+oneshot(
     model=model,
-    dataset=dataset,
+    dataset=ds,
     recipe=recipe,
-    bf16=False,  # use full precision for training
-    output_dir=output_dir,
-    splits=splits,
-    max_seq_length=512,
-    num_calibration_samples=512,
-    num_train_epochs=0.5,
-    logging_steps=500,
-    save_steps=5000,
-    gradient_checkpointing=True,
-    learning_rate=0.0001,
-    lr_scheduler_type="cosine",
-    warmup_ratio=0.1,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
+
+# Save to disk compressed.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
 ```
 
+We have successfully created an `2:4-sparse-int4` model!
 
-### Step 3: Compression
+### 4) Evaluate Accuracy
 
-The resulting model will be uncompressed. To save a final compressed copy of the model 
-run the following:
+With the model created, we can now load and run in vLLM (after installing).
 
 ```python
-import torch
-from llmcompressor.transformers import SparseAutoModelForCausalLM
-
-compressed_output_dir = "output_llama7b_2:4_w4a16_channel_compressed"
-model = SparseAutoModelForCausalLM.from_pretrained(output_dir, torch_dtype=torch.bfloat16)
-model.save_pretrained(compressed_output_dir, save_compressed=True)
+from vllm import LLM
+model = LLM("./SparseLLama-2-7b-ultrachat_200k-pruned_50.2of4-W4A16-G128")
 ```
 
-### Custom Quantization
-The current repo supports multiple quantization techniques configured using a recipe. Supported strategies are `tensor`, `group` and `channel`. 
-The above recipe (`2:4_w4a16_recipe.yaml`) uses channel-wise quantization specified by `strategy: "channel"` in its config group. 
-To use quantize per tensor, change strategy from `channel` to `tensor`. To use group size quantization, change from `channel` to `group` and specify its value, say 128, by including `group_size: 128`. A group size quantization example is shown in `2:4_w4a16_group-128_recipe.yaml`.
+We can evaluate accuracy with `lm_eval` (`pip install lm_eval==v0.4.3`):
+> Note: quantized models can be sensitive to the presence of the `bos` token. `lm_eval` does not add a `bos` token by default, so make sure to include the `add_bos_token=True` argument when running your evaluations.
+
+Run the following to test accuracy on GSM-8K:
+
+```bash
+lm_eval --model vllm \
+  --model_args pretrained="./SparseLLama-2-7b-ultrachat_200k-pruned_50.2of4-W4A16-G128",add_bos_token=true \
+  --tasks gsm8k \
+  --num_fewshot 5 \
+  --limit 250 \
+  --batch_size 'auto'
+```
+
+We can see the resulting scores look good (`meta-llama/Llama-2-7b-chat-hf` achieves `0.228`)!
+
+```bash
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.200|±  |0.0274|
+|     |       |strict-match    |     5|exact_match|↑  |0.200|±  |0.0272|
+```
+
+
+
+### Questions or Feature Request?
+
+Please open up an issue on `vllm-project/llm-compressor`
