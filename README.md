@@ -1,35 +1,27 @@
 # LLM Compressor
-Easy to use model compression library that supports a growing list of formats including
-int and float quantization, activation quantization, and 2:4 sparsity.
 
-## Overview
-A library for compressing large language models utilizing the latest techniques and research for both training aware and post training techniques.
-llm-compressor is designed to be flexible and easy to use on top of PyTorch and HuggingFace Transformers, allowing for quick experimentation.
-Compression algorithms are implemented as `Modifiers` which can be applied to create optimized models for inference.
-The library also emphasises support for deployment on vLLM through export to the compressed-tensors format.
+`llm-compressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
+* Comprhensive set of quantization algorithms including weight-only and activation quantization
+* Seemless integration Hugging Face models and repositories
+* `safetensors`-based file format compatible with `vllm`
 
 ### Supported Formats
-* Integer Quantization: W8A8 (int8)
 * Mixed Precision: W4A16, W8A16
+* Integer Quantization: W8A8 (int8)
 * Floating Point Quantization: W8A8 (fp8)
 * 2:4 Semi-structured Sparsity
 * Unstructured Sparsity
 
-### Supported Techniques
+### Supported Algorithms
 * PTQ (Post Training Quantization)
 * GPTQ
 * SmoothQuant
 * SparseGPT
-* QAT (coming soon)
+
 
 ## Installation
 
-### Pip
-
-Coming Soon!
-
-### From Source
-llm-compressor can be installed from the source code via a git clone and local pip install.
+`llm-compressor` can be installed from the source code via a git clone and local pip install.
 
 ```bash
 git clone https://github.com/vllm-project/llm-compressor.git
@@ -37,10 +29,9 @@ pip install -e llm-compressor
 ```
 
 ## Quick Tour
-The following snippet is a minimal example for compression and inference of a Llama model.
-The 1.1B model may be swapped to another model in the HuggingFace Hub or custom local model.
-This example uses 4-bit weight quantization, however the `scheme` may be changed to
-target different quantization scenarios.
+The following snippet is a minimal example for compression and inference of a `Meta-Llama-3-8B-Instruct`, but the model can be swapped for a local or remote HF-compatible checkpoint.
+
+This example uses 4-bit weight-only quantization, however the `scheme` may be changed to target different quantization algorithms.
 
 
 ### Compression
