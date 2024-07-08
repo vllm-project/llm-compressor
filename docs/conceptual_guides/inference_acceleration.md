@@ -36,9 +36,9 @@ vLLM achieves strong end-to-end speedups from activation quantization on Nvidia 
 ### Examples
 - [`int4` weight-only quantization with `Meta-Llama-3-8B-Instruct`](../../examples/quantization_w4a16)
 
-## Weights And Activation Quantization
+## Weight and Activation Quantization
 
-With weights and activation quantization, we quantize both the weights and activations to lower precision (typically to `int8` or `fp8`). As a result, at inference time, we can use lower precision tensor cores to accelerate computation. Lower precision tensor cores have more TFLOPS (floating-point operations per second) available:
+With weight and activation quantization, we quantize both the weights and activations to lower precision (typically to `int8` or `fp8`). At inference time, we can use lower precision tensor cores to accelerate computation. Lower precision tensor cores have more TFLOPS (floating-point operations per second) available:
 
 | GPU               | `fp16`            | `int8`            | `fp8`             |
 | -                 | -                 | -                 | -                 |
