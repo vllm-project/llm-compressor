@@ -14,16 +14,15 @@ Roughly speaking, the time required to execute a matrix multiplication on a GPU 
 * Latency of moving the weights from main memory (DRAM) to the compute (SRAM)
 * Latency of the tensor-core compute operations
 
-While weight-only quanitzation does not change the latency of the tensor-core operations (since the compute still runs at `bf/fp16`), it can reduce the latency of moving the weights from DRAM to SRAM with "fused" inference kernels that upconvert the weights to `fp16`after moving them into SRAM (thereby reducing the total amount of data movement between DRAM and SRAM).
-
-LLM Inference Serving is usually dominated by batch size < 64 "decode" operations, which are "memory bandwidth bound", meaning we can speed up the `Linear` matmuls with weight-only quantization.
+Weight-only quanitzation does nnot impact latency of the tensor-core operations, but it can reduce the amount data moving from DRAM to SRAM with "fused" inference kernels that upconvert the weights to `fp16` after moving them into SRAM.
 
 ### Accelerating Inference Serving in vLLM with `Marlin`
 
+Since LLM serving is usually dominated by "decode" operations, which are "memory bandwidth bound", weight-only quantization is quite useful for accelerating online-servig.
+
 [`Marlin`](https://neuralmagic.com/blog/pushing-the-boundaries-of-mixed-precision-llm-inference-with-marlin/) is an optimized fused inference kernel for weight-only quantization, supporting `int4`, `int8`, and `fp8` weights with `fp16` and `bf16` activations. vLLM uses `Marlin` when executing inference for weight-only quantized models created via `llm-compressor`.
 
-vLLM achieves strong end-to-end speedups from activation quantization on Nvidia A10G GPUs with `Meta-Llama-3-8B-Instruct` running the `sharegpt` online serving benchmark with 1 query per second:
-
+End-to-end speedups on for `Meta-Llama-3-8B-Instruct` on A10G with 1 QPS:
 | Weight Precision  | Activation Precision  | Time Per Output Token (ms)    | Speedup vs `fp16` |
 |-                  |-                      |-                              | -                 |
 |`fp16`             | `fp16`                | 42.52                         | 1.0x              |
@@ -38,7 +37,7 @@ vLLM achieves strong end-to-end speedups from activation quantization on Nvidia 
 
 ## Weight and Activation Quantization
 
-With weight and activation quantization, we quantize both the weights and activations to lower precision (typically to `int8` or `fp8`). At inference time, we can use lower precision tensor cores to accelerate computation. Lower precision tensor cores have more TFLOPS (floating-point operations per second) available:
+With weight and activation quantization, both the weights and activations are converted to to `int8` or `fp8`. At inference time, we can use low precision tensor cores, which have more FLOPS available:
 
 | GPU       | `fp16`            | `int8`            | `fp8`             |
 | -         | -                 | -                 | -                 |
@@ -52,14 +51,15 @@ As a result, activation quantization is able to accelerate both "memory bandwidt
 
 ### Accelerating Offline Batch Processing in vLLM
 
+With offline batch processing, we can crank-up the batch size as high as possible to maximize throughput, making offline batch processing "compute-bound". This means that activation quantization is very useful for accelerating performance.
+
 vLLM supports activation quantization acceleration using custom Cutlass-based inference kernels for models created via `llm-compressor`.
 
-Let's take a look at the end-to-end performance gains on an Nvidia A10G GPU with `Meta-Llama-3-8B-Instruct` running an offline throughput benchmark:
-
+End-to-end speedups on for `Meta-Llama-3-8B-Instruct` on A10G for offline batch processing:
 | Weight Precision  | Activation Precision  | Generation Throughtput         | Speedup vs `fp16` |
 |-                  |-                      |-                               | -                 |
 |`fp16`             | `fp16`                | 488 tok/sec                    | 1.0x              |
-|`int8`             | `int8`                | 977 tok/sec                    | 2.0x              |
+|`int8`             | `int8`                | 977 tok/sec                    | 2.2x              |
 
 > Performance results computed as of `vllm==v0.5.1` via [offline performance benchmark](../../examples/benchmarking/offline_batch/)
 
