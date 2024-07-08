@@ -72,20 +72,20 @@ We achieve `43ms` of TPOT on an A10.
 
 ```bash
 ============ Serving Benchmark Result ============
-Successful requests:                     200       
-Benchmark duration (s):                  221.06    
-Total input tokens:                      45551     
-Total generated tokens:                  39322     
+Successful requests:                     100       
+Benchmark duration (s):                  110.95    
+Total input tokens:                      22805     
+Total generated tokens:                  17981     
 Request throughput (req/s):              0.90      
-Input token throughput (tok/s):          206.05    
-Output token throughput (tok/s):         177.88    
+Input token throughput (tok/s):          205.53    
+Output token throughput (tok/s):         162.06    
 ---------------Time to First Token----------------
-Mean TTFT (ms):                          103.74    
-Median TTFT (ms):                        76.73     
-P99 TTFT (ms):                           298.90    
+Mean TTFT (ms):                          106.36    
+Median TTFT (ms):                        78.82     
+P99 TTFT (ms):                           286.84    
 -----Time per Output Token (excl. 1st token)------
-Mean TPOT (ms):                          43.15     
-Median TPOT (ms):                        42.29     
-P99 TPOT (ms):                           66.84     
+Mean TPOT (ms):                          42.52     
+Median TPOT (ms):                        43.07     
+P99 TPOT (ms):                           58.80     
 ==================================================
 ```

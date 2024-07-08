@@ -1,6 +1,6 @@
 # Inference Acceleration with Quantization
 
-Broadly speaking, there are two "types" of quantization:
+Broadly speaking, there are two "types" of quantization, weight of which can accelerate inference:
 * Weight-Only Quantization
 * Weight and Activation Quantization
 
@@ -24,8 +24,8 @@ vLLM achieves strong end-to-end speedups from activation quantization on Nvidia 
 
 | Weight Precision  | Activation Precision  | Time Per Output Token (ms)    | Speedup vs `fp16` |
 |-                  |-                      |-                              | -                 |
-|`fp16`             | `fp16`                | 42.29                         | 1.0x              |
-|`fp8`              | `fp16`                | 25.24                         | 1.7x              |
+|`fp16`             | `fp16`                | 42.52                         | 1.0x              |
+|`fp8`              | `fp16`                | 22.95                         | 1.7x              |
 |`int8`             | `fp16`                | 24.23                         | 1.7x              |
 |`int4-g128`        | `fp16`                | 15.0                          | 3.0x              |
 
