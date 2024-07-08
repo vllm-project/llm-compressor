@@ -16,7 +16,7 @@ Roughly speaking, the time required to execute a matrix multiplication on a GPU 
 
 Weight-only quanitzation does nnot impact latency of the tensor-core operations, but it can reduce the amount data moving from DRAM to SRAM with "fused" inference kernels that upconvert the weights to `fp16` after moving them into SRAM.
 
-### Accelerating Inference Serving in vLLM with `Marlin`
+### Accelerating Inference Serving
 
 Since LLM serving is usually dominated by "decode" operations, which are "memory bandwidth bound", weight-only quantization is quite useful for accelerating online-servig.
 
@@ -49,7 +49,7 @@ With weight and activation quantization, both the weights and activations are co
  
 As a result, activation quantization is able to accelerate both "memory bandwidth bound" and "compute bound" operations.
 
-### Accelerating Offline Batch Processing in vLLM
+### Accelerating Offline Batch Processing
 
 With offline batch processing, we can crank-up the batch size as high as possible to maximize throughput, making offline batch processing "compute-bound". This means that activation quantization is very useful for accelerating performance.
 
