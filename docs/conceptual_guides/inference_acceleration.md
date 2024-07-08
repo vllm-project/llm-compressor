@@ -40,15 +40,15 @@ vLLM achieves strong end-to-end speedups from activation quantization on Nvidia 
 
 With weight and activation quantization, we quantize both the weights and activations to lower precision (typically to `int8` or `fp8`). At inference time, we can use lower precision tensor cores to accelerate computation. Lower precision tensor cores have more TFLOPS (floating-point operations per second) available:
 
-| GPU               | `fp16`            | `int8`            | `fp8`             |
-| -                 | -                 | -                 | -                 |
-| `A10G`            | 125 TFLOPS        | 250 TOPS          | Not supported     |
-| `A100 SXM`        | 312 TFLOPS        | 624 TOPS          | Not supported     |
-| `H100 SXM`        | 990 TFLOPS        | 1979 TOPS         | 1979 TFLOPS       |
+| GPU       | `fp16`            | `int8`            | `fp8`             |
+| -         | -                 | -                 | -                 |
+| `A10G`    | 125 TFLOPS        | 250 TOPS          | Not supported     |
+| `A100`    | 312 TFLOPS        | 624 TOPS          | Not supported     |
+| `H100`    | 990 TFLOPS        | 1979 TOPS         | 1979 TFLOPS       |
 
 >   - [`A10G` datasheet](https://www.nvidia.com/en-us/data-center/products/a10-gpu/)
->   - [`A100-80GB-SXM5` datasheet](https://www.nvidia.com/en-us/data-center/a100/)
->   - [`H100-80GV-SXM5` datasheet](https://www.nvidia.com/en-us/data-center/h100/)
+>   - [`A100` datasheet](https://www.nvidia.com/en-us/data-center/a100/)
+>   - [`H100` datasheet](https://www.nvidia.com/en-us/data-center/h100/)
  
 As a result, activation quantization is able to accelerate both "memory bandwidth bound" and "compute bound" operations.
 
