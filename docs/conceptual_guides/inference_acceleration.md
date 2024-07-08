@@ -1,6 +1,6 @@
 # Inference Acceleration with Quantization
 
-Broadly speaking, there are two "types" of quantization, weight of which can accelerate inference:
+There are two "types" of quantization, each of which can accelerate inference:
 * Weight-Only Quantization
 * Weight and Activation Quantization
 
