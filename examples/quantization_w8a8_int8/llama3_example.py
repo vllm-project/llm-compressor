@@ -1,6 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
+from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
@@ -55,9 +57,11 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * apply SmoothQuant to make the activations easier to quantize
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
-# Note: this scheme currently requires a more complex yaml recipe
 # Note: set sequential_update: true in the recipe to reduce memory
-recipe = "./recipe.yaml"
+recipe = [
+    SmoothQuantModifier(smoothing_strength=0.8),
+    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+]
 
 # Apply algorithms.
 oneshot(

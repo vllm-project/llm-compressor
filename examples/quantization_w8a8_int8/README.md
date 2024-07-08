@@ -90,10 +90,14 @@ We first select the quantization algorithm. For W8A8, we want to:
 
 ```python
 from llmcompressor.transformers import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 
-# Configure the quantization algorithm to run. This more complex scheme requires a YAML based recipe.
-recipe = "./recipe.yaml"
+# Configure the quantization algorithms to run.
+recipe = [
+    SmoothQuantModifier(smoothing_strength=0.8),
+    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+]
 
 # Apply quantization.
 oneshot(
