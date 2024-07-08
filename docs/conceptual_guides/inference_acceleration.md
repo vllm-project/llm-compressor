@@ -14,7 +14,9 @@ Roughly speaking, the time required to execute a matrix multiplication on a GPU 
 * Latency of moving the weights from main memory (DRAM) to the compute (SRAM)
 * Latency of the tensor-core compute operations
 
-While weight-only quanitzation does not change the latency of the tensor-core operations (since the compute still runs at `bf/fp16`), it can reduce the latency of moving the weights from DRAM to SRAM with "fused" inference kernels that upconvert the weights to `fp16`after moving them into SRAM (thereby reducing the total amount of data movement between DRAM and SRAM). LLM Inference Serving is usually dominated by batch size < 64 "decode" operations, which are "memory bandwidth bound", meaning we can speed up the `Linear` matmuls with weight-only quantization.
+While weight-only quanitzation does not change the latency of the tensor-core operations (since the compute still runs at `bf/fp16`), it can reduce the latency of moving the weights from DRAM to SRAM with "fused" inference kernels that upconvert the weights to `fp16`after moving them into SRAM (thereby reducing the total amount of data movement between DRAM and SRAM).
+
+LLM Inference Serving is usually dominated by batch size < 64 "decode" operations, which are "memory bandwidth bound", meaning we can speed up the `Linear` matmuls with weight-only quantization.
 
 ### Accelerating Inference Serving in vLLM with `Marlin`
 
