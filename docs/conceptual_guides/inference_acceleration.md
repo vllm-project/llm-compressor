@@ -10,7 +10,7 @@ With weight-only quantization, weights are quantized to low precision (typically
 
 ### How Can We Speed Up Weight-Only Quantization?
 
-Roughly speaking, the time required to execute a matrix multiplication on a GPU equals:
+Roughly speaking, the time required to execute a matrix multiplication on a GPU equals the sum of:
 * Latency of moving the weights from main memory (DRAM) to the compute (SRAM)
 * Latency of the tensor-core compute operations
 
