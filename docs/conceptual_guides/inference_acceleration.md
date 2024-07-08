@@ -46,9 +46,7 @@ With weight and activation quantization, we quantize both the weights and activa
 | `A100`    | 312 TFLOPS        | 624 TOPS          | Not supported     |
 | `H100`    | 990 TFLOPS        | 1979 TOPS         | 1979 TFLOPS       |
 
->   - [`A10G` datasheet](https://www.nvidia.com/en-us/data-center/products/a10-gpu/)
->   - [`A100` datasheet](https://www.nvidia.com/en-us/data-center/a100/)
->   - [`H100` datasheet](https://www.nvidia.com/en-us/data-center/h100/)
+>   [`A10G` datasheet](https://www.nvidia.com/en-us/data-center/products/a10-gpu/) // [`A100` datasheet](https://www.nvidia.com/en-us/data-center/a100/) // [`H100` datasheet](https://www.nvidia.com/en-us/data-center/h100/)
  
 As a result, activation quantization is able to accelerate both "memory bandwidth bound" and "compute bound" operations.
 
