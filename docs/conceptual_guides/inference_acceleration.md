@@ -25,11 +25,11 @@ vLLM achieves strong end-to-end speedups from activation quantization on Nvidia 
 | Weight Precision  | Activation Precision  | Time Per Output Token (ms)    | Speedup vs `fp16` |
 |-                  |-                      |-                              | -                 |
 |`fp16`             | `fp16`                | 42.52                         | 1.0x              |
-|`fp8`              | `fp16`                | 22.95                         | 1.7x              |
-|`int8`             | `fp16`                | 24.23                         | 1.7x              |
-|`int4-g128`        | `fp16`                | 15.0                          | 3.0x              |
+|`fp8`              | `fp16`                | 22.95                         | 1.9x              |
+|`int8`             | `fp16`                | 26.34                         | 1.6x              |
+|`int4-g128`        | `fp16`                | 15.46                         | 2.8x              |
 
-> Performance results computed as of `vllm==v0.5.1` via [online serving performance benchmark](../../examples/benchmarking)
+> Performance results computed as of `vllm==v0.5.1` via [online serving performance benchmark](../../examples/benchmarking/online_serving)
 
 ### Examples
 - [`int4` weight-only quantization with `Meta-Llama-3-8B-Instruct`](../../examples/quantization_w4a16)

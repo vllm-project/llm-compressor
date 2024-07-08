@@ -85,4 +85,4 @@ Activations of LLMs are known to be problematic to work with because for some in
 
 In general it is best practice to start your experients with:
 - For `int4` weights, use activation reordering with GPTQ
-- For anything else, do not
+- For anything else, do not sue activation reordering
