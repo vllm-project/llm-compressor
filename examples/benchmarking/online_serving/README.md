@@ -8,12 +8,12 @@ When evaluating LLM performance for online serving, there are two latency metric
 
 On an Nvidia A10G GPU, we measure the following for online serving with the `sharegpt` dataset at 1 QPS:
 
-| Model Stub                                | Precision     | TTFT (ms)     | TPOT (ms)     | Speedup vs Fp16   |
-|-                                          |-              |-              |-              |-                  |
-|`meta-llama/Meta-Llama-3-8B-Instruct`      |`fp16`         |106         | 43         | 1.0x              |
-|`neuralmagic/Meta-Llama-3-8B-Instruct-FP8` |`fp8`          |98          | 23         | 1.9x              |
-|`astronomer/Llama-3-8B-Instruct-GPTQ-8-Bit`|`int8`         |106         | 25         | 1.6x              |
-|`nm-testing/Meta-Llama-3-8B-Instruct-GPTQ` |`int4`         |73          | 15         | 2.8x              |
+| Model Stub                                | Precision     | TTFT (ms) | TPOT (ms) | Speedup vs Fp16   |
+|-                                          |-              |-          |-          |-                  |
+|`meta-llama/Meta-Llama-3-8B-Instruct`      |`fp16`         |106        | 43        | 1.0x              |
+|`neuralmagic/Meta-Llama-3-8B-Instruct-FP8` |`fp8`          |98         | 23        | 1.9x              |
+|`astronomer/Llama-3-8B-Instruct-GPTQ-8-Bit`|`int8`         |106        | 25        | 1.6x              |
+|`nm-testing/Meta-Llama-3-8B-Instruct-GPTQ` |`int4`         |73         | 15        | 2.8x              |
 
 
 ## Generate Raw Benchmark Data
