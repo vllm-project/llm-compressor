@@ -6,10 +6,10 @@ When evaluating LLM performance for online serving, we should focus on throughpu
 
 On an Nvidia A10G GPU, we measure the following for offline batch processing:
 
-| Model Stub                                | Precision     | TTFT (ms)     | TPOT (ms)     | Speedup vs Fp16   |
-|-                                          |-              |-          |-              |-                  |
-|`meta-llama/Meta-Llama-3-8B-Instruct`      |`fp16`         | 
-|`nm-testing/Meta-Llama-3-8B-Instruct-W8-Channel-A8-Dynamic-Per-Token-Test` |`int8`          |
+| Model Stub                                                                | Precision                     | Generation Throughput         | Speedup vs Fp16   |
+|-                                                                          |-                              |-                              |-                  |
+|`meta-llama/Meta-Llama-3-8B-Instruct`                                      |`fp16`                         | 488 tok/sec                   |1.0x               |
+|`nm-testing/Meta-Llama-3-8B-Instruct-W8-Channel-A8-Dynamic-Per-Token-Test` |`int8`                         | 977 tok/sec                   |2.2x               |
 
 ## Generate Raw Benchmark Data
 
@@ -34,20 +34,20 @@ python benchmark_offline.py --help
 python benchmark_offline.py --model $MODEL
 ```
 
-Results:
+Results on A10G:
 
 ```bash
 * ==========================================================
-* Total Time:                   54.27
+* Total Time:                   461.90
 * Total Generations:            1000
 
 
-* Generations / Sec:            18.43
-* Generation Tok / Sec:         4198.43
-* Prompt Tok / Sec:             10425.07
+* Generations / Sec:            2.16
+* Generation Tok / Sec:         488.13
+* Prompt Tok / Sec:             1180.01
 
 
-* Avg Generation Tokens:        227.85
-* Avg Prompt Tokens:            565.78
+* Avg Generation Tokens:        225.47
+* Avg Prompt Tokens:            545.05
 * ==========================================================
 ```

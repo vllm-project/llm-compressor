@@ -56,12 +56,12 @@ vLLM supports activation quantization acceleration using custom Cutlass-based in
 
 Let's take a look at the end-to-end performance gains on an Nvidia A10G GPU with `Meta-Llama-3-8B-Instruct` running an offline throughput benchmark:
 
-| Weight Precision  | Activation Precision  | Tokens/Second (prefill+decode) | Speedup vs `fp16` |
+| Weight Precision  | Activation Precision  | Generation Throughtput         | Speedup vs `fp16` |
 |-                  |-                      |-                               | -                 |
-|`fp16`             | `fp16`                | xxxx                           | 1.0x              |
-|`int8`             | `int8`                |                                | 2.0x              |
+|`fp16`             | `fp16`                | 488 tok/sec                    | 1.0x              |
+|`int8`             | `int8`                | 977 tok/sec                    | 2.0x              |
 
-> Performance results computed as of `vllm==v0.5.1` via [offline performance benchmark](../../examples/benchmarking)
+> Performance results computed as of `vllm==v0.5.1` via [offline performance benchmark](../../examples/benchmarking/offline_batch/)
 
 ### Examples
 - [`w8a8 int8` quantization with `Meta-Llama-3-8B-Instruct`](../../examples/quantization_w8a8_int8)
