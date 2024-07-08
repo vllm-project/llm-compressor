@@ -1,6 +1,6 @@
 # Quantization Schemes
 
-Quantization is a technique to reduce the computational and memory costs of running inference by representing the weights and activations with low-precision data types like 8-bit integer (`int8`) instead of the usual 16-bit floating point (`float16`). Reducing the number of bits means the resulting model requires less memory storage and can be used to accelerate inference.
+Quantization is a technique to reduce the computational and memory costs of running inference by representing the weights and activations with low-precision data types like 8-bit integer (`int8`) instead of the usual 16-bit floating point (`float16`).
 
 ## Theory
 
