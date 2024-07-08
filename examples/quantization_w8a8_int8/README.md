@@ -93,7 +93,7 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 
-# recipes can be defined as list of Modifiers to apply
+# Configure the quantization algorithms to run.
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
