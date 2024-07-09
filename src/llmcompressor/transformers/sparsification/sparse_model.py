@@ -4,8 +4,12 @@ from pathlib import Path
 from typing import Optional, Union
 
 import torch
+from accelerate import load_checkpoint_and_dispatch
 from compressed_tensors.compressors import ModelCompressor
-from compressed_tensors.quantization import apply_quantization_config, QuantizationStatus
+from compressed_tensors.quantization import (
+    QuantizationStatus,
+    apply_quantization_config,
+)
 from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM, PreTrainedModel
@@ -106,13 +110,20 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         # structure and run decompression
         if compressor is not None:
             quantization_config = compressor.quantization_config
-            is_compressed = (quantization_config.quantization_status == QuantizationStatus.COMPRESSED)
+            is_compressed = (
+                quantization_config.quantization_status == QuantizationStatus.COMPRESSED
+            )
             if run_compressed and is_compressed:
                 # initialize quantization, don't decompress
                 apply_quantization_config(model, quantization_config)
+                model = load_checkpoint_and_dispatch(
+                    model, pretrained_model_name_or_path, *model_args, **kwargs
+                )
             else:
                 # initialize quantization and decompress weights
-                compressor.decompress(model_path=pretrained_model_name_or_path, model=model)
+                compressor.decompress(
+                    model_path=pretrained_model_name_or_path, model=model
+                )
 
         recipe = resolve_recipe(recipe=recipe, model_path=pretrained_model_name_or_path)
         if recipe:
