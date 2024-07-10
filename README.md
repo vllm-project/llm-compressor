@@ -6,7 +6,7 @@
 * `safetensors`-based file format compatible with `vllm`
 
 <p align="center">
-   <img alt="LLM Compressor Flow" src="docs/images/architecture.png" width="50%" />
+   <img alt="LLM Compressor Flow" src="docs/images/architecture.png" width="60%" />
 </p>
 
 
