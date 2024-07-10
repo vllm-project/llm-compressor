@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
-from compressed_tensors.quantization.observers.helpers import get_observer_token_count
+
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
     set_module_for_calibration,
 )
+from compressed_tensors.quantization.observers.helpers import get_observer_token_count
 from loguru import logger
 from pydantic import Field
 from torch.nn import Module
@@ -205,7 +206,6 @@ class QuantizationModifier(Modifier):
         if module_training:
             module.train()
 
-
     def _check_token_distribution(
         self, model: Module, threshold: Optional[float] = None
     ):
@@ -220,7 +220,7 @@ class QuantizationModifier(Modifier):
             receive during calibration
         """
         if threshold is None:
-            _LOGGER.debug("Skipping token distribution check. threshold is None.")
+            logger.debug("Skipping token distribution check. threshold is None.")
             return
 
         all_tokens = self.calibration_dataloader_.dataset["input_ids"]
@@ -234,7 +234,7 @@ class QuantizationModifier(Modifier):
                 # implementation in the source code)
                 continue
             if token_count / total_token_count < threshold:
-                _LOGGER.warning(
+                logger.warning(
                     f"The module_name: {module_name} "
                     f"received less than {int(threshold * 100)}% "
                     "of calibration batch tokens "
