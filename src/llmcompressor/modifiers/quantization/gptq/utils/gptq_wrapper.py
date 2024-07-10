@@ -117,24 +117,14 @@ class GPTQWrapper(ModuleCompressionWrapper):
         dead = torch.diag(self.H) == 0
         self.H[dead, dead] = 1
         W[:, dead] = 0
-
-        Losses = torch.zeros(self.rows, device=self.dev)
-
-        damp = percdamp * torch.mean(torch.diag(self.H))
-        diag = torch.arange(self.columns, device=self.dev)
-        self.H[diag, diag] += damp
-        self.H = torch.linalg.cholesky(self.H)
-        self.H = torch.cholesky_inverse(self.H)
-        self.H = torch.linalg.cholesky(self.H, upper=True)
-        Hinv = self.H
-
+        
         g_idx = None
         if hasattr(self.layer, "quantization_scheme"):
             quant_scheme = self.layer.quantization_scheme
             actorder = quant_scheme.weights.actorder
-            group_size = quant_scheme.weights.group_size
-
+            
             if actorder:
+                group_size = quant_scheme.weights.group_size
                 perm = torch.argsort(torch.diag(self.H), descending=True)
                 W = W[:, perm]
                 self.H = self.H[perm][:, perm]
@@ -145,6 +135,16 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 )
                 g_idx = g_idx[invperm]
                 self.layer.weight_g_idx.data = g_idx
+        
+        Losses = torch.zeros(self.rows, device=self.dev)
+
+        damp = percdamp * torch.mean(torch.diag(self.H))
+        diag = torch.arange(self.columns, device=self.dev)
+        self.H[diag, diag] += damp
+        self.H = torch.linalg.cholesky(self.H)
+        self.H = torch.cholesky_inverse(self.H)
+        self.H = torch.linalg.cholesky(self.H, upper=True)  
+        Hinv = self.H
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
         for i1 in range(0, self.columns, blocksize):
@@ -228,6 +228,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                                     0, g_idx.shape[0], group_size
                                 )
                                 grouped_indicies = g_idx[indices_to_extract].int()
+
                                 scale = scale[:, grouped_indicies]
                                 zero_point = zero_point[:, grouped_indicies]
 
