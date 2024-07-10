@@ -293,6 +293,11 @@ def maybe_calibrate_or_quantize(
     }:
         return value
 
+    if value.numel() == 0:
+        # if the tensor is empty,
+        # skip quantization
+        return value
+
     if args.dynamic:
         # dynamic quantization - get scale and zero point directly from observer
         observer = getattr(module, f"{base_name}_observer")

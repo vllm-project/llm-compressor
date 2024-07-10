@@ -57,6 +57,8 @@ def test_maybe_calibrate_or_quantize(create_quantization_scheme, quantization_st
     quantization_args = QuantizationArgs(num_bits=num_bits, symmetric=True)
     layer = Linear(4, 4)
     layer.weight.data *= 100
+
+    dummy_tensor = torch.randn(8, 4)  # (num_tokens, num_features)
     layer.quantization_status = QuantizationStatus(quantization_status)
 
     initialize_module_for_quantization(layer, quantization_scheme)
@@ -64,16 +66,15 @@ def test_maybe_calibrate_or_quantize(create_quantization_scheme, quantization_st
     # only calibration updates the scale and zero-point
     if layer.quantization_status == QuantizationStatus.INITIALIZED:
         out = maybe_calibrate_or_quantize(
-            layer, layer.weight.data, "input", quantization_args
+            layer, dummy_tensor, "input", quantization_args
         )
-        assert torch.allclose(out, layer.weight.data)
+        assert torch.allclose(out, dummy_tensor)
     elif layer.quantization_status == QuantizationStatus.CALIBRATION:
-
         out = maybe_calibrate_or_quantize(
-            layer, layer.weight.data, "input", quantization_args
+            layer, dummy_tensor, "input", quantization_args
         )
-        assert torch.allclose(out, layer.weight.data, atol=0.2)
-
+        assert torch.allclose(out, dummy_tensor, atol=0.2)
+        assert layer.input_observer._num_observed_tokens == dummy_tensor.shape[0]
     elif layer.quantization_status == QuantizationStatus.FROZEN:
         # scale and zero points are empty -- cannot quantize
         with pytest.raises(Exception):

@@ -59,7 +59,7 @@ def test_min_max_observer_value_update():
 
     delta = 1e-6
 
-    # udpate the min, max twice total
+    # update the min, max twice total
     tensors = [
         inp,
         inp,

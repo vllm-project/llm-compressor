@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
@@ -22,6 +23,9 @@ from compressed_tensors.quantization.quant_args import (
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 __all__ = ["Observer"]
@@ -39,6 +43,7 @@ class Observer(Module, RegistryMixin):
         super().__init__()
         self._scale = None
         self._zero_point = None
+        self._num_observed_tokens = None
 
     @torch.no_grad()
     def forward(self, observed: Tensor) -> Tuple[FloatTensor, IntTensor]:
@@ -48,6 +53,7 @@ class Observer(Module, RegistryMixin):
             from
         :return: tuple of scale and zero point based on last observed value
         """
+        self.record_observed_tokens(observed)
         return self.get_qparams(observed=observed)
 
     def calculate_qparams(
@@ -132,3 +138,36 @@ class Observer(Module, RegistryMixin):
         return self.calculate_qparams(
             observed, reduce_dims=reduce_dims, tensor_id=tensor_id
         )
+
+    def record_observed_tokens(self, batch_tensor: Tensor):
+        """
+        Counts the number of tokens observed during the
+        forward passes. The count is aggregated in the
+        _num_observed_tokens attribute of the class.
+
+        Note: The batch_tensor is expected to have two dimensions
+            (batch_size * sequence_length, num_features). This is the
+            general shape expected by the forward pass of the expert
+            layers in a MOE model. If the input tensor does not have
+            two dimensions, the _num_observed_tokens attribute will be set
+            to None.
+        """
+        if not isinstance(batch_tensor, Tensor):
+            raise ValueError(f"Expected value to be a tensor, got {type(batch_tensor)}")
+
+        if batch_tensor.ndim != 2:
+            _LOGGER.debug(
+                "The input tensor is expected to have two dimensions "
+                "(batch_size * sequence_length, num_features). "
+                f"The input tensor has {batch_tensor.ndim} dimensions."
+            )
+            return
+
+        if self._num_observed_tokens is None:
+            # initialize the count
+            self._num_observed_tokens = 0
+
+        # batch_tensor (batch_size * sequence_length, num_features)
+        # observed_tokens (batch_size * sequence_length)
+        observed_tokens, _ = batch_tensor.shape
+        self._num_observed_tokens += observed_tokens

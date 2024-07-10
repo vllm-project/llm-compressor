@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import Counter
 from typing import Tuple
 
 import torch
@@ -23,16 +24,33 @@ from compressed_tensors.quantization.quant_args import (
 from torch import FloatTensor, IntTensor, Tensor
 
 
-__all__ = ["calculate_qparams", "calculate_range"]
+__all__ = ["calculate_qparams", "get_observer_token_count", "calculate_range"]
+
+
+def get_observer_token_count(module: torch.nn.Module) -> Counter:
+    """
+    Parse the module and return the number of tokens observed by
+    each module's observer.
+
+    :param module: module to parse
+    :return: counter with the number of tokens observed by each observer
+    """
+    token_counts = Counter()
+    for name, module in module.named_modules():
+        if name.endswith(".input_observer"):
+            token_counts[
+                name.replace(".input_observer", "")
+            ] = module._num_observed_tokens
+    return token_counts
 
 
 def calculate_qparams(
     min_vals: Tensor, max_vals: Tensor, quantization_args: QuantizationArgs
 ) -> Tuple[FloatTensor, IntTensor]:
     """
-    :param min_vals: tensor of min value(s) to caluclate scale(s) and zero point(s)
+    :param min_vals: tensor of min value(s) to calculate scale(s) and zero point(s)
         from
-    :param max_vals: tensor of max value(s) to caluclate scale(s) and zero point(s)
+    :param max_vals: tensor of max value(s) to calculate scale(s) and zero point(s)
         from
     :param quantization_args: settings to quantization
     :return: tuple of the calculated scale(s) and zero point(s)
