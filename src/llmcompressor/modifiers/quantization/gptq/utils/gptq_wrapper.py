@@ -128,8 +128,23 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.H = torch.linalg.cholesky(self.H, upper=True)
         Hinv = self.H
 
-        actorder = False
-        invperm = False
+        g_idx = None
+        if hasattr(self.layer, "quantization_scheme"):
+            quant_scheme = self.layer.quantization_scheme
+            actorder = quant_scheme.weights.actorder
+            group_size = quant_scheme.weights.group_size
+
+            if actorder:
+                perm = torch.argsort(torch.diag(self.H), descending=True)
+                W = W[:, perm]
+                self.H = self.H[perm][:, perm]
+                invperm = torch.argsort(perm)
+
+                g_idx = torch.Tensor([i // group_size for i in range(self.columns)]).to(
+                    device=invperm.device
+                )
+                g_idx = g_idx[invperm]
+                self.layer.weight_g_idx.data = g_idx
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
         for i1 in range(0, self.columns, blocksize):
@@ -162,7 +177,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     q = torch.dequantize(q)
                 elif hasattr(self.layer, "quantization_scheme"):
                     quant_scheme = self.layer.quantization_scheme
-                    actorder = quant_scheme.weights.actorder
 
                     if quant_scheme.weights is not None:
                         from compressed_tensors.quantization import QuantizationStrategy
@@ -173,26 +187,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         scale = self.layer.weight_scale
                         zero_point = self.layer.weight_zero_point
 
-                        if actorder:
-                            perm = torch.argsort(torch.diag(self.H), descending=True)
-                            W = W[:, perm]
-                            self.H = self.H[perm][:, perm]
-                            invperm = torch.argsort(perm)
-
                         group_size = quant_scheme.weights.group_size
                         if group_size is None or group_size == -1:
                             group_size = self.layer.weight.shape[1]
-
-                        if actorder:
-                            indices = torch.arange(self.columns, device=invperm.device)
-                            g_idx = (perm[indices] // group_size).to(dtype=torch.int32)
-                            g_idx = g_idx[invperm]
-                            self.layer.weight_g_idx.data = g_idx
-                        else:
-                            indices = torch.arange(
-                                self.columns, device=W.device, dtype=torch.int32
-                            )
-                            g_idx = indices // group_size
 
                         strategy = quant_scheme.weights.strategy
 
@@ -226,12 +223,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             # apply g_idx
                             if g_idx is not None:
                                 # scale and zp already transformed by group_size
-                                # extract first index of group_idze
+                                # extract first index of group_size
                                 indices_to_extract = torch.arange(
                                     0, g_idx.shape[0], group_size
                                 )
-                                scale = scale[:, g_idx[indices_to_extract]]
-                                zero_point = zero_point[:, g_idx[indices_to_extract]]
+                                grouped_indicies = g_idx[indices_to_extract].int()
+                                scale = scale[:, grouped_indicies]
+                                zero_point = zero_point[:, grouped_indicies]
 
                             q = fake_quantize(
                                 q,
