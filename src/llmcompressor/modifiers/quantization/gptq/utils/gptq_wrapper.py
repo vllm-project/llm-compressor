@@ -98,12 +98,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
         dead = torch.diag(self.H) == 0
         self.H[dead, dead] = 1
         W[:, dead] = 0
-        
+
         g_idx = None
         if hasattr(self.layer, "quantization_scheme"):
             quant_scheme = self.layer.quantization_scheme
             actorder = quant_scheme.weights.actorder
-            
+
             if actorder:
                 group_size = quant_scheme.weights.group_size
                 perm = torch.argsort(torch.diag(self.H), descending=True)
@@ -116,7 +116,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 )
                 g_idx = g_idx[invperm]
                 self.layer.weight_g_idx.data = g_idx
-        
+
         Losses = torch.zeros(self.rows, device=self.dev)
 
         damp = percdamp * torch.mean(torch.diag(self.H))
@@ -124,7 +124,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.H[diag, diag] += damp
         self.H = torch.linalg.cholesky(self.H)
         self.H = torch.cholesky_inverse(self.H)
-        self.H = torch.linalg.cholesky(self.H, upper=True)  
+        self.H = torch.linalg.cholesky(self.H, upper=True)
         Hinv = self.H
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
