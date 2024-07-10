@@ -1,14 +1,18 @@
 # LLM Compressor
-
 `llm-compressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
+
 * Comprehensive set of quantization algorithms including weight-only and activation quantization
 * Seemless integration Hugging Face models and repositories
 * `safetensors`-based file format compatible with `vllm`
 
+<p align="center">
+   <img alt="LLM Compressor Flow" src="docs/images/architecture.png" width="50%" />
+</p>
+
+
 ### Supported Formats
 * Mixed Precision: W4A16, W8A16
-* Integer Quantization: W8A8 (int8)
-* Floating Point Quantization: W8A8 (fp8)
+* Activation Quantization: W8A8 (int8 and fp8)
 * 2:4 Semi-structured Sparsity
 * Unstructured Sparsity
 
