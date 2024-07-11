@@ -130,10 +130,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 self.H = self.H[perm][:, perm]
                 invperm = torch.argsort(perm)
 
-                g_idx = torch.Tensor([i // group_size for i in range(self.columns)]).to(
-                    device=invperm.device
-                )
-                g_idx = g_idx[invperm]
+                g_idx = torch.Tensor(
+                    [perm[i] // group_size for i in range(self.columns)]
+                ).to(device=invperm.device)
                 self.layer.weight_g_idx.data = g_idx
 
         Losses = torch.zeros(self.rows, device=self.dev)
