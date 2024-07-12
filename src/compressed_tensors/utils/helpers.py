@@ -14,10 +14,15 @@
 
 from typing import Optional
 
+import torch
 from transformers import AutoConfig
 
 
-__all__ = ["infer_compressor_from_model_config", "fix_fsdp_module_name"]
+__all__ = [
+    "infer_compressor_from_model_config",
+    "fix_fsdp_module_name",
+    "tensor_follows_mask_structure",
+]
 
 FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
 
@@ -60,3 +65,28 @@ def fix_fsdp_module_name(name: str) -> str:
     return name.replace(FSDP_WRAPPER_NAME + ".", "").replace(
         "." + FSDP_WRAPPER_NAME, ""
     )
+
+
+def tensor_follows_mask_structure(tensor, mask: str = "2:4") -> bool:
+    """
+    :param tensor: tensor to check
+    :param mask: mask structure to check for, in the format "n:m"
+    :return: True if the tensor follows the mask structure, False otherwise.
+        Note, some weights can incidentally be zero, so we check for
+        atleast n zeros in each chunk of size m
+    """
+
+    n, m = tuple(map(int, mask.split(":")))
+    # Reshape the tensor into chunks of size m
+    tensor = tensor.view(-1, m)
+
+    # Count the number of zeros in each chunk
+    zero_counts = (tensor == 0).sum(dim=1)
+
+    # Check if the number of zeros in each chunk atleast n
+    # Greater than sign is needed as some weights can incidentally
+    # be zero
+    if not torch.all(zero_counts >= n).item():
+        raise ValueError()
+
+    return True

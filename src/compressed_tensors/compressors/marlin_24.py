@@ -18,15 +18,16 @@ from typing import Dict, Generator, Tuple
 import numpy as np
 import torch
 from compressed_tensors.compressors import Compressor
-from compressed_tensors.compressors.utils import (
-    get_permutations_24,
-    sparse_semi_structured_from_dense_cutlass,
-    tensor_follows_mask_structure,
-)
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.lifecycle.forward import quantize
-from compressed_tensors.utils import is_quantization_param, merge_names
+from compressed_tensors.utils import (
+    get_permutations_24,
+    is_quantization_param,
+    merge_names,
+    sparse_semi_structured_from_dense_cutlass,
+    tensor_follows_mask_structure,
+)
 from torch import Tensor
 from tqdm import tqdm
 

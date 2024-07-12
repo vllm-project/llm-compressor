@@ -21,7 +21,6 @@ from compressed_tensors.compressors import (
     Marlin24Compressor,
     map_modules_to_quant_args,
 )
-from compressed_tensors.compressors.utils import mask_creator
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -32,7 +31,7 @@ from compressed_tensors.quantization import (
     apply_quantization_config,
     apply_quantization_status,
 )
-from compressed_tensors.utils import merge_names
+from compressed_tensors.utils import mask_creator, merge_names
 from torch.nn.modules import Linear, Sequential
 
 
