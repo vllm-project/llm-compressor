@@ -2,6 +2,7 @@ from typing import Optional
 
 from compressed_tensors import CompressionFormat
 from compressed_tensors.config import SparsityCompressionConfig
+from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
 from compressed_tensors.quantization.utils import (
     is_model_quantized,
     is_module_quantized,
@@ -34,14 +35,28 @@ def infer_quantization_format(
         return quantization_format
 
     if save_compressed:
-        weight_schemes, input_schemes = _get_unique_quant_args(model)
+        weight_args, input_args = _get_unique_quant_args(model)
         is_24_structure = (
             sparsity_config and sparsity_config.sparsity_structure == "2:4"
         )
-        is_weight_only = len(input_schemes) == 0 and len(weight_schemes) > 0
+        is_weight_only = len(input_args) == 0 and len(weight_args) > 0
 
         if is_weight_only:  # w4a16 and w8a16
+            is_valid_pack = (
+                len(weight_args) == 1
+                and weight_args[0].num_bits in [4, 8]
+                and weight_args[0].type == QuantizationType.INT.value
+            )
+            if not is_valid_pack:  # packing only valid for int4 and int 8
+                return CompressionFormat.naive_quantized
             if is_24_structure:
+                for arg in weight_args:
+                    if (
+                        arg.strategy is not QuantizationStrategy.CHANNEL.value
+                        and arg.strategy is not QuantizationStrategy.GROUP.value
+                    ):
+                        # marlin24 kernel only applicable for channel/group quantization
+                        return CompressionFormat.pack_quantized
                 return CompressionFormat.marlin_24
             return CompressionFormat.pack_quantized
         else:  # w8a8 float and int
