@@ -70,3 +70,6 @@ def run_calibration_forward(
         batch = tensors_to_device(batch, model_device)
         with torch.no_grad():
             forward_fn(batch, module=model)
+        # TODO: not ideal, figure out where we aren't freeing memory instead
+        # currently without this we run OOM on the 2nd forward pass
+        torch.cuda.empty_cache()
