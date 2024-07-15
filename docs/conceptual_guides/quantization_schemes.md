@@ -15,7 +15,7 @@ x = S * (x_q - Z)
 where:
 
 - `x_q` is the quantized `int8` value associated to `x`
-- `S` is the scale, and is a positive `float16`
+- `S` is the scale, and is a positive `float16`.  It is used to "rescale" a distribution from the base range in `float16` to the desired width (ie 256 for `int8`).
 - `Z` is called the zero-point, it is the `int8` value corresponding to the value 0 in the `float16` realm. If zero-point is ommited, we call this "symmetric" quantization because the default zero point of 0 is in the true middle of the distribution.
 
 
