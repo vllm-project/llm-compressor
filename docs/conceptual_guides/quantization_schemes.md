@@ -44,7 +44,7 @@ With weights, since the full range is known ahead of time, we can just compute t
 With activations, however, there are two approaches:
 * **Dynamic quantization**: the range for each activation is computed on the fly at runtime so that the quantization range matches exactly the current runtime range. This gives us the best possible values, but it can be a bit slower than static quantization because of the overhead introduced by computing the range each time. It is also not an option on certain hardware.
 
-* **Static quantization**: the range for each activation is computed in advance at quantization-time, typically by passing representative "calibration" data through the model and recording the activation values. In practice, we run a number of forward passes on a calibration dataset is done and compute the ranges according to the observed calibration data.
+* **Static quantization**: the range for each activation is computed in advance at quantization-time.  This is typically done by passing representative "calibration" data through the model and recording the range of activation values. In practice, we run a number of forward passes on a calibration dataset is done and compute the ranges according to the observed calibration data.
 
 In general, it is best practice to start your experiments with:
 - For `fp8`, use static activation quantization
