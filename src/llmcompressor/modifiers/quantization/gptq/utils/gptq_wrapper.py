@@ -74,6 +74,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
+        self.layer._hf_hook.pre_forward(self.layer)
+
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
@@ -214,6 +216,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         # place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
+
+        self.layer._hf_hook.post_forward(self.layer, None)
 
     def free(self):
         """

@@ -492,10 +492,10 @@ class SessionManagerMixIn:
             f"{sparsification_info.params_total} total params. "
         )
         sparsity_percent_formatted = "{:.2f}".format(
-            sparsification_info.params_prunable_sparse_percent
+            sparsification_info.params_sparse_percent
         )
         logger.info(
-            f"There are {sparsification_info.params_prunable_total} prunable "
+            f"There are {sparsification_info.params_total} prunable "
             f"params which have {sparsity_percent_formatted}% "
             "avg sparsity."
         )
@@ -504,7 +504,7 @@ class SessionManagerMixIn:
             sparsification_info.params_quantized_percent
         )
         logger.info(
-            f"There are {sparsification_info.params_quantizable} quantizable "
+            f"There are {sparsification_info.params_total} quantizable "
             f"params, with a quantization percentage of "
             f"{quant_percent_formatted}%."
         )

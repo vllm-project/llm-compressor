@@ -89,6 +89,7 @@ class GPTQModifier(Modifier):
 
     sequential_update: Optional[bool] = False
     targets: Union[str, List[str], None] = None
+    sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     quantize: Union[bool, Dict] = True
     dampening_frac: Optional[float] = 0.01
@@ -170,11 +171,11 @@ class GPTQModifier(Modifier):
         modifiable_model = state.model
         calibration_dataloader = state.data.calib
 
-        if self.targets is None:
+        if self.sequential_targets is None:
             # if no targets are provided, default to the modules that shouldn't be
             # split by FSDP. For Transformers models this is equivalent to the
             # decoder layers (ie LlamaDecoderLayer)
-            self.targets = get_no_split_params(modifiable_model)
+            self.sequential_targets = get_no_split_params(modifiable_model)
 
         self.initialize_compression(modifiable_model, calibration_dataloader)
         self.apply_compression(calibration_dataloader)
@@ -207,7 +208,7 @@ class GPTQModifier(Modifier):
                 f"{type(self.model)} instead"
             )
 
-        return get_layers(self.targets, self.model)
+        return get_layers(self.sequential_targets, self.model)
 
     def initialize_compression(
         self,

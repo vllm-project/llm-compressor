@@ -38,7 +38,10 @@ class ModuleCompressionWrapper(Module, ABC):
 
         self.name = name
         self.layer = layer
+
         self.dev = self.layer.weight.device
+        if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:
+            self.dev = self.layer._hf_hook.execution_device
 
         # Calculate weight shape to use during pruning
         W = self.layer.weight
