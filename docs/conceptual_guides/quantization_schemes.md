@@ -61,7 +61,7 @@ For weight quantization, there are three "levels" (in order of increasing of gra
 * **Per-Channel**: one pair of quantization parameters (`S, Z`) is used per element of one of the dimensions of the tensor. For instance, with a weight matrix of shape `[N,M]`, the scales are a vector of shape [`M`] scales.
 * **Per-Group**: one pait of quantization parameters is (`S, Z`) is used per group of items in a tensor. For instance, with a weight matrix of shape `[N,M]` with `M=4096`, the scales are a matrix of shape `[32, M]` (note: `4096 / 128 = 32`).
 
-Incresing quantization granularity typically helps with accuracy at the expense of less memory reduction and slower inference performance. In general, it is best practice to start your experiments with:
+Incresing quantization granularity typically helps with accuracy at the expense of less memory reduction and slower inference performance.  This is because we compute quantization ranges over smaller distributions with the trade off of needing more memory to represent them. In general, it is best practice to start your experiments with:
 - For `int4` weights, use `per-group (size=128)`
 - For `int8` weights, use `per-channel`
 - For `fp8` weights, use `per-tensor`
