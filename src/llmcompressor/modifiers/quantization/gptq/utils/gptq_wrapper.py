@@ -219,6 +219,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.layer.weight += W
 
         if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:
+            mappings = self.layer._hf_hook.weights_map
+            mappings["weight"].data = self.layer.weight.to(mappings["weight"].device)
             self.layer._hf_hook.post_forward(self.layer, None)
 
     def free(self):
