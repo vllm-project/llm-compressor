@@ -5,7 +5,6 @@ from typing import Optional
 
 import torch
 import transformers
-from accelerate import Accelerator
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
@@ -106,10 +105,11 @@ def modify_save_pretrained(model: PreTrainedModel):
                 quantization_format=quantization_format,
             )
 
-            accelerator = Accelerator()
             if compressor is None:
                 # model is not compressed or quantized, save as normal
-                accelerator.save_model(model, save_directory=save_directory, **kwargs)
+                original_save_pretrained.__get__(model, model_class)(
+                    save_directory, **kwargs
+                )
                 return
 
             # if we've gotten to this point we have a config so we can run compression
