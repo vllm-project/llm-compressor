@@ -74,7 +74,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
-        self.layer._hf_hook.pre_forward(self.layer)
+        if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:
+            self.layer._hf_hook.pre_forward(self.layer)
 
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
@@ -217,7 +218,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
 
-        self.layer._hf_hook.post_forward(self.layer, None)
+        if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:
+            self.layer._hf_hook.post_forward(self.layer, None)
 
     def free(self):
         """

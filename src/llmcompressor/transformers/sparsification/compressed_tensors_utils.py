@@ -110,6 +110,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             if compressor is None:
                 # model is not compressed or quantized, save as normal
                 accelerator.save_model(model, save_directory=save_directory, **kwargs)
+                return
 
             # if we've gotten to this point we have a config so we can run compression
             kwargs["safe_serialization"] = True

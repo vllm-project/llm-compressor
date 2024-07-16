@@ -56,9 +56,9 @@ class ModuleSparsificationInfo:
             if hasattr(module, "_hf_hook"):
                 self.trainable_params = get_state_dict_offloaded_model(module)
             else:
-                self.trainable_params = list(
-                    filter(lambda param: param.requires_grad, self.module.parameters())
-                )
+                self.trainable_params = {
+                    k: v for k, v in self.module.named_parameters() if v.requires_grad
+                }
 
     def __str__(self):
         return json.dumps(

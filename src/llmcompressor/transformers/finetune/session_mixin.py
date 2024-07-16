@@ -107,7 +107,8 @@ class SessionManagerMixIn:
         if self.is_fsdp_enabled:
             self._prepare_model_for_fsdp()
 
-        self.min_tokens_per_module = data_args.min_tokens_per_module
+        if data_args is not None:
+            self.min_tokens_per_module = data_args.min_tokens_per_module
 
     def initialize_session(
         self,
