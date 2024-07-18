@@ -14,6 +14,11 @@ from copy import copy
 
 import torch
 import torch.nn as nn
+from compressed_tensors.utils import (
+    get_offloaded_device,
+    is_module_offloaded,
+    update_prefix_dict,
+)
 from loguru import logger
 
 __all__ = ["GPTQWrapper"]
@@ -74,7 +79,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
-        if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:
+        if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
         final_shape = self.layer.weight.shape
@@ -218,9 +223,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
 
-        if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:
-            mappings = self.layer._hf_hook.weights_map
-            mappings["weight"].data = self.layer.weight.to(mappings["weight"].device)
+        if is_module_offloaded(self.layer):
+            device = get_offloaded_device(self.layer)
+            update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
             self.layer._hf_hook.post_forward(self.layer, None)
 
     def free(self):
