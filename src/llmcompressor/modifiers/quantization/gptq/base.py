@@ -295,8 +295,11 @@ class GPTQModifier(Modifier):
             layer_compressor.revert_layer_wrappers()
             torch.cuda.empty_cache()
 
+<<<<<<< HEAD
         self.model.config.use_cache = forward_pass_use_cache
 
+=======
+>>>>>>> 52ef6be2 (GPTQ - move calibration of quantiztion params to after hessian calibration)
         # re-enable quantization
         self.model.apply(enable_quantization)
 
