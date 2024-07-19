@@ -13,6 +13,11 @@ from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
 
+DEFAULT_SMOOTHQUANT_MAPPINGS = [
+    [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
+    [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"],
+]
+
 __all__ = ["SmoothQuantScale", "SmoothQuantMapping", "SmoothQuantModifier"]
 
 
@@ -88,12 +93,12 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: List[Tuple]
+    mappings: List[Tuple] = DEFAULT_SMOOTHQUANT_MAPPINGS
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    hooks_: List = None
+    hooks_: Optional[List] = None
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
 

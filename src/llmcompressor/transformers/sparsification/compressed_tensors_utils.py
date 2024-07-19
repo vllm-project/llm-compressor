@@ -38,8 +38,8 @@ def modify_save_pretrained(model: PreTrainedModel):
         def save_pretrained_wrapper(
             save_directory: str,
             sparsity_config: Optional[SparsityCompressionConfig] = None,
-            quantization_format: str = None,
-            save_compressed: bool = False,
+            quantization_format: Optional[str] = None,
+            save_compressed: bool = True,
             skip_compression_stats: bool = False,
             **kwargs,
         ):
@@ -88,6 +88,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 model=model,
                 quantization_format=quantization_format,
                 save_compressed=save_compressed,
+                sparsity_config=sparsity_config,
             )
             compressor = ModelCompressor.from_pretrained_model(
                 model,

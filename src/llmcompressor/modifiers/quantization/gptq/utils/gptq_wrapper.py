@@ -180,6 +180,15 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     quant_scheme = self.layer.quantization_scheme
 
                     if quant_scheme.weights is not None:
+                        # fetch latest correct scale and ZP relevant for any changes
+                        # such as activation reordering
+                        from compressed_tensors.quantization import (
+                            update_layer_weight_quant_params,
+                        )
+                        update_layer_weight_quant_params(self.layer, g_idx)
+
+                        scale = self.layer.weight_scale
+                        zero_point = self.layer.weight_zero_point
                         from compressed_tensors.quantization import QuantizationStrategy
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
