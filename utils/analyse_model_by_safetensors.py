@@ -6,7 +6,6 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM
 from scipy.stats import skew, kurtosis
 import matplotlib.pyplot as plt
 import numpy as np
-
 import safetensors
 from safetensors import safe_open
 import os
@@ -61,8 +60,6 @@ if __name__ == "__main__":
         )
         model.save_pretrained(weight_path)
 
-
-
     linear_operators = ['mlp.gate_proj', 'mlp.down_proj', 'mlp.up_proj', 'self_attn.k_proj', 'self_attn.v_proj', 'self_attn.q_proj', 'self_attn.o_proj']
     layer_index_file = f"{weight_path}/model.safetensors.index.json"
 
@@ -73,19 +70,14 @@ if __name__ == "__main__":
 
         # find the max layer number
         max_layer = max([int(x.split('.')[2]) for x in layer_keys if 'layers' in x])
-        print(max_layer)
+        print("Total Layers ->", max_layer+1)
 
     min_layer = 0
 
     stats = {}
+    print("Starting to work with layers")
     for layer in range(min_layer, max_layer+1):
-        # if layer != 1:
-        #     continue
-
         print(f"Layer {layer}")
-
-        # get the layer keys for layer_index
-        # layer_keys = [x for x in layer_index.keys() if f"layers.{layer}.self_attn" in x]
         layer_files = []
         layer_opearators = []
         layer_tensors = {}
@@ -96,7 +88,7 @@ if __name__ == "__main__":
         for lo in layer_opearators:
             if layer_index[lo] not in layer_files:
                 layer_files.append(layer_index[lo])
-        # print(list(layer_files))
+
         print(layer_files)
         print(layer_opearators)
         if len(layer_files) == 1:
@@ -114,16 +106,14 @@ if __name__ == "__main__":
         for k in layer_tensors.keys():
             print(k, layer_tensors[k].shape)
         
-        stats.update(get_stats_of_layer(layer_tensors))
-        print(stats)
+        layer_stats = get_stats_of_layer(layer_tensors)
+        stats.update(layer_stats)
+        print(layer_stats)
+        # print(stats)
         # print(stats[layer])
 
         store_histograms(layer_tensors, layer, weight_path, log=True)
-        # break
 
-        # if layer > 1:
-        #     break
-    
     # save the stats using json
     with open(f"{weight_path}/model_stats.json", "w") as f:
         json.dump(stats, f)
