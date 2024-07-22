@@ -114,7 +114,7 @@ class LayerCompressor:
                     set_layer(full_name, module_wrapper.layer, self.model)
             else:
                 set_layer(name, module_wrapper.layer, self.layer)
-            module_wrapper.free()
+            # module_wrapper.free()
         self.modules = None
 
     def compress(self):
@@ -130,6 +130,7 @@ class LayerCompressor:
                 module.compress(**self.args)
 
         self.layer.apply(compress_module)
+        torch.cuda.empty_cache()
 
     def _get_full_submodule_name(self, name):
         full_name = ".".join(x for x in [self.name, name] if len(x) > 0)

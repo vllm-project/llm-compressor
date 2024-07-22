@@ -1,14 +1,21 @@
 from typing import List, Optional
 
+import psutil
 import torch
+from accelerate import infer_auto_device_map, init_empty_weights
+from torch.nn.modules import Linear
 from tqdm import tqdm
+from transformers import AutoModelForCausalLM
 
 from llmcompressor.pytorch.utils import get_linear_layers
+from llmcompressor.utils.pytorch import get_layers, get_no_split_params
 
 __ALL__ = [
     "tensor_follows_mask_structure",
     "infer_sparsity_structure_from_stage_modifiers",
     "infer_sparsity_structure_from_model",
+    "hessian_memory_requirements",
+    "calculate_offload_device_map",
 ]
 
 
@@ -84,3 +91,45 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
             return sparsity_structure
 
     return None
+
+
+def hessian_memory_requirements(model: torch.nn.Module):
+    transformer_layers = get_layers(get_no_split_params(model), model)
+    single_layer = transformer_layers[list(transformer_layers.keys())[0]]
+    total_hessian_elems = 0
+    max_column_size = 0
+    for _, module in single_layer.named_modules():
+        if isinstance(module, Linear):
+            for param in module.parameters():
+                column_size = param.shape[1]
+                total_hessian_elems += column_size * column_size
+                if column_size > max_column_size:
+                    # max extra memory for inverse calculation
+                    max_column_size = column_size
+
+    bytes_per_weight = 32 // 4  # hessians are float32
+    inverse_reserved = max_column_size * max_column_size
+    return (total_hessian_elems + inverse_reserved) * bytes_per_weight
+
+
+def calculate_offload_device_map(model_stub: str, reserve_for_hessians=False):
+    max_cpu_memory = psutil.virtual_memory().available
+    max_gpu_memory = torch.cuda.mem_get_info()[0]
+
+    device_map = {}
+    with init_empty_weights():
+        dummy_model = AutoModelForCausalLM.from_pretrained(
+            model_stub, torch_dtype=torch.float16
+        )
+        if reserve_for_hessians:
+            max_gpu_memory -= hessian_memory_requirements(dummy_model)
+        else:
+            max_gpu_memory -= 1e9
+
+        device_map = infer_auto_device_map(
+            dummy_model,
+            max_memory={0: max_gpu_memory, "cpu": max_cpu_memory},
+            no_split_module_classes=dummy_model._no_split_modules,
+        )
+
+    return device_map

@@ -228,6 +228,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
             update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
             self.layer._hf_hook.post_forward(self.layer, None)
 
+        del W
+        del Losses
+        del diag
+        self.free()
+        print("compressed")
+
     def free(self):
         """
         Free the Hessian memory after the layer is complete
