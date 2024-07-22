@@ -114,7 +114,7 @@ class LayerCompressor:
                     set_layer(full_name, module_wrapper.layer, self.model)
             else:
                 set_layer(name, module_wrapper.layer, self.layer)
-            # module_wrapper.free()
+            torch.cuda.empty_cache()
         self.modules = None
 
     def compress(self):
