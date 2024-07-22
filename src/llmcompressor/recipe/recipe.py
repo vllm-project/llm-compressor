@@ -672,7 +672,7 @@ def create_recipe_string_from_modifiers(
             }
         }
     }
-    recipe_str: str = yaml.dump(recipe_dict)
+    recipe_str: str = yaml.dump(recipe_dict, sort_keys=False)
     return recipe_str
 
 

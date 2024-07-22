@@ -185,10 +185,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
                     if quant_scheme.weights is not None:
                         # fetch latest correct scale and ZP relevant for any changes
-                        if (
-                            quant_scheme.weights is not None
-                            and not is_layer_updated_actorder
-                        ):
+
+                        if not is_layer_updated_actorder:
                             # such as activation reordering
                             from compressed_tensors.quantization import (
                                 update_layer_weight_quant_params,

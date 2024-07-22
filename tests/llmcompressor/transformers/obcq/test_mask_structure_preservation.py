@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 import pytest
-from compressed_tensors.compressors.utils import tensor_follows_mask_structure
+from compressed_tensors.utils import tensor_follows_mask_structure
 from parameterized import parameterized_class
 
 from llmcompressor.core import reset_session
