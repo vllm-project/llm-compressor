@@ -136,7 +136,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 #     [i // group_size for i in range(self.columns)]
                 # ).to(device=invperm.device)
                 self.layer.weight_g_idx.data = g_idx
-        
+
         Losses = torch.zeros(self.rows, device=self.dev)
 
         damp = percdamp * torch.mean(torch.diag(self.H))
@@ -161,6 +161,16 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if preserve_zeros:
                 W1_nz_mask = W_nz_mask[:, i1:i2]
 
+            if hasattr(self.layer, "quantization_scheme"):
+                quant_scheme = self.layer.quantization_scheme
+                if quant_scheme.weights is not None:
+                    # such as activation reordering
+                    from compressed_tensors.quantization import (
+                        update_layer_weight_quant_params,
+                    )
+
+                    update_layer_weight_quant_params(self.layer, g_idx)
+
             for i in range(count):
                 w = W1[:, i]
                 d = Hinv1[i, i]
@@ -181,11 +191,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
                     if quant_scheme.weights is not None:
                         # fetch latest correct scale and ZP relevant for any changes
-                        # such as activation reordering
-                        from compressed_tensors.quantization import (
-                            update_layer_weight_quant_params,
-                        )
-                        update_layer_weight_quant_params(self.layer, g_idx)
 
                         scale = self.layer.weight_scale
                         zero_point = self.layer.weight_zero_point
@@ -237,9 +242,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                                     zero_point[:, int(g_idx[column_idx])],
                                     altered_qargs,
                                 )
-                                
-                            else:
 
+                            else:
                                 q = fake_quantize(
                                     q,
                                     scale[:, input_dim_group],
@@ -266,7 +270,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 W[:, i2:] -= w_err * W_nz_mask[:, i2:]
             else:
                 W[:, i2:] -= w_err
-
+        print("time %.2f" % (time.time() - tick))
         logger.info("time %.2f" % (time.time() - tick))
         logger.info("error %.2f" % torch.sum(Losses).item())
 
