@@ -45,11 +45,11 @@ def store_histograms(tensors, layer, model_path, log=True):
 
 if __name__ == "__main__":
 
-    model_id = "meta-llama/Meta-Llama-3-70B"
-    weight_path = "/nm/drive0/shashata/weight-analysis/dense_llama_3_70B"
+    model_size = "8B"
+    model_id = f"meta-llama/Meta-Llama-3-{model_size}"
+    weight_path = f"/nm/drive0/shashata/weight-analysis/dense_llama_3_{model_size}"
     cache_dir = "/nm/drive0/shashata/weight-analysis"
     presaved_path = f"{cache_dir}/models--{model_id.replace('/', '--')}"
-
     if not os.path.exists(presaved_path):
         # os.makedirs(presaved_path)
         model = SparseAutoModelForCausalLM.from_pretrained(
