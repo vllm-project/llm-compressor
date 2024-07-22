@@ -11,12 +11,12 @@ from tests.llmcompressor.pytorch.helpers import LinearNet
 @pytest.mark.parametrize(
     "preset,sparsity_structure,expected_format",
     [
-        ["W8A8", "unstructured", "naive-quantized"],
+        ["W8A8", "unstructured", "int-quantized"],
         ["W8A16", "unstructured", "pack-quantized"],
         ["W8A16", "2:4", "marlin-24"],
         ["W4A16", "unstructured", "pack-quantized"],
         ["W4A16", "2:4", "marlin-24"],
-        ["FP8", "unstructured", "naive-quantized"],
+        ["FP8", "unstructured", "float-quantized"],
     ],
 )
 def test_infer_quant_format(preset, sparsity_structure, expected_format):

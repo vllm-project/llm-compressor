@@ -60,6 +60,15 @@ def infer_quantization_format(
                 return CompressionFormat.marlin_24
             return CompressionFormat.pack_quantized
         else:  # w8a8 float and int
+            if len(weight_args) == 1:
+                if (
+                    weight_args[0].type == QuantizationType.FLOAT.value
+                    and weight_args[0].num_bits == 8
+                ):
+                    return CompressionFormat.float_quantized
+                if weight_args[0].type == QuantizationType.INT.value:
+                    return CompressionFormat.int_quantized
+
             return CompressionFormat.naive_quantized
     else:
         # format will be inferred from config
