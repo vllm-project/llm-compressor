@@ -119,24 +119,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
         W[:, dead] = 0
 
         g_idx = None
-        # if hasattr(self.layer, "quantization_scheme"):
-        #     quant_scheme = self.layer.quantization_scheme
-        #     actorder = quant_scheme.weights.actorder
-
-        #     if actorder:
-        #         group_size = quant_scheme.weights.group_size
-        #         perm = torch.argsort(torch.diag(self.H), descending=True)
-        #         # W = W[:, perm]
-        #         # self.H = self.H[perm][:, perm]
-        #         invperm = torch.argsort(perm)
-
-        #         # g_idx = torch.Tensor(
-        #         #     [perm[i] // group_size for i in range(self.columns)]
-        #         # ).to(device=invperm.device)
-        #         g_idx = torch.Tensor(
-        #             [i // group_size for i in range(self.columns)]
-        #         ).to(device=invperm.device)
-        #         self.layer.weight_g_idx.data = g_idx
         if hasattr(self.layer, "quantization_scheme"):
             quant_scheme = self.layer.quantization_scheme
             actorder = quant_scheme.weights.actorder
@@ -151,9 +133,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 g_idx = torch.Tensor(
                     [perm[i] // group_size for i in range(self.columns)]
                 ).to(device=invperm.device)
-                # g_idx = torch.Tensor(
-                #     [i // group_size for i in range(self.columns)]
-                # ).to(device=invperm.device)
                 self.layer.weight_g_idx.data = g_idx
 
         Losses = torch.zeros(self.rows, device=self.dev)
@@ -279,7 +258,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 W[:, i2:] -= w_err * W_nz_mask[:, i2:]
             else:
                 W[:, i2:] -= w_err
-        print("time %.2f" % (time.time() - tick))
         logger.info("time %.2f" % (time.time() - tick))
         logger.info("error %.2f" % torch.sum(Losses).item())
 
