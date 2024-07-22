@@ -61,7 +61,9 @@ class QuantizationModifier(Modifier):
         self._apply_modifier_to_model(module)
         module.apply(freeze_module_quantization)
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def on_initialize(
+        self, state: State, freeze_quantization: bool = True, **kwargs
+    ) -> bool:
         if self.end and self.end != -1:
             raise ValueError(
                 "end_epoch is disabled for QuantizationModifier and can only be set to"
@@ -80,7 +82,8 @@ class QuantizationModifier(Modifier):
             self._check_token_distribution(
                 module, threshold=kwargs.get("min_tokens_per_module")
             )
-            module.apply(freeze_module_quantization)
+            if freeze_quantization:
+                module.apply(freeze_module_quantization)
 
         return True
 
@@ -221,6 +224,10 @@ class QuantizationModifier(Modifier):
         """
         if threshold is None:
             logger.debug("Skipping token distribution check. threshold is None.")
+            return
+
+        if self.calibration_dataloader_ is None:
+            logger.debug("Skipping token distribution check. No calibration data.")
             return
 
         all_tokens = self.calibration_dataloader_.dataset["input_ids"]

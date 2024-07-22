@@ -1,7 +1,12 @@
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationScheme,
+    disable_quantization,
+    enable_quantization,
+    freeze_module_quantization,
+)
 from loguru import logger
 from pydantic import Field
 from torch.nn import Module
@@ -164,7 +169,9 @@ class GPTQModifier(Modifier):
         if not self.initialized_structure_:
             self.on_initialize_structure(state, **kwargs)
         if self.quantization_modifier_:
-            self.quantization_modifier_.initialize(state, **kwargs)
+            self.quantization_modifier_.initialize(
+                state, freeze_quantization=False, **kwargs
+            )
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
@@ -179,6 +186,7 @@ class GPTQModifier(Modifier):
 
         self.initialize_compression(modifiable_model, calibration_dataloader)
         self.apply_compression(calibration_dataloader)
+        state.model.apply(freeze_module_quantization)
 
         return True
 
@@ -251,6 +259,11 @@ class GPTQModifier(Modifier):
         logger.info(
             f"Running {class_name} calibration with " f"{len(dataloader)} samples..."
         )
+
+        # quantization scales and zp are already initialized but we do not
+        # want to calibrate wrt to these
+        self.model.apply(disable_quantization)
+
         if not self.sequential_update:
             # in non-sequential mode we run one forward batch for all modules
             run_calibration_forward(self.model, dataloader, mask_padding=True)
@@ -271,6 +284,9 @@ class GPTQModifier(Modifier):
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
             torch.cuda.empty_cache()
+
+        # re-enable quantization
+        self.model.apply(enable_quantization)
 
     def _build_quant_modifier(self):
         """

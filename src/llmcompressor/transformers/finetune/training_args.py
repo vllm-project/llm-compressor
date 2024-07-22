@@ -33,7 +33,7 @@ class TrainingArguments(HFTrainingArgs):
         },
     )
     save_compressed: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={"help": "Whether to compress sparse models during save"},
     )
     do_oneshot: Optional[bool] = field(

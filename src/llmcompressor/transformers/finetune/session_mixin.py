@@ -389,7 +389,9 @@ class SessionManagerMixIn:
 
         return output
 
-    def one_shot(self, calib_data: DataLoader, stage: Optional[str] = None):
+    def one_shot(
+        self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
+    ):
         """
         Run oneshot calibration on the active model
 
@@ -401,7 +403,7 @@ class SessionManagerMixIn:
             recipe_stage=stage,
             recipe_args=self.recipe_args,
             model=self.model,
-            calib_data=calib_data,
+            calib_data=calibration_data,
             start=-1,
             copy_data=False,
             accelerator=self.accelerator,

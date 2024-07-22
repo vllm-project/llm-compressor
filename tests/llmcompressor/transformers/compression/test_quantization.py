@@ -70,6 +70,7 @@ class TestQuantizationMatches(unittest.TestCase):
             pad_to_max_length=pad_to_max_length,
             clear_sparse_session=True,
             splits={"calibration": "train_gen[:5%]"},
+            save_compressed=False,
         )
 
     def _get_quant_info(self, model):

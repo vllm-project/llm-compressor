@@ -43,7 +43,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_directory: str,
             sparsity_config: Optional[SparsityCompressionConfig] = None,
             quantization_format: Optional[str] = None,
-            save_compressed: bool = False,
+            save_compressed: bool = True,
             skip_compression_stats: bool = False,
             **kwargs,
         ):
@@ -98,6 +98,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 model=model,
                 quantization_format=quantization_format,
                 save_compressed=save_compressed,
+                sparsity_config=sparsity_config,
             )
             compressor = ModelCompressor.from_pretrained_model(
                 model,
