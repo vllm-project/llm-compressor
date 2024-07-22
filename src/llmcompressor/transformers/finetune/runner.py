@@ -73,6 +73,7 @@ class StageRunner:
         :param tokenizer: tokenizer to use for dataset tokenization
         """
         if self._data_args.dataset is None:
+            self.tokenizer = self._model_args.tokenizer
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
                 "weight-only and dynamic quantization"

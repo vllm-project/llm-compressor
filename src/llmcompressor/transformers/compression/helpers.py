@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import psutil
 import torch
@@ -15,6 +15,7 @@ __ALL__ = [
     "infer_sparsity_structure_from_stage_modifiers",
     "infer_sparsity_structure_from_model",
     "hessian_memory_requirements",
+    "custom_offload_device_map",
     "calculate_offload_device_map",
 ]
 
@@ -112,18 +113,50 @@ def hessian_memory_requirements(model: torch.nn.Module):
     return (total_hessian_elems + inverse_reserved) * bytes_per_weight
 
 
-def calculate_offload_device_map(model_stub: str, reserve_for_hessians=False, num_gpus: int = 1):
+def custom_offload_device_map(
+    model_stub: str,
+    max_memory_per_gpu: Union[str, int],
+    num_gpus: int = 1,
+    torch_dtype: torch.dtype = torch.float16,
+):
+    max_cpu_memory = psutil.virtual_memory().available
+    memory_limits = {device: max_memory_per_gpu for device in range(num_gpus)}
+    memory_limits["cpu"] = max_cpu_memory
+
+    device_map = {}
+    with init_empty_weights():
+        dummy_model = AutoModelForCausalLM.from_pretrained(
+            model_stub, torch_dtype=torch_dtype
+        )
+        device_map = infer_auto_device_map(
+            dummy_model,
+            max_memory=memory_limits,
+            no_split_module_classes=dummy_model._no_split_modules,
+        )
+        del dummy_model
+
+    return device_map
+
+
+def calculate_offload_device_map(
+    model_stub: str,
+    reserve_for_hessians=False,
+    num_gpus: int = 1,
+    torch_dtype: torch.dtype = torch.float16,
+):
     max_cpu_memory = psutil.virtual_memory().available
     max_gpu_memory = list(torch.cuda.mem_get_info())
     available_gpus = len(max_gpu_memory)
     if available_gpus < num_gpus:
-        raise ValueError("Requested {num_gpus} GPUs but only {available_gpus} are available.")
+        raise ValueError(
+            "Requested {num_gpus} GPUs but only {available_gpus} are available."
+        )
     max_gpu_memory = max_gpu_memory[:num_gpus]
 
     device_map = {}
     with init_empty_weights():
         dummy_model = AutoModelForCausalLM.from_pretrained(
-            model_stub, torch_dtype=torch.float16
+            model_stub, torch_dtype=torch_dtype
         )
 
         reserved_memory = 0
@@ -132,7 +165,10 @@ def calculate_offload_device_map(model_stub: str, reserve_for_hessians=False, nu
         else:
             reserved_memory = 1e9
 
-        memory_limits = {idx:(max_memory-reserved_memory) for idx,max_memory in enumerate(max_gpu_memory)}
+        memory_limits = {
+            idx: (max_memory - reserved_memory)
+            for idx, max_memory in enumerate(max_gpu_memory)
+        }
         memory_limits["cpu"] = max_cpu_memory
 
         device_map = infer_auto_device_map(
@@ -140,5 +176,6 @@ def calculate_offload_device_map(model_stub: str, reserve_for_hessians=False, nu
             max_memory=memory_limits,
             no_split_module_classes=dummy_model._no_split_modules,
         )
+        del dummy_model
 
     return device_map
