@@ -226,6 +226,10 @@ class QuantizationModifier(Modifier):
             logger.debug("Skipping token distribution check. threshold is None.")
             return
 
+        if self.calibration_dataloader_ is None:
+            logger.debug("Skipping token distribution check. No calibration data.")
+            return
+
         all_tokens = self.calibration_dataloader_.dataset["input_ids"]
         total_token_count = sum(len(sample) for sample in all_tokens)
         counter = get_observer_token_count(model)
