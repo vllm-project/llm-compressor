@@ -180,15 +180,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if preserve_zeros:
                 W1_nz_mask = W_nz_mask[:, i1:i2]
 
+            is_layer_updated_actorder = False
             if hasattr(self.layer, "quantization_scheme"):
                 quant_scheme = self.layer.quantization_scheme
-                if quant_scheme.weights is not None:
-                    # such as activation reordering
-                    from compressed_tensors.quantization import (
-                        update_layer_weight_quant_params,
-                    )
-
-                    update_layer_weight_quant_params(self.layer, g_idx)
 
             for i in range(count):
                 w = W1[:, i]
