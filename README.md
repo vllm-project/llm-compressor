@@ -69,7 +69,7 @@ output = model.generate("I love 4 bit models because")
 ```
 
 ## End-to-End Examples
-The llm-compressor` library provides a rich feature-set for model compression below are examples
+The `llm-compressor` library provides a rich feature-set for model compression. Below are examples
 and documentation of a few key flows:
 * [`Meta-Llama-3-8B-Instruct` W4A16 With GPTQ](examples/quantization_w4a16)
 * [`Meta-Llama-3-8B-Instruct` W8A8-Int8 With GPTQ and SmoothQuant](examples/quantization_w8a8_int8)
