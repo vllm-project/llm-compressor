@@ -65,7 +65,7 @@ class StageRunner:
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = False):
+    def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = True):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets

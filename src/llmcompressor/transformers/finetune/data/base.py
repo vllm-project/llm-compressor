@@ -95,7 +95,7 @@ class TextGenerationDataset(RegistryMixin):
         )
 
     def tokenize_and_process(
-        self, raw_dataset: Optional[Dataset] = None, add_labels: Optional[bool] = False
+        self, raw_dataset: Optional[Dataset] = None, add_labels: Optional[bool] = True
     ) -> Dataset:
         """
         Sets up the raw dataset for finetuning, performs tokenization, concatenates

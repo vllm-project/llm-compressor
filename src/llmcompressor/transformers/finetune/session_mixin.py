@@ -411,7 +411,7 @@ class SessionManagerMixIn:
         )
 
         # log model sparsity
-        self.maybe_log_model_sparsification()
+        # self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
 
     def save_model(
