@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import psutil
 import torch
@@ -94,7 +94,15 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
     return None
 
 
-def hessian_memory_requirements(model: torch.nn.Module):
+def hessian_memory_requirements(model: torch.nn.Module) -> int:
+    """
+    Determines the number of bytes needed to store Hessian data for a single
+    transformer layer in model. This is used for reserving memory for GPTQ
+    quantization
+
+    :param model: model to calculate requirements for
+    :return: number of bytes required to reserve for GPTQ on a single layer
+    """
     transformer_layers = get_layers(get_no_split_params(model), model)
     single_layer = transformer_layers[list(transformer_layers.keys())[0]]
     total_hessian_elems = 0
@@ -118,7 +126,18 @@ def custom_offload_device_map(
     max_memory_per_gpu: Union[str, int],
     num_gpus: int = 1,
     torch_dtype: torch.dtype = torch.float16,
-):
+) -> Dict[Union[int, str], Union[int, str]]:
+    """
+    Calculates the optimal gpu mappings for model_stub stored as torch_dtype, where
+    each GPU is restricted to allocating a specific amount of memory.
+
+    :param model_stub: local path or HF stub to calculate mapping for
+    :param max_memory_per_gpu: Max memory to allocate on each GPU, as either a string
+        such as "10GB" or an integer number of bytes
+    :param num_gpus: number of gpus to utilize
+    :param torch_dtype: dtype model will be loaded as
+    :return: memory mapping for layers of model_stub to be passed to from_pretrained()
+    """
     max_cpu_memory = psutil.virtual_memory().available
     memory_limits = {device: max_memory_per_gpu for device in range(num_gpus)}
     memory_limits["cpu"] = max_cpu_memory
@@ -143,7 +162,17 @@ def calculate_offload_device_map(
     reserve_for_hessians=False,
     num_gpus: int = 1,
     torch_dtype: torch.dtype = torch.float16,
-):
+) -> Dict[Union[int, str], Union[int, str]]:
+    """
+    Calculates the optimal gpu mappings for model_stub stored as torch_dtype. Takes
+    into account extra memory required for quantization and (optionally) GPTQ hessians
+
+    :param model_stub: local path or HF stub to calculate mapping for
+    :param reserve_for_hessians: whether to reserve memory for GPTQ
+    :param num_gpus: number of gpus to utilize
+    :param torch_dtype: dtype model will be loaded as
+    :return: memory mapping for layers of model_stub to be passed to from_pretrained()
+    """
     max_cpu_memory = psutil.virtual_memory().available
     max_gpu_memory = torch.cuda.mem_get_info(0)[0]
     available_gpus = torch.cuda.device_count()
@@ -161,7 +190,7 @@ def calculate_offload_device_map(
 
         reserved_memory = 0
         if reserve_for_hessians:
-            reserved_memory = hessian_memory_requirements(dummy_model) + 2e9
+            reserved_memory = hessian_memory_requirements(dummy_model)
         else:
             reserved_memory = 1e9
 

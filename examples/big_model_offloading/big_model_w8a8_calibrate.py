@@ -35,16 +35,9 @@ quant_stage:
 
 model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
 
-# determine which layers to offload to cpu based on available resources
-# since we are running GPTQ, reserve memory upfront for the hessian calculation
-device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=1, torch_dtype=torch.float16
+device_map = custom_offload_device_map(
+    model_stub, max_memory_per_gpu="74GB", num_gpus=1, torch_dtype=torch.float16
 )
-
-# alternatively, specify the maximum memory to allocate per GPU directly
-# device_map = custom_offload_device_map(
-#    model_stub, max_memory_per_gpu="30GB", num_gpus=2, torch_dtype=torch.float16
-# )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.float16, device_map=device_map
