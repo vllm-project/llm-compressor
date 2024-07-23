@@ -121,6 +121,27 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     return (total_hessian_elems + inverse_reserved) * bytes_per_weight
 
 
+def quantization_memory_requirement(model: torch.nn.Module) -> int:
+    """
+    Determines the max number of bytes needed to store quantization scale and zp data
+
+    :param model: model to calculate requirements for
+    :return: number of bytes required to reserve for quantization
+    """
+
+    total_elements = 0
+    for _, module in model.named_modules():
+        if isinstance(module, Linear):
+            for param in module.parameters():
+                # assume the max of group 128 and static scale/zp
+                # TODO: base this on the recipe instead instead of assuming max
+                max_quant_shape = param.shape[0] * param.shape[1] // 128
+                total_elements += max_quant_shape * 4
+
+    bytes_ratio = 32 // 16  # assuming float16
+    return total_elements * bytes_ratio
+
+
 def custom_offload_device_map(
     model_stub: str,
     max_memory_per_gpu: Union[str, int],
@@ -191,8 +212,7 @@ def calculate_offload_device_map(
         reserved_memory = 0
         if reserve_for_hessians:
             reserved_memory = hessian_memory_requirements(dummy_model)
-        else:
-            reserved_memory = 1e9
+        reserved_memory += quantization_memory_requirement(dummy_model)
 
         memory_limits = {
             idx: (max_memory - reserved_memory)
