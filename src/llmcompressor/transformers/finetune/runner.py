@@ -65,7 +65,7 @@ class StageRunner:
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(self, tokenizer: "AutoTokenizer"):
+    def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = False):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
@@ -117,7 +117,9 @@ class StageRunner:
             else:
                 # dataset needs to be tokenized
                 raw_dataset = dataset_manager.get_raw_dataset()
-                tokenized_dataset = dataset_manager.tokenize_and_process(raw_dataset)
+                tokenized_dataset = dataset_manager.tokenize_and_process(
+                    raw_dataset, add_labels=add_labels
+                )
                 tokenized_datasets[split_name] = tokenized_dataset
 
         self.datasets = make_dataset_splits(

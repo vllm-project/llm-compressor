@@ -94,12 +94,15 @@ class TextGenerationDataset(RegistryMixin):
             **self.raw_kwargs,
         )
 
-    def tokenize_and_process(self, raw_dataset: Optional[Dataset] = None) -> Dataset:
+    def tokenize_and_process(
+        self, raw_dataset: Optional[Dataset] = None, add_labels: Optional[bool] = False
+    ) -> Dataset:
         """
         Sets up the raw dataset for finetuning, performs tokenization, concatenates
         entries to max sequence length if desired, and adds labels to each entry
 
         :param raw_dataset: dataset to process
+        :param add_labels: whether to include labels in tokenized output
         """
 
         # helper fn for tokenizing text column
@@ -183,7 +186,6 @@ class TextGenerationDataset(RegistryMixin):
         if isinstance(column_names, dict):
             column_names = column_names[list(column_names)[0]]
 
-        add_labels = False
         if add_labels:
             dataset = self.map(
                 dataset,

@@ -145,13 +145,13 @@ def calculate_offload_device_map(
     torch_dtype: torch.dtype = torch.float16,
 ):
     max_cpu_memory = psutil.virtual_memory().available
-    max_gpu_memory = list(torch.cuda.mem_get_info())
-    available_gpus = len(max_gpu_memory)
+    max_gpu_memory = torch.cuda.mem_get_info(0)[0]
+    available_gpus = torch.cuda.device_count()
     if available_gpus < num_gpus:
         raise ValueError(
             "Requested {num_gpus} GPUs but only {available_gpus} are available."
         )
-    max_gpu_memory = max_gpu_memory[:num_gpus]
+    max_gpu_memory = [max_gpu_memory] * num_gpus
 
     device_map = {}
     with init_empty_weights():
@@ -161,7 +161,7 @@ def calculate_offload_device_map(
 
         reserved_memory = 0
         if reserve_for_hessians:
-            reserved_memory = hessian_memory_requirements(dummy_model)
+            reserved_memory = hessian_memory_requirements(dummy_model) + 2e9
         else:
             reserved_memory = 1e9
 

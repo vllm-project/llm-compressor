@@ -239,8 +239,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
         del W
         del Losses
         del diag
-        self.free()
-        print("compressed")
 
     def free(self):
         """

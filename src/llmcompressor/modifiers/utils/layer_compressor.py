@@ -128,6 +128,8 @@ class LayerCompressor:
                 full_name = self._get_full_submodule_name(module.name)
                 logger.info(f"Compressing {full_name}...")
                 module.compress(**self.args)
+                module.free()
+                print("done")
 
         self.layer.apply(compress_module)
         torch.cuda.empty_cache()
