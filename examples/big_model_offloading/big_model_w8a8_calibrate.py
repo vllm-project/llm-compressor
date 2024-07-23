@@ -50,12 +50,12 @@ model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.float16, device_map=device_map
 )
 tokenizer = AutoTokenizer.from_pretrained(model_stub)
-output_dir = "./test_output_llama3b_70b_fp8"
+output_dir = "./output_llama3b_70b_w8a8"
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 32
+NUM_CALIBRATION_SAMPLES = 4
 MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
