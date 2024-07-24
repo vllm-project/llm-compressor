@@ -99,6 +99,23 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.H[dead, dead] = 1
         W[:, dead] = 0
 
+        g_idx = None
+        if hasattr(self.layer, "quantization_scheme"):
+            quant_scheme = self.layer.quantization_scheme
+            actorder = quant_scheme.weights.actorder
+
+            if actorder:
+                group_size = quant_scheme.weights.group_size
+                perm = torch.argsort(torch.diag(self.H), descending=True)
+                W = W[:, perm]
+                self.H = self.H[perm][:, perm]
+                invperm = torch.argsort(perm)
+
+                g_idx = torch.Tensor(
+                    [perm[i] // group_size for i in range(self.columns)]
+                ).to(device=invperm.device)
+                self.layer.weight_g_idx.data = g_idx
+
         Losses = torch.zeros(self.rows, device=self.dev)
 
         damp = percdamp * torch.mean(torch.diag(self.H))
@@ -123,6 +140,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if preserve_zeros:
                 W1_nz_mask = W_nz_mask[:, i1:i2]
 
+            is_layer_updated_actorder = False
+            if hasattr(self.layer, "quantization_scheme"):
+                quant_scheme = self.layer.quantization_scheme
+
             for i in range(count):
                 w = W1[:, i]
                 d = Hinv1[i, i]
@@ -140,14 +161,18 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     q = torch.dequantize(q)
                 elif hasattr(self.layer, "quantization_scheme"):
                     quant_scheme = self.layer.quantization_scheme
+
                     if quant_scheme.weights is not None:
                         # fetch latest correct scale and ZP relevant for any changes
-                        # such as activation reordering
-                        from compressed_tensors.quantization import (
-                            update_layer_weight_quant_params,
-                        )
 
-                        update_layer_weight_quant_params(self.layer)
+                        if not is_layer_updated_actorder:
+                            # such as activation reordering
+                            from compressed_tensors.quantization import (
+                                update_layer_weight_quant_params,
+                            )
+
+                            update_layer_weight_quant_params(self.layer, g_idx)
+                            is_layer_updated_actorder = True
 
                         scale = self.layer.weight_scale
                         zero_point = self.layer.weight_zero_point
@@ -155,6 +180,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
                         )
+
+                        scale = self.layer.weight_scale
+                        zero_point = self.layer.weight_zero_point
+
+                        group_size = quant_scheme.weights.group_size
+                        if group_size is None or group_size == -1:
+                            group_size = self.layer.weight.shape[1]
 
                         strategy = quant_scheme.weights.strategy
 
@@ -184,12 +216,22 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             # ends up being a channelwise application
                             altered_qargs = copy(quant_scheme.weights)
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
-                            q = fake_quantize(
-                                q,
-                                scale[:, input_dim_group],
-                                zero_point[:, input_dim_group],
-                                altered_qargs,
-                            )
+
+                            if g_idx is not None:
+                                q = fake_quantize(
+                                    q,
+                                    scale[:, int(g_idx[column_idx])],
+                                    zero_point[:, int(g_idx[column_idx])],
+                                    altered_qargs,
+                                )
+
+                            else:
+                                q = fake_quantize(
+                                    q,
+                                    scale[:, input_dim_group],
+                                    zero_point[:, input_dim_group],
+                                    altered_qargs,
+                                )
 
                 Q1[:, i] = q
                 Losses1[:, i] = (w - q) ** 2 / d**2
@@ -210,9 +252,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 W[:, i2:] -= w_err * W_nz_mask[:, i2:]
             else:
                 W[:, i2:] -= w_err
-
         logger.info("time %.2f" % (time.time() - tick))
         logger.info("error %.2f" % torch.sum(Losses).item())
+
+        if actorder:
+            W = W[:, invperm]
+            self.H = self.H[perm][:, perm]
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
