@@ -165,7 +165,7 @@ W4A8 = dict(
     input_activations=QuantizationArgs(
         num_bits=8,
         type=QuantizationType.INT,
-        strategy=QuantizationStrategy.TENSOR,
+        strategy=QuantizationStrategy.TOKEN,
         symmetric=True,
         dynamic=True,
     ),
@@ -189,6 +189,24 @@ FP8 = dict(
     ),
 )
 
+# FP8 weights and FP8 dynamic activations quantization
+FP8_DYNAMIC = dict(
+    weights=QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.CHANNEL,
+        symmetric=True,
+        dynamic=False,
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TOKEN,
+        symmetric=True,
+        dynamic=True,
+    ),
+)
+
 PRESET_SCHEMES = {
     # Integer weight only schemes
     "W8A16": W8A16,
@@ -198,4 +216,5 @@ PRESET_SCHEMES = {
     "W4A8": W4A8,
     # Float weight and activation schemes
     "FP8": FP8,
+    "FP8_DYNAMIC": FP8_DYNAMIC,
 }
