@@ -101,13 +101,11 @@ def test_recipe_can_be_created_from_modifier_instances():
 
 
 class A_FirstDummyModifier(Modifier):
-    def model_dump(self):
-        return {}
+    pass
 
 
 class B_SecondDummyModifier(Modifier):
-    def model_dump(self):
-        return {}
+    pass
 
 
 def test_create_recipe_string_from_modifiers_with_default_group_name():

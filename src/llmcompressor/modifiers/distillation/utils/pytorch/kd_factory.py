@@ -184,7 +184,7 @@ def recursive_combine(
     val_two: TensorOrCollectionType,
     func: Callable[[Tensor, Tensor], Tensor],
 ):
-    if isinstance(val_one, type(val_two)):
+    if not isinstance(val_one, type(val_two)):
         raise ValueError(
             f"val_one type of {type(val_one)} must match "
             f"val_two type of {type(val_two)}"
