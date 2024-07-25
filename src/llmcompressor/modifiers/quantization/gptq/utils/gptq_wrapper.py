@@ -114,7 +114,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
                 update_layer_weight_quant_params(self.layer)
 
-
         dead = torch.diag(self.H) == 0
         self.H[dead, dead] = 1
         W[:, dead] = 0
