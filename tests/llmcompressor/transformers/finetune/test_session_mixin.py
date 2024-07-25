@@ -1,7 +1,6 @@
 from typing import Any, Dict, Optional, Union
 
 import pytest
-from datasets import load_dataset
 from torch.nn import Module
 from transformers import AutoModelForCausalLM, Trainer
 
@@ -44,8 +43,8 @@ def mixin_trainer():
     model_state_path = "Xenova/llama2.c-stories15M"
     model = AutoModelForCausalLM.from_pretrained(model_state_path)
     recipe = "tests/llmcompressor/transformers/finetune/test_quantization.yaml"
-    train_dataset = load_dataset("garage-bAInd/Open-Platypus", split="train[:5%]")
-    eval_dataset = load_dataset("garage-bAInd/Open-Platypus", split="train[5%:6%]")
+    train_dataset = "open-platypus"
+    eval_dataset = "open-platypus"
 
     return MixInTest(
         model=model,
