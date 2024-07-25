@@ -93,7 +93,8 @@ recipe = QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head"]
 
 # Apply quantization.
 oneshot(
-    model=model, dataset=ds,
+    model=model,
+    dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
