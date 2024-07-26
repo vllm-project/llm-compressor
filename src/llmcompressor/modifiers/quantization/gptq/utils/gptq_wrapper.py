@@ -171,6 +171,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                                 update_layer_weight_quant_params,
                             )
 
+                            observer = getattr(self.layer, "weight_observer", None)
+                            observer.reset()
                             update_layer_weight_quant_params(self.layer, g_idx)
                             is_layer_updated_actorder = True
 
