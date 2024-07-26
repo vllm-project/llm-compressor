@@ -74,9 +74,10 @@ class QuantizationModifier(Modifier):
         module = state.model
 
         # intialize quantization in appropriate modules
-        self._apply_modifier_to_model(module)
+        config = self._apply_modifier_to_model(module)
 
         if self.calculate_start() == -1:  # one-shot
+            self._check_calibration_data(config)
             module.apply(set_module_for_calibration)
             self._calibrate_if_possible(module)
             self._check_token_distribution(
@@ -167,9 +168,27 @@ class QuantizationModifier(Modifier):
             return True
         return False
 
+    def _check_calibration_data(self, config: QuantizationConfig):
+        has_calibration_data = self.calibration_dataloader_ is not None
+        requires_calibration = config.requires_calibration_data()
+        if self.calculate_start() == -1:  # one shot
+            if requires_calibration and not has_calibration_data:
+                raise ValueError(
+                    "The provided quantization configuration requires calibration data "
+                    "but none was provided. Calibration data is required for static "
+                    "quantization of input or output activations."
+                )
+            if not requires_calibration and has_calibration_data:
+                logger.info(
+                    "Skipping QuantizationModifier calibration, it is not required for "
+                    "the provided quantization config."
+                )
+                self.calibration_dataloader_ = None
+
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
         apply_quantization_config(model, modifier_as_config)
+        return modifier_as_config
 
     def _calibrate_if_possible(self, module: Module):
         if self.num_calibration_steps == 0 and self.calibration_dataloader_:
