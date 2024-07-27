@@ -118,7 +118,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.H[dead, dead] = 1
         W[:, dead] = 0
 
-        g_idx = None
+        g_idx, g_idx_for_perm_weights = None, None
+        actorder = False
         if hasattr(self.layer, "quantization_scheme"):
             quant_scheme = self.layer.quantization_scheme
             actorder = quant_scheme.weights.actorder
@@ -130,9 +131,27 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 self.H = self.H[perm][:, perm]
                 invperm = torch.argsort(perm)
 
+                # # g_idx for the shuffled weights
+                # g_idx = torch.Tensor(
+                #     [i // group_size for i in range(self.columns)]
+                # ).to(device=invperm.device)
+                
+                # g_idx for the original weights
                 g_idx = torch.Tensor(
                     [perm[i] // group_size for i in range(self.columns)]
                 ).to(device=invperm.device)
+                
+                # g_idx for the permutated weights
+                g_idx_for_perm_weights = torch.Tensor(
+                    [i // group_size for i in range(self.columns)]
+                ).to(device=invperm.device)
+                
+                
+                # # g_idx for the original weights
+                # g_idx_original = g_idx.clone()
+                # for i in range(g_idx.shape[0]):
+                #     g_idx_original[perm[i]] = torch.Tensor([i // group_size])
+                
                 self.layer.weight_g_idx.data = g_idx
 
         Losses = torch.zeros(self.rows, device=self.dev)
@@ -187,9 +206,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             fake_quantize,
                         )
 
-                        scale = self.layer.weight_scale
-                        zero_point = self.layer.weight_zero_point
-
                         group_size = quant_scheme.weights.group_size
                         if group_size is None or group_size == -1:
                             group_size = self.layer.weight.shape[1]
@@ -214,24 +230,25 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         else:  # strategy == QuantizationStrategy.GROUP
                             # get the group index for the current column
                             column_idx = i1 + i
-                            input_dim_group = (
-                                column_idx // quant_scheme.weights.group_size
-                            )
-
+ 
                             # Since we're only applying quantization to a slice, this
                             # ends up being a channelwise application
                             altered_qargs = copy(quant_scheme.weights)
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
 
-                            if g_idx is not None:
+                            if actorder:
                                 q = fake_quantize(
                                     q,
-                                    scale[:, int(g_idx[column_idx])],
-                                    zero_point[:, int(g_idx[column_idx])],
+                                    scale[:, int(g_idx_for_perm_weights[column_idx])],
+                                    zero_point[:, int(g_idx_for_perm_weights[column_idx])],
                                     altered_qargs,
                                 )
 
                             else:
+                                input_dim_group = (
+                                    column_idx // quant_scheme.weights.group_size
+                                )
+
                                 q = fake_quantize(
                                     q,
                                     scale[:, input_dim_group],
@@ -263,7 +280,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         if actorder:
             W = W[:, invperm]
-            self.H = self.H[perm][:, perm]
+            # self.H = self.H[perm][:, perm]
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
@@ -289,3 +306,30 @@ class GPTQWrapper(ModuleCompressionWrapper):
         """
         delattr(self, "H")
         super().free()
+
+
+"""
+# w = torch.randn(5,5)
+t = torch.Tensor([0,3,4,2,1])
+group_size = 2
+
+perm = torch.argsort(t) # tensor([0, 4, 3, 1, 2]) # put zero to 0, put 4th index to the second idx, here and so on
+
+g_idx = torch.Tensor([perm[i] // group_size for i in range(5)]).to(device=invperm.device)
+# tensor([0., 2., 1., 0., 1.], device='cuda:0')
+
+g_idx[perm[i]] = i // group_idx for i in column_size
+
+
+
+Make g_idx 
+
+g_idx = torch.Tensor(
+        [perm[i] // group_size for i in range(self.columns)]
+    ).to(device=invperm.device)
+    
+in this format, make sure it runs in compressed tensors and llm-compressor
+"""
+
+
+
