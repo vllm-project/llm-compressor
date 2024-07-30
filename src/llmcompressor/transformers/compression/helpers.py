@@ -123,7 +123,7 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
 
     bytes_per_weight = 32 // 8  # hessians are float32
     inverse_reserved = max_column_size * max_column_size
-    return (total_hessian_elems + inverse_reserved) * bytes_per_weight
+    return (total_hessian_elems * bytes_per_weight), inverse_reserved * bytes_per_weight
 
 
 def quantization_memory_requirement(model: torch.nn.Module) -> int:
@@ -223,9 +223,12 @@ def calculate_offload_device_map(
 
         reserved_memory_per_layer = single_layer_requirements
         if reserve_for_hessians:
-            reserved_memory_per_layer = hessian_memory_requirements(dummy_model)
-        reserved_memory_per_layer += quantization_memory_requirement(dummy_model)
+            hessian_per_layer, hessian_extra = hessian_memory_requirements(dummy_model)
+            reserved_memory_per_layer += hessian_per_layer
+            max_gpu_memory = [max_gpu_memory[0] - hessian_extra] * num_gpus
+        reserved_memory_per_layer += quantization_memory_requirement(single_layer)
 
+        
         layers_per_gpu = max_gpu_memory[0] // reserved_memory_per_layer
         extra_per_layer = reserved_memory_per_layer - single_layer_requirements
 
@@ -235,6 +238,7 @@ def calculate_offload_device_map(
             )  # TODO we need one extra on GPU 0?
             for idx, max_memory in enumerate(max_gpu_memory)
         }
+
         memory_limits["cpu"] = max_cpu_memory
 
         device_map = infer_auto_device_map(

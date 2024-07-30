@@ -52,7 +52,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param inp: tensor containing layer input
         :param out: tensor containing layer output
         """
-        self.H = self.H.to(self.dev)
+        if is_module_offloaded(self.layer):
+            self.H = self.H.to(self.dev)
 
         if len(inp.shape) == 2:
             inp = inp.unsqueeze(0)
@@ -68,7 +69,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         inp = math.sqrt(2 / self.nsamples) * inp.float()
         self.H += inp.matmul(inp.t()).to(self.dev)
 
-        self.H = self.H.to(self.offload_device)
+        if is_module_offloaded(self.layer):
+            self.H = self.H.to(self.offload_device)
 
     def compress(
         self,
@@ -84,10 +86,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
             diagonal norm
         """
 
-        self.H = self.H.to(self.dev)
-
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
+            self.H = self.H.to(self.dev)
 
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
@@ -245,8 +246,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             device = get_offloaded_device(self.layer)
             update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
             self.layer._hf_hook.post_forward(self.layer, None)
-
-        self.H = self.H.to(self.offload_device)
+            self.H = self.H.to(self.offload_device)
 
         del W
         del Losses
