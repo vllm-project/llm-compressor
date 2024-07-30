@@ -389,7 +389,9 @@ class SessionManagerMixIn:
 
         return output
 
-    def one_shot(self, calib_data: DataLoader, stage: Optional[str] = None):
+    def one_shot(
+        self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
+    ):
         """
         Run oneshot calibration on the active model
 
@@ -401,7 +403,7 @@ class SessionManagerMixIn:
             recipe_stage=stage,
             recipe_args=self.recipe_args,
             model=self.model,
-            calib_data=calib_data,
+            calib_data=calibration_data,
             start=-1,
             copy_data=False,
             accelerator=self.accelerator,
@@ -409,7 +411,7 @@ class SessionManagerMixIn:
         )
 
         # log model sparsity
-        self.maybe_log_model_sparsification()
+        # self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
 
     def save_model(
@@ -493,10 +495,10 @@ class SessionManagerMixIn:
             f"{sparsification_info.params_total} total params. "
         )
         sparsity_percent_formatted = "{:.2f}".format(
-            sparsification_info.params_prunable_sparse_percent
+            sparsification_info.params_sparse_percent
         )
         logger.info(
-            f"There are {sparsification_info.params_prunable_total} prunable "
+            f"There are {sparsification_info.params_total} prunable "
             f"params which have {sparsity_percent_formatted}% "
             "avg sparsity."
         )
@@ -505,7 +507,7 @@ class SessionManagerMixIn:
             sparsification_info.params_quantized_percent
         )
         logger.info(
-            f"There are {sparsification_info.params_quantizable} quantizable "
+            f"There are {sparsification_info.params_total} quantizable "
             f"params, with a quantization percentage of "
             f"{quant_percent_formatted}%."
         )

@@ -17,16 +17,12 @@ from typing import (
 )
 
 import torch
+from accelerate.accelerator import get_state_dict_offloaded_model
 from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.pytorch.utils.helpers import (
-    get_prunable_layers,
-    get_quantizable_layers,
-    get_quantized_layers,
-    tensor_sparsity,
-)
+from llmcompressor.pytorch.utils.helpers import get_quantized_layers, tensor_sparsity
 
 __all__ = [
     "ModuleSparsificationInfo",
@@ -49,18 +45,20 @@ class ModuleSparsificationInfo:
         self, module: Module, state_dict: Optional[Dict[str, torch.Tensor]] = None
     ):
         self.module = module
-        self.state_dict = state_dict
 
-        if self.state_dict is not None:
+        if state_dict is not None:
             # when analyzing an FSDP model, the state_dict does not differentiate
             # between trainable and non-trainable parameters
             # (e.g. it can contain buffers) this means that the
             # self.trainable_parameters may be overestimated
-            self.trainable_params = [param for _, param in state_dict.items()]
+            self.trainable_params = state_dict
         else:
-            self.trainable_params = list(
-                filter(lambda param: param.requires_grad, self.module.parameters())
-            )
+            if hasattr(module, "_hf_hook"):
+                self.trainable_params = get_state_dict_offloaded_model(module)
+            else:
+                self.trainable_params = {
+                    k: v for k, v in self.module.named_parameters() if v.requires_grad
+                }
 
     def __str__(self):
         return json.dumps(
@@ -69,10 +67,6 @@ class ModuleSparsificationInfo:
                     "total": self.params_total,
                     "sparse": self.params_sparse,
                     "sparsity_percent": self.params_sparse_percent,
-                    "prunable": self.params_prunable_total,
-                    "prunable_sparse": self.params_prunable_sparse,
-                    "prunable_sparsity_percent": self.params_prunable_sparse_percent,
-                    "quantizable": self.params_quantizable,
                     "quantized": self.params_quantized,
                     "quantized_percent": self.params_quantized_percent,
                 },
@@ -85,7 +79,7 @@ class ModuleSparsificationInfo:
         """
         :return: total number of trainable parameters in the model
         """
-        return sum(torch.numel(param) for param in self.trainable_params)
+        return sum(torch.numel(param) for param in self.trainable_params.values())
 
     @property
     def params_sparse(self) -> int:
@@ -94,7 +88,9 @@ class ModuleSparsificationInfo:
         """
         return sum(
             round(tensor_sparsity(param).item() * torch.numel(param))
-            for param in tqdm(self.trainable_params, desc="Calculating model sparsity")
+            for param in tqdm(
+                self.trainable_params.values(), desc="Calculating model sparsity"
+            )
         )
 
     @property
@@ -105,58 +101,14 @@ class ModuleSparsificationInfo:
         return self.params_sparse / float(self.params_total) * 100
 
     @property
-    def params_prunable_total(self) -> int:
-        """
-        :return: total number of parameters across prunable layers
-        """
-        return sum(
-            torch.numel(layer.weight)
-            for (name, layer) in get_prunable_layers(self.module)
-        )
-
-    @property
-    def params_prunable_sparse(self) -> int:
-        """
-        :return: total number of sparse (0) parameters across prunable lauyers
-        """
-        return sum(
-            round(tensor_sparsity(layer.weight).item() * torch.numel(layer.weight))
-            for (name, layer) in tqdm(
-                get_prunable_layers(self.module), desc="Calculating model sparsity"
-            )
-        )
-
-    @property
-    def params_prunable_sparse_percent(self) -> float:
-        """
-        :return: percent of prunable parameters that have been pruned
-        """
-        return self.params_prunable_sparse / float(self.params_prunable_total) * 100
-
-    @property
-    def params_quantizable(self) -> int:
-        """
-        :return: number of parameters that are included in quantizable layers
-        """
-        return sum(
-            torch.numel(layer.weight)
-            + (
-                torch.numel(layer.bias)
-                if hasattr(layer, "bias") and layer.bias is not None
-                else 0
-            )
-            for (name, layer) in get_quantizable_layers(self.module)
-        )
-
-    @property
     def params_quantized(self) -> int:
         """
         :return: number of parameters across quantized layers
         """
         return sum(
-            torch.numel(layer.weight)
+            torch.numel(self.trainable_params[f"{name}.weight"])
             + (
-                torch.numel(layer.bias)
+                torch.numel(self.trainable_params[f"{name}.bias"])
                 if hasattr(layer, "bias") and layer.bias is not None
                 else 0
             )
@@ -168,21 +120,7 @@ class ModuleSparsificationInfo:
         """
         :return: percentage of parameters that have been quantized
         """
-        return self.params_quantized / float(self.params_quantizable) * 100
-
-    @property
-    def params_info(self) -> Dict[str, Dict]:
-        """
-        :return: dict of parameter name to its sparsification information
-        """
-        return {
-            f"{name}.weight": {
-                "numel": torch.numel(layer.weight),
-                "sparsity": tensor_sparsity(layer.weight).item(),
-                "quantized": hasattr(layer, "weight_fake_quant"),
-            }
-            for (name, layer) in get_prunable_layers(self.module)
-        }
+        return self.params_quantized / float(self.params_total) * 100
 
 
 class GradSampler:

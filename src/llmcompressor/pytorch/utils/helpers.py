@@ -543,7 +543,7 @@ def tensor_sparsity(
     :return: the sparsity of the input tens, ie the fraction of numbers that are zero
     """
     if dim is None:
-        zeros = (tens == 0).sum()
+        zeros = (tens.cpu() == 0).sum()
         total = tens.numel()
 
         return zeros.float() / float(total)
