@@ -16,6 +16,7 @@
 import logging
 
 from compressed_tensors.quantization.quant_config import QuantizationStatus
+from compressed_tensors.utils import is_module_offloaded, update_parameter_data
 from torch.nn import Module
 
 
@@ -47,5 +48,21 @@ def set_module_for_calibration(module: Module):
             "be calibrating an uninitialized module which may fail or attempting "
             "to re-calibrate a frozen module"
         )
+
+    if module.quantization_scheme.weights is not None:
+        # set weight scale and zero_point up front, calibration data doesn't affect it
+        observer = module.weight_observer
+
+        offloaded = False
+        if is_module_offloaded(module):
+            module._hf_hook.pre_forward(module)
+            offloaded = True
+
+        scale, zero_point = observer(module.weight)
+        update_parameter_data(module, scale, "weight_scale")
+        update_parameter_data(module, zero_point, "weight_zero_point")
+
+        if offloaded:
+            module._hf_hook.post_forward(module, None)
 
     module.quantization_status = QuantizationStatus.CALIBRATION

@@ -25,6 +25,7 @@ from compressed_tensors.quantization.quant_args import (
 )
 from compressed_tensors.quantization.quant_config import QuantizationStatus
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
+from compressed_tensors.utils import update_parameter_data
 from torch.nn import Module
 
 
@@ -312,16 +313,19 @@ def maybe_calibrate_or_quantize(
         scale = getattr(module, f"{base_name}_scale")
         zero_point = getattr(module, f"{base_name}_zero_point")
 
-        if module.quantization_status == QuantizationStatus.CALIBRATION:
+        if (
+            module.quantization_status == QuantizationStatus.CALIBRATION
+            and base_name != "weight"
+        ):
             # calibration mode - get new quant params from observer
             observer = getattr(module, f"{base_name}_observer")
 
             updated_scale, updated_zero_point = observer(value)
 
             # update scale and zero point
-            device = next(module.parameters()).device
-            scale.data = updated_scale.to(device)
-            zero_point.data = updated_zero_point.to(device)
+            update_parameter_data(module, updated_scale, f"{base_name}_scale")
+            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+
     return fake_quantize(value, scale, zero_point, args)
 
 

@@ -239,3 +239,14 @@ class QuantizationConfig(BaseModel):
             format=format,
             ignore=consolidated_ignore,
         )
+
+    def requires_calibration_data(self):
+        for _, scheme in self.config_groups.items():
+            if scheme.input_activations is not None:
+                if not scheme.input_activations.dynamic:
+                    return True
+            if scheme.output_activations is not None:
+                if not scheme.output_activations.dynamic:
+                    return True
+
+        return False

@@ -43,6 +43,7 @@ from compressed_tensors.quantization.utils import (
     iter_named_leaf_modules,
 )
 from compressed_tensors.utils.helpers import fix_fsdp_module_name
+from compressed_tensors.utils.offload import update_parameter_data
 from compressed_tensors.utils.safetensors_load import get_safetensors_folder
 from torch.nn import Module
 
@@ -265,19 +266,17 @@ def _load_quant_args_from_state_dict(
     """
     scale_name = f"{base_name}_scale"
     zp_name = f"{base_name}_zero_point"
-    device = next(module.parameters()).device
 
-    scale = getattr(module, scale_name, None)
-    zp = getattr(module, zp_name, None)
-    if scale is not None:
-        state_dict_scale = state_dict[f"{module_name}.{scale_name}"]
-        scale.data = state_dict_scale.to(device).to(scale.dtype)
-    if zp is not None:
-        zp_from_state = state_dict.get(f"{module_name}.{zp_name}", None)
-        if zp_from_state is not None:  # load the non-zero zero points
-            zp.data = zp_from_state.to(device).to(zp.dtype)
-        else:  # fill with zeros matching scale shape
-            zp.data = torch.zeros_like(scale, dtype=zp.dtype).to(device)
+    state_dict_scale = state_dict.get(f"{module_name}.{scale_name}", None)
+    state_dict_zp = state_dict.get(f"{module_name}.{zp_name}", None)
+
+    if state_dict_scale is not None:
+        # module is quantized
+        update_parameter_data(module, state_dict_scale, scale_name)
+        if state_dict_zp is None:
+            # fill in zero point for symmetric quantization
+            state_dict_zp = torch.zeros_like(state_dict_scale, device="cpu")
+        update_parameter_data(module, state_dict_zp, zp_name)
 
 
 def _scheme_from_targets(

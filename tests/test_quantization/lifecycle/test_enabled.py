@@ -32,7 +32,7 @@ def test_quantization_enabled_disabled():
     apply_quantization_config(
         model=quantized_model,
         config=QuantizationConfig(
-            config_groups=dict(W4A16=["Linear"]),
+            config_groups=dict(W8A8=["Linear"]),
             quantization_status="calibration",
         ),
     )
