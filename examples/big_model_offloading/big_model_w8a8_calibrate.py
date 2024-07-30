@@ -14,7 +14,7 @@ recipe = """
 quant_stage:
     quant_modifiers:
         GPTQModifier:
-            sequential_update: true
+            sequential_update: false
             ignore: ["lm_head"]
             config_groups:
                 group_0:
@@ -35,8 +35,9 @@ quant_stage:
 
 model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
 
-device_map = custom_offload_device_map(
-    model_stub, max_memory_per_gpu="74GB", num_gpus=1, torch_dtype=torch.float16
+# determine which layers to offload to cpu based on available resources
+device_map = calculate_offload_device_map(
+    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(

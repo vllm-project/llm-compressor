@@ -11,6 +11,12 @@ except ImportError as err:
     transformers = None
     transformers_err = err
 
+from compressed_tensors.utils import (
+    get_execution_device,
+    get_offloaded_device,
+    is_module_offloaded,
+)
+
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
 
@@ -40,8 +46,10 @@ class ModuleCompressionWrapper(Module, ABC):
         self.layer = layer
 
         self.dev = self.layer.weight.device
-        if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:
-            self.dev = self.layer._hf_hook.execution_device
+        self.offload_device = self.dev
+        if is_module_offloaded(self.layer):
+            self.dev = get_execution_device(self.layer)
+            self.offload_device = get_offloaded_device(self.layer)
 
         # Calculate weight shape to use during pruning
         W = self.layer.weight

@@ -3,6 +3,8 @@ from typing import Dict, List, Optional, Union
 import psutil
 import torch
 from accelerate import infer_auto_device_map, init_empty_weights
+from accelerate.accelerator import get_state_dict_offloaded_model
+from accelerate.utils.modeling import compute_module_sizes
 from torch.nn.modules import Linear
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
@@ -73,10 +75,12 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
     structures = {"2:4"}
     for sparsity_structure in structures:
         linear_modules = get_linear_layers(model)
+        offloaded_params = get_state_dict_offloaded_model(model)
+
         linear_modules_with_sparsity_structure = [
-            tensor_follows_mask_structure(layer.weight)
-            for layer in tqdm(
-                linear_modules.values(),
+            tensor_follows_mask_structure(offloaded_params[f"{name}.weight"])
+            for name in tqdm(
+                linear_modules.keys(),
                 desc="Checking whether model follows "
                 f"{sparsity_structure} sparsity structure",
             )
@@ -105,6 +109,7 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     """
     transformer_layers = get_layers(get_no_split_params(model), model)
     single_layer = transformer_layers[list(transformer_layers.keys())[0]]
+
     total_hessian_elems = 0
     max_column_size = 0
     for _, module in single_layer.named_modules():
@@ -209,13 +214,25 @@ def calculate_offload_device_map(
             model_stub, torch_dtype=torch_dtype
         )
 
-        reserved_memory = 0
+        transformer_layers = get_layers(get_no_split_params(dummy_model), dummy_model)
+        single_layer = transformer_layers[list(transformer_layers.keys())[0]]
+
+        single_layer_requirements = compute_module_sizes(
+            single_layer, dtype=torch_dtype
+        )[""]
+
+        reserved_memory_per_layer = single_layer_requirements
         if reserve_for_hessians:
-            reserved_memory = hessian_memory_requirements(dummy_model)
-        reserved_memory += quantization_memory_requirement(dummy_model)
+            reserved_memory_per_layer = hessian_memory_requirements(dummy_model)
+        reserved_memory_per_layer += quantization_memory_requirement(dummy_model)
+
+        layers_per_gpu = max_gpu_memory[0] // reserved_memory_per_layer
+        extra_per_layer = reserved_memory_per_layer - single_layer_requirements
 
         memory_limits = {
-            idx: (max_memory - reserved_memory)
+            idx: (
+                max_memory - (extra_per_layer * layers_per_gpu)
+            )  # TODO we need one extra on GPU 0?
             for idx, max_memory in enumerate(max_gpu_memory)
         }
         memory_limits["cpu"] = max_cpu_memory

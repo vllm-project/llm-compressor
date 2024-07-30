@@ -42,7 +42,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         # for Hessian calculation
         self.register_buffer(
-            "H", torch.zeros((self.columns, self.columns), device=self.dev)
+            "H", torch.zeros((self.columns, self.columns), device=self.offload_device)
         )
 
     def add_batch(self, inp: torch.Tensor, out: torch.Tensor):
@@ -52,6 +52,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param inp: tensor containing layer input
         :param out: tensor containing layer output
         """
+        self.H = self.H.to(self.dev)
+
         if len(inp.shape) == 2:
             inp = inp.unsqueeze(0)
         tmp = inp.shape[0]
@@ -66,6 +68,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         inp = math.sqrt(2 / self.nsamples) * inp.float()
         self.H += inp.matmul(inp.t()).to(self.dev)
 
+        self.H = self.H.to(self.offload_device)
+
     def compress(
         self,
         blocksize: int = 128,
@@ -79,6 +83,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
+
+        self.H = self.H.to(self.dev)
+
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
@@ -238,6 +245,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
             device = get_offloaded_device(self.layer)
             update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
             self.layer._hf_hook.post_forward(self.layer, None)
+
+        self.H = self.H.to(self.offload_device)
 
         del W
         del Losses
