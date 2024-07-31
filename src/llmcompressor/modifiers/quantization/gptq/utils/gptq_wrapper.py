@@ -108,33 +108,42 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if actorder:
                 group_size = quant_scheme.weights.group_size
                 perm = torch.argsort(torch.diag(self.H), descending=True)
+                
+                # index of perm is the min of self.H
+                
+                # # to mimick group size
+                # perm = torch.arange(0, self.columns, dtype=torch.int)
+
+
                 W = W[:, perm]
                 self.H = self.H[perm][:, perm]
                 invperm = torch.argsort(perm)
 
-                # # g_idx for the shuffled weights
-                # g_idx = torch.Tensor(
-                #     [i // group_size for i in range(self.columns)]
-                # ).to(device=invperm.device)
-                
+                # breakpoint()
                 # g_idx for the original weights
-                g_idx = torch.Tensor(
-                    [perm[i] // group_size for i in range(self.columns)]
+                g_idx = torch.tensor(
+                    # [perm[i] // group_size for i in range(self.columns)] 
+                    [i // group_size for i in range(self.columns)], #B
+                    dtype=torch.int,
                 ).to(device=invperm.device)
-                
-                # g_idx for the permutated weights
+
+                # g_idx for the permutated weights # A
                 g_idx_for_perm_weights = torch.Tensor(
                     [i // group_size for i in range(self.columns)]
                 ).to(device=invperm.device)
                 
-                
-                # # g_idx for the original weights
-                # g_idx_original = g_idx.clone()
+                # # # g_idx for the original weights
+                # g_idx = g_idx_for_perm_weights.clone()
                 # for i in range(g_idx.shape[0]):
-                #     g_idx_original[perm[i]] = torch.Tensor([i // group_size])
+                #     g_idx[perm[i]] = torch.Tensor([i // group_size])
                 
-                self.layer.weight_g_idx.data = g_idx
+                g_idx = g_idx[invperm] # A, B
+                # print(g_idx)
+                # breakpoint()
+                # breakpoint()
 
+                self.layer.weight_g_idx.data = g_idx
+                
         Losses = torch.zeros(self.rows, device=self.dev)
 
         damp = percdamp * torch.mean(torch.diag(self.H))
@@ -194,11 +203,19 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             observer.reset()
                             
                             # update self.layer params with respect to g_idx
-                            update_layer_weight_quant_params(self.layer, g_idx)
+                            # update_layer_weight_quant_params(self.layer, g_idx)
+                            update_layer_weight_quant_params(self.layer,perm=perm, 
+                                                            # g_idx=g_idx,
+                                                            )
+                            
                             is_layer_updated_actorder = True
 
                         scale = self.layer.weight_scale
                         zero_point = self.layer.weight_zero_point
+                        # breakpoint()
+                        scale = scale[:, g_idx]
+                        zero_point=zero_point[:, g_idx]
+                        
                         from compressed_tensors.quantization import QuantizationStrategy
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
@@ -235,10 +252,22 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
 
                             if actorder:
+                                input_dim_group = (
+                                    column_idx // quant_scheme.weights.group_size
+                                )
+                                # print(column_idx)
                                 q = fake_quantize(
                                     q,
                                     scale[:, int(g_idx_for_perm_weights[column_idx])],
                                     zero_point[:, int(g_idx_for_perm_weights[column_idx])],
+                                    # scale[:, int(g_idx[column_idx])],
+                                    # zero_point[:, int(g_idx[column_idx])],
+                                    # scale[:, int(g_idx[column_idx])],
+                                    # zero_point[:, int(g_idx[column_idx])],
+                                    # scale[:, input_dim_group],
+                                    # zero_point[:, input_dim_group],
+                                    # scale[:, int(invperm[column_idx] // group_size)], #B
+                                    # zero_point[:, int(invperm[column_idx] // group_size)], #B
                                     altered_qargs,
                                 )
 
@@ -298,16 +327,24 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
 
 """
-# w = torch.randn(5,5)
-t = torch.Tensor([0,3,4,2,1])
+import torch
+
 group_size = 2
+n = 6
+# Hessian
+# H = torch.randperm(n) 
+H = torch.Tensor([5, 0, 1, 3, 2, 4])        # tensor([5, 0, 1, 3, 2, 4])
+perm =  torch.argsort(H, descending=True)   # tensor([0, 5, 3, 4, 2, 1])
+invperm = torch.argsort(perm)               # tensor([0, 5, 4, 2, 3, 1])
 
-perm = torch.argsort(t) # tensor([0, 4, 3, 1, 2]) # put zero to 0, put 4th index to the second idx, here and so on
+# w = torch.randperm(n)
+w = torch.Tensor([0, 4, 1, 3, 5, 2])        # tensor([0, 4, 1, 3, 5, 2])
+W = w.clone()[perm]                         # tensor([0, 2, 3, 5, 1, 4])
 
-g_idx = torch.Tensor([perm[i] // group_size for i in range(5)]).to(device=invperm.device)
-# tensor([0., 2., 1., 0., 1.], device='cuda:0')
+g_idx = torch.tensor([int(i // group_size) for i in range(n)], dtype=torch.int)
+g_idx = g_idx[invperm]
 
-g_idx[perm[i]] = i // group_idx for i in column_size
+
 
 
 
