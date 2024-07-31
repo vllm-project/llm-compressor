@@ -802,3 +802,4 @@ sparse_logs/*
 wandb/
 output_finetune/
 env_log.json
+output/
