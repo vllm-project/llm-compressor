@@ -3,6 +3,7 @@ name: Build, test, and publish nightly wheel
 on:
   schedule:
     - cron: '0 22 * * *'
+  workflow_dispatch:
 
 jobs:
   build-test-publish-nightly-wheel:
