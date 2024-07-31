@@ -110,7 +110,7 @@ def test_apply_quantization_config_tinyllama():
     # sanity check correct number of layers targeted
     assert num_linears == 154  # 155 Linear layers - 1 that gets ignored
     assert num_embeddings == 1
-    assert num_rotary_embeddings == 22
+    assert num_rotary_embeddings == 23  # model updated, now has model.rotary_embedding
 
     # test quantization compression
     # sample forward pass to fill scales, zps
