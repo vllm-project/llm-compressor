@@ -1,11 +1,9 @@
+import torch
+import torch.nn as nn
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
-
-import torch
-from torch import nn
 from loguru import logger
 from torch.nn import Module
-
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
@@ -21,52 +19,15 @@ __all__ = ["AWQScale", "AWQMapping", "AWQModifier"]
 
 @dataclass
 class AWQScale:
-    """
-    Dataclass for storing the channel-wise scaling factors for a layer.
-
-    :param scale: scaling factor for each output channel
-    """
     scale: torch.Tensor
+    zero_point: Optional[torch.Tensor] = None
 
 @dataclass
 class AWQMapping:
-    """
-    Dataclass for storing the mapping between layers to be quantized using AWQ
-
-    :param name: name of the layer
-    :param layer: PyTorch module storing the layer
-    """
     name: str
     layer: Module
 
 class AWQModifier(Modifier):
-    """
-    Implements the AWQ (Adaptive Weight Quantization) algorithm from https://arxiv.org/abs/2306.00978.
-    This modifier performs channel-wise scaling of weights to minimize quantization error.
-
-    example recipe:
-    ```yaml
-    AWQModifier:
-      w_bit: 4
-      group_size: 128
-      zero_point: True
-      mappings: [
-        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj", "re:.*o_proj"],
-        ["re:.*gate_proj", "re:.*up_proj", "re:.*down_proj"]
-      ]
-      ignore: []
-      num_calibration_steps: 100
-    ```
-
-    :param w_bit: number of bits to use for weight quantization
-    :param group_size: size of groups for groupwise quantization
-    :param zero_point: whether to use zero point in quantization
-    :param mappings: list of layers to apply AWQ
-    :param ignore: list of layers to ignore, even if they match a regex in mappings
-    :param num_calibration_steps: number of samples to use for calibration, or None to use the whole dataset
-    :param calibration_function: optional function to use for the forward pass, or None to use the default tensor_module_forward
-    """
-
     w_bit: int = 4
     group_size: int = 128
     zero_point: bool = True
@@ -74,46 +35,20 @@ class AWQModifier(Modifier):
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
-
+    
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
-
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass
+    activation_stats_: Optional[Dict] = None
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        if self.end and self.end != -1:
-            raise ValueError(f"{self.__class__.__name__} can only be applied during one-shot. Expected end to be None or -1, got {self.end}")
-        if self.start and self.start != -1:
-            raise ValueError(f"{self.__class__.__name__} can only be applied during one-shot. Expected start to be None or -1, got {self.end}")
-
         self.ignore = [] if not self.ignore else self.ignore
         self.resolved_mappings_ = self._resolve_mappings(state.model)
         self.scales_ = {}
+        self.activation_stats_ = {}
 
         calibration_dataloader = state.data.calib
         self._calibrate(state.model, calibration_dataloader)
         self._apply_awq(state.model)
-
-        return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_event(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        if self.scales_ is not None:
-            self.scales_.clear()
-        if self.resolved_mappings_ is not None:
-            self.resolved_mappings_.clear()
 
         return True
 
@@ -129,10 +64,22 @@ class AWQModifier(Modifier):
 
     @torch.no_grad()
     def _calibrate(self, model: Module, calibration_dataloader: List):
-        class_name = self.__class__.__name__.replace("PyTorch", "")
-        logger.info(f"Running {class_name} calibration with {len(calibration_dataloader)} samples...")
+        logger.info(f"Running AWQ calibration with {len(calibration_dataloader)} samples...")
         if not calibration_dataloader:
-            raise ValueError("Calibration data loader not set, must populate the calib_data field of CompressionSession to run the AWQ modifier")
+            raise ValueError("Calibration data loader not set")
+
+        def hook_fn(module, input, output):
+            module_name = self._get_module_name(module)
+            if module_name not in self.activation_stats_:
+                self.activation_stats_[module_name] = []
+            # Capture the output (activation)
+            if isinstance(output, tuple):
+                output = output[0]
+            self.activation_stats_[module_name].append(output.detach())
+
+        hooks = []
+        for mapping in self.resolved_mappings_:
+            hooks.append(mapping.layer.register_forward_hook(hook_fn))
 
         run_calibration_forward(
             model,
@@ -141,6 +88,20 @@ class AWQModifier(Modifier):
             self.calibration_function,
         )
 
+        for hook in hooks:
+            hook.remove()
+
+
+        for module_name in self.activation_stats_:
+            activations = torch.cat(self.activation_stats_[module_name], dim=0)
+            self.activation_stats_[module_name] = activations.abs().mean(dim=0)
+
+    def _get_module_name(self, module):
+        for mapping in self.resolved_mappings_:
+            if mapping.layer == module:
+                return mapping.name
+        return None
+
     @torch.no_grad()
     def _apply_awq(self, model: Module):
         logger.info("Applying AWQ scaling...")
@@ -148,56 +109,64 @@ class AWQModifier(Modifier):
             layer = mapping.layer
             if isinstance(layer, nn.Linear):
                 weight = layer.weight.data
-                in_features = weight.shape[1]
-                out_features = weight.shape[0]
+                activation_stats = self.activation_stats_[mapping.name]
+                
+                scales = self._compute_scales(weight, activation_stats)
 
-                # Compute scales
-                if self.group_size > 0:
-                    num_groups = in_features // self.group_size
-                    weight_groups = weight.view(out_features, num_groups, self.group_size)
-                    scales = weight_groups.abs().max(dim=2)[0]
-                else:
-                    scales = weight.abs().max(dim=1)[0]
-
-                # Apply scaling
                 weight_scaled = weight / scales.unsqueeze(1)
 
-                # Quantize
-                if self.zero_point:
-                    weight_min = weight_scaled.min(dim=1, keepdim=True)[0]
-                    weight_max = weight_scaled.max(dim=1, keepdim=True)[0]
-                    weight_scaled = (weight_scaled - weight_min) / (weight_max - weight_min)
-                
                 weight_q = torch.round(weight_scaled * (2**self.w_bit - 1))
                 weight_q = torch.clamp(weight_q, 0, 2**self.w_bit - 1)
 
-                # Dequantize
-                if self.zero_point:
-                    weight_dq = weight_q / (2**self.w_bit - 1) * (weight_max - weight_min) + weight_min
-                else:
-                    weight_dq = weight_q / (2**self.w_bit - 1)
+                weight_dq = weight_q / (2**self.w_bit - 1)
 
-                # Apply scaling back
                 weight_awq = weight_dq * scales.unsqueeze(1)
 
-                # Update layer weight
                 layer.weight.data.copy_(weight_awq)
 
-                # Store scaling factors
                 self.scales_[mapping.name] = AWQScale(scale=scales)
 
-    def _calculate_awq_scales(self, weight: torch.Tensor) -> torch.Tensor:
-        """
-        Calculate AWQ scaling factors for the given weight tensor.
+    def _compute_scales(self, weight: torch.Tensor, activation_stats: torch.Tensor) -> torch.Tensor:
+        weight_abs = weight.abs()
 
-        :param weight: weight tensor to calculate scaling factors for
-        :return: channel-wise scaling factors
-        """
-        in_features = weight.shape[1]
+        def _compute_error(s):
+            q = torch.round(weight_abs / s.unsqueeze(1) * (2**self.w_bit - 1))
+            q = torch.clamp(q, 0, 2**self.w_bit - 1)
+            q = q / (2**self.w_bit - 1) * s.unsqueeze(1)
+            error = torch.sum(torch.abs((weight_abs - q) * activation_stats.unsqueeze(0)), dim=1)
+            return error
+
+        def _compute_scale(w):
+            scale_max = w.max().item()
+            scale_min = scale_max / (2**self.w_bit - 1)
+
+            best_scale = scale_min
+            best_error = float('inf')
+
+            for i in range(20):
+                scale = scale_min * (scale_max / scale_min) ** (i / 100)
+                error = _compute_error(torch.tensor([scale], device=w.device))
+                if error.item() < best_error:
+                    best_error = error.item()
+                    best_scale = scale
+
+            return best_scale
+
         if self.group_size > 0:
-            num_groups = in_features // self.group_size
-            weight_groups = weight.view(-1, num_groups, self.group_size)
-            scales = weight_groups.abs().max(dim=2)[0]
+            weight_groups = weight_abs.view(-1, self.group_size)
+            activation_groups = activation_stats.view(-1, self.group_size)
+            scales = torch.tensor([_compute_scale(weight_groups[i]) for i in range(weight_groups.size(0))], 
+                                  device=weight.device)
+            return scales.view(weight.size(0), -1).max(dim=1)[0]
         else:
-            scales = weight.abs().max(dim=1)[0]
-        return scales
+            return torch.tensor([_compute_scale(weight_abs[i]) for i in range(weight.size(0))], 
+                                device=weight.device)
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        if self.scales_ is not None:
+            self.scales_.clear()
+        if self.resolved_mappings_ is not None:
+            self.resolved_mappings_.clear()
+        if self.activation_stats_ is not None:
+            self.activation_stats_.clear()
+        return True
