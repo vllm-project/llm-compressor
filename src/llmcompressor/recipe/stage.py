@@ -161,26 +161,26 @@ class RecipeStage(RecipeBase):
         """
 
         modifiers = []
-        remove_keys = []
 
-        if "modifiers" in values and values["modifiers"]:
-            remove_keys.append("modifiers")
-            for mod_key, mod_value in values["stages"].items():
-                modifier = {mod_key: mod_value}
-                modifier["group"] = "default"
-                modifiers.append(modifier)
+        if "modifiers" in values:
+            modifier_values = values.pop("modifiers")
+            if "stages" in values:
+                for mod_key, mod_value in values.pop("stages").items():
+                    modifiers.append({mod_key: mod_value, "group": "default"})
+            else:
+                values["default_stage"] = {
+                    "default_modifiers": {mod.type: mod.args for mod in modifier_values}
+                }
+                modifiers.extend(
+                    {mod.type: mod.args, "group": "default"} for mod in modifier_values
+                )
 
-        for key, value in list(values.items()):
-            if key.endswith("_modifiers"):
-                remove_keys.append(key)
-                group = key.rsplit("_modifiers", 1)[0]
-                for mod_key, mod_value in value.items():
-                    modifier = {mod_key: mod_value}
-                    modifier["group"] = group
-                    modifiers.append(modifier)
-
-        for key in remove_keys:
-            del values[key]
+        for key in [k for k in values if k.endswith("_modifiers")]:
+            group = key.rsplit("_modifiers", 1)[0]
+            modifiers.extend(
+                {mod_key: mod_value, "group": group}
+                for mod_key, mod_value in values.pop(key).items()
+            )
 
         return modifiers
 
