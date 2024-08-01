@@ -1,7 +1,7 @@
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
-from tqdm import tqdm
 import torch
+from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization import (
     QuantizationScheme,
     disable_quantization,
@@ -11,22 +11,27 @@ from compressed_tensors.quantization import (
 from loguru import logger
 from pydantic import Field
 from torch.nn import Module
-from llmcompressor.pytorch.utils import tensors_module_forward, tensors_to_device
+from tqdm import tqdm
+
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_wrapper import GPTQWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
-from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward, CustomException
+from llmcompressor.modifiers.utils.pytorch_helpers import (
+    CustomException,
+    run_calibration_forward,
+)
+from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
 from llmcompressor.utils.pytorch.module import (
-    get_layers,
     get_layer,
+    get_layers,
     get_no_split_params,
     qat_active,
 )
-from compressed_tensors import is_module_offloaded
 
 __all__ = ["GPTQModifier"]
+
 
 class GPTQModifier(Modifier):
     """
@@ -252,14 +257,18 @@ class GPTQModifier(Modifier):
 
         if self.sequential_update:
             first_compressible_name = list(self.compressible_layers_.keys())[0]
-            _, first_layer = get_layer(target=first_compressible_name, module=self.model)
+            _, first_layer = get_layer(
+                target=first_compressible_name, module=self.model
+            )
 
             def hook_fn(self, args, kwargs):
                 raise CustomException(args, kwargs)
+
             self.handles_ = []
             self.intermediate_inputs_ = []
-            self.handles_.append(first_layer.register_forward_pre_hook(hook_fn, with_kwargs=True))
-        
+            self.handles_.append(
+                first_layer.register_forward_pre_hook(hook_fn, with_kwargs=True)
+            )
 
     @torch.no_grad()
     def apply_compression(
@@ -284,7 +293,9 @@ class GPTQModifier(Modifier):
 
         # in non-sequential mode we run one forward batch for all modules
         # in sequential mode this ends early
-        intermediates = run_calibration_forward(self.model, dataloader, mask_padding=True)
+        intermediates = run_calibration_forward(
+            self.model, dataloader, mask_padding=True
+        )
         for handle in self.handles_:
             handle.remove()
 
@@ -300,21 +311,24 @@ class GPTQModifier(Modifier):
                 layer_compressor.pre_compress()
                 logger.info(f"Calibrating {layer_compressor.name}...")
                 for idx in tqdm(range(len(intermediates))):
+                    args, kwargs = intermediates[idx]
                     if is_module_offloaded(layer_compressor.layer):
                         self.layer._hf_hook.pre_forward(layer_compressor.layer)
                     device = next(layer_compressor.layer.parameters()).device
-                    kwargs = intermediates[idx][1]
-                    output, _ = layer_compressor.layer(intermediates[idx][0].to(device), **kwargs)
-                    intermediates[idx] = (output.to("cpu"), kwargs)
+                    output = layer_compressor.layer(
+                        *tensors_to_device(args, device), **kwargs
+                    )
+                    intermediates[idx] = (tensors_to_device(output, "cpu"), kwargs)
                     if is_module_offloaded(layer_compressor.layer):
                         self.layer._hf_hook.post_forward(layer_compressor.layer, None)
                     torch.cuda.empty_cache()
-
 
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
             torch.cuda.empty_cache()
+
+        self.model.config.use_cache = forward_pass_use_cache
 
         # re-enable quantization
         self.model.apply(enable_quantization)

@@ -107,7 +107,10 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     single_layer = transformer_layers[list(transformer_layers.keys())[0]]
     max_seq_length = 2048
     num_calibration_samples = 512
-    inputs = (single_layer.hidden_size * max_seq_length + 2 * max_seq_length * num_calibration_samples)
+    inputs = (
+        single_layer.hidden_size * max_seq_length
+        + 2 * max_seq_length * num_calibration_samples
+    )
     total_hessian_elems = 0
     max_column_size = 0
     for _, module in single_layer.named_modules():

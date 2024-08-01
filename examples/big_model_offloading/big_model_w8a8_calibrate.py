@@ -1,12 +1,11 @@
+import time
+
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from llmcompressor.transformers.compression.helpers import (  # noqa
-    calculate_offload_device_map,
-    custom_offload_device_map,
-)
+from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 # define a llmcompressor recipe for FP8 quantization
 # this recipe requires calibration
@@ -42,7 +41,7 @@ output_dir = "./output_llama3b_70b_w8a8"
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 64
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
@@ -73,8 +72,6 @@ def tokenize(sample):
 
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
-
-import time
 
 start_time = time.time()
 oneshot(

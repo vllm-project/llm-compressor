@@ -10,6 +10,7 @@ from llmcompressor.pytorch.utils import tensors_module_forward, tensors_to_devic
 
 __all__ = ["apply_pad_mask_to_batch", "run_calibration_forward"]
 
+
 class CustomException(Exception):
     def __init__(self, args, kwargs):
         self.args = tensors_to_device(args, "cpu")
@@ -78,9 +79,8 @@ def run_calibration_forward(
             try:
                 forward_fn(batch, module=model)
             except CustomException as e:
-                intermediates.append((e.args[0], e.kwargs))
+                intermediates.append((e.args, e.kwargs))
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
         torch.cuda.empty_cache()
-    torch.cuda.empty_cache()
     return intermediates
