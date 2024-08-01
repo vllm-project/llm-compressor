@@ -7,7 +7,7 @@ import torch
 from loguru import logger
 from torch.nn.modules.sparse import Embedding
 
-_DEFAULT_TARGET_IDS = ["attention_mask", "position_ids", "position_bias"]
+_DEFAULT_TARGET_IDS = ["attention_mask", "position_ids", "position_bias", "hidden_states"]
 
 
 class Catcher(torch.nn.Module):
@@ -60,7 +60,10 @@ def catch(model, attention_layer, target_keys, data_loader, nsamples):
         try:
             if isinstance(inp, tuple):
                 inp = inp[0]
-            model(inp.to(device), use_cache=False)
+            # model(inp.to(device), use_cache=False)
+            for key in inp:
+                inp[key] = inp[key].to(device)
+            model(inp[key], use_cache=False)
         except ValueError:
             pass
     replace_module(model, catcher_module, attention_layer)
@@ -108,7 +111,7 @@ def execute_offloaded_module(
 
 
 def cache_attention_inputs(
-    model, dataloader, device, nsamples, target_ids, layer_prefix
+    model, dataloader, device, nsamples, target_ids, layer_prefix=None
 ):
     if layer_prefix:  # get model-specific path to layers list
         split_prefix = layer_prefix.split(".")

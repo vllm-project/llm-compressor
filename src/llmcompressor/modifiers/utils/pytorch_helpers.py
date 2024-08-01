@@ -20,7 +20,10 @@ def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.T
     :param batch: batch to apply padding to if it exists
     :return: batch with padding zeroed out in the input_ids
     """
-    batch["input_ids"] = batch["input_ids"] * batch["attention_mask"]
+    if "input_ids" in batch.keys():
+        batch["input_ids"] = batch["input_ids"] * batch["attention_mask"]
+    else:
+        batch["hidden_states"] = batch["hidden_states"]
     return batch
 
 
@@ -62,6 +65,7 @@ def run_calibration_forward(
     )
 
     # run through the calibration data
+    outputs = []
     for batch_idx, batch in enumerate(tqdm(_dataloader)):
         if num_calibration_steps and batch_idx >= num_calibration_steps:
             break
@@ -69,8 +73,9 @@ def run_calibration_forward(
             batch = apply_pad_mask_to_batch(batch)
         batch = tensors_to_device(batch, model_device)
         with torch.no_grad():
-            forward_fn(batch, module=model)
+            outputs.append(forward_fn(batch, module=model))
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
         torch.cuda.empty_cache()
     torch.cuda.empty_cache()
+    return outputs
