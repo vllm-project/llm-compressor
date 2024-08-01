@@ -24,19 +24,13 @@ quant_stage:
                         strategy: tensor
                         dynamic: false
                         symmetric: true
-                    input_activations:
-                        num_bits: 8
-                        type: float
-                        strategy: tensor
-                        dynamic: false
-                        symmetric: true
                     targets: ["Linear"]
 """
 
-model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
+model_stub = "meta-llama/Meta-Llama-3-8B"
 
-device_map = custom_offload_device_map(
-    model_stub, max_memory_per_gpu="74GB", num_gpus=1, torch_dtype=torch.float16
+device_map = calculate_offload_device_map(
+    model_stub, reserve_for_hessians=True, num_gpus=1, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
@@ -48,9 +42,8 @@ output_dir = "./output_llama3b_70b_w8a8"
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 4
-MAX_SEQUENCE_LENGTH = 512
-
+NUM_CALIBRATION_SAMPLES = 64
+MAX_SEQUENCE_LENGTH = 2048
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
@@ -81,7 +74,9 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
+import time
 
+start_time = time.time()
 oneshot(
     model=model,
     dataset=ds,
@@ -90,3 +85,5 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
 )
+end_time = time.time()
+print(f"RUNTIME: {end_time-start_time}")
