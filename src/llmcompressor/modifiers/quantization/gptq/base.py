@@ -277,7 +277,7 @@ class GPTQModifier(Modifier):
         intermediates = run_calibration_forward(
             self.model, dataloader, mask_padding=True
         )
-        self.compressible_layers_[0].clear_early_stop()
+        self.layer_compressors_[0].clear_early_stop()
 
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):

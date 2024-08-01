@@ -122,16 +122,18 @@ class LayerCompressor:
             self.handles.append(subset[name].register_forward_hook(add_batch(name)))
 
     def calibrate_layer(self, intermediates):
+        if is_module_offloaded(self.layer):
+            self.layer._hf_hook.pre_forward(self.layer)
+
         for idx in tqdm(range(len(intermediates))):
             args, kwargs = intermediates[idx]
-            if is_module_offloaded(self.layer):
-                self.layer._hf_hook.pre_forward(self.layer)
             device = next(self.layer.parameters()).device
             output = self.layer(*tensors_to_device(args, device), **kwargs)
             intermediates[idx] = (tensors_to_device(output, "cpu"), kwargs)
-            if is_module_offloaded(self.layer):
-                self.layer._hf_hook.post_forward(self.layer, None)
             torch.cuda.empty_cache()
+
+        if is_module_offloaded(self.layer):
+            self.layer._hf_hook.post_forward(self.layer, None)
 
         return intermediates
 
