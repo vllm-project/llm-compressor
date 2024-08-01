@@ -1,5 +1,3 @@
-import time
-
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
@@ -29,7 +27,7 @@ quant_stage:
 model_stub = "meta-llama/Meta-Llama-3-8B"
 
 device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=1, torch_dtype=torch.float16
+    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
@@ -73,7 +71,6 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-start_time = time.time()
 oneshot(
     model=model,
     dataset=ds,
@@ -82,5 +79,3 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
 )
-end_time = time.time()
-print(f"RUNTIME: {end_time-start_time}")
