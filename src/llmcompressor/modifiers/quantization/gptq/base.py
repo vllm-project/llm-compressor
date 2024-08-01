@@ -1,7 +1,6 @@
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization import (
     QuantizationScheme,
     disable_quantization,
@@ -11,20 +10,14 @@ from compressed_tensors.quantization import (
 from loguru import logger
 from pydantic import Field
 from torch.nn import Module
-from tqdm import tqdm
 
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_wrapper import GPTQWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
-from llmcompressor.modifiers.utils.pytorch_helpers import (
-    CustomException,
-    run_calibration_forward,
-)
-from llmcompressor.pytorch.utils import tensors_to_device
+from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
 from llmcompressor.utils.pytorch.module import (
-    get_layer,
     get_layers,
     get_no_split_params,
     qat_active,
@@ -116,7 +109,6 @@ class GPTQModifier(Modifier):
     compressible_layers_: Optional[List] = None
     quantization_modifier_: Any = None
     handles_: Optional[List[Any]] = None
-    intermediate_inputs_: Optional[List[Any]] = None
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
@@ -256,19 +248,8 @@ class GPTQModifier(Modifier):
             self.layer_compressors_.append(compressor)
 
         if self.sequential_update:
-            first_compressible_name = list(self.compressible_layers_.keys())[0]
-            _, first_layer = get_layer(
-                target=first_compressible_name, module=self.model
-            )
-
-            def hook_fn(self, args, kwargs):
-                raise CustomException(args, kwargs)
-
-            self.handles_ = []
-            self.intermediate_inputs_ = []
-            self.handles_.append(
-                first_layer.register_forward_pre_hook(hook_fn, with_kwargs=True)
-            )
+            first_layer_compressor = self.layer_compressors_[0]
+            first_layer_compressor.set_early_stop()
 
     @torch.no_grad()
     def apply_compression(
@@ -291,13 +272,12 @@ class GPTQModifier(Modifier):
         forward_pass_use_cache = self.model.config.use_cache
         self.model.config.use_cache = False
 
-        # in non-sequential mode we run one forward batch for all modules
-        # in sequential mode this ends early
+        # in non-sequential mode we run calibration through the full model
+        # in sequential mode we run calibration up to the first transformer target
         intermediates = run_calibration_forward(
             self.model, dataloader, mask_padding=True
         )
-        for handle in self.handles_:
-            handle.remove()
+        self.compressible_layers_[0].clear_early_stop()
 
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):
@@ -305,23 +285,11 @@ class GPTQModifier(Modifier):
 
             # Prune/quantize using GPTQ
             if self.sequential_update:
-                # in sequential mode we run one forward pass for each module we
-                # want to compress, this will be really slow but allows compression in
-                # earlier layers to affect later layers
+                # in sequential mode we run the forward pass for each transformer layer
+                # one at a time, caching the intermediate outputs between layers
                 layer_compressor.pre_compress()
                 logger.info(f"Calibrating {layer_compressor.name}...")
-                for idx in tqdm(range(len(intermediates))):
-                    args, kwargs = intermediates[idx]
-                    if is_module_offloaded(layer_compressor.layer):
-                        self.layer._hf_hook.pre_forward(layer_compressor.layer)
-                    device = next(layer_compressor.layer.parameters()).device
-                    output = layer_compressor.layer(
-                        *tensors_to_device(args, device), **kwargs
-                    )
-                    intermediates[idx] = (tensors_to_device(output, "cpu"), kwargs)
-                    if is_module_offloaded(layer_compressor.layer):
-                        self.layer._hf_hook.post_forward(layer_compressor.layer, None)
-                    torch.cuda.empty_cache()
+                intermediates = layer_compressor.calibrate_layer(intermediates)
 
             layer_compressor.compress()
             layer_compressor.post_compress()
