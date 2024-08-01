@@ -108,7 +108,6 @@ class GPTQModifier(Modifier):
     layer_compressors_: Optional[List[Any]] = None
     compressible_layers_: Optional[List] = None
     quantization_modifier_: Any = None
-    handles_: Optional[List[Any]] = None
 
     def on_initialize_structure(self, state: State, **kwargs):
         """

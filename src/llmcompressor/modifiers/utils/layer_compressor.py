@@ -1,5 +1,5 @@
 import operator
-from typing import Dict
+from typing import Dict, Tuple
 
 import torch
 from compressed_tensors import is_module_offloaded
@@ -121,7 +121,13 @@ class LayerCompressor:
         for name in self.modules:
             self.handles.append(subset[name].register_forward_hook(add_batch(name)))
 
-    def calibrate_layer(self, intermediates):
+    def calibrate_layer(self, intermediates: Tuple[Tuple, Dict]) -> Tuple[Tuple, Dict]:
+        """
+        Runs all calibration samples through the stored layer
+
+        :param intermediates: inputs to run through the layer
+        :return: outputs of the layer
+        """
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
