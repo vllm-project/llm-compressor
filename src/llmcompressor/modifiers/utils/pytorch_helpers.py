@@ -73,6 +73,10 @@ def run_calibration_forward(
             batch = apply_pad_mask_to_batch(batch)
         batch = tensors_to_device(batch, model_device)
         with torch.no_grad():
+            for key in batch.keys():
+                batch[key] = batch[key].to(next(model.parameters()).dtype)
+            batch["position_embeddings"] = (batch["position_embeddings_sin"], batch["position_embeddings_cos"])
+            del batch["position_embeddings_sin"], batch["position_embeddings_cos"]
             outputs.append(forward_fn(batch, module=model))
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
