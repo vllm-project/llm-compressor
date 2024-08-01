@@ -21,20 +21,26 @@ quant_stage:
                         strategy: tensor
                         dynamic: false
                         symmetric: true
+                    input_activations:
+                        num_bits: 8
+                        type: int
+                        strategy: tensor
+                        dynamic: false
+                        symmetric: true
                     targets: ["Linear"]
 """
 
 model_stub = "meta-llama/Meta-Llama-3-8B"
 
 device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
+    model_stub, reserve_for_hessians=True, num_gpus=1, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.float16, device_map=device_map
 )
 tokenizer = AutoTokenizer.from_pretrained(model_stub)
-output_dir = "./output_llama3b_70b_w8a8"
+output_dir = "./output_llama3b_8b_w8a8"
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
