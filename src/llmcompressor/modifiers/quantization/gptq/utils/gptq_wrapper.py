@@ -122,8 +122,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 # breakpoint()
                 # g_idx for the original weights
                 g_idx = torch.tensor(
-                    # [perm[i] // group_size for i in range(self.columns)] 
-                    [i // group_size for i in range(self.columns)], #B
+                    [perm[i] // group_size for i in range(self.columns)] ,
+                    # [i // group_size for i in range(self.columns)], #B
                     dtype=torch.int,
                 ).to(device=invperm.device)
 
@@ -137,7 +137,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 # for i in range(g_idx.shape[0]):
                 #     g_idx[perm[i]] = torch.Tensor([i // group_size])
                 
-                g_idx = g_idx[invperm] # A, B
+                # g_idx = g_idx[invperm] # A, B
                 # print(g_idx)
                 # breakpoint()
                 # breakpoint()
@@ -204,8 +204,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             
                             # update self.layer params with respect to g_idx
                             # update_layer_weight_quant_params(self.layer, g_idx)
-                            update_layer_weight_quant_params(self.layer,perm=perm, 
-                                                            # g_idx=g_idx,
+                            update_layer_weight_quant_params(self.layer, 
+                                                            #  perm=perm, 
+                                                            g_idx=g_idx,
                                                             )
                             
                             is_layer_updated_actorder = True
@@ -262,6 +263,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                                     zero_point[:, int(g_idx_for_perm_weights[column_idx])],
                                     # scale[:, int(g_idx[column_idx])],
                                     # zero_point[:, int(g_idx[column_idx])],
+                                    
                                     # scale[:, int(g_idx[column_idx])],
                                     # zero_point[:, int(g_idx[column_idx])],
                                     # scale[:, input_dim_group],
@@ -345,16 +347,6 @@ g_idx = torch.tensor([int(i // group_size) for i in range(n)], dtype=torch.int)
 g_idx = g_idx[invperm]
 
 
-
-
-
-Make g_idx 
-
-g_idx = torch.Tensor(
-        [perm[i] // group_size for i in range(self.columns)]
-    ).to(device=invperm.device)
-    
-in this format, make sure it runs in compressed tensors and llm-compressor
 """
 
 
