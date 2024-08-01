@@ -2,7 +2,7 @@ import operator
 from typing import Dict, Tuple
 
 import torch
-from compressed_tensors import is_module_offloaded
+from compressed_tensors import get_execution_device
 from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
@@ -128,18 +128,12 @@ class LayerCompressor:
         :param intermediates: inputs to run through the layer
         :return: outputs of the layer
         """
-        if is_module_offloaded(self.layer):
-            self.layer._hf_hook.pre_forward(self.layer)
-
         for idx in tqdm(range(len(intermediates))):
             args, kwargs = intermediates[idx]
-            device = next(self.layer.parameters()).device
+            device = get_execution_device(self.layer)
             output = self.layer(*tensors_to_device(args, device), **kwargs)
             intermediates[idx] = (tensors_to_device(output, "cpu"), kwargs)
             torch.cuda.empty_cache()
-
-        if is_module_offloaded(self.layer):
-            self.layer._hf_hook.post_forward(self.layer, None)
 
         return intermediates
 
