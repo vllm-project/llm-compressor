@@ -30,23 +30,25 @@ quant_stage:
                     targets: ["Linear"]
 """
 
-model_stub = "meta-llama/Meta-Llama-3-8B"
+model_stub = "meta-llama/Meta-Llama-3-70B"
 
+# adjust based off number of desired GPUs
 device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=1, torch_dtype=torch.float16
+    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.float16, device_map=device_map
 )
 tokenizer = AutoTokenizer.from_pretrained(model_stub)
-output_dir = "./output_llama3b_8b_w8a8"
+output_dir = "./output_llama3b_70b_w8a8"
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
+
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
