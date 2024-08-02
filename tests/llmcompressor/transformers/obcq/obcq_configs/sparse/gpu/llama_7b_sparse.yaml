@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: "weekly"
 test_type: "regression"
 model: "meta-llama/Llama-2-7b-hf"
 dataset: open_platypus
