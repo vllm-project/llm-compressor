@@ -8,7 +8,7 @@ from llmcompressor.transformers.compression.helpers import calculate_offload_dev
 
 # define a llmcompressor recipe for W8A8 quantization
 recipe = GPTQModifier(
-    sequential_updates=True, targets="Linear", scheme="W8A8", ignore=["lm_head"]
+    sequential_update=True, targets="Linear", scheme="W8A8", ignore=["lm_head"]
 )
 
 model_stub = "meta-llama/Meta-Llama-3-70B"
