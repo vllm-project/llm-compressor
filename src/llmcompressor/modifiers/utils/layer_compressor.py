@@ -87,8 +87,9 @@ class LayerCompressor:
         """
         Clears the early stopping handle
         """
-        self.early_stop_handle.remove()
-        self.early_stop_handle = None
+        if self.early_stop_handle is not None:
+            self.early_stop_handle.remove()
+            self.early_stop_handle = None
 
     def pre_compress(self):
         """
