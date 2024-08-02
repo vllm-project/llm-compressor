@@ -322,7 +322,7 @@ def get_matching_layer(
 
     return match
 
-
+from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 def get_no_split_params(module: Module) -> Union[str, List[str]]:
     """
     Get list of module classes that shouldn't be split when sharding. For
@@ -337,4 +337,6 @@ def get_no_split_params(module: Module) -> Union[str, List[str]]:
     model = maybe_get_wrapped(module)
     if hasattr(model, "_no_split_modules"):
         return model._no_split_modules
+    if isinstance(model, LlamaDecoderLayer):
+        return ALL_QUANTIZABLE_TARGET #'LlamaDecoderLayer'
     return ALL_TARGET

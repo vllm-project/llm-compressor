@@ -170,6 +170,9 @@ class StageRunner:
 
         self.trainer.one_shot(calibration_data=calib_data, stage=stage)
 
+        # skip saving at the moment.
+        
+        return 
         if is_fsdp_model(self.trainer.model):
             try:
                 self.trainer.save_model(output_dir=self._output_dir, _is_oneshot=True)
