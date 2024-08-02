@@ -73,4 +73,3 @@ def run_calibration_forward(
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
         torch.cuda.empty_cache()
-    torch.cuda.empty_cache()

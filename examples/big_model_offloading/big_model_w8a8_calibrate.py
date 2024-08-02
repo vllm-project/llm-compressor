@@ -30,10 +30,10 @@ quant_stage:
                     targets: ["Linear"]
 """
 
-model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
+model_stub = "meta-llama/Meta-Llama-3-70B"
 
 device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=1, torch_dtype=torch.float16
+    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
