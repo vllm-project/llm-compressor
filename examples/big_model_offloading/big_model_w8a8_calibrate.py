@@ -3,10 +3,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from llmcompressor.transformers.compression.helpers import (  # noqa
-    calculate_offload_device_map,
-    custom_offload_device_map,
-)
+from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 # define a llmcompressor recipe for FP8 quantization
 # this recipe requires calibration
@@ -35,8 +32,8 @@ quant_stage:
 
 model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
 
-device_map = custom_offload_device_map(
-    model_stub, max_memory_per_gpu="74GB", num_gpus=1, torch_dtype=torch.float16
+device_map = calculate_offload_device_map(
+    model_stub, reserve_for_hessians=True, num_gpus=1, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
