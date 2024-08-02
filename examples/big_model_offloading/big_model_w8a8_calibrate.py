@@ -2,43 +2,24 @@ import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-# define a llmcompressor recipe for FP8 quantization
-# this recipe requires calibration
-recipe = """
-quant_stage:
-    quant_modifiers:
-        GPTQModifier:
-            sequential_update: true
-            ignore: ["lm_head"]
-            config_groups:
-                group_0:
-                    weights:
-                        num_bits: 8
-                        type: int
-                        strategy: tensor
-                        dynamic: false
-                        symmetric: true
-                    input_activations:
-                        num_bits: 8
-                        type: int
-                        strategy: tensor
-                        dynamic: false
-                        symmetric: true
-                    targets: ["Linear"]
-"""
+# define a llmcompressor recipe for W8A8 quantization
+recipe = GPTQModifier(
+    sequential_updates=True, targets="Linear", scheme="W8A8", ignore=["lm_head"]
+)
 
 model_stub = "meta-llama/Meta-Llama-3-70B"
 
 # adjust based off number of desired GPUs
 device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
+    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.bfloat16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
-    model_stub, torch_dtype=torch.float16, device_map=device_map
+    model_stub, torch_dtype=torch.bfloat16, device_map=device_map
 )
 tokenizer = AutoTokenizer.from_pretrained(model_stub)
 output_dir = "./output_llama3b_70b_w8a8"
