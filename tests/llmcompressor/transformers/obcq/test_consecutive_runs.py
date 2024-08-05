@@ -104,6 +104,7 @@ class TestConsecutiveRunsSmall(TestConsecutiveRuns):
         self._test_consecutive_runs(tolerance=1e-3)
 
 
+# TODO: @Satrat and @dsikka, revisit if we want these nightly or weekly
 @requires_gpu
 @requires_torch
 @pytest.mark.integration

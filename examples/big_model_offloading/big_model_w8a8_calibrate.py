@@ -15,7 +15,7 @@ model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # adjust based off number of desired GPUs
 device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.bfloat16
+    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(

@@ -22,13 +22,15 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         recipe_str = (
             "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"
         )
-        model = SparseAutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
         tokenizer = AutoTokenizer.from_pretrained(
             "Xenova/llama2.c-stories15M",
         )
         device = "cuda:0"
         if not torch.cuda.is_available():
             device = "cpu"
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            "Xenova/llama2.c-stories15M", device_map=device
+        )
 
         dataset_config_name = "wikitext-2-raw-v1"
         dataset = load_dataset("wikitext", dataset_config_name, split="train[:50%]")
@@ -48,7 +50,6 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             max_steps=max_steps,
             concatenate_data=concatenate_data,
             splits=splits,
-            oneshot_device=device,
             tokenizer=tokenizer,
         )
 
