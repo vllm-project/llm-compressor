@@ -31,7 +31,7 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
        of the model will be retrieved
     2. The original model definition will be loaded, without
         the model weights
-    3. The appropriate recipy will be applied to the model
+    3. The appropriate recipe will be applied to the model
        if requested or required
     4. The appropriate set of weights will be loaded into the model
     """
