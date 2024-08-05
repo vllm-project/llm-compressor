@@ -15,6 +15,7 @@
 import logging
 import re
 from collections import OrderedDict
+from copy import deepcopy
 from typing import Dict, Iterable, List, Optional
 from typing import OrderedDict as OrderedDictType
 from typing import Union
@@ -110,6 +111,10 @@ def apply_quantization_config(model: Module, config: QuantizationConfig) -> Dict
     :param model: model to apply quantization config to
     :param config: quantization config
     """
+    # remove reference to the original `config`
+    # argument. This function can mutate it, and we'd
+    # like to keep the original `config` as it is.
+    config = deepcopy(config)
     # build mapping of targets to schemes for easier matching
     # use ordered dict to preserve target ordering in config
     target_to_scheme = OrderedDict()
