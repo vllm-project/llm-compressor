@@ -30,7 +30,7 @@ quant_stage:
                     targets: ["Linear"]
 """
 
-model_stub = "meta-llama/Meta-Llama-3-70B"
+model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 device_map = calculate_offload_device_map(
     model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
@@ -86,4 +86,5 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
+    output_dir=output_dir,
 )

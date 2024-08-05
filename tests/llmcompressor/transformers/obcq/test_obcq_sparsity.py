@@ -57,6 +57,7 @@ class TestSparsities(unittest.TestCase):
         torch.cuda.empty_cache()
 
 
+# TODO: @Satrat and @dsikka, revisit if we want these nightly or weekly
 @requires_gpu
 @requires_torch
 @pytest.mark.integration
