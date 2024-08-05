@@ -19,7 +19,7 @@ pip install -e .
 The example includes an end-to-end script for applying the quantization algorithm.
 
 ```bash
-python3 llama2_24sparse_example.py
+python3 llama7b_sparse_w4a16.py
 ```
 
 
@@ -29,7 +29,7 @@ This example uses LLMCompressor and Compressed-Tensors to create a 2:4 sparse an
 The model is calibrated and trained with the ultachat200k dataset.
 At least 75GB of GPU memory is required to run this example.
 
-Follow the steps below, or to run the example as `python examples/llama7b_sparse_quantized/llama7b_sparse_w4a16.py`
+Follow the steps below, or to run the example as `python examples/quantization_24_sparse_w4a16/llama7b_sparse_w4a16.py`
 
 ## Step 1: Select a model, dataset, and recipe
 In this step, we select which model to use as a baseline for sparsification, a dataset to

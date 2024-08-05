@@ -6,9 +6,6 @@ test_oneshot_stage:
       sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-      targets: [
-        "model.layers.0"
-      ]
       target_ids: ["attention_mask", "position_ids"]  
 test_train_stage:
   pruning_modifiers:
