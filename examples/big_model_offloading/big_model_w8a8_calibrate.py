@@ -11,7 +11,7 @@ recipe = GPTQModifier(
     sequential_update=True, targets="Linear", scheme="W8A8", ignore=["lm_head"]
 )
 
-model_stub = "meta-llama/Meta-Llama-3-70B"
+model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # adjust based off number of desired GPUs
 device_map = calculate_offload_device_map(
@@ -67,4 +67,5 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
+    output_dir=output_dir,
 )
