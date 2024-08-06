@@ -123,6 +123,7 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         if compressor is not None:
             quantization_config = compressor.quantization_config
             is_compressed = (
+                quantization_config is not None and
                 quantization_config.quantization_status == QuantizationStatus.COMPRESSED
             )
             if run_compressed and is_compressed:
@@ -133,6 +134,8 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
                 )
             else:
                 # initialize quantization and decompress weights
+                if quantization_config is not None:
+                    quantization_config.quantization_status = QuantizationStatus.FROZEN
                 compressor.decompress(
                     model_path=pretrained_model_name_or_path, model=model
                 )

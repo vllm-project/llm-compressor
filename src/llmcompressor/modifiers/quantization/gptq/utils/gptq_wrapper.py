@@ -161,7 +161,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     quant_scheme = self.layer.quantization_scheme
                     if quant_scheme.weights is not None:
                         scale = self.layer.weight_scale
-                        zero_point = self.layer.weight_zero_point
+                        zero_point = getattr(self.layer, "weight_zero_point", None)
                         from compressed_tensors.quantization import QuantizationStrategy
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
