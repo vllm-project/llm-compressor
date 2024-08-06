@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Union
-
+from accelerate.accelerator import get_state_dict_offloaded_model
 import psutil
 import torch
 from accelerate import infer_auto_device_map, init_empty_weights
@@ -73,10 +73,12 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
     structures = {"2:4"}
     for sparsity_structure in structures:
         linear_modules = get_linear_layers(model)
+        offloaded_params = get_state_dict_offloaded_model(model)
+
         linear_modules_with_sparsity_structure = [
-            tensor_follows_mask_structure(layer.weight)
-            for layer in tqdm(
-                linear_modules.values(),
+            tensor_follows_mask_structure(offloaded_params[f"{name}.weight"])
+            for name in tqdm(
+                linear_modules.keys(),
                 desc="Checking whether model follows "
                 f"{sparsity_structure} sparsity structure",
             )
