@@ -1,5 +1,5 @@
 {
-	"quant_method": "compressed-tensors",
+	"quant_method": "compressed_tensors",
 	"format": "fakequant",
 	"global_compression_ratio": null,
 	"config_groups": {

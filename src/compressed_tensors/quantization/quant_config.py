@@ -103,7 +103,7 @@ LIFECYCLE_ORDER = [
     QuantizationStatus.COMPRESSED,
 ]
 
-DEFAULT_QUANTIZATION_METHOD = "compressed-tensors"
+DEFAULT_QUANTIZATION_METHOD = "compressed_tensors"
 DEFAULT_QUANTIZATION_FORMAT = "fakequant"
 
 

@@ -43,7 +43,7 @@ def quantization_config():
         "format": "pack-quantized",
         "global_compression_ratio": 1.891791164021256,
         "ignore": ["lm_head"],
-        "quant_method": "compressed-tensors",
+        "quant_method": "compressed_tensors",
         "quantization_status": "frozen",
     }
 
