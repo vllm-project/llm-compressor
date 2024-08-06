@@ -199,7 +199,7 @@ def calculate_offload_device_map(
     available_gpus = torch.cuda.device_count()
     if available_gpus < num_gpus:
         raise ValueError(
-            "Requested {num_gpus} GPUs but only {available_gpus} are available."
+            f"Requested {num_gpus} GPUs but only {available_gpus} are available."
         )
     max_gpu_memory = [max_gpu_memory] * num_gpus
 
