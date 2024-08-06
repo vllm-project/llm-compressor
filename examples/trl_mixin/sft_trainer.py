@@ -27,8 +27,10 @@ class SFTTrainer(SessionManagerMixIn, TRLSFTTrainer):
 
 class SFTConfig(TrainingArguments, TRLSFTConfig):
     """
-    This class is needed to wrap the llmcompressor.transformers.TrainingArguments and TRLSFTConfig classes.
-    This allows for the use of arguments and configurations from both classes when training a model.    
+    This class is needed to wrap the llmcompressor.transformers.TrainingArguments
+    and TRLSFTConfig classes. This allows for the use of arguments and
+    configurations from both classes when training a model.
     """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
