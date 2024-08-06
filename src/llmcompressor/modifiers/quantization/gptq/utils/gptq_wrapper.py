@@ -141,8 +141,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 # breakpoint()
                 # g_idx for the original weights
                 g_idx = torch.tensor(
-                    [perm[i] // group_size for i in range(self.columns)] ,
-                    # [i // group_size for i in range(self.columns)], #B
+                    # [perm[i] // group_size for i in range(self.columns)] ,
+                    [i // group_size for i in range(self.columns)], #B
                     dtype=torch.int,
                 ).to(device=invperm.device)
 
@@ -161,7 +161,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 # breakpoint()
                 # breakpoint()
 
+                # self.layer.weight_g_idx.data = g_idx
+                g_idx = g_idx[invperm]
                 self.layer.weight_g_idx.data = g_idx
+                
                 
         Losses = torch.zeros(self.rows, device=self.dev)
 
@@ -254,8 +257,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
                                     q,
                                     scale[:, int(g_idx_for_perm_weights[column_idx])],
                                     zero_point[:, int(g_idx_for_perm_weights[column_idx])],
-                                    # scale[:, int(g_idx[column_idx])],
-                                    # zero_point[:, int(g_idx[column_idx])],
+                                    # scale[:, int(perm[column_idx] // group_size)],
+                                    # zero_point[:, int(perm[column_idx] // group_size)],
+                                    # scale[:, int(perm[column_idx] // group_size)],
+                                    # zero_point[:, int(perm[column_idx] // group_size)],
                                     
                                     # scale[:, int(g_idx[column_idx])],
                                     # zero_point[:, int(g_idx[column_idx])],
@@ -346,7 +351,7 @@ w = torch.Tensor([0, 4, 1, 3, 5, 2])        # tensor([0, 4, 1, 3, 5, 2])
 W = w.clone()[perm]                         # tensor([0, 2, 3, 5, 1, 4])
 
 g_idx = torch.tensor([int(i // group_size) for i in range(n)], dtype=torch.int)
-g_idx = g_idx[invperm]
+g_idx = g_idx[invperm]                      # tensor([0, 2, 2, 1, 1, 0]
 
 
 """
