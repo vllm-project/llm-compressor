@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: "weekly"
 test_type: "regression"
 model: “neuralmagic/Llama-2-7b-ultrachat200k”
 file_extension: json

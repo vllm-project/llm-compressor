@@ -33,7 +33,7 @@ class SparsityConfigMetadata:
         """
 
         info = ModuleSparsificationInfo(model, state_dict=state_dict)
-        global_sparsity = info.params_sparse_percent
+        global_sparsity = info.params_sparse_percent / 100.0  # convert % to float
         return global_sparsity
 
     @staticmethod

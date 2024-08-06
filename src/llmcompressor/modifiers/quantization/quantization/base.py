@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
     set_module_for_calibration,
 )
+from compressed_tensors.quantization.observers.helpers import get_observer_token_count
 from loguru import logger
 from pydantic import Field
 from torch.nn import Module
@@ -60,7 +61,9 @@ class QuantizationModifier(Modifier):
         self._apply_modifier_to_model(module)
         module.apply(freeze_module_quantization)
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def on_initialize(
+        self, state: State, freeze_quantization: bool = True, **kwargs
+    ) -> bool:
         if self.end and self.end != -1:
             raise ValueError(
                 "end_epoch is disabled for QuantizationModifier and can only be set to"
@@ -71,12 +74,17 @@ class QuantizationModifier(Modifier):
         module = state.model
 
         # intialize quantization in appropriate modules
-        self._apply_modifier_to_model(module)
+        config = self._apply_modifier_to_model(module)
 
         if self.calculate_start() == -1:  # one-shot
+            self._check_calibration_data(config)
             module.apply(set_module_for_calibration)
             self._calibrate_if_possible(module)
-            module.apply(freeze_module_quantization)
+            self._check_token_distribution(
+                module, threshold=kwargs.get("min_tokens_per_module")
+            )
+            if freeze_quantization:
+                module.apply(freeze_module_quantization)
 
         return True
 
@@ -160,9 +168,27 @@ class QuantizationModifier(Modifier):
             return True
         return False
 
+    def _check_calibration_data(self, config: QuantizationConfig):
+        has_calibration_data = self.calibration_dataloader_ is not None
+        requires_calibration = config.requires_calibration_data()
+        if self.calculate_start() == -1:  # one shot
+            if requires_calibration and not has_calibration_data:
+                raise ValueError(
+                    "The provided quantization configuration requires calibration data "
+                    "but none was provided. Calibration data is required for static "
+                    "quantization of input or output activations."
+                )
+            if not requires_calibration and has_calibration_data:
+                logger.info(
+                    "Skipping QuantizationModifier calibration, it is not required for "
+                    "the provided quantization config."
+                )
+                self.calibration_dataloader_ = None
+
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
         apply_quantization_config(model, modifier_as_config)
+        return modifier_as_config
 
     def _calibrate_if_possible(self, module: Module):
         if self.num_calibration_steps == 0 and self.calibration_dataloader_:
@@ -201,3 +227,43 @@ class QuantizationModifier(Modifier):
 
         if module_training:
             module.train()
+
+    def _check_token_distribution(
+        self, model: Module, threshold: Optional[float] = None
+    ):
+        """
+        A helper function that warns when a module has seen
+        fewer than threshold % of all the tokens throughout
+        the calibration process.
+        Checks are only triggered if threshold is not None.
+        :param model: the model to validate
+        :param threshold: the minimum percentage of tokens
+            (out of all the tokens in a batch) a module should
+            receive during calibration
+        """
+        if threshold is None:
+            logger.debug("Skipping token distribution check. threshold is None.")
+            return
+
+        if self.calibration_dataloader_ is None:
+            logger.debug("Skipping token distribution check. No calibration data.")
+            return
+
+        all_tokens = self.calibration_dataloader_.dataset["input_ids"]
+        total_token_count = sum(len(sample) for sample in all_tokens)
+        counter = get_observer_token_count(model)
+        for module_name, token_count in counter.items():
+            if token_count is None:
+                # the module has not been observed
+                # or its token_count is not being recorded
+                # by the observer (refer to the observer's
+                # implementation in the source code)
+                continue
+            if token_count / total_token_count < threshold:
+                logger.warning(
+                    f"The module_name: {module_name} "
+                    f"received less than {int(threshold * 100)}% "
+                    "of calibration batch tokens "
+                    f"({token_count}/{total_token_count} tokens). "
+                    "This could result may harm the quantization quality."
+                )

@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 import pytest
-from compressed_tensors.compressors.utils import tensor_follows_mask_structure
+from compressed_tensors.utils import tensor_follows_mask_structure
 from parameterized import parameterized_class
 
 from llmcompressor.core import reset_session
@@ -64,6 +64,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
             output_dir=self.output_first,
             oneshot_device=self.device,
             clear_sparse_session=False,
+            save_compressed=False,
         )
         first_tiny_model = get_session_model()
         targetted_layer = first_tiny_model.model.layers[0].self_attn.k_proj
@@ -87,6 +88,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
             output_dir=self.output_second,
             oneshot_device=self.device,
             clear_sparse_session=False,
+            save_compressed=False,
         )
 
         second_tiny_model = get_session_model()

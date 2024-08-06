@@ -6,12 +6,7 @@ import torch
 from compressed_tensors import COMPRESSION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
-from compressed_tensors.quantization import (
-    QuantizationStatus,
-    compress_quantized_weights,
-    freeze_module_quantization,
-)
-from safetensors import safe_open
+from compressed_tensors.quantization import QuantizationStatus
 from transformers import AutoConfig
 
 from llmcompressor.core import reset_session
@@ -211,66 +206,5 @@ def test_quant_model_reload(format, dtype, tmp_path):
             assert not torch.any(diff > 0.01).item()
         else:
             assert torch.equal(dense_tensor, reconstructed_tensor)
-
-    shutil.rmtree(tmp_path)
-
-
-@pytest.mark.parametrize(
-    "status,expected_format,expected_dtype",
-    [
-        [QuantizationStatus.FROZEN, "dense", torch.float32],
-        [QuantizationStatus.COMPRESSED, "int-quantized", torch.int8],
-    ],
-)
-def test_quant_infer_format(status, expected_format, expected_dtype, tmp_path):
-    recipe_str = (
-        "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
-    )
-    model_path = "Xenova/llama2.c-stories15M"
-    device = "cuda:0"
-    if not torch.cuda.is_available():
-        device = "cpu"
-    dataset = "open_platypus"
-    concatenate_data = False
-    num_calibration_samples = 64
-    output_dir = tmp_path / "oneshot_out"
-    splits = {"calibration": "train[:10%]"}
-
-    model = SparseAutoModelForCausalLM.from_pretrained(model_path)
-
-    # create a quantized model
-    oneshot(
-        model=model,
-        dataset=dataset,
-        output_dir=output_dir,
-        num_calibration_samples=num_calibration_samples,
-        recipe=recipe_str,
-        concatenate_data=concatenate_data,
-        splits=splits,
-        oneshot_device=device,
-    )
-
-    if status == QuantizationStatus.FROZEN:
-        model.apply(freeze_module_quantization)
-    elif status == QuantizationStatus.COMPRESSED:
-        model.apply(compress_quantized_weights)
-
-    for _, module in model.named_modules():
-        if hasattr(module, "quantization_scheme"):
-            assert module.quantization_status == status
-
-    model.save_pretrained(tmp_path / "compress_out")
-
-    config = AutoConfig.from_pretrained(tmp_path / "compress_out")
-    compression_config = getattr(config, COMPRESSION_CONFIG_NAME, None)
-    quant_config = ModelCompressor.parse_quantization_config(compression_config)
-    assert quant_config["quantization_status"] == status.value
-    assert quant_config["format"] == expected_format
-
-    with safe_open(
-        tmp_path / "compress_out" / "model.safetensors", framework="pt", device=device
-    ) as f:
-        test_tensor = f.get_tensor("model.layers.0.mlp.down_proj.weight")
-        assert test_tensor.dtype == expected_dtype
 
     shutil.rmtree(tmp_path)

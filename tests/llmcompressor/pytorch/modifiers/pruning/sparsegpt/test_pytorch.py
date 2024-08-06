@@ -135,7 +135,8 @@ class TestSetQuantInGPTQ(unittest.TestCase):
                     "input_activations": {
                         "num_bits": 8,
                         "symmetric": False,
-                        "strategy": "tensor",
+                        "strategy": "token",
+                        "dynamic": "true",
                         "kwargs": {},
                     },
                     "weights": {

@@ -1,8 +1,8 @@
+from sft_trainer import SFTTrainer
 from transformers import AutoTokenizer, DefaultDataCollator
 
 from llmcompressor.transformers import (
     DataTrainingArguments,
-    SFTTrainer,
     SparseAutoModelForCausalLM,
     TextGenerationDataset,
     TrainingArguments,

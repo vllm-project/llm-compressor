@@ -1,7 +1,11 @@
+import re
 import weakref
 from functools import wraps
 from typing import Optional
 
+import torch
+import transformers
+from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
 from transformers import PreTrainedModel
@@ -38,8 +42,8 @@ def modify_save_pretrained(model: PreTrainedModel):
         def save_pretrained_wrapper(
             save_directory: str,
             sparsity_config: Optional[SparsityCompressionConfig] = None,
-            quantization_format: str = None,
-            save_compressed: bool = False,
+            quantization_format: Optional[str] = None,
+            save_compressed: bool = True,
             skip_compression_stats: bool = False,
             **kwargs,
         ):
@@ -59,6 +63,12 @@ def modify_save_pretrained(model: PreTrainedModel):
             saving a model in dense format
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
+
+            # HACK: Override the dtype_byte_size function in transformers to
+            # support float8 types. Fix is posted upstream
+            # https://github.com/huggingface/transformers/pull/30488
+            transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
+
             model = model_ref()
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.get("state_dict", None)
@@ -88,22 +98,25 @@ def modify_save_pretrained(model: PreTrainedModel):
                 model=model,
                 quantization_format=quantization_format,
                 save_compressed=save_compressed,
+                sparsity_config=sparsity_config,
             )
             compressor = ModelCompressor.from_pretrained_model(
                 model,
                 sparsity_config=sparsity_config,
                 quantization_format=quantization_format,
             )
+
             if compressor is None:
                 # model is not compressed or quantized, save as normal
-                return original_save_pretrained.__get__(model, model_class)(
+                original_save_pretrained.__get__(model, model_class)(
                     save_directory, **kwargs
                 )
+                return
 
             # if we've gotten to this point we have a config so we can run compression
             kwargs["safe_serialization"] = True
             if state_dict is None:
-                state_dict = model.state_dict()
+                state_dict = get_state_dict_offloaded_model(model)
 
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
@@ -120,3 +133,15 @@ def modify_save_pretrained(model: PreTrainedModel):
 
     # wrap save_pretrained
     model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+
+
+# HACK: Override the dtype_byte_size function in transformers to support float8 types
+# Fix is posted upstream https://github.com/huggingface/transformers/pull/30488
+def new_dtype_byte_size(dtype):
+    if dtype == torch.bool:
+        return 1 / 8
+    bit_search = re.search(r"[^\d](\d+)_?", str(dtype))
+    if bit_search is None:
+        raise ValueError(f"`dtype` is not a valid dtype: {dtype}.")
+    bit_size = int(bit_search.groups()[0])
+    return bit_size // 8

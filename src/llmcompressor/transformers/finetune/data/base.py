@@ -94,12 +94,15 @@ class TextGenerationDataset(RegistryMixin):
             **self.raw_kwargs,
         )
 
-    def tokenize_and_process(self, raw_dataset: Optional[Dataset] = None) -> Dataset:
+    def tokenize_and_process(
+        self, raw_dataset: Optional[Dataset] = None, add_labels: Optional[bool] = True
+    ) -> Dataset:
         """
         Sets up the raw dataset for finetuning, performs tokenization, concatenates
         entries to max sequence length if desired, and adds labels to each entry
 
         :param raw_dataset: dataset to process
+        :param add_labels: whether to include labels in tokenized output
         """
 
         # helper fn for tokenizing text column
@@ -182,17 +185,27 @@ class TextGenerationDataset(RegistryMixin):
         column_names = dataset.column_names
         if isinstance(column_names, dict):
             column_names = column_names[list(column_names)[0]]
-        dataset = self.map(
-            dataset,
-            function=label_fn,
-            batched=False,  # not compatible with batching due to needing row lengths
-            remove_columns=[self.PROMPT_KEY]
-            if self.PROMPT_KEY in column_names
-            else None,
-            num_proc=self.data_args.preprocessing_num_workers,
-            load_from_cache_file=not self.data_args.overwrite_cache,
-            desc="Adding labels",
-        )
+
+        if add_labels:
+            dataset = self.map(
+                dataset,
+                function=label_fn,
+                batched=False,  # not compatible with batching, need row lengths
+                remove_columns=[self.PROMPT_KEY]
+                if self.PROMPT_KEY in column_names
+                else None,
+                num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
+                desc="Adding labels",
+            )
+        else:
+            dataset = self.map(
+                dataset,
+                batched=False,  # not compatible with batching, need row lengths
+                remove_columns=[self.PROMPT_KEY]
+                if self.PROMPT_KEY in column_names
+                else None,
+            )
 
         return dataset
 

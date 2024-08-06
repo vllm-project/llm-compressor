@@ -56,8 +56,8 @@ setup(
         "tqdm>=4.0.0",
         "click>=7.1.2,!=8.0.0",  # 8.0.0 blocked due to reported bug
         "torch>=1.7.0",
-        "transformers<4.41",
-        "datasets<2.19",
+        "transformers>4.0,<5.0",
+        "datasets",
         "accelerate>=0.20.3",
         "compressed-tensors"
         if version_info.is_release

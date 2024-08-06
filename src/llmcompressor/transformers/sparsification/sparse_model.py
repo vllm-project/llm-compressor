@@ -80,7 +80,9 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         )
 
         # instantiate compressor from model config
-        compressor = ModelCompressor.from_pretrained(pretrained_model_name_or_path)
+        compressor = ModelCompressor.from_pretrained(
+            pretrained_model_name_or_path, **kwargs
+        )
 
         # temporarily set the log level to error, to ignore printing out long missing
         # and unexpected key error messages (these are EXPECTED for quantized models)
@@ -88,9 +90,19 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         restore_log_level = transformers_logger.getEffectiveLevel()
         transformers_logger.setLevel(level=logging.ERROR)
 
+        if kwargs.get("trust_remote_code"):
+            # By artifically aliasing
+            # class name SparseAutoModelForCausallLM to
+            # AutoModelForCausalLM we can "trick" the
+            # `from_pretrained` method into properly
+            # resolving the logic when
+            # (has_remote_code and trust_remote_code) == True
+            cls.__name__ = AutoModelForCausalLM.__name__
+
         model = super(AutoModelForCausalLM, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
+
         if model.dtype != model.config.torch_dtype:
             logger.warning(
                 f"The dtype of the loaded model: {model.dtype} is different "

@@ -16,6 +16,7 @@ except ImportError:
 import torch
 from torch.nn import Module
 
+from llmcompressor.core.state import State
 from llmcompressor.pytorch.model_load.helpers import save_model_and_recipe
 from llmcompressor.utils.pytorch import set_layer
 
@@ -56,20 +57,18 @@ def maybe_get_wrapped(model: Module) -> Module:
     return model
 
 
-def set_wrapped_model(model: Module, wrapped_model: Module):
+def set_wrapped_model(state: State, wrapped_model: Module):
     """
-    Given a model that may or may not have a distributed wrapper, set the underlying
-    wrapped model.
+    Given a state with a model that may or may not have a distributed wrapper, set
+    the underlying wrapped model.
 
-    #TODO: will probably have to fix this
-
-    :param input_model: input model to be updated
+    :param state: state to update model of
     :param updated_wrapped: model to inject into input_model
     """
-    if is_fsdp_model(model):
-        model._fsdp_wrapped_module = wrapped_model
+    if is_fsdp_model(state.model):
+        state.model._fsdp_wrapped_module = wrapped_model
     else:
-        model = wrapped_model
+        state.model = wrapped_model
 
 
 def unwrap_and_export_model(model, accelerator, output_dir, tokenizer):

@@ -1,7 +1,12 @@
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationScheme,
+    disable_quantization,
+    enable_quantization,
+    freeze_module_quantization,
+)
 from loguru import logger
 from pydantic import Field
 from torch.nn import Module
@@ -89,6 +94,7 @@ class GPTQModifier(Modifier):
 
     sequential_update: Optional[bool] = False
     targets: Union[str, List[str], None] = None
+    sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     quantize: Union[bool, Dict] = True
     dampening_frac: Optional[float] = 0.01
@@ -163,21 +169,24 @@ class GPTQModifier(Modifier):
         if not self.initialized_structure_:
             self.on_initialize_structure(state, **kwargs)
         if self.quantization_modifier_:
-            self.quantization_modifier_.initialize(state, **kwargs)
+            self.quantization_modifier_.initialize(
+                state, freeze_quantization=False, **kwargs
+            )
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
         modifiable_model = state.model
         calibration_dataloader = state.data.calib
 
-        if self.targets is None:
+        if self.sequential_targets is None:
             # if no targets are provided, default to the modules that shouldn't be
             # split by FSDP. For Transformers models this is equivalent to the
             # decoder layers (ie LlamaDecoderLayer)
-            self.targets = get_no_split_params(modifiable_model)
+            self.sequential_targets = get_no_split_params(modifiable_model)
 
         self.initialize_compression(modifiable_model, calibration_dataloader)
         self.apply_compression(calibration_dataloader)
+        state.model.apply(freeze_module_quantization)
 
         return True
 
@@ -207,7 +216,7 @@ class GPTQModifier(Modifier):
                 f"{type(self.model)} instead"
             )
 
-        return get_layers(self.targets, self.model)
+        return get_layers(self.sequential_targets, self.model)
 
     def initialize_compression(
         self,
@@ -250,6 +259,11 @@ class GPTQModifier(Modifier):
         logger.info(
             f"Running {class_name} calibration with " f"{len(dataloader)} samples..."
         )
+
+        # quantization scales and zp are already initialized but we do not
+        # want to calibrate wrt to these
+        self.model.apply(disable_quantization)
+
         if not self.sequential_update:
             # in non-sequential mode we run one forward batch for all modules
             run_calibration_forward(self.model, dataloader, mask_padding=True)
@@ -270,6 +284,9 @@ class GPTQModifier(Modifier):
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
             torch.cuda.empty_cache()
+
+        # re-enable quantization
+        self.model.apply(enable_quantization)
 
     def _build_quant_modifier(self):
         """

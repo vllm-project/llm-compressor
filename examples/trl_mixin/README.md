@@ -5,6 +5,8 @@ The `SessionManagerMixin` can be added to other Trainer classes that inherit fro
 
 For example, we can add LLM Compressor support to TRL's SFTTrainer like so: 
 
+Note: install `trl` using `pip install trl`
+
 ```python
 from trl import SFTTrainer as TRLSFTTrainer
 

@@ -1,14 +1,22 @@
-from typing import List, Optional
-
+from typing import Dict, List, Optional, Union
+from accelerate.accelerator import get_state_dict_offloaded_model
+import psutil
 import torch
+from accelerate import infer_auto_device_map, init_empty_weights
+from torch.nn.modules import Linear
 from tqdm import tqdm
+from transformers import AutoModelForCausalLM
 
 from llmcompressor.pytorch.utils import get_linear_layers
+from llmcompressor.utils.pytorch import get_layers, get_no_split_params
 
 __ALL__ = [
     "tensor_follows_mask_structure",
     "infer_sparsity_structure_from_stage_modifiers",
     "infer_sparsity_structure_from_model",
+    "hessian_memory_requirements",
+    "custom_offload_device_map",
+    "calculate_offload_device_map",
 ]
 
 
@@ -65,10 +73,12 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
     structures = {"2:4"}
     for sparsity_structure in structures:
         linear_modules = get_linear_layers(model)
+        offloaded_params = get_state_dict_offloaded_model(model)
+
         linear_modules_with_sparsity_structure = [
-            tensor_follows_mask_structure(layer.weight)
-            for layer in tqdm(
-                linear_modules.values(),
+            tensor_follows_mask_structure(offloaded_params[f"{name}.weight"])
+            for name in tqdm(
+                linear_modules.keys(),
                 desc="Checking whether model follows "
                 f"{sparsity_structure} sparsity structure",
             )
@@ -84,3 +94,139 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
             return sparsity_structure
 
     return None
+
+
+def hessian_memory_requirements(model: torch.nn.Module) -> int:
+    """
+    Determines the number of bytes needed to store Hessian data for a single
+    transformer layer in model. This is used for reserving memory for GPTQ
+    quantization
+
+    :param model: model to calculate requirements for
+    :return: number of bytes required to reserve for GPTQ on a single layer
+    """
+    transformer_layers = get_layers(get_no_split_params(model), model)
+    single_layer = transformer_layers[list(transformer_layers.keys())[0]]
+    total_hessian_elems = 0
+    max_column_size = 0
+    for _, module in single_layer.named_modules():
+        if isinstance(module, Linear):
+            for param in module.parameters():
+                column_size = param.shape[1]
+                total_hessian_elems += column_size * column_size
+                if column_size > max_column_size:
+                    # max extra memory for inverse calculation
+                    max_column_size = column_size
+
+    bytes_per_weight = 32 // 8  # hessians are float32
+    inverse_reserved = max_column_size * max_column_size
+    return (total_hessian_elems + inverse_reserved) * bytes_per_weight
+
+
+def quantization_memory_requirement(model: torch.nn.Module) -> int:
+    """
+    Determines the max number of bytes needed to store quantization scale and zp data
+
+    :param model: model to calculate requirements for
+    :return: number of bytes required to reserve for quantization
+    """
+
+    total_elements = 0
+    for _, module in model.named_modules():
+        if isinstance(module, Linear):
+            for param in module.parameters():
+                # assume the max of group 128 and static scale/zp
+                # TODO: base this on the recipe instead instead of assuming max
+                max_quant_shape = param.shape[0] * param.shape[1] // 128
+                total_elements += max_quant_shape * 4
+
+    bytes_ratio = 32 // 16  # assuming float16
+    return total_elements * bytes_ratio
+
+
+def custom_offload_device_map(
+    model_stub: str,
+    max_memory_per_gpu: Union[str, int],
+    num_gpus: int = 1,
+    torch_dtype: torch.dtype = torch.float16,
+) -> Dict[Union[int, str], Union[int, str]]:
+    """
+    Calculates the optimal gpu mappings for model_stub stored as torch_dtype, where
+    each GPU is restricted to allocating a specific amount of memory.
+
+    :param model_stub: local path or HF stub to calculate mapping for
+    :param max_memory_per_gpu: Max memory to allocate on each GPU, as either a string
+        such as "10GB" or an integer number of bytes
+    :param num_gpus: number of gpus to utilize
+    :param torch_dtype: dtype model will be loaded as
+    :return: memory mapping for layers of model_stub to be passed to from_pretrained()
+    """
+    max_cpu_memory = psutil.virtual_memory().available
+    memory_limits = {device: max_memory_per_gpu for device in range(num_gpus)}
+    memory_limits["cpu"] = max_cpu_memory
+
+    device_map = {}
+    with init_empty_weights():
+        dummy_model = AutoModelForCausalLM.from_pretrained(
+            model_stub, torch_dtype=torch_dtype
+        )
+        device_map = infer_auto_device_map(
+            dummy_model,
+            max_memory=memory_limits,
+            no_split_module_classes=dummy_model._no_split_modules,
+        )
+        del dummy_model
+
+    return device_map
+
+
+def calculate_offload_device_map(
+    model_stub: str,
+    reserve_for_hessians=False,
+    num_gpus: int = 1,
+    torch_dtype: torch.dtype = torch.float16,
+) -> Dict[Union[int, str], Union[int, str]]:
+    """
+    Calculates the optimal gpu mappings for model_stub stored as torch_dtype. Takes
+    into account extra memory required for quantization and (optionally) GPTQ hessians
+
+    :param model_stub: local path or HF stub to calculate mapping for
+    :param reserve_for_hessians: whether to reserve memory for GPTQ
+    :param num_gpus: number of gpus to utilize
+    :param torch_dtype: dtype model will be loaded as
+    :return: memory mapping for layers of model_stub to be passed to from_pretrained()
+    """
+    max_cpu_memory = psutil.virtual_memory().available
+    max_gpu_memory = torch.cuda.mem_get_info(0)[0]
+    available_gpus = torch.cuda.device_count()
+    if available_gpus < num_gpus:
+        raise ValueError(
+            f"Requested {num_gpus} GPUs but only {available_gpus} are available."
+        )
+    max_gpu_memory = [max_gpu_memory] * num_gpus
+
+    device_map = {}
+    with init_empty_weights():
+        dummy_model = AutoModelForCausalLM.from_pretrained(
+            model_stub, torch_dtype=torch_dtype
+        )
+
+        reserved_memory = 0
+        if reserve_for_hessians:
+            reserved_memory = hessian_memory_requirements(dummy_model)
+        reserved_memory += quantization_memory_requirement(dummy_model)
+
+        memory_limits = {
+            idx: (max_memory - reserved_memory)
+            for idx, max_memory in enumerate(max_gpu_memory)
+        }
+        memory_limits["cpu"] = max_cpu_memory
+
+        device_map = infer_auto_device_map(
+            dummy_model,
+            max_memory=memory_limits,
+            no_split_module_classes=dummy_model._no_split_modules,
+        )
+        del dummy_model
+
+    return device_map

@@ -313,7 +313,8 @@ def main(
     stage_runner = StageRunner(
         model_args=model_args, data_args=data_args, training_args=training_args
     )
-    stage_runner.populate_datasets(tokenizer=tokenizer)
+    add_labels = training_args.do_train or training_args.run_stages
+    stage_runner.populate_datasets(tokenizer=tokenizer, add_labels=add_labels)
     train_dataset = stage_runner.get_dataset_split("train")
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")

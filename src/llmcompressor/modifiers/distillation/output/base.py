@@ -44,7 +44,7 @@ class OutputDistillationModifier(Modifier):
         hidden_size = (
             kwargs.get("metadata").get("per_device_train_batch_size", 1),
             kwargs.get("metadata").get("max_seq_length", 512),
-            state.model.model.config.hidden_size,
+            state.model.config.hidden_size,
         )
 
         for target in (
@@ -77,18 +77,18 @@ class OutputDistillationModifier(Modifier):
                 )
                 self.wrappers_[key] = (student_wrapper, teacher_wrapper)
 
-        with summon_full_params_context(state.teacher_model.model, offload_to_cpu=True):
+        with summon_full_params_context(state.teacher_model, offload_to_cpu=True):
             for key, (student_wrapper, teacher_wrapper) in self.wrappers_.items():
                 set_layer(key, student_wrapper, state.model)
                 set_layer(key, teacher_wrapper, state.teacher_model)
 
         self.wrapped_kd_model_ = self._create_model_wrapper(
             student_model=maybe_get_wrapped(state.model),
-            teacher_model=state.teacher_model.model,
+            teacher_model=state.teacher_model,
             state=state,
         )
 
-        set_wrapped_model(state.model, self.wrapped_kd_model_)
+        set_wrapped_model(state, self.wrapped_kd_model_)
 
         # for square-head distillation we want to scale the loss by the number of
         # layers if the user doesn't alter the default scale. This is done so the
@@ -99,9 +99,9 @@ class OutputDistillationModifier(Modifier):
         return True
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        set_wrapped_model(state.model, self.wrapped_kd_model_.student_model)
+        set_wrapped_model(state, self.wrapped_kd_model_.student_model)
 
-        with summon_full_params_context(state.teacher_model.model, offload_to_cpu=True):
+        with summon_full_params_context(state.teacher_model, offload_to_cpu=True):
             for key, (student_wrapper, teacher_wrapper) in self.wrappers_.items():
                 set_layer(key, student_wrapper.layer, state.model)
                 set_layer(key, teacher_wrapper.layer, state.teacher_model)

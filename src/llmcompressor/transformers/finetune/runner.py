@@ -65,13 +65,21 @@ class StageRunner:
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(self, tokenizer: "AutoTokenizer"):
+    def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = True):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
 
         :param tokenizer: tokenizer to use for dataset tokenization
         """
+        if self._data_args.dataset is None:
+            self.tokenizer = self._model_args.tokenizer
+            logger.info(
+                "Running oneshot without calibration data. This is expected for "
+                "weight-only and dynamic quantization"
+            )
+            return
+
         splits = self._data_args.splits
         tokenized_datasets = {}
 
@@ -109,7 +117,9 @@ class StageRunner:
             else:
                 # dataset needs to be tokenized
                 raw_dataset = dataset_manager.get_raw_dataset()
-                tokenized_dataset = dataset_manager.tokenize_and_process(raw_dataset)
+                tokenized_dataset = dataset_manager.tokenize_and_process(
+                    raw_dataset, add_labels=add_labels
+                )
                 tokenized_datasets[split_name] = tokenized_dataset
 
         self.datasets = make_dataset_splits(
@@ -128,7 +138,7 @@ class StageRunner:
         :param split_name: name of dataset split to return
         :return: dataset split labeled by split_name
         """
-        return self.datasets.get(split_name)
+        return self.datasets.get(split_name, None)
 
     def one_shot(self, stage: Optional[str] = None):
         """
@@ -138,23 +148,27 @@ class StageRunner:
         """
         logger.info("*** One Shot ***")
 
-        calib_data = format_calibration_data(
-            tokenized_dataset=self.get_dataset_split("calibration"),
-            num_calibration_samples=self._data_args.num_calibration_samples,
-            do_shuffle=self._data_args.shuffle_calibration_samples,
-            accelerator=self.trainer.accelerator,
-        )
+        calib_data = None
+        if self.get_dataset_split("calibration") is not None:
+            calib_data = format_calibration_data(
+                tokenized_dataset=self.get_dataset_split("calibration"),
+                num_calibration_samples=self._data_args.num_calibration_samples,
+                do_shuffle=self._data_args.shuffle_calibration_samples,
+                accelerator=self.trainer.accelerator,
+            )
 
-        # if we don't run a forward pass after initializing the FSDP model for the
-        # first time, calls to summon_full_params will fail ¯\_(ツ)_/¯
-        dummy_inp = dict(next(iter(calib_data)))
-        model_device = next(self.trainer.model.parameters()).device
-        dummy_inp = tensors_to_device(dummy_inp, model_device)
-        with torch.no_grad():
-            self.trainer.model(**dummy_inp)
+            # if we don't run a forward pass after initializing the FSDP model for the
+            # first time, calls to summon_full_params will fail ¯\_(ツ)_/¯
+            if is_fsdp_model(self.trainer.model):
+                dummy_inp = dict(next(iter(calib_data)))
+                model_device = next(self.trainer.model.parameters()).device
+                dummy_inp = tensors_to_device(dummy_inp, model_device)
+                with torch.no_grad():
+                    self.trainer.model(**dummy_inp)
+
         self.trainer.accelerator.wait_for_everyone()
 
-        self.trainer.one_shot(calib_data, stage=stage)
+        self.trainer.one_shot(calibration_data=calib_data, stage=stage)
 
         if is_fsdp_model(self.trainer.model):
             try:

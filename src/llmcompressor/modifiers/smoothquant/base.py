@@ -98,7 +98,7 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    hooks_: List = None
+    hooks_: Optional[List] = None
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
 

@@ -25,8 +25,8 @@ class Modifier(BaseModel, ModifierInterface):
 
     index: Optional[int] = None
     group: Optional[str] = None
-    start: Optional[float] = -1
-    end: Optional[float] = -1
+    start: Optional[float] = None
+    end: Optional[float] = None
     update: Optional[float] = None
 
     initialized_structure_: bool = False
