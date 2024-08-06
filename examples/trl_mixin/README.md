@@ -22,7 +22,7 @@ to the Trainer.
 
 ### Examples
 
-* Script `ex_trl_sft_data.py`: finetunes a 50% sparse Llama-7b model,
+* Script `ex_trl_constant.py`: finetunes a 50% sparse Llama-7b model,
 using TRL's dataset preprocessing. Sparsity is maintained throughout training by 
 applying a `ConstantPruningModifier` recipe to the `SFTTrainer` 
 
