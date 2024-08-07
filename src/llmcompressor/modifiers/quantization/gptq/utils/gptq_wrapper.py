@@ -83,6 +83,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
+        
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
@@ -240,11 +241,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 )
 
         logger.log(
-            "METRIC", f"Compresse layer sized: {get_layer_size_bytes(self.layer)} MB"
+            "METRIC", f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB"
         )
-
-        # layer size
-        # memory usage
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
