@@ -123,14 +123,17 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         if compressor is not None:
             quantization_config = compressor.quantization_config
             is_compressed = (
-                quantization_config is not None and
-                quantization_config.quantization_status == QuantizationStatus.COMPRESSED
+                quantization_config is not None
+                and quantization_config.quantization_status
+                == QuantizationStatus.COMPRESSED
             )
             if run_compressed and is_compressed:
                 # initialize quantization, don't decompress
-                apply_quantization_config(model, quantization_config)
+                apply_quantization_config(
+                    model, quantization_config, run_compressed=True
+                )
                 model = load_checkpoint_and_dispatch(
-                    model, pretrained_model_name_or_path, *model_args, **kwargs
+                    model, pretrained_model_name_or_path
                 )
             else:
                 # initialize quantization and decompress weights
