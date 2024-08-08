@@ -28,7 +28,7 @@ __all__ = [
 _LOGGER = logging.getLogger(__name__)
 
 
-def set_module_for_calibration(module: Module):
+def set_module_for_calibration(module: Module, quantize_weights_upfront: bool = True):
     """
     marks a layer as ready for calibration which activates observers
     to update scales and zero points on each forward pass
@@ -36,6 +36,8 @@ def set_module_for_calibration(module: Module):
     apply to full model with `model.apply(set_module_for_calibration)`
 
     :param module: module to set for calibration
+    :param quantize_weights_upfront: whether to automatically run weight quantization at the
+    start of calibration
     """
     if not getattr(module, "quantization_scheme", None):
         # no quantization scheme nothing to do
@@ -49,7 +51,7 @@ def set_module_for_calibration(module: Module):
             "to re-calibrate a frozen module"
         )
 
-    if module.quantization_scheme.weights is not None:
+    if quantize_weights_upfront and module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
         observer = module.weight_observer
 
