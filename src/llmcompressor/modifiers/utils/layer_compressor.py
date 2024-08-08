@@ -1,11 +1,15 @@
 import operator
-from typing import Dict
+from typing import Dict, Tuple
 
 import torch
+from compressed_tensors import get_execution_device
 from loguru import logger
 from torch.nn import Module
+from tqdm import tqdm
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
+from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
@@ -54,6 +58,7 @@ class LayerCompressor:
         self.name = name
         self.args = args
         self.handles = None
+        self.early_stop_handle = None
         self.modules = {}
 
     def compressible_modules(self) -> Dict:
@@ -65,10 +70,31 @@ class LayerCompressor:
         compressible_layers = get_prunable_layers(self.layer)
         return compressible_layers
 
+    def set_early_stop(self):
+        """
+        Adds an early stopping exception to the input of the layer. This will cause the
+        model to immediately exit the forward pass when reaching this layer.
+        """
+
+        def trigger_early_stop_fn(self, args, kwargs):
+            raise EarlyStopException(args, kwargs)
+
+        self.early_stop_handle = self.layer.register_forward_pre_hook(
+            trigger_early_stop_fn, with_kwargs=True
+        )
+
+    def clear_early_stop(self):
+        """
+        Clears the early stopping handle
+        """
+        if self.early_stop_handle is not None:
+            self.early_stop_handle.remove()
+            self.early_stop_handle = None
+
     def pre_compress(self):
         """
-        Sets up the SparseGPT objects for each compressible module, computes the Hessian
-        for each using the calibration data.
+        Sets up the CompressionWrapper objects for each compressible module, adding a
+        hook for computing the Hessians as calibration data is passed through.
         """
         subset = self.compressible_modules()
 
@@ -95,6 +121,22 @@ class LayerCompressor:
         self.handles = []
         for name in self.modules:
             self.handles.append(subset[name].register_forward_hook(add_batch(name)))
+
+    def calibrate_layer(self, intermediates: Tuple[Tuple, Dict]) -> Tuple[Tuple, Dict]:
+        """
+        Runs all calibration samples through the stored layer
+
+        :param intermediates: inputs to run through the layer
+        :return: outputs of the layer
+        """
+        for idx in tqdm(range(len(intermediates))):
+            args, kwargs = intermediates[idx]
+            device = get_execution_device(self.layer)
+            output = self.layer(*tensors_to_device(args, device), **kwargs)
+            intermediates[idx] = (tensors_to_device(output, "cpu"), kwargs)
+            torch.cuda.empty_cache()
+
+        return intermediates
 
     def post_compress(self):
         """

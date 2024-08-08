@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
 from torch.nn import Module
@@ -8,7 +8,21 @@ from tqdm import tqdm
 
 from llmcompressor.pytorch.utils import tensors_module_forward, tensors_to_device
 
-__all__ = ["apply_pad_mask_to_batch", "run_calibration_forward"]
+__all__ = ["EarlyStopException", "apply_pad_mask_to_batch", "run_calibration_forward"]
+
+
+class EarlyStopException(Exception):
+    """
+    Exception for stopping execution of a PyTorch model early, and saving the
+    inputs of the stopped module offloaded to cpu
+
+    :param args: inputs passed to the layer where the exception was raised
+    :param kwargs: keyword inputs passed to the layer where the excetion was raised
+    """
+
+    def __init__(self, args: Tuple, kwargs: Dict):
+        self.args = tensors_to_device(args, "cpu")
+        self.kwargs = kwargs
 
 
 def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -31,7 +45,7 @@ def run_calibration_forward(
     calibration_function: Optional[Callable] = None,
     device: Optional[str] = None,
     mask_padding: bool = False,
-):
+) -> List[torch.Tensor]:
     """
     Helper function used by one-shot modifiers, runs calibration data through a model to
     update modifier statistics and trigger hooks
@@ -43,6 +57,7 @@ def run_calibration_forward(
     :param calibration_function: option to pass a custom forward function for model
     :param device: option to move the model to a specific device before calibration
     :param mask_padding: whether to zero out padding tokens during calibration
+    :returns: list of last calculated model output if early stopping is triggered
     """
     model.eval()
 
@@ -61,6 +76,10 @@ def run_calibration_forward(
         else cycle(calibration_dataloader)
     )
 
+    # Store any inputs caught from early stopping, used for sequential compression
+    # of GPTQ, SparseGPT and WANDA
+    intermediates = []
+
     # run through the calibration data
     for batch_idx, batch in enumerate(tqdm(_dataloader)):
         if num_calibration_steps and batch_idx >= num_calibration_steps:
@@ -69,7 +88,15 @@ def run_calibration_forward(
             batch = apply_pad_mask_to_batch(batch)
         batch = tensors_to_device(batch, model_device)
         with torch.no_grad():
-            forward_fn(batch, module=model)
+            try:
+                forward_fn(batch, module=model)
+            except EarlyStopException as e:
+                # model was stopped early, save last calculated output and
+                # move on to next calibration sample
+                intermediates.append((e.args, e.kwargs))
+
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
         torch.cuda.empty_cache()
+
+    return intermediates
