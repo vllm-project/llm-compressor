@@ -12,6 +12,7 @@ from llmcompressor.modifiers import Modifier, StageModifiers
 from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.metadata import RecipeMetaData
+from llmcompressor.recipe.modifier import RecipeModifier
 from llmcompressor.recipe.stage import RecipeStage
 
 __all__ = ["Recipe", "RecipeTuple"]
@@ -55,20 +56,29 @@ class Recipe(RecipeBase):
         """
         logger.info("Creating recipe from modifiers")
 
-        # validate Modifiers
         if isinstance(modifiers, Modifier):
-            modifiers: List[Modifier] = [modifiers]
+            modifiers = [modifiers]
 
         if any(not isinstance(modifier, Modifier) for modifier in modifiers):
             raise ValueError("modifiers must be a list of Modifier instances")
 
-        recipe_string: str = create_recipe_string_from_modifiers(
-            modifiers=modifiers,
-            modifier_group_name=modifier_group_name,
-        )
+        group_name = modifier_group_name or "default"
 
-        # modifier group name already included in the recipe string
-        return cls.create_instance(path_or_modifiers=recipe_string)
+        recipe_modifiers: List[RecipeModifier] = [
+            RecipeModifier(
+                type=modifier.__class__.__name__,
+                group=group_name,
+                args=modifier.model_dump(exclude_unset=True),
+            )
+            for modifier in modifiers
+        ]
+        # assume one stage for modifier instances
+        stages: List[RecipeStage] = [
+            RecipeStage(group=group_name, modifiers=recipe_modifiers)
+        ]
+        recipe = Recipe()
+        recipe.stages = stages
+        return recipe
 
     @classmethod
     def create_instance(
@@ -629,67 +639,6 @@ def _parse_recipe_from_md(file_path, yaml_str):
             )
         )
     return yaml_str
-
-
-def create_recipe_string_from_modifiers(
-    modifiers: List[Modifier],
-    modifier_group_name: Optional[str] = None,
-) -> str:
-    """
-    Create a recipe string from a list of Modifier instances
-
-    (Note: this pathway assumes there's only one stage in the recipe
-    associated by the modifier_group_name, if None, a dummy default
-    group_name will be assigned.)
-
-    :param modifiers: The list of Modifier instances
-    :param modifier_group_name: The stage_name of the recipe,
-        if `oneshot` or `train` the run_type of the recipe will be
-        inferred from the modifier_group_name, if None, a dummy default
-        group_name will be assigned.
-    :return: A string in yaml format from which the recipe can be created
-    """
-
-    # Recipe(s) are yaml/json strings of the following format:
-    # run_type_stage: # should contain oneshot/train
-    #    modifiers:
-    #        ModifierTypeOne:
-    #            start: 0.0
-    #            end: 2.0
-    #            ...
-    #        ModifierTypeTwo:
-    #            ...
-
-    # Create a recipe string from the modifiers
-    default_group_name: str = "DEFAULT"
-    modifier_group_name: str = modifier_group_name or default_group_name
-
-    recipe_dict = {
-        f"{modifier_group_name}_stage": {
-            f"{default_group_name}_modifiers": {
-                modifier.__class__.__name__: modifier.model_dump(exclude_unset=True)
-                for modifier in modifiers
-            }
-        }
-    }
-    recipe_str: str = yaml.dump(recipe_dict, sort_keys=False)
-    return recipe_str
-
-
-def get_modifiers_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any]:
-    group_dict = {}
-
-    for modifier in modifiers:
-        modifier_type = modifier["type"]
-        modifier_group = modifier["group"]
-
-        if modifier_group not in group_dict:
-            group_dict[modifier_group] = []
-
-        modifier_dict = {modifier_type: modifier["args"]}
-        group_dict[modifier_group].append(modifier_dict)
-
-    return group_dict
 
 
 def get_yaml_serializable_stage_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any]:
