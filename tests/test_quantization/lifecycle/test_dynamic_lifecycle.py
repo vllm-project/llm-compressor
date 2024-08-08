@@ -90,7 +90,7 @@ def get_tinyllama_model():
 
 def get_sample_dynamic_tinyllama_quant_config():
     config_dict = {
-        "quant_method": "compressed_tensors",
+        "quant_method": "compressed-tensors",
         "format": "fakequant",
         "quantization_status": "calibration",
         "global_compression_ratio": None,

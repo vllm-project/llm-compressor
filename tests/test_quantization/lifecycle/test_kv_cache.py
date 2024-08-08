@@ -23,7 +23,7 @@ from transformers import AutoModelForCausalLM
 
 
 config = {
-    "quant_method": "compressed_tensors",
+    "quant_method": "compressed-tensors",
     "format": "fakequant",
     "kv_cache_scheme": {
         "num_bits": 8,

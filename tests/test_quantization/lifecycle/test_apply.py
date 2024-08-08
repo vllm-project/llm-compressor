@@ -35,7 +35,7 @@ def test_target_prioritization():
     # tests that the config_groups are applied in the correct order
     # of priority, where exact layer name > regex > module name
     config = {
-        "quant_method": "compressed_tensors",
+        "quant_method": "compressed-tensors",
         "format": "fakequant",
         "config_groups": {
             "group_1": {
@@ -189,7 +189,7 @@ def get_tinyllama_model():
 
 def get_sample_tinyllama_quant_config(status: str = "frozen"):
     config_dict = {
-        "quant_method": "compressed_tensors",
+        "quant_method": "compressed-tensors",
         "format": "fakequant",
         "quantization_status": status,
         "global_compression_ratio": None,
