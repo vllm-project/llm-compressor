@@ -83,7 +83,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
-        
+
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
