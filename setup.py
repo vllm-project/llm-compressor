@@ -59,6 +59,7 @@ setup(
         "transformers>4.0,<5.0",
         "datasets",
         "accelerate>=0.20.3",
+        "pynvml==11.5.3",
         "compressed-tensors"
         if version_info.is_release
         else "compressed-tensors-nightly",
