@@ -15,6 +15,7 @@
 import re
 from typing import Optional
 
+import pytest
 import torch
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import (
@@ -223,3 +224,51 @@ def get_sample_tinyllama_quant_config(status: str = "frozen"):
         "ignore": ["LlamaRotaryEmbedding", "model.layers.1.mlp.down_proj"],
     }
     return QuantizationConfig.parse_obj(config_dict)
+
+
+@pytest.mark.parametrize(
+    "ignore,should_raise_warning",
+    [
+        [("lm_head", "re:.*gate"), False],
+        [("lm_head", "re:.*foobarbaz"), True],
+    ],
+)
+def test_apply_quantization_status(caplog, ignore, should_raise_warning):
+    import logging
+
+    from transformers import AutoModelForCausalLM
+
+    # load a dense, unquantized tiny llama model
+    device = "cuda:0"
+    model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, device_map=device, torch_dtype="auto"
+    )
+
+    quantization_config_dict = {
+        "quant_method": "sparseml",
+        "format": "pack-quantized",
+        "global_compression_ratio": None,
+        "config_groups": {
+            "group_1": {
+                "weights": {
+                    "num_bits": 4,
+                    "type": "int",
+                    "symmetric": False,
+                    "strategy": "tensor",
+                },
+                "targets": ["Linear"],
+            }
+        },
+    }
+    quantization_config_dict["ignore"] = ignore
+
+    config = QuantizationConfig(**quantization_config_dict)
+    config.quantization_status = QuantizationStatus.CALIBRATION
+
+    if should_raise_warning:
+        # mismatch in the ignore key of quantization_config_dict
+        with caplog.at_level(logging.WARNING):
+            apply_quantization_config(model, config)
+    else:
+        apply_quantization_config(model, config)

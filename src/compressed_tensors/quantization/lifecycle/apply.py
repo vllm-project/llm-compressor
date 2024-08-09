@@ -14,7 +14,7 @@
 
 import logging
 import re
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from typing import Dict, Iterable, List, Optional
 from typing import OrderedDict as OrderedDictType
@@ -125,13 +125,14 @@ def apply_quantization_config(model: Module, config: QuantizationConfig) -> Dict
             target_to_scheme[target] = scheme
 
     # list of submodules to ignore
-    ignored_submodules = []
+    ignored_submodules = defaultdict(list)
     # mark appropriate layers for quantization by setting their quantization schemes
     for name, submodule in iter_named_leaf_modules(model):
         # potentially fix module name to remove FSDP wrapper prefix
         name = fix_fsdp_module_name(name)
-        if find_name_or_class_matches(name, submodule, config.ignore):
-            ignored_submodules.append(name)
+        if matches := find_name_or_class_matches(name, submodule, config.ignore):
+            for match in matches:
+                ignored_submodules[match].append(name)
             continue  # layer matches ignore list, continue
         targets = find_name_or_class_matches(name, submodule, target_to_scheme)
         if targets:

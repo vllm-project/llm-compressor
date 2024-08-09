@@ -36,8 +36,8 @@ def set_module_for_calibration(module: Module, quantize_weights_upfront: bool = 
     apply to full model with `model.apply(set_module_for_calibration)`
 
     :param module: module to set for calibration
-    :param quantize_weights_upfront: whether to automatically run weight quantization at the
-    start of calibration
+    :param quantize_weights_upfront: whether to automatically
+       run weight quantization at the start of calibration
     """
     if not getattr(module, "quantization_scheme", None):
         # no quantization scheme nothing to do
