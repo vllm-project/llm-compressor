@@ -117,6 +117,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         dead = torch.diag(self.H) == 0
         self.H[dead, dead] = 1
         W[:, dead] = 0
+        #print(W[:5][:5].tolist())
 
         g_idx, g_idx_for_perm_weights = None, None
         actorder = False
@@ -126,45 +127,46 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
             if actorder:
                 group_size = quant_scheme.weights.group_size
+                # index using me to sort by activation order
                 perm = torch.argsort(torch.diag(self.H), descending=True)
                 
-                # index of perm is the min of self.H
-                
-                # # to mimick group size
+                # uncomment to use identity permutation
                 # perm = torch.arange(0, self.columns, dtype=torch.int)
 
+                W = W[:, perm]                                                      # STEP 1
+                self.H = self.H[perm][:, perm]                                      # autogptq claims that this is the effect of permutation on the hessian
 
-                W = W[:, perm]
-                self.H = self.H[perm][:, perm]
+                # a[invperm][perm] = a
                 invperm = torch.argsort(perm)
 
-                # breakpoint()
-                # g_idx for the original weights
+                # g_idx[i] = "i's group"
                 g_idx = torch.tensor(
                     # [perm[i] // group_size for i in range(self.columns)] ,
                     [i // group_size for i in range(self.columns)], #B
                     dtype=torch.int,
                 ).to(device=invperm.device)
 
-                # g_idx for the permutated weights # A
+                # g_idx_for_perm_weights[i] = "i's group"
+                # shouldn't matter whether it's pre or post permutation if group size is 1
                 g_idx_for_perm_weights = torch.Tensor(
                     [i // group_size for i in range(self.columns)]
                 ).to(device=invperm.device)
-                
-                # # # g_idx for the original weights
-                # g_idx = g_idx_for_perm_weights.clone()
-                # for i in range(g_idx.shape[0]):
-                #     g_idx[perm[i]] = torch.Tensor([i // group_size])
-                
-                # g_idx = g_idx[invperm] # A, B
-                # print(g_idx)
-                # breakpoint()
-                # breakpoint()
 
-                # self.layer.weight_g_idx.data = g_idx
-                g_idx = g_idx[invperm]
-                self.layer.weight_g_idx.data = g_idx
+                # This is not performed by autogptq
+                #g_idx = g_idx[invperm]
+                #self.layer.weight_g_idx.data = g_idx
                 
+        from compressed_tensors.quantization import (
+            update_layer_weight_quant_params,
+        )
+        
+        update_layer_weight_quant_params(self.layer)
+        scale = self.layer.weight_scale[:, perm]
+        zero_point = self.layer.weight_zero_point[:, perm]
+
+
+        # from here on out, everything is ordered by activation
+
                 
         Losses = torch.zeros(self.rows, device=self.dev)
 
@@ -190,7 +192,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if preserve_zeros:
                 W1_nz_mask = W_nz_mask[:, i1:i2]
 
-            is_layer_updated_actorder = False
             if hasattr(self.layer, "quantization_scheme"):
                 quant_scheme = self.layer.quantization_scheme
 
@@ -213,6 +214,11 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     quant_scheme = self.layer.quantization_scheme
 
                     if quant_scheme.weights is not None:
+                        # fetch latest correct scale and ZP relevant for any changes
+                        # breakpoint()
+                        # scale = scale[:, g_idx]
+                        # zero_point=zero_point[:, g_idx]
+                        
                         from compressed_tensors.quantization import QuantizationStrategy
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
@@ -255,8 +261,14 @@ class GPTQWrapper(ModuleCompressionWrapper):
                                 # print(column_idx)
                                 q = fake_quantize(
                                     q,
-                                    scale[:, int(g_idx_for_perm_weights[column_idx])],
-                                    zero_point[:, int(g_idx_for_perm_weights[column_idx])],
+                                    
+                                    scale[:, column_idx],
+                                    zero_point[:, column_idx],
+                                    #scale[[:, int(g_idx_for_perm_weights[column_idx])]],
+                                    #zero_point[:, int(g_idx_for_perm_weights[column_idx])],
+
+
+
                                     # scale[:, int(perm[column_idx] // group_size)],
                                     # zero_point[:, int(perm[column_idx] // group_size)],
                                     # scale[:, int(perm[column_idx] // group_size)],
@@ -305,9 +317,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
         logger.info("time %.2f" % (time.time() - tick))
         logger.info("error %.2f" % torch.sum(Losses).item())
 
+        # undo actorder permutation
         if actorder:
             W = W[:, invperm]
-            # self.H = self.H[perm][:, perm]
+            # self.H = self.H[invperm][:, invperm]
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
