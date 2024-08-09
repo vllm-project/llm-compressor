@@ -56,7 +56,7 @@ recipe = """
                             type: "int"
                             symmetric: true
                             strategy: "group"
-                            group_size: 1
+                            group_size: 128
                             actorder: True
                         targets: ["Linear"]
 """
