@@ -119,13 +119,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
         W[:, dead] = 0
         #print(W[:5][:5].tolist())
 
-        breakpoint()
         from compressed_tensors.quantization import (
             update_layer_weight_quant_params,
         )
-        update_layer_weight_quant_params(self.layer)
 
-        actorder = False
         if hasattr(self.layer, "quantization_scheme"):
             quant_scheme = self.layer.quantization_scheme
             actorder = quant_scheme.weights.actorder
@@ -144,10 +141,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 self.H = self.H[perm][:, perm]                                      # autogptq claims that this is the effect of permutation on the hessian
                 print(self.H.shape)
 
+                update_layer_weight_quant_params(self.layer, perm=perm)
+                scale = self.layer.weight_scale.data
+                zero_point = self.layer.weight_zero_point.data
+
                 print(self.layer.weight_scale.data.shape)
                 print(self.layer.weight_zero_point.data.shape)
-                scale = self.layer.weight_scale[perm]
-                zero_point = self.layer.weight_zero_point[perm]
 
         # from here on out, everything is ordered by activation
 
