@@ -11,12 +11,14 @@
 </p>
 
 
-### Supported Formats
+### Support Matrix
+
+#### Formats
 * Activation Quantization: W8A8 (int8 and fp8)
 * Mixed Precision: W4A16, W8A16
 * 2:4 Semi-structured and unstructured Sparsity
 
-### Supported Algorithms
+#### Algorithms
 * PTQ (Post Training Quantization)
 * GPTQ
 * SmoothQuant
@@ -29,13 +31,6 @@ From PyPI:
 
 ```bash
 pip install llmcompressor
-```
-
-From source:
-
-```bash
-git clone https://github.com/vllm-project/llm-compressor.git
-pip install -e llm-compressor
 ```
 
 ## Get Started
