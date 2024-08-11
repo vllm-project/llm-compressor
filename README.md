@@ -44,7 +44,7 @@ Deep dives into advanced usage of `llmcompressor`:
 
 
 ## Quick Tour
-The following example shows how to quantize `TinyLlama` with 8bit weights and activations using `GPTQ` and `SmoothQuant`. 
+Let's quantize `TinyLlama` with 8 bit weights and activations using the `GPTQ` and `SmoothQuant` algorithms.
 
 Note that the model can be swapped for a local or remote HF-compatible checkpoint and the `recipe` may be changed to target different quantization algorithms or formats.
 
