@@ -39,7 +39,7 @@ Applying quantization with `llmcompressor`:
 * [`Meta-Llama-3-8B-Instruct` W4A16 With `GPTQ`](examples/quantization_w4a16)
 
 ### User Guides
-See below for deep dive user guides into key topics related to using `llmcompressor`:
+Deep dives into advanced usage `llmcompressor`:
 * [Quantizing with large models with the help of `accelerate`](examples/big_models_with_accelerate)
 
 
