@@ -1,6 +1,6 @@
 # `fp8` Weight and Activation Quantization
 
-`llm-compressor` supports quantizing weights and activations to `fp8` for memory savings and inference acceleration with `vLLM`
+`llm-compressor` supports quantizing weights and activations to `fp8` for memory savings and inference acceleration with `vllm`
 
 > `fp8` compuation is supported on Nvidia GPUs with compute capability > 8.9 (Ada Lovelace, Hopper).
 
@@ -20,7 +20,7 @@ The example includes an end-to-end script for applying the quantization algorith
 python3 llama3_example.py
 ```
 
-The resulting model `Meta-Llama-3-8B-Instruct-FP8-Dynamic` is ready to be loaded into vLLM.
+The resulting model `Meta-Llama-3.1-8B-Instruct-FP8-Dynamic` is ready to be loaded into vLLM.
 
 ## Code Walkthough
 
@@ -31,7 +31,7 @@ Now, we will step though the code in the example. There are three steps:
 
 ### 1) Load Model
 
-Load the model using `SparseAutoModelForCausalLM`, which is a wrapper around `AutoModelForCausalLM` for handling quantized saving and loading.
+Load the model using `SparseAutoModelForCausalLM`, which is a wrapper around `AutoModelForCausalLM` for saving and loading quantized models.
 
 ```python
 from llmcompressor.transformers import SparseAutoModelForCausalLM
