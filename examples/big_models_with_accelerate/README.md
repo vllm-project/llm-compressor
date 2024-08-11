@@ -17,7 +17,7 @@ To enable `accelerate` features with `llmcompressor`, simple insert `device_map`
 from llmcompressor.transformers import SparseAutoModelForCausalLM
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
-# device_map="auto" triggers usage of `accelerate`
+# device_map="auto" triggers usage of accelerate
 # if > 1 GPU, the model will be sharded across the GPUs
 # if not enough GPU memory to fit the model, parameters are offloaded to the CPU
 model = SparseAutoModelForCausalLM.from_pretrained(
