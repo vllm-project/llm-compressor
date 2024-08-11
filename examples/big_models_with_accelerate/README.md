@@ -26,7 +26,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 
 `llmcompressor` is designed to respect the `device_map`, so calls to `oneshot` will work properly.
 
-### Practical Advise
+### Practical Advice
 
 When working with `accelerate`, it is important to keep in mind that CPU offloading and naive pipeline-parallelism will slow down forward passes through the model. As a result, we need to take care to ensure that the quantization methods used fit well with the offloading scheme as methods that require many forward passes though the model will be slowed down.
 
