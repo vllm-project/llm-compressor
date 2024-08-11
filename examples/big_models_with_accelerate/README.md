@@ -14,11 +14,28 @@ When working with `accelerate`, it is important to keep in mind that CPU offload
 - CPU offloading can be used with data-free quantization methods (e.g. PTQ with `FP8_DYNAMIC`)
 - Multi-GPU can can be used with calibration data-based methods, but be careful with
 
-In this guide, we will show examples of how to:
-- Quantize Llama-70B to W8A8 (FP8) using PTQ on a single GPU (with CPU offloading)
-- Quantize Llama-70B to W8A8 (INT8) using GPTQ and SmoothQuant on 8 H100s
+### Using `device_map`
 
-## Examples
+To enable `accelerate` features with `llmcompressor`, we simply need to adjust the `device_map` used in `from_pretrained` with `SparseAutoModel`:
+
+```python
+from llmcompressor.transformers import SparseAutoModelForCausalLM
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
+
+# device_map="auto" triggers usage of `accelerate`
+# if > 1 GPU, the model will be sharded across the GPUs
+# if not enough GPU memory to fit the model, parameters are offloaded to the CPU
+model = SparseAutoModelForCausalLM.from_pretrained(
+    MODEL_ID, device_map="auto", torch_dtype="auto")
+```
+
+`llmcompressor` is designed to respect the `device_map`, so calls to `oneshot` will work properly.
+
+## Working Examples with `accelerate`
+
+We will show working examples of each use case:
+- **CPU Offloading**: Quantize Llama-70B to W8A8 (FP8) using `PTQ` with a single GPU
+- **Multi-GPU**: Quantize Llama-70B to W8A8 (INT8) using `GPTQ` and `SmoothQuant` with 8 GPUs
 
 ### Install
 
@@ -28,29 +45,17 @@ To get started, install `llmcompressor`:
 pip install llmcompressor==0.1.0
 ```
 
-
 ### CPU Offloading with `FP8` W8A8 Quantization
 
-CPU offloading is extremely slow. As a result, we recommend using this feature only with ***data-free quantization methods***. An example data free quantization method is `FP8_DYNAMIC` quantization, which uses PTQ to statically quantize the weights with dynamic activation quantization and therefore does not require calibration data.
+CPU offloading is slow. As a result, we recommend using this feature only with data-free quantization methods. 
 
-To enable CPU offloading, we simply need to adjust the `device_map` used in `from_pretrained` with `SparseAutoModel`:
+For example, when quantizing a model to `fp8`, we typically use simple `PTQ` to statically quantize the weights and use dynamic quantization for the activations, which do not require calibration data.
 
-```python
-from llmcompressor.transformers import SparseAutoModelForCausalLM
-MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
-
-# device_map="auto" will offload any parameters that cannot fit into CPU RAM.
-model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto")
-```
-
-If there is not enough GPU memory to hold the model, `device_map="auto"` will offload the weights to the CPU. `llmcompressor` is designed to work properly with `accelerate`, so calls to `oneshot` will respect the CPU offloading.
-
-#### Working Example
+#### End-To-End Workflow
 
 `cpu_offloading_fp8.py` demonstrates quantizing the weights and activations of `meta-llama/Meta-Llama-3.1-70B-Instruct` to `fp8` on a single GPU:
 
-```python
+```bash
 export CUDA_VISIBLE_DEVICES=0
 python cpu_offloading_fp8.py
 ```
@@ -61,23 +66,11 @@ The resulting model `./Meta-Llama-3-70B-Instruct-FP8-Dynamic` is quantized and r
 
 For quantization methods that require calibration data (e.g. `GPTQ` and `SmoothQuant`), CPU offloading is typically too slow. For these methods, `llmcompressor` can use `accelerate` multi-GPU to quantize models that are larger than a single GPU can fit.
 
-To enable multi-GPU, we simply need to adjust the `device_map` used in `from_pretrained` with `SparseAutoModel`:
+For example, when quantiziation a model to `int8`, we typically use `GPTQ` to statically quantize the weights and `SmoothQuant` to make the activations easier to quantize, which both require calibration data.
 
-```python
-from llmcompressor.transformers import SparseAutoModelForCausalLM
-MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
+#### End-To-End Workflow
 
-# device_map="auto" shards the model over all visible GPUs.
-model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto")
-```
-
-`llmcompressor` is designed to work properly with `accelerate`, so calls to `oneshot` will work in a multi-GPU setup.
-
-
-#### Working Example
-
-`multi_gpu_int8.py` demonstrates quantizing the weights and activations of `meta-llama/Meta-Llama-3.1-70B-Instruct` to `int8` on 8 A/H100 GPUs:
+`multi_gpu_int8.py` demonstrates quantizing the weights and activations of `meta-llama/Meta-Llama-3.1-70B-Instruct` to `int8` on 8 A100s:
 
 ```python
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
@@ -85,3 +78,7 @@ python multi_gpu_int8.py
 ```
 
 The resulting model `./Meta-Llama-3-70B-Instruct-INT8-Dynamic` is quantized and ready to run with `vllm`!
+
+## Questions or Feature Request?
+
+Please open up an issue on `vllm-project/llm-compressor`
