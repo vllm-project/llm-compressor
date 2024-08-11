@@ -51,7 +51,7 @@ If there is not enough GPU memory to hold the model, `device_map="auto"` will of
 
 ```python
 export CUDA_VISIBLE_DEVICES=0
-python3 cpu_offloading_fp8.py
+python cpu_offloading_fp8.py
 ```
 
 The resulting model `./Meta-Llama-3-70B-Instruct-FP8-Dynamic` is quantized and ready to run with `vllm`!
@@ -80,7 +80,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 
 ```python
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
-python3 multi_gpu_int8.py
+python multi_gpu_int8.py
 ```
 
 The resulting model `./Meta-Llama-3-70B-Instruct-INT8-Dynamic` is quantized and ready to run with `vllm`!
