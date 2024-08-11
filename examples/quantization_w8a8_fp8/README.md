@@ -48,7 +48,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 For `fp8` quantization, we can recover accuracy with simple PTQ quantization.
 
-We recommend targeting all `Linear` layers using the `FP8_Dynamic` scheme, which uses:
+We recommend targeting all `Linear` layers using the `FP8_DYNAMIC` scheme, which uses:
 - Static, per-channel quantization on the weights
 - Dynamic, per-token quantization on the activations
 
@@ -58,7 +58,7 @@ Since simple PTQ does not require data for weight quantization and the activatio
 from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-# Configure the simple PTQ quantization to run with the FP8_DYNAMIC scheme.
+# Configure the simple PTQ quantization
 recipe = QuantizationModifier(
   targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"])
 
