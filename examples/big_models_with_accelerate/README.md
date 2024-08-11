@@ -41,9 +41,9 @@ We will show working examples for each use case:
 - **CPU Offloading**: Quantize Llama-70B to W8A8 (FP8) using `PTQ` with a single GPU
 - **Multi-GPU**: Quantize Llama-70B to W8A8 (INT8) using `GPTQ` and `SmoothQuant` with 8 GPUs
 
-### Install
+### Installation
 
-To get started, install `llmcompressor`:
+Install `llmcompressor`:
 
 ```bash
 pip install llmcompressor==0.1.0
