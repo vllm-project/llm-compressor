@@ -5,8 +5,9 @@ from transformers import AutoTokenizer
 MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
 # Load model.
-model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto")
+model = SparseAutoModelForCausalLM.from_pretrained(MODEL_ID,
+                                                   device_map="auto", 
+                                                   torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
