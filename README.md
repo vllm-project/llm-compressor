@@ -34,9 +34,9 @@ pip install llmcompressor
 ### End-to-End Examples
 
 Applying quantization with `llmcompressor`:
-* [`Meta-Llama-3-8B-Instruct` W8A8-INT8 With `GPTQ` and `SmoothQuant`](examples/quantization_w8a8_int8)
-* [`Meta-Llama-3-8B-Instruct` W8A8-FP8 With `PTQ`](examples/quantization_w8a8_fp8)
-* [`Meta-Llama-3-8B-Instruct` W4A16 With `GPTQ`](examples/quantization_w4a16)
+* [Activation quantization to `int8`](examples/quantization_w8a8_int8)
+* [Activation quantization to `fp8`](examples/quantization_w8a8_fp8)
+* [Weight only quantization to `int4`](examples/quantization_w4a16)
 
 ### User Guides
 Deep dives into advanced usage `llmcompressor`:
@@ -44,16 +44,16 @@ Deep dives into advanced usage `llmcompressor`:
 
 
 ## Quick Tour
-The following snippet is a minimal example with 8-bit weight and activation quantization via `GPTQ` and `SmoothQuant` for `TinyLlama/TinyLlama-1.1B-Chat-v1.0`. Note that the model can be swapped for a local or remote HF-compatible checkpoint and the `recipe` may be changed to target different quantization algorithms or formats.
+The following example shows how to quantize `TinyLlama/TinyLlama-1.1B-Chat-v1.0` to 8-bit weights and activations using the `GPTQ` and `SmoothQuant` algorithms. Note that the model can be swapped for a local or remote HF-compatible checkpoint and the `recipe` may be changed to target different quantization algorithms or formats.
 
-### Quantize a Model
-Quantization is easily applied by selecting an algorithm and calling the `oneshot` API.
+### Apply Quantization
+Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 
 ```python
 from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
-# Select quantization algorithm. In this case:
+# Select quantization algorithm. In this case, we:
 #   * apply SmoothQuant to make the activations easier to quantize
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
@@ -74,22 +74,23 @@ oneshot(
 )
 ```
 
-### Quantized Inference with vLLM
+### Inference with vLLM
+
 The checkpoints created by `llmcompressor` can be loaded and run in `vllm`:
 
 Install:
+
 ```bash
 pip install vllm
 ```
 
-Run the model:
+Run:
 ```python
 from vllm import LLM
 
 model = LLM("TinyLlama-1.1B-Chat-v1.0-INT8")
 output = model.generate("I love quantization in vllm because")
 ```
-
 
 ## Questions / Contribution
 
