@@ -1,4 +1,4 @@
-# Quantizing Big Models with `accelerate`
+# Quantizing Big Models with HF Accelerate
 
 `llmcompressor` integrates with `accelerate` to support quantizing large models.
 
