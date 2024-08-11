@@ -9,7 +9,7 @@
 To get started, install:
 
 ```bash
-pip install llmcompressor
+pip install llmcompressor==0.1.0
 ```
 
 ## Quickstart
@@ -39,9 +39,8 @@ from transformers import AutoTokenizer
 
 MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
-model = SparseAutoModelForCausalLM.from_pretrained(MODEL_ID,
-                                                   device_map="auto", 
-                                                   torch_dtype="auto")
+model = SparseAutoModelForCausalLM.from_pretrained(
+  MODEL_ID, device_map="auto", torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -59,15 +58,14 @@ Since simple PTQ does not require data for weight quantization and the activatio
 from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-# Configure the quantization algorithm to run.
-recipe = QuantizationModifier(targets="Linear", 
-                              scheme="FP8_Dynamic",
-                              ignore=["lm_head"])
+# Configure the simple PTQ quantization to run with the FP8_DYNAMIC scheme.
+recipe = QuantizationModifier(
+  targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"])
 
-# Apply quantization.
+# Apply the quantization algorithm.
 oneshot(model=model, recipe=recipe)
 
-# Save to disk compressed.
+# Save the model.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
@@ -76,8 +74,6 @@ tokenizer.save_pretrained(SAVE_DIR)
 We have successfully created an `fp8` model!
 
 ### 3) Evaluate Accuracy
-
-#### Install
 
 Neural Magic's fork of `lm-evaluation-harness` implements the evaluation strategy used by Meta in the Llama3.1 launch. You can install this branch from source below:
 
