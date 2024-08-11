@@ -89,7 +89,7 @@ model = LLM("./Meta-Llama-3-8B-Instruct-FP8-Dynamic")
 model.generate("Hello my name is")
 ```
 
-Evaluate accuracy with `lm_eval` (for example on `gsm8k`):
+Evaluate accuracy with `lm_eval` (for example on 250 samples of `gsm8k`):
 > Note: quantized models can be sensitive to the presence of the `bos` token. `lm_eval` does not add a `bos` token by default, so make sure to include the `add_bos_token=True` argument when running your evaluations.
 
 ```bash
@@ -97,16 +97,16 @@ MODEL=$PWD/Meta-Llama-3-8B-Instruct-FP8-Dynamic
 lm_eval \
   --model vllm \
   --model_args pretrained=$MODEL,add_bos_token=True \
-  --tasks gsm8k  --num_fewshot 5 --batch_size auto
+  --tasks gsm8k  --num_fewshot 5 --batch_size auto --limit 250
 ```
 
 We can see the resulting scores look good:
 
 ```bash
-|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
-|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
-|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7536|±  |0.0119|
-|     |       |strict-match    |     5|exact_match|↑  |0.7544|±  |0.0119|
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value|   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.768|±  |0.0268|
+|     |       |strict-match    |     5|exact_match|↑  |0.768|±  |0.0268|
 ```
 
 ### Questions or Feature Request?
