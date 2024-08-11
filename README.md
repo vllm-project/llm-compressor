@@ -27,6 +27,12 @@
 
 `llm-compressor` can be installed from the source code via a git clone and local pip install.
 
+### From PyPI
+```bash
+pip install llmcompressor
+```
+
+### From Source
 ```bash
 git clone https://github.com/vllm-project/llm-compressor.git
 pip install -e llm-compressor
