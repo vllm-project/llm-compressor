@@ -26,7 +26,7 @@
 
 ## Installation
 
-`llm-compressor` can be installed from the source code via a git clone and local pip install.
+`llmcompressor` can be installed from the source code via a git clone and local pip install.
 
 ### From PyPI
 ```bash
