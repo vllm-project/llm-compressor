@@ -1,8 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
@@ -53,17 +52,13 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# Configure algorithms. In this case, we:
-#   * apply SmoothQuant to make the activations easier to quantize
-#   * quantize the weights to int8 with GPTQ (static per channel)
-#   * quantize the activations to int8 (dynamic per token)
-# Note: set sequential_update: true in the recipe to reduce memory
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
-]
+# Configure the quantization algorithm to run.
+# In this case, we:
+#   * quantize the weights to fp8 with simple PTQ (static per tensor)
+#   * quantize the activations to fp8 with simple PTQ (static per tensor)
+recipe = QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head"])
 
-# Apply algorithms.
+# Apply quantization.
 oneshot(
     model=model,
     dataset=ds,
@@ -81,6 +76,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic-Per-Token"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
