@@ -53,7 +53,7 @@ pip install llmcompressor==0.1.0
 
 CPU offloading is slow. As a result, we recommend using this feature only with data-free quantization methods. For example, when quantizing a model to `fp8`, we typically use simple `PTQ` to statically quantize the weights and use dynamic quantization for the activations. These methods do not require calibration data.
 
-`cpu_offloading_fp8.py` demonstrates quantizing the weights and activations of `Llama 70B` to `fp8` on a single GPU:
+- `cpu_offloading_fp8.py` demonstrates quantizing the weights and activations of `Llama 70B` to `fp8` on a single GPU:
 
 ```bash
 export CUDA_VISIBLE_DEVICES=0
@@ -66,7 +66,7 @@ The resulting model `./Meta-Llama-3-70B-Instruct-FP8-Dynamic` is ready to run wi
 
 For quantization methods that require calibration data (e.g. `GPTQ` and `SmoothQuant`), CPU offloading is too slow. For these methods, `llmcompressor` can use `accelerate` multi-GPU to quantize models that are larger than a single GPU. For example, when quantizing a model to `int8`, we typically use `GPTQ` to statically quantize the weights and `SmoothQuant` to make the activations easier to quantize. Each of these methods require calibration data.
 
-`multi_gpu_int8.py` demonstrates quantizing the weights and activations of `Llama-70B` to `int8` on 8 A100s:
+- `multi_gpu_int8.py` demonstrates quantizing the weights and activations of `Llama-70B` to `int8` on 8 A100s:
 
 ```python
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
