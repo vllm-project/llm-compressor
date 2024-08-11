@@ -4,19 +4,20 @@
 * Comprehensive set of quantization algorithms including weight-only and activation quantization
 * Seamless integration Hugging Face models and repositories
 * `safetensors`-based file format compatible with `vllm`
+* Large model support via `accelerate`
 
 <p align="center">
    <img alt="LLM Compressor Flow" src="docs/images/architecture.png" width="75%" />
 </p>
 
 
-### Supported Formats
+### Supported Formats:
+* Activation Quantization: W8A8 (`int8` and `fp8`)
 * Mixed Precision: W4A16, W8A16
-* Activation Quantization: W8A8 (int8 and fp8)
 * 2:4 Semi-structured Sparsity
 * Unstructured Sparsity
 
-### Supported Algorithms
+### Supported Algorithms:
 * PTQ (Post Training Quantization)
 * GPTQ
 * SmoothQuant
@@ -65,7 +66,7 @@ oneshot(
 ```
 
 ### Inference with vLLM
-The checkpoint is ready to run with vLLM (after install `pip install vllm`).
+The checkpoint is ready to run with vLLM (after install `pip install vllm>=0.5.4`).
 
 ```python
 from vllm import LLM
@@ -74,12 +75,17 @@ model = LLM("llama-compressed-quickstart")
 output = model.generate("I love 4 bit models because")
 ```
 
-## End-to-End Examples
-The `llm-compressor` library provides a rich feature-set for model compression. Below are examples
-and documentation of a few key flows:
+## Examples
+
+See below for end-to-end examples applying quantization with `llmcompressor`:
+* [`Meta-Llama-3-8B-Instruct` W8A8-INT8 With GPTQ and SmoothQuant](examples/quantization_w8a8_int8)
+* [`Meta-Llama-3-8B-Instruct` W8A8-FP8 With PTQ](examples/quantization_w8a8_fp8)
 * [`Meta-Llama-3-8B-Instruct` W4A16 With GPTQ](examples/quantization_w4a16)
-* [`Meta-Llama-3-8B-Instruct` W8A8-Int8 With GPTQ and SmoothQuant](examples/quantization_w8a8_int8)
-* [`Meta-Llama-3-8B-Instruct` W8A8-Fp8 With PTQ](examples/quantization_w8a8_fp8)
+
+## User Guides
+See below for deep dive user guides into key topics related to using `llmcompressor`:
+* [Quantizing with large models with the help of `accelerate`](examples/big_models_with_accelerate)
+
 
 If you have any questions or requests open an [issue](https://github.com/vllm-project/llm-compressor/issues) and we will add an example or documentation.
 
