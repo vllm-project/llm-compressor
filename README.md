@@ -17,7 +17,7 @@
 * 2:4 Semi-structured and Unstructured Sparsity
 
 ### Supported Algorithms
-* PTQ (Post Training Quantization)
+* Simple PTQ
 * GPTQ
 * SmoothQuant
 * SparseGPT
