@@ -65,8 +65,8 @@ recipe = [
     GPTQModifier(scheme="W8A8", targets="Linear", ignore=["lm_head"]),
 ]
 
-# Apply quantization using the open_platypus dataset.
-# See examples for demos showing how to pass a custom calibration set.
+# Apply quantization using the built in open_platypus dataset.
+#   * See examples for demos showing how to pass a custom calibration set
 oneshot(
     model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     dataset="open_platypus",
