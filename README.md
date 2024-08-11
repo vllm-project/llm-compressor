@@ -14,7 +14,7 @@
 ### Supported Formats
 * Activation Quantization: W8A8 (int8 and fp8)
 * Mixed Precision: W4A16, W8A16
-* 2:4 Semi-structured and unstructured Sparsity
+* 2:4 Semi-structured and Unstructured Sparsity
 
 ### Supported Algorithms
 * PTQ (Post Training Quantization)
