@@ -31,7 +31,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 
 `llmcompressor` is designed to respect the `device_map`, so calls to `oneshot` will work properly.
 
-## Working Examples with `accelerate`
+## Examples with `accelerate`
 
 We will show working examples of each use case:
 - **CPU Offloading**: Quantize Llama-70B to W8A8 (FP8) using `PTQ` with a single GPU
