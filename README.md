@@ -39,7 +39,7 @@ Applying quantization with `llmcompressor`:
 * [Weight only quantization to `int4`](examples/quantization_w4a16)
 
 ### User Guides
-Deep dives into advanced usage `llmcompressor`:
+Deep dives into advanced usage of `llmcompressor`:
 * [Quantizing with large models with the help of `accelerate`](examples/big_models_with_accelerate)
 
 
