@@ -57,7 +57,7 @@ For example, when quantizing a model to `fp8`, we typically use simple `PTQ` to 
 
 #### End-To-End Workflow
 
-`cpu_offloading_fp8.py` demonstrates quantizing the weights and activations of `meta-llama/Meta-Llama-3.1-70B-Instruct` to `fp8` on a single GPU (even though the model at `fp16` does not fit):
+`cpu_offloading_fp8.py` demonstrates quantizing the weights and activations of `Llama 70B` to `fp8` on a single GPU (even though the model at `fp16` does not fit):
 
 ```bash
 export CUDA_VISIBLE_DEVICES=0
@@ -74,7 +74,7 @@ For example, when quantizing a model to `int8`, we typically use `GPTQ` to stati
 
 #### End-To-End Workflow
 
-`multi_gpu_int8.py` demonstrates quantizing the weights and activations of `meta-llama/Meta-Llama-3.1-70B-Instruct` to `int8` on 8 A100s:
+`multi_gpu_int8.py` demonstrates quantizing the weights and activations of `Llama-70B` to `int8` on 8 A100s:
 
 ```python
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
