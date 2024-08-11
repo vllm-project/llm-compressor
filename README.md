@@ -27,8 +27,6 @@
 
 ## Installation
 
-From PyPI:
-
 ```bash
 pip install llmcompressor
 ```
