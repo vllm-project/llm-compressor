@@ -66,7 +66,7 @@ oneshot(
 ```
 
 ### Inference with vLLM
-The checkpoint is ready to run with vLLM (after install `pip install vllm>=0.5.4`).
+The checkpoint is ready to run with vLLM (after install `pip install vllm`).
 
 ```python
 from vllm import LLM
