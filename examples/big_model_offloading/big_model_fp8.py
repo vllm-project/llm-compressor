@@ -1,59 +1,35 @@
-import torch
 from transformers import AutoTokenizer
 
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.helpers import (  # noqa
     calculate_offload_device_map,
-    custom_offload_device_map,
 )
 
-# define a llmcompressor recipe for FP8 quantization
-# this recipe requires no calibration data since inputs are dynamically quantized
-recipe = """
-quant_stage:
-    quant_modifiers:
-        QuantizationModifier:
-            ignore: ["lm_head"]
-            config_groups:
-                group_0:
-                    weights:
-                        num_bits: 8
-                        type: float
-                        strategy: channel
-                        dynamic: false
-                        symmetric: true
-                    input_activations:
-                        num_bits: 8
-                        type: float
-                        strategy: token
-                        dynamic: true
-                        symmetric: true
-                    targets: ["Linear"]
-"""
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from transformers import AutoTokenizer
 
-model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
-# determine which layers to offload to cpu based on available resources
-device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=False, num_gpus=1, torch_dtype=torch.float16
-)
-
-# alternatively, specify the maximum memory to allocate per GPU directly
-# device_map = custom_offload_device_map(
-#    model_stub, max_memory_per_gpu="10GB", num_gpus=2, torch_dtype=torch.float16
-# )
-
+# Load model.
 model = SparseAutoModelForCausalLM.from_pretrained(
-    model_stub, torch_dtype=torch.float16, device_map=device_map
-)
+    MODEL_ID, device_map="auto", torch_dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-output_dir = "./test_output_llama3b_70b_fp8"
+# Configure the quantization algorithm and scheme.
+# In this case, we:
+#   * quantize the weights to fp8 with per channel with ptq
+#   * quantize the activations to fp8 dynamic per token
+recipe = QuantizationModifier(targets="Linear", 
+                              scheme="FP8_Dynamic", 
+                              ignore=["lm_head"])
 
+# Apply quantization.
+oneshot(model=model, recipe=recipe)
 
-oneshot(
-    model=model,
-    recipe=recipe,
-    output_dir=output_dir,
-    save_compressed=True,
-    tokenizer=AutoTokenizer.from_pretrained(model_stub),
-)
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
+

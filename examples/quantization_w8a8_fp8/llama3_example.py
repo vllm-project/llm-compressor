@@ -29,5 +29,6 @@ print("==========================================")
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-model.save_pretrained(SAVE_DIR)
+# Skip compression stats for faster saving.
+model.save_pretrained(SAVE_DIR, skip_compression_stats=True)
 tokenizer.save_pretrained(SAVE_DIR)
