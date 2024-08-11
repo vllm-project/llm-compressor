@@ -88,11 +88,11 @@ pip install vllm
 ```
 
 Run:
+
 ```python
 from vllm import LLM
-
 model = LLM("TinyLlama-1.1B-Chat-v1.0-INT8")
-output = model.generate("I love quantization in vllm because")
+output = model.generate("My name is")
 ```
 
 ## Questions / Contribution
