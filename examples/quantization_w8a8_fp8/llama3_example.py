@@ -1,22 +1,23 @@
+from transformers import AutoTokenizer
+
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from transformers import AutoTokenizer
 
 MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
 # Load model.
-model = SparseAutoModelForCausalLM.from_pretrained(MODEL_ID,
-                                                   device_map="auto", 
-                                                   torch_dtype="auto")
+model = SparseAutoModelForCausalLM.from_pretrained(
+    MODEL_ID, device_map="auto", torch_dtype="auto"
+)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize the weights to fp8 with per channel with ptq
 #   * quantize the activations to fp8 dynamic per token
-recipe = QuantizationModifier(targets="Linear", 
-                              scheme="FP8_Dynamic", 
-                              ignore=["lm_head"])
+recipe = QuantizationModifier(
+    targets="Linear", scheme="FP8_Dynamic", ignore=["lm_head"]
+)
 
 # Apply quantization.
 oneshot(model=model, recipe=recipe)
