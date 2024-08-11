@@ -30,7 +30,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 
 When working with `accelerate`, it is important to keep in mind that CPU offloading and naive pipeline-parallelism will slow down forward passes through the model. As a result, we need to take care to ensure that the quantization methods used fit well with the offloading scheme as methods that require many forward passes though the model will be slowed down.
 
-As a general rule of thumbs:
+General rules of thumb:
 - CPU offloading should only be with data-free quantization methods (e.g. PTQ with `FP8_DYNAMIC`)
 - Multi-GPU is fast enough to be used with calibration data-based methods with `sequential_update=False`
 - It is possible to use Multi-GPU with `sequential_update=True`, but the runtime will be slower
