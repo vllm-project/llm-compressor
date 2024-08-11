@@ -10,7 +10,9 @@ SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
 
 # 1) Load model (device_map="auto" with shard the model over multiple GPUs!).
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto",
+    MODEL_ID,
+    device_map="auto",
+    torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -27,6 +29,7 @@ MAX_SEQUENCE_LENGTH = 2048
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
+
 def preprocess(example):
     return {
         "text": tokenizer.apply_chat_template(
@@ -34,6 +37,7 @@ def preprocess(example):
             tokenize=False,
         )
     }
+
 
 ds = ds.map(preprocess)
 
@@ -68,5 +72,5 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    output_dir=SAVE_DIR
+    output_dir=SAVE_DIR,
 )
