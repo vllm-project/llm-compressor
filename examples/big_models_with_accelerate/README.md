@@ -1,14 +1,12 @@
 # Quantizing Big Models with HF Accelerate
 
-`llmcompressor` integrates with `accelerate` to support quantizing large models.
+`llmcompressor` integrates with `accelerate` to support quantizing large models such as Llama 70B and 405B!
 
 ## Overview
 
 [`accelerate`]((https://huggingface.co/docs/accelerate/en/index)) is a highly useful library in the Hugging Face ecosystem that supports for working with large models, including:
 - Offloading parameters to CPU
 - Sharding models across multiple GPUs with pipeline-parallelism
-
-As a result, `accelerate` enables `llmcompressor` to easily support quantizing models that cannot fit onto a single GPU (such as Llama 70B and 405B)!
 
 When working with `accelerate`, it is important to keep in mind that CPU offloading and naive pipeline-parallelism will slow down forward passes through the model. As a result, we need to take care to ensure that the quantization methods used fit well with the offloading scheme. As a general rule of thumbs:
 - CPU offloading can be used with data-free quantization methods (e.g. PTQ with `FP8_DYNAMIC`)
