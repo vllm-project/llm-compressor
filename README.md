@@ -50,8 +50,9 @@ The following example shows how to quantize `TinyLlama/TinyLlama-1.1B-Chat-v1.0`
 Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 
 ```python
+from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
 # Select quantization algorithm. In this case, we:
 #   * apply SmoothQuant to make the activations easier to quantize
