@@ -38,8 +38,8 @@ General rules of thumb:
 ## Examples
 
 We will show working examples for each use case:
-- **CPU Offloading**: Quantize Llama-70B to W8A8 (FP8) using `PTQ` with a single GPU
-- **Multi-GPU**: Quantize Llama-70B to W8A8 (INT8) using `GPTQ` and `SmoothQuant` with 8 GPUs
+- **CPU Offloading**: Quantize Llama-70B to `FP8` using `PTQ` with a single GPU
+- **Multi-GPU**: Quantize Llama-70B to `INT8` using `GPTQ` and `SmoothQuant` with 8 GPUs
 
 ### Installation
 
