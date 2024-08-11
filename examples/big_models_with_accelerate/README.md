@@ -49,7 +49,7 @@ Install `llmcompressor`:
 pip install llmcompressor==0.1.0
 ```
 
-### CPU Offloading: `FP8` Quantization
+### CPU Offloading: `FP8` Quantization with `PTQ`
 
 CPU offloading is slow. As a result, we recommend using this feature only with data-free quantization methods. For example, when quantizing a model to `fp8`, we typically use simple `PTQ` to statically quantize the weights and use dynamic quantization for the activations. These methods do not require calibration data.
 
