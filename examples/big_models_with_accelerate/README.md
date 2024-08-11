@@ -1,6 +1,6 @@
 # Quantizing Big Models with `accelerate`
 
-`llmcompressor` integrates natively with `accelerate` to support quantizing large models.
+`llmcompressor` integrates with `accelerate` to support quantizing large models.
 
 ## Overview
 
@@ -27,6 +27,7 @@ To get started, install `llmcompressor`:
 ```bash
 pip install llmcompressor==0.1.0
 ```
+
 
 ### CPU Offloading with `FP8` W8A8 Quantization
 
