@@ -11,7 +11,7 @@
 
 ### Using `device_map`
 
-To enable `accelerate` features with `llmcompressor`, we simply need to adjust the `device_map` used in `from_pretrained` with `SparseAutoModel`:
+To enable `accelerate` features with `llmcompressor`, simple insert `device_map` in `from_pretrained` during model load.
 
 ```python
 from llmcompressor.transformers import SparseAutoModelForCausalLM
