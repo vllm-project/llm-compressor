@@ -1,11 +1,11 @@
 # Quantizing Big Models with `accelerate`
 
-`llmcompressor` integrates natively wiht `accelerate` to support quantizing large models.
+`llmcompressor` integrates natively with `accelerate` to support quantizing large models.
 
 ## Overview
 
 [`accelerate`]((https://huggingface.co/docs/accelerate/en/index)) is a highly useful library in the Hugging Face ecosystem that supports for working with large models, including:
-- Offloading parameters to CPU and disk
+- Offloading parameters to CPU
 - Sharding models across multiple GPUs with pipeline-parallelism
 
 As a result, `accelerate` enables `llmcompressor` to easily support quantizing models that cannot fit onto a single GPU (such as Llama 70B and 405B)!
