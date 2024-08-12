@@ -1,29 +1,40 @@
-# compressed_tensors
+# compressed-tensors
 
-This repository extends a [safetensors](https://github.com/huggingface/safetensors) format to efficiently store sparse and/or quantized tensors on disk. `compressed-tensors` format supports multiple compression types to minimize the disk space and facilitate the tensor manipulation.
+The `compressed-tensors` library extends the [safetensors](https://github.com/huggingface/safetensors) format, providing a versatile and efficient way to store and manage compressed tensor data. This library supports various quantization and sparsity schemes, making it a unified format for handling different model optimizations like GPTQ, AWQ, SmoothQuant, INT8, FP8, SparseGPT, and more.
 
-## Motivation
+## Why `compressed-tensors`?
 
-### Reduce disk space by saving sparse tensors in a compressed format
+As model compression becomes increasingly important for efficient deployment of LLMs, the landscape of quantization and compression techniques has become increasingly fragmented.
+Each method often comes with its own storage format and loading procedures, making it challenging to work with multiple techniques or switch between them.
+`compressed-tensors` addresses this by providing a single, extensible format that can represent a wide variety of compression schemes. 
 
-The compressed format stores the data much more efficiently by taking advantage of two properties of tensors:
+* **Unified Checkpoint Format**: Supports various compression schemes in a single, consistent format.
+* **Wide Compatibility**: Works with popular quantization methods like GPTQ, SmoothQuant, and FP8. See [llm-compressor](https://github.com/vllm-project/llm-compressor)
+* **Flexible Quantization Support**: 
+  * Weight-only quantization (e.g., W4A16, W8A16, WnA16)
+  * Activation quantization (e.g., W8A8)
+  * KV cache quantization
+  * Non-uniform schemes (different layers can be quantized in different ways!)
+* **Sparsity Support**: Handles both unstructured and semi-structured (e.g., 2:4) sparsity patterns.
+* **Open-Source Integration**: Designed to work seamlessly with Hugging Face models and PyTorch.
 
-- Sparse tensors -> due to a large number of entries that are equal to zero.
-- Quantized -> due to their low precision representation.
-
-### Introduce an elegant interface to save/load compressed tensors
-
-The library provides the user with the ability to compress/decompress tensors. The properties of tensors are defined by human-readable configs, allowing the users to understand the compression format at a quick glance.
+This allows developers and researchers to easily experiment with composing different quantization methods, simplify model deployment pipelines, and reduce the overhead of supporting multiple compression formats in inference engines.
 
 ## Installation
 
-### Pip
+### From [PyPI](https://pypi.org/project/compressed-tensors)
 
+Stable release:
 ```bash
 pip install compressed-tensors
 ```
 
-### From source
+Nightly release:
+```bash
+pip install compressed-tensors-nightly
+```
+
+### From Source
 
 ```bash
 git clone https://github.com/neuralmagic/compressed-tensors
