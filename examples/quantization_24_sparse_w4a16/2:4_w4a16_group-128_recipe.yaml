@@ -30,5 +30,6 @@ quantization_stage:
             num_bits: 4
             type: "int"
             symmetric: true
-            strategy: "channel"
+            strategy: "group"
+            group_size: 128
           targets: ["Linear"]
