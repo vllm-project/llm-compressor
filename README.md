@@ -2,7 +2,7 @@
 `llm-compressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
 
 * Comprehensive set of quantization algorithms including weight-only and activation quantization
-* Seemless integration Hugging Face models and repositories
+* Seamless integration Hugging Face models and repositories
 * `safetensors`-based file format compatible with `vllm`
 
 <p align="center">
@@ -27,6 +27,12 @@
 
 `llm-compressor` can be installed from the source code via a git clone and local pip install.
 
+### From PyPI
+```bash
+pip install llmcompressor
+```
+
+### From Source
 ```bash
 git clone https://github.com/vllm-project/llm-compressor.git
 pip install -e llm-compressor

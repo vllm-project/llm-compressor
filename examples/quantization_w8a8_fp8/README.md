@@ -38,7 +38,7 @@ Load the model using `SparseAutoModelForCausalLM`, which is a wrapper around `Au
 
 ```python
 from llmcompressor.transformers import SparseAutoModelForCausalLM
-from transformers import Tokenizer
+from transformers import AutoTokenizer
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = SparseAutoModelForCausalLM.from_pretrained(
