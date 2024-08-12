@@ -117,7 +117,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
         dead = torch.diag(self.H) == 0
         self.H[dead, dead] = 1
         W[:, dead] = 0
-        #print(W[:5][:5].tolist())
 
         from compressed_tensors.quantization import (
             update_layer_weight_quant_params,
@@ -129,24 +128,21 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
             if actorder:
                 # index using me to sort by activation order
-                print(self.H.shape)
                 perm = torch.argsort(torch.diag(self.H), descending=True)
                 
                 # uncomment to use identity permutation
-                #perm = torch.arange(0, self.columns, dtype=torch.int)
+                perm = torch.arange(0, self.columns, dtype=torch.int)
 
-                print(self.H.shape)
-
+                # permute weight and hessian
                 W = W[:, perm]                                                      # STEP 1
                 self.H = self.H[perm][:, perm]                                      # autogptq claims that this is the effect of permutation on the hessian
-                print(self.H.shape)
+                self.layer.weight -= self.layer.weight
+                self.layer.weight += W
 
-                update_layer_weight_quant_params(self.layer, perm=perm)
+                # aupdate quantization parameters using new layer weight
+                update_layer_weight_quant_params(self.layer)
                 scale = self.layer.weight_scale.data
                 zero_point = self.layer.weight_zero_point.data
-
-                print(self.layer.weight_scale.data.shape)
-                print(self.layer.weight_zero_point.data.shape)
 
         # from here on out, everything is ordered by activation
 
@@ -286,11 +282,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
             # self.H = self.H[invperm][:, invperm]
 
             group_size = quant_scheme.weights.group_size
+            # describes the group index of the permuted weight
             g_idx = torch.tensor(
                 # [perm[i] // group_size for i in range(self.columns)] ,
                 [i // group_size for i in range(self.columns)], #B
                 dtype=torch.int,
             ).to(device=invperm.device)
+            # invert to get the group index of the unpermuted weight
             self.layer.weight_g_idx.data = g_idx[invperm]  # TODO: double check this works
 
         if isinstance(self.layer, transformers.Conv1D):

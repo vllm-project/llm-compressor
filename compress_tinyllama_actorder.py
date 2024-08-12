@@ -1,3 +1,5 @@
+import os
+import pickle
 import datetime
 from datasets import load_dataset
 from transformers import AutoTokenizer
@@ -18,13 +20,12 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
+PICKLE_FILE = "pickle.pkl"
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 1
 MAX_SEQUENCE_LENGTH = 512
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
-ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 def preprocess(example):
     return {
         "text": tokenizer.apply_chat_template(
@@ -32,7 +33,6 @@ def preprocess(example):
             tokenize=False,
         )
     }
-ds = ds.map(preprocess)
 # Tokenize inputs.
 def tokenize(sample):
     return tokenizer(
@@ -42,7 +42,25 @@ def tokenize(sample):
         truncation=True,
         add_special_tokens=False,
     )
-ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+# Check if the preprocessed dataset is already saved
+if os.path.exists(PICKLE_FILE):
+    # Load the dataset from the pickle file
+    with open(PICKLE_FILE, "rb") as f:
+        ds = pickle.load(f)
+    print("Loaded dataset from pickle file.")
+else:
+    # Load and preprocess the dataset
+    ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+    ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+    ds = ds.map(preprocess)
+    ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+    # Save the preprocessed dataset to a pickle file
+    with open(PICKLE_FILE, "wb") as f:
+        pickle.dump(ds, f)
+    print("Saved preprocessed dataset to pickle file.")
+
 recipe = """
     quant_stage:
         quant_modifiers:
