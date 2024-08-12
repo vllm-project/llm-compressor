@@ -1,7 +1,7 @@
 from llmcompressor.transformers import SparseAutoModelForCausalLM
 from transformers import AutoTokenizer
 
-model_name = "actorder20240812_171454"
+model_name = "actorder20240812_212209"
 model = SparseAutoModelForCausalLM.from_pretrained(model_name, device_map="auto", torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda") 
