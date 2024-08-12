@@ -91,8 +91,8 @@ breakpoint()
 # save model
 SAVE_DIR = "actorder" + get_current_time()
 print(SAVE_DIR)
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR, save_compressed=True)
+model.save_pretrained(SAVE_DIR, save_compressed=False)
+tokenizer.save_pretrained(SAVE_DIR, save_compressed=False)
 breakpoint()
 
 # Confirm generations of the quantized model look sane.
