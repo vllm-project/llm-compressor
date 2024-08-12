@@ -58,7 +58,7 @@ class QuantizationModifier(Modifier):
 
     def on_initialize_structure(self, state: State, **kwargs):
         pass
-    
+
     def on_initialize(
         self, state: State, freeze_quantization: bool = True, **kwargs
     ) -> bool:
