@@ -316,28 +316,3 @@ class GPTQWrapper(ModuleCompressionWrapper):
         """
         delattr(self, "H")
         super().free()
-
-
-"""
-import torch
-
-group_size = 2
-n = 6
-# Hessian
-# H = torch.randperm(n) 
-H = torch.Tensor([5, 0, 1, 3, 2, 4])        # tensor([5, 0, 1, 3, 2, 4])
-perm =  torch.argsort(H, descending=True)   # tensor([0, 5, 3, 4, 2, 1])
-invperm = torch.argsort(perm)               # tensor([0, 5, 4, 2, 3, 1])
-
-# w = torch.randperm(n)
-w = torch.Tensor([0, 4, 1, 3, 5, 2])        # tensor([0, 4, 1, 3, 5, 2])
-W = w.clone()[perm]                         # tensor([0, 2, 3, 5, 1, 4])
-
-g_idx = torch.tensor([int(i // group_size) for i in range(n)], dtype=torch.int)
-g_idx = g_idx[invperm]                      # tensor([0, 2, 2, 1, 1, 0]
-
-
-"""
-
-
-
