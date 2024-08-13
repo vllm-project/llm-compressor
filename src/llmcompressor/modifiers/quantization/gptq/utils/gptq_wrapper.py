@@ -129,15 +129,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if actorder:
                 # index using me to sort by activation order
                 perm = torch.argsort(torch.diag(self.H), descending=True)
-                
-                # uncomment to use identity permutation
-                #perm = torch.arange(0, self.columns, dtype=torch.int)
-                #perm = torch.flip(perm, dims=(0, ))
 
                 # permute weight and hessian
-                og_weight = self.layer.weight.data.clone()
-                W = W[:, perm]                                                      # STEP 1
-                self.H = self.H[perm][:, perm]                                      # autogptq claims that this is the effect of permutation on the hessian
+                W = W[:, perm]
+                self.H = self.H[perm][:, perm]
                 self.layer.weight -= self.layer.weight
                 self.layer.weight += W
 
@@ -304,7 +299,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         # place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
-        #assert (self.layer.weight.data == og_weight).all()
+
 
         if is_module_offloaded(self.layer):
             device = get_offloaded_device(self.layer)
