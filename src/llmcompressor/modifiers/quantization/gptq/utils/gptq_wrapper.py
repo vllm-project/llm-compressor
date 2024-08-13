@@ -119,17 +119,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     self.layer.weight -= self.layer.weight
                     self.layer.weight += W
 
-                    # reset observer to reflect weight change
-                    observer = self.layer.weight_observer
-                    observer.reset()
-
             # fetch latest correct scale and ZP relevant for any changes
             from compressed_tensors.quantization import (
-                update_layer_weight_quant_params,
+                refresh_layer_weight_quant_params,
             )
 
             # TODO: experiment with updating before each block
-            update_layer_weight_quant_params(self.layer)
+            refresh_layer_weight_quant_params(self.layer)
 
         # mask sparsity if applicable
         W_nz_mask = (
