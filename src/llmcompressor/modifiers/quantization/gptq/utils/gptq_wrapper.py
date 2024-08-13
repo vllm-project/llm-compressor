@@ -228,30 +228,16 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             altered_qargs = copy(quant_scheme.weights)
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
 
-                            if actorder:
-                                # we can merge both cases
-                                input_dim_group = (
-                                    column_idx // quant_scheme.weights.group_size
-                                )
+                            input_dim_group = (
+                                column_idx // quant_scheme.weights.group_size
+                            )
 
-                                q = fake_quantize(
-                                    q,
-                                    scale[:, input_dim_group],
-                                    zero_point[:, input_dim_group],
-                                    altered_qargs,
-                                )
-
-                            else:
-                                input_dim_group = (
-                                    column_idx // quant_scheme.weights.group_size
-                                )
-
-                                q = fake_quantize(
-                                    q,
-                                    scale[:, input_dim_group],
-                                    zero_point[:, input_dim_group],
-                                    altered_qargs,
-                                )
+                            q = fake_quantize(
+                                q,
+                                scale[:, input_dim_group],
+                                zero_point[:, input_dim_group],
+                                altered_qargs,
+                            )
 
                 Q1[:, i] = q
                 Losses1[:, i] = (w - q) ** 2 / d**2
