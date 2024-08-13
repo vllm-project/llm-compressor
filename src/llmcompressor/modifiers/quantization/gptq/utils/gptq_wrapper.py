@@ -93,62 +93,59 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W = W.t()
         W = W.float()
 
+        # infer sparsity
         sparsity = tensor_sparsity(W)
         preserve_zeros = sparsity >= SPARSITY_THRESHOLD
+
+        tick = time.time()
+
+        # if activation ordering is enabled, permute the weight columns
+        # in order of greatest hessian values. Columns are unpermuted after
+        # quantization is finished
+        actorder = False
+        if hasattr(self.layer, "quantization_scheme"):
+            quant_scheme = self.layer.quantization_scheme
+            quant_weights = quant_scheme.weights
+            if quant_weights is not None:
+                actorder = quant_weights.actorder
+                if actorder:
+                    # use hessian to create a permutation of weights
+                    perm = torch.argsort(torch.diag(self.H), descending=True)
+
+                    # permute weight and hessian
+                    W = W[:, perm]
+                    self.H = self.H[perm][:, perm]
+                    # see (1)
+                    self.layer.weight -= self.layer.weight
+                    self.layer.weight += W
+
+                    # reset observer to reflect weight change
+                    observer = self.layer.weight_observer
+                    observer.reset()
+
+            # fetch latest correct scale and ZP relevant for any changes
+            from compressed_tensors.quantization import (
+                update_layer_weight_quant_params,
+            )
+
+            # TODO: experiment with updating before each block
+            update_layer_weight_quant_params(self.layer)
+
+        # mask sparsity if applicable
         W_nz_mask = (
             (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
             if preserve_zeros
             else None
         )
 
-        tick = time.time()
-
-        if hasattr(self.layer, "quantization_scheme"):
-            quant_scheme = self.layer.quantization_scheme
-            if quant_scheme.weights is not None:
-                # fetch latest correct scale and ZP relevant for any changes
-                # such as activation reordering
-                from compressed_tensors.quantization import (
-                    update_layer_weight_quant_params,
-                )
-
-                update_layer_weight_quant_params(self.layer)
-
+        # invalidate dead hessian values
         dead = torch.diag(self.H) == 0
         self.H[dead, dead] = 1
         W[:, dead] = 0
 
-        from compressed_tensors.quantization import (
-            update_layer_weight_quant_params,
-        )
-
-        if hasattr(self.layer, "quantization_scheme"):
-            quant_scheme = self.layer.quantization_scheme
-            actorder = quant_scheme.weights.actorder
-
-            if actorder:
-                # index using me to sort by activation order
-                perm = torch.argsort(torch.diag(self.H), descending=True)
-
-                # permute weight and hessian
-                W = W[:, perm]
-                self.H = self.H[perm][:, perm]
-                self.layer.weight -= self.layer.weight
-                self.layer.weight += W
-
-                # update quantization parameters using new layer weight
-                observer = getattr(self.layer, "weight_observer", None)
-                observer.reset()
-
-                update_layer_weight_quant_params(self.layer)
-                scale = self.layer.weight_scale.data
-                zero_point = self.layer.weight_zero_point.data
-
-        # from here on out, everything is ordered by activation
-
-                
         Losses = torch.zeros(self.rows, device=self.dev)
 
+        # TODO: clone H to allow for reuse/ clarity
         damp = percdamp * torch.mean(torch.diag(self.H))
         diag = torch.arange(self.columns, device=self.dev)
         self.H[diag, diag] += damp
@@ -192,7 +189,11 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 elif hasattr(self.layer, "quantization_scheme"):
                     quant_scheme = self.layer.quantization_scheme
 
-                    if quant_scheme.weights is not None:                        
+                    if quant_scheme.weights is not None:
+                        # TODO: hoist
+                        scale = self.layer.weight_scale.data
+                        zero_point = self.layer.weight_zero_point.data
+
                         from compressed_tensors.quantization import QuantizationStrategy
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
@@ -261,14 +262,14 @@ class GPTQWrapper(ModuleCompressionWrapper):
         logger.info("time %.2f" % (time.time() - tick))
         logger.info("error %.2f" % torch.sum(Losses).item())
 
-        # undo actorder permutation
         if actorder:
+            # restore original permutation
             invperm = torch.argsort(perm)
             W = W[:, invperm]
-            # self.H = self.H[invperm][:, invperm]
+            self.H = self.H[invperm][:, invperm]
 
+            # g_idx describes the group index of the permuted weight
             group_size = quant_scheme.weights.group_size
-            # describes the group index of the permuted weight
             g_idx = torch.tensor(
                 [i // group_size for i in range(self.columns)],
                 dtype=torch.int,
@@ -281,8 +282,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W = W.t()
         W = W.reshape(final_shape).to(final_dtype)
 
-        # This is a bit hacky, but FSDP updates only work if we change the weight in
-        # place, clone() or direct assignment won't work
+        # (1) This is a bit hacky, but FSDP updates only work if we change
+        # the weight in place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
 
