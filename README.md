@@ -32,20 +32,6 @@
 pip install llmcompressor
 ```
 
-## Get Started
-
-### End-to-End Examples
-
-Applying quantization with `llmcompressor`:
-* [Activation quantization to `int8`](examples/quantization_w8a8_int8)
-* [Activation quantization to `fp8`](examples/quantization_w8a8_fp8)
-* [Weight only quantization to `int4`](examples/quantization_w4a16)
-
-### User Guides
-Deep dives into advanced usage of `llmcompressor`:
-* [Quantizing with large models with the help of `accelerate`](examples/big_models_with_accelerate)
-
-
 ## Quick Tour
 Let's quantize `TinyLlama` with 8 bit weights and activations using the `GPTQ` and `SmoothQuant` algorithms.
 
