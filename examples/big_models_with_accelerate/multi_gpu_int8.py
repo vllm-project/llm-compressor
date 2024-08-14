@@ -2,7 +2,6 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"

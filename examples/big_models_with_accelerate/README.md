@@ -1,6 +1,6 @@
 # Quantizing Big Models with HF Accelerate
 
-`llmcompressor` integrates with `accelerate` to support quantizing large models such as Llama 70B and 405B.
+`llmcompressor` integrates with `accelerate` to support quantizing large models such as Llama 70B and 405B, or quantizing any model with limited GPU resources.
 
 ## Overview
 
@@ -24,16 +24,36 @@ model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype="auto")
 ```
 
-`llmcompressor` is designed to respect the `device_map`, so calls to `oneshot` will work properly.
+`llmcompressor` is designed to respect the `device_map`, so calls to `oneshot` 
+will work properly out of the box for basic quantization with `QuantizationModifier`,
+even for CPU offloaded models. 
+
+To enable CPU offloading for second-order quantization methods such as GPTQ, we need to 
+allocate additional memory upfront when computing the device map. Note that this 
+device map will only compatible with `GPTQModifier(sequential_update=True, ...)`
+
+```python
+from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
+from llmcompressor.transformers import SparseAutoModelForCausalLM,
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
+
+# Load model, reserving memory in the device map for sequential GPTQ (adjust num_gpus as needed)
+device_map = calculate_offload_device_map(MODEL_ID, reserve_for_hessians=True, num_gpus=1)
+model = SparseAutoModelForCausalLM.from_pretrained(
+    MODEL_ID,
+    device_map=device_map,
+    torch_dtype="auto",
+)
+```
 
 ### Practical Advice
 
 When working with `accelerate`, it is important to keep in mind that CPU offloading and naive pipeline-parallelism will slow down forward passes through the model. As a result, we need to take care to ensure that the quantization methods used fit well with the offloading scheme as methods that require many forward passes though the model will be slowed down.
 
 General rules of thumb:
-- CPU offloading should only be with data-free quantization methods (e.g. PTQ with `FP8_DYNAMIC`)
+- CPU offloading is best used with data-free quantization methods (e.g. PTQ with `FP8_DYNAMIC`)
 - Multi-GPU is fast enough to be used with calibration data-based methods with `sequential_update=False`
-- It is possible to use Multi-GPU with `sequential_update=True`, but the runtime will be slower
+- It is possible to use Multi-GPU with `sequential_update=True` to save GPU memory, but the runtime will be slower
 
 ## Examples
 
@@ -65,6 +85,8 @@ The resulting model `./Meta-Llama-3-70B-Instruct-FP8-Dynamic` is ready to run wi
 ### Multi-GPU: `INT8` Quantization with `GPTQ`
 
 For quantization methods that require calibration data (e.g. `GPTQ`), CPU offloading is too slow. For these methods, `llmcompressor` can use `accelerate` multi-GPU to quantize models that are larger than a single GPU. For example, when quantizing a model to `int8`, we typically use `GPTQ` to statically quantize the weights, which requires calibration data.
+
+Note that running non-sequential `GPTQ` requires significant additional memory beyond the model size. As a rough rule of thumb, running `GPTQModifier` non-sequentially will take up 3x the model size for a 16-bit model and 2x the model size for a 32-bit model (these estimates include the memory required to store the model itself in GPU).
 
 - `multi_gpu_int8.py` demonstrates quantizing the weights and activations of `Llama-70B` to `int8` on 8 A100s:
 
