@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Union
 
 from compressed_tensors.quantization import (
+    QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
@@ -38,6 +39,17 @@ class QuantizationModifier(Modifier):
         will be set to the targets parameter set at the modifier level. Can also be set
         to a dictionary of the format `preset_scheme_name: targets` for example:
         `W8A8: ['Linear']` for weight and activation 8-bit.
+    :param kv_cache_scheme: optional QuantizationArgs, that specify the
+        quantization of the kv cache. If None, kv cache is not quantized.
+        When applying kv cache quantization to transformer AutoModelForCausalLM,
+        the kv_cache_scheme gets converted into a QuantizationScheme that:
+            - targets the `q_proj` and `k_proj` modules of the model. The outputs
+              of those modules are the keys and values that might be cached
+            - quantizes the outputs of the aformentioned layers, so that
+              keys and values are compressed before storing them in the cache
+        There is an explicit assumption that the model contains modules with
+        `k_proj` and `v_proj` in their names. If this is not the case
+        and kv_cache_scheme != None, the quantization of kv cache will fail
     :param targets: list of layer names to quantize if a scheme is provided
     :param disable_quantization_observer_epoch: Epoch to disable updates to the module
         quantization observers. At this point, quantized weights and zero points will
@@ -50,6 +62,7 @@ class QuantizationModifier(Modifier):
     ignore: List[str] = Field(default_factory=list)
     targets: Union[str, List[str], None] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
+    kv_cache_scheme: Optional[QuantizationArgs] = None
     disable_quantization_observer_epoch: Optional[float] = None
     num_calibration_steps: Optional[int] = None
 
@@ -136,9 +149,14 @@ class QuantizationModifier(Modifier):
                 targets=self.targets
             )
             self.config_groups = {"group_0": default_quant_scheme}
+            logger.info(
+                "No config groups were provided, generating "
+                f"QuantizationScheme.default_scheme = {self.config_groups}"
+            )
 
         return QuantizationConfig(
             config_groups=self.config_groups,
+            kv_cache_scheme=self.kv_cache_scheme,
             quantization_status=QuantizationStatus.INITIALIZED,
             ignore=self.ignore,
         )
