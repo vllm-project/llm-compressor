@@ -191,6 +191,7 @@ def calculate_offload_device_map(
     model_stub: str,
     reserve_for_hessians=False,
     num_gpus: int = 1,
+    trust_remote_code: bool = True,
     torch_dtype: torch.dtype = torch.float16,
 ) -> Dict[Union[int, str], Union[int, str]]:
     """
@@ -215,7 +216,7 @@ def calculate_offload_device_map(
     device_map = {}
     with init_empty_weights():
         dummy_model = AutoModelForCausalLM.from_pretrained(
-            model_stub, torch_dtype=torch_dtype
+            model_stub, torch_dtype=torch_dtype, trust_remote_code=trust_remote_code,
         )
 
         reserved_memory = 0

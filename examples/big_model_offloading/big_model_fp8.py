@@ -44,7 +44,7 @@ device_map = calculate_offload_device_map(
 # )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
-    model_stub, torch_dtype=torch.float16, device_map=device_map
+    model_stub, torch_dtype=torch.float16, device_map=device_map, trust_remote_code=True,
 )
 
 output_dir = "./test_output_llama3b_70b_fp8"
