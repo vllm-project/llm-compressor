@@ -25,12 +25,23 @@
 
 ## Installation
 
-`llmcompressor` can be installed from the source code via a git clone and local pip install.
-
-### From PyPI
 ```bash
 pip install llmcompressor
 ```
+
+## Get Started
+
+### End-to-End Examples
+
+Applying quantization with `llmcompressor`:
+* [Activation quantization to `int8`](examples/quantization_w8a8_int8)
+* [Activation quantization to `fp8`](examples/quantization_w8a8_fp8)
+* [Weight only quantization to `int4`](examples/quantization_w4a16)
+
+### User Guides
+Deep dives into advanced usage of `llmcompressor`:
+* [Quantizing with large models with the help of `accelerate`](examples/big_models_with_accelerate)
+
 
 ## Quick Tour
 Let's quantize `TinyLlama` with 8 bit weights and activations using the `GPTQ` and `SmoothQuant` algorithms.
@@ -83,17 +94,6 @@ from vllm import LLM
 model = LLM("TinyLlama-1.1B-Chat-v1.0-INT8")
 output = model.generate("My name is")
 ```
-
-## Examples
-
-See below for end-to-end examples applying quantization with `llmcompressor`:
-* [`Meta-Llama-3-8B-Instruct` W8A8-INT8 With GPTQ and SmoothQuant](examples/quantization_w8a8_int8)
-* [`Meta-Llama-3-8B-Instruct` W8A8-FP8 With PTQ](examples/quantization_w8a8_fp8)
-* [`Meta-Llama-3-8B-Instruct` W4A16 With GPTQ](examples/quantization_w4a16)
-
-## User Guides
-See below for deep dive user guides into key topics related to using `llmcompressor`:
-* [Quantizing with large models with the help of `accelerate`](examples/big_models_with_accelerate)
 
 ## Questions / Contribution
 
