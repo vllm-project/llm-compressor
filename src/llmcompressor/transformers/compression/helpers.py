@@ -191,7 +191,7 @@ def calculate_offload_device_map(
     model_stub: str,
     reserve_for_hessians=False,
     num_gpus: int = 1,
-    trust_remote_code: bool = True,
+    trust_remote_code: bool = False,
     torch_dtype: torch.dtype = torch.float16,
 ) -> Dict[Union[int, str], Union[int, str]]:
     """
