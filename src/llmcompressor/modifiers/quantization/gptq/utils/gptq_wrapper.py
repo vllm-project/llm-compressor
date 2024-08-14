@@ -115,17 +115,16 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     # permute weight and hessian
                     W = W[:, perm]
                     self.H = self.H[perm][:, perm]
-                    # see (1)
-                    self.layer.weight -= self.layer.weight
-                    self.layer.weight += W
 
             # fetch latest correct scale and ZP relevant for any changes
             from compressed_tensors.quantization import (
-                refresh_layer_weight_quant_params,
+                update_layer_weight_quant_params,
             )
 
             # TODO: experiment with updating before each block
-            refresh_layer_weight_quant_params(self.layer)
+            update_layer_weight_quant_params(self.layer, weight=W, reset_obs=True)
+            scale = self.layer.weight_scale.data
+            zero_point = self.layer.weight_zero_point.data
 
         # mask sparsity if applicable
         W_nz_mask = (
@@ -186,10 +185,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     quant_scheme = self.layer.quantization_scheme
 
                     if quant_scheme.weights is not None:
-                        # TODO: hoist
-                        scale = self.layer.weight_scale.data
-                        zero_point = self.layer.weight_zero_point.data
-
                         from compressed_tensors.quantization import QuantizationStrategy
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
