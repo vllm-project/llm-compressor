@@ -85,6 +85,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
+        H = self.H.clone()
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
         if isinstance(self.layer, nn.Conv2d):
@@ -110,11 +111,11 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 actorder = quant_weights.actorder
                 if actorder:
                     # use hessian to create a permutation of weights
-                    perm = torch.argsort(torch.diag(self.H), descending=True)
+                    perm = torch.argsort(torch.diag(H), descending=True)
 
                     # permute weight and hessian
                     W = W[:, perm]
-                    self.H = self.H[perm][:, perm]
+                    H = H[perm][:, perm]
 
             # fetch latest correct scale and ZP relevant for any changes
             from compressed_tensors.quantization import (
@@ -134,20 +135,19 @@ class GPTQWrapper(ModuleCompressionWrapper):
         )
 
         # invalidate dead hessian values
-        dead = torch.diag(self.H) == 0
-        self.H[dead, dead] = 1
+        dead = torch.diag(H) == 0
+        H[dead, dead] = 1
         W[:, dead] = 0
 
         Losses = torch.zeros(self.rows, device=self.dev)
 
-        # TODO: clone H to allow for reuse/ clarity
-        damp = percdamp * torch.mean(torch.diag(self.H))
+        # compute hessian inverse
+        damp = percdamp * torch.mean(torch.diag(H))
         diag = torch.arange(self.columns, device=self.dev)
-        self.H[diag, diag] += damp
-        self.H = torch.linalg.cholesky(self.H)
-        self.H = torch.cholesky_inverse(self.H)
-        self.H = torch.linalg.cholesky(self.H, upper=True)
-        Hinv = self.H
+        H[diag, diag] += damp
+        H = torch.linalg.cholesky(H)
+        Hinv = torch.cholesky_inverse(H)
+        Hinv = torch.linalg.cholesky(Hinv, upper=True)
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
         for i1 in range(0, self.columns, blocksize):
@@ -257,7 +257,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             # restore original permutation
             invperm = torch.argsort(perm)
             W = W[:, invperm]
-            self.H = self.H[invperm][:, invperm]
 
             # g_idx describes the group index of the permuted weight
             group_size = quant_scheme.weights.group_size
