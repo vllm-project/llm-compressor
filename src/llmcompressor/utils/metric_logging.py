@@ -1,5 +1,6 @@
 from typing import List, Tuple
 
+from loguru import logger
 from torch.nn import Module
 
 
@@ -17,14 +18,15 @@ def get_GPU_memory_usage() -> List[Tuple]:
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             memory_usage_percentage = mem_info.used / mem_info.total
-            total_memory_mb = mem_info.total / (1024**2)
+            total_memory_gb = mem_info.total / (1024**3)
             usage.append(
-                (memory_usage_percentage, total_memory_mb),
+                (memory_usage_percentage, total_memory_gb),
             )
         pynvml.nvmlShutdown()
         return usage
 
-    except Exception:
+    except ImportError:
+        logger.warning("Failed to obtain GPU usage from pynvml")
         return []
 
 

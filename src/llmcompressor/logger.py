@@ -50,6 +50,7 @@ class LoggerConfig:
     console_log_level: Optional[str] = "INFO"
     log_file: Optional[str] = None
     log_file_level: Optional[str] = None
+    metrics_disabled: bool = True
 
 
 def configure_logger(config: Optional[LoggerConfig] = None):
@@ -104,6 +105,8 @@ def configure_logger(config: Optional[LoggerConfig] = None):
         # log as json to the file for easier parsing
         logger.add(log_file, level=log_file_level.upper(), serialize=True)
 
+    if logger_config.metrics_disabled:
+        return
     # initialize metric logger on loguru
     _initialize_metric_logging()
 
