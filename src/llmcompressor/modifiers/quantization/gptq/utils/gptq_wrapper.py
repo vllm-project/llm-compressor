@@ -239,9 +239,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     logger.log(
                         "METRIC",
                         (
-                            f"GPU {i} | usage: {perc:.2f}% | "
-                            f"total memory: {total_memory} GB",
-                        ),
+                            f"GPU {i} | usage: {perc:.2f}%"
+                            f" | total memory: {total_memory} GB"
+                        )
                     )
 
             logger.log(

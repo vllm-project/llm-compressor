@@ -50,7 +50,7 @@ class LoggerConfig:
     console_log_level: Optional[str] = "INFO"
     log_file: Optional[str] = None
     log_file_level: Optional[str] = None
-    metrics_disabled: bool = True
+    metrics_disabled: bool = False
 
 
 def configure_logger(config: Optional[LoggerConfig] = None):
