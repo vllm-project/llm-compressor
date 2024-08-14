@@ -9,9 +9,7 @@
 To get started, install:
 
 ```bash
-git clone https://github.com/vllm-project/llm-compressor.git
-cd llm-compressor
-pip install -e .
+pip install llmcompressor==0.1.0
 ```
 
 ## Quickstart

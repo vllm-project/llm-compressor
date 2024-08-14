@@ -246,6 +246,10 @@ class GPTQModifier(Modifier):
                 compressor.pre_compress()
             self.layer_compressors_.append(compressor)
 
+        if self.sequential_update:
+            first_layer_compressor = self.layer_compressors_[0]
+            first_layer_compressor.set_early_stop()
+
     @torch.no_grad()
     def apply_compression(
         self, dataloader: Optional[Iterable[Tuple[List, Dict[str, Any]]]] = None
@@ -264,9 +268,15 @@ class GPTQModifier(Modifier):
         # want to calibrate wrt to these
         self.model.apply(disable_quantization)
 
-        if not self.sequential_update:
-            # in non-sequential mode we run one forward batch for all modules
-            run_calibration_forward(self.model, dataloader, mask_padding=True)
+        forward_pass_use_cache = self.model.config.use_cache
+        self.model.config.use_cache = False
+
+        # in non-sequential mode we run calibration through the full model
+        # in sequential mode we run calibration up to the first transformer target
+        intermediates = run_calibration_forward(
+            self.model, dataloader, mask_padding=True
+        )
+        self.layer_compressors_[0].clear_early_stop()
 
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):
@@ -274,16 +284,18 @@ class GPTQModifier(Modifier):
 
             # Prune/quantize using GPTQ
             if self.sequential_update:
-                # in sequential mode we run one forward pass for each module we
-                # want to compress, this will be really slow but allows compression in
-                # earlier layers to affect later layers
+                # in sequential mode we run the forward pass for each transformer layer
+                # one at a time, caching the intermediate outputs between layers
                 layer_compressor.pre_compress()
                 logger.info(f"Calibrating {layer_compressor.name}...")
-                run_calibration_forward(self.model, dataloader, mask_padding=True)
+                intermediates = layer_compressor.calibrate_layer(intermediates)
+
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
             torch.cuda.empty_cache()
+
+        self.model.config.use_cache = forward_pass_use_cache
 
         # re-enable quantization
         self.model.apply(enable_quantization)

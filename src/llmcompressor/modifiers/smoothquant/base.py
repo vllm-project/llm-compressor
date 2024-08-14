@@ -305,6 +305,9 @@ class SmoothQuantModifier(Modifier):
                     smooth(layer)
                 smooth(smooth_layer)
 
+        # clear out allocated smoothing scales
+        torch.cuda.empty_cache()
+
     def _calculate_smoothing_scales(
         self, balance_layers: List[Module], activation_scales: torch.Tensor
     ) -> List[float]:
