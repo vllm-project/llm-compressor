@@ -23,6 +23,6 @@ jobs:
             virtualenv venv
             source venv/bin/activate
         - name: "⚙️ Install dependencies"
-          run: pip3 install .[dev]
+          run: pip3 install .[dev,accelerate]
         - name: "🔬 Running tests"
           run: make test

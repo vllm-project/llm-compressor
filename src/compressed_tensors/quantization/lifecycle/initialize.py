@@ -17,8 +17,6 @@ import logging
 from typing import Optional
 
 import torch
-from accelerate.hooks import add_hook_to_module, remove_hook_from_module
-from accelerate.utils import PrefixedDataset
 from compressed_tensors.quantization.lifecycle.forward import (
     wrap_module_forward_quantized,
 )
@@ -86,6 +84,16 @@ def initialize_module_for_quantization(
 
     offloaded = False
     if is_module_offloaded(module):
+        try:
+            from accelerate.hooks import add_hook_to_module, remove_hook_from_module
+            from accelerate.utils import PrefixedDataset
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "Offloaded model detected. To use CPU offloading with "
+                "compressed-tensors the `accelerate` package must be installed, "
+                "run `pip install compressed-tensors[accelerate]`"
+            )
+
         offloaded = True
         hook = module._hf_hook
         prefix_dict = module._hf_hook.weights_map
