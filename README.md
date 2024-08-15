@@ -9,9 +9,8 @@
 **✨ Read the announcement blog [here](https://neuralmagic.com/blog/llm-compressor-is-here-faster-inference-with-vllm/)! ✨**
 
 <p align="center">
-   <img alt="LLM Compressor Flow" src="docs/images/architecture.png" width="75%" />
+   <img alt="LLM Compressor Flow" src="https://github.com/user-attachments/assets/91c1f391-8c9a-4b20-80c2-20ffb9ad78b4" width="80%" />
 </p>
-
 
 ### Supported Formats
 * Activation Quantization: W8A8 (int8 and fp8)
