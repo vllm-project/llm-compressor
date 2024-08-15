@@ -146,12 +146,14 @@ def intialize_model_from_path(
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         tie_word_embeddings=model_args.tie_word_embeddings,
+        trust_remote_code=model_args.trust_remote_code,
     )
     teacher_config = (
         AutoConfig.from_pretrained(
             model_args.distill_teacher,
             use_auth_token=True if model_args.use_auth_token else None,
             tie_word_embeddings=model_args.tie_word_embeddings,
+            trust_remote_code=model_args.trust_remote_code,
         )
         if model_args.distill_teacher
         else None
