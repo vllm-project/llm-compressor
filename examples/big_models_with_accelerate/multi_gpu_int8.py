@@ -1,34 +1,28 @@
-import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-# define a llmcompressor recipe for W8A8 quantization
-recipe = GPTQModifier(
-    sequential_update=True, targets="Linear", scheme="W8A8", ignore=["lm_head"]
-)
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
 
-model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
-
-# adjust based off number of desired GPUs
-device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
-)
-
+# 1) Load model (device_map="auto" with shard the model over multiple GPUs!).
 model = SparseAutoModelForCausalLM.from_pretrained(
-    model_stub, torch_dtype=torch.bfloat16, device_map=device_map
+    MODEL_ID,
+    device_map="auto",
+    torch_dtype="auto",
 )
-tokenizer = AutoTokenizer.from_pretrained(model_stub)
-output_dir = "./output_llama3b_70b_w8a8"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Select calibration dataset.
+# 2) Prepare calibration dataset (in this case, we use ultrachat).
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
+
+# Select number of samples. 512 samples is a good place to start.
+# Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
+MAX_SEQUENCE_LENGTH = 1024
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
@@ -60,12 +54,20 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
+# 3) Configure algorithms. In this case, we:
+#   * quantize the weights to int8 with GPTQ (static per channel)
+#   * quantize the activations to int8 (dynamic per token)
+recipe = [
+    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+]
+
+# 4) Apply algorithms and save in `compressed-tensors` format.
 oneshot(
     model=model,
+    tokenizer=tokenizer,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    save_compressed=True,
-    output_dir=output_dir,
+    output_dir=SAVE_DIR,
 )
