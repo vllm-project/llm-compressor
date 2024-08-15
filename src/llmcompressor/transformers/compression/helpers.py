@@ -165,7 +165,7 @@ def custom_offload_device_map(
     :param max_memory_per_gpu: Max memory to allocate on each GPU, as either a string
         such as "10GB" or an integer number of bytes
     :param num_gpus: number of gpus to utilize
-    :param \**model_kwargs: keyword arguments to pass to model initializer
+    :param **model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
     max_cpu_memory = psutil.virtual_memory().available
@@ -174,9 +174,7 @@ def custom_offload_device_map(
 
     device_map = {}
     with init_empty_weights():
-        dummy_model = AutoModelForCausalLM.from_pretrained(
-            model_stub, **model_kwargs
-        )
+        dummy_model = AutoModelForCausalLM.from_pretrained(model_stub, **model_kwargs)
         device_map = infer_auto_device_map(
             dummy_model,
             max_memory=memory_limits,
@@ -200,7 +198,7 @@ def calculate_offload_device_map(
     :param model_stub: local path or HF stub to calculate mapping for
     :param reserve_for_hessians: whether to reserve memory for GPTQ
     :param num_gpus: number of gpus to utilize
-    :param \**model_kwargs: keyword arguments to pass to model initializer
+    :param **model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
     max_cpu_memory = psutil.virtual_memory().available
@@ -214,9 +212,7 @@ def calculate_offload_device_map(
 
     device_map = {}
     with init_empty_weights():
-        dummy_model = AutoModelForCausalLM.from_pretrained(
-            model_stub, **model_kwargs
-        )
+        dummy_model = AutoModelForCausalLM.from_pretrained(model_stub, **model_kwargs)
 
         reserved_memory = 0
         if reserve_for_hessians:
