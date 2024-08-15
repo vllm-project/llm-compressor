@@ -6,6 +6,8 @@
 * `safetensors`-based file format compatible with `vllm`
 * Large model support via `accelerate`
 
+**✨ Read the announcement blog [here](https://neuralmagic.com/blog/llm-compressor-is-here-faster-inference-with-vllm/)! ✨**
+
 <p align="center">
    <img alt="LLM Compressor Flow" src="docs/images/architecture.png" width="75%" />
 </p>
