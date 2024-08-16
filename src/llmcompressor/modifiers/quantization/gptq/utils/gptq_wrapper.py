@@ -270,7 +270,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W = W.t()
         W = W.reshape(final_shape).to(final_dtype)
 
-        # (1) This is a bit hacky, but FSDP updates only work if we change
+        # This is a bit hacky, but FSDP updates only work if we change
         # the weight in place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
