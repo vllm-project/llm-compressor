@@ -94,10 +94,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W = W.t()
         W = W.float()
 
-        # infer sparsity
-        sparsity = tensor_sparsity(W)
-        preserve_zeros = sparsity >= SPARSITY_THRESHOLD
-
         tick = time.time()
 
         # if activation ordering is enabled, permute the weight columns
@@ -132,6 +128,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         )
 
         # mask sparsity if applicable
+        sparsity = tensor_sparsity(W)
+        preserve_zeros = sparsity >= SPARSITY_THRESHOLD
         W_nz_mask = (
             (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
             if preserve_zeros
