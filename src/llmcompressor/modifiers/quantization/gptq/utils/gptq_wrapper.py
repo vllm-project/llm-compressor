@@ -209,13 +209,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         else:  # strategy == QuantizationStrategy.GROUP
                             # get the group index for the current column
                             column_idx = i1 + i
+                            input_dim_group = column_idx // group_size
 
                             # Since we're only applying quantization to a slice, this
                             # ends up being a channelwise application
                             altered_qargs = copy(quant_scheme.weights)
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
-
-                            input_dim_group = column_idx // group_size
 
                             q = fake_quantize(
                                 q,
