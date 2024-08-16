@@ -127,6 +127,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
             scale = self.layer.weight_scale.data
             zero_point = self.layer.weight_zero_point.data
 
+        group_size = (
+            quant_scheme.weights.group_size
+            if quant_scheme.weights.group_size is not None
+            else W.shape[1]
+        )
+
         # mask sparsity if applicable
         W_nz_mask = (
             (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
@@ -163,9 +169,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if preserve_zeros:
                 W1_nz_mask = W_nz_mask[:, i1:i2]
 
-            if hasattr(self.layer, "quantization_scheme"):
-                quant_scheme = self.layer.quantization_scheme
-
             for i in range(count):
                 w = W1[:, i]
                 d = Hinv1[i, i]
@@ -189,10 +192,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         from compressed_tensors.quantization.lifecycle.forward import (
                             fake_quantize,
                         )
-
-                        group_size = quant_scheme.weights.group_size
-                        if group_size is None or group_size == -1:
-                            group_size = self.layer.weight.shape[1]
 
                         strategy = quant_scheme.weights.strategy
 
@@ -221,7 +220,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
 
                             input_dim_group = (
-                                column_idx // quant_scheme.weights.group_size
+                                column_idx // group_size
                             )
 
                             q = fake_quantize(
@@ -259,7 +258,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W = W[:, invperm]
 
             # g_idx describes the group index of the permuted weight
-            group_size = quant_scheme.weights.group_size
             g_idx = torch.tensor(
                 [i // group_size for i in range(self.columns)],
                 dtype=torch.int,
