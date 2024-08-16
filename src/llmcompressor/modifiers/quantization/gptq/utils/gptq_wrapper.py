@@ -271,7 +271,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
 
-
         if is_module_offloaded(self.layer):
             device = get_offloaded_device(self.layer)
             update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
