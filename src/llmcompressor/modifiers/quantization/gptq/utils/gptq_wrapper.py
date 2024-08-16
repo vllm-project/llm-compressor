@@ -118,9 +118,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     H = H[perm][:, perm]
 
             # fetch latest correct scale and ZP relevant for any changes
-            from compressed_tensors.quantization import (
-                update_layer_weight_quant_params,
-            )
+            from compressed_tensors.quantization import update_layer_weight_quant_params
 
             # TODO: experiment with updating before each block
             update_layer_weight_quant_params(self.layer, weight=W, reset_obs=True)
@@ -213,15 +211,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         else:  # strategy == QuantizationStrategy.GROUP
                             # get the group index for the current column
                             column_idx = i1 + i
- 
+
                             # Since we're only applying quantization to a slice, this
                             # ends up being a channelwise application
                             altered_qargs = copy(quant_scheme.weights)
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
 
-                            input_dim_group = (
-                                column_idx // group_size
-                            )
+                            input_dim_group = column_idx // group_size
 
                             q = fake_quantize(
                                 q,
