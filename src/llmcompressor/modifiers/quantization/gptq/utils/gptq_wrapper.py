@@ -143,7 +143,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         Losses = torch.zeros(self.rows, device=self.dev)
 
-        # compute hessian inverse
+        # compute inverse hessian
         damp = percdamp * torch.mean(torch.diag(H))
         diag = torch.arange(self.columns, device=self.dev)
         H[diag, diag] += damp
@@ -182,7 +182,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     q = torch.dequantize(q)
                 elif hasattr(self.layer, "quantization_scheme"):
                     quant_scheme = self.layer.quantization_scheme
-
                     if quant_scheme.weights is not None:
                         from compressed_tensors.quantization import QuantizationStrategy
                         from compressed_tensors.quantization.lifecycle.forward import (
@@ -215,7 +214,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                             # ends up being a channelwise application
                             altered_qargs = copy(quant_scheme.weights)
                             altered_qargs.strategy = QuantizationStrategy.CHANNEL
-
                             q = fake_quantize(
                                 q,
                                 scale[:, input_dim_group],
