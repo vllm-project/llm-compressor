@@ -123,7 +123,6 @@ def save_model_and_recipe(
         fp.write(recipe_yaml_str)
 
     # copy python files from cache dir to save_path if any
-    breakpoint()
     _copy_python_files_from_model_cache(model, save_path)
 
 
