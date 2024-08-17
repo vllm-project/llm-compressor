@@ -104,7 +104,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             quant_scheme = self.layer.quantization_scheme
             quant_weights = quant_scheme.weights
             if quant_weights is not None:
-                actorder = quant_weights.actorder
+                actorder = getattr(quant_weights, actorder, False)
                 if actorder:
                     # use hessian to create a permutation of weights
                     perm = torch.argsort(torch.diag(H), descending=True)
