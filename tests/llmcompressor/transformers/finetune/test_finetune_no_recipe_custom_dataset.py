@@ -12,8 +12,8 @@ from parameterized import parameterized_class
 
 from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_custom"
-GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_custom/gpu"
+CONFIGS_DIRECTORY = "llm-compressor/tests/llmcompressor/transformers/finetune/finetune_custom"
+GPU_CONFIGS_DIRECTORY = "llm-compressor/tests/llmcompressor/transformers/finetune/finetune_custom/gpu"
 
 
 class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):

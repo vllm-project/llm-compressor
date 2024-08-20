@@ -7,8 +7,8 @@ from parameterized import parameterized_class
 
 from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/sparse"
-GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/sparse/gpu"
+CONFIGS_DIRECTORY = "llm-compressor/tests/llmcompressor/transformers/obcq/obcq_configs/sparse"
+GPU_CONFIGS_DIRECTORY = "llm-compressor/tests/llmcompressor/transformers/obcq/obcq_configs/sparse/gpu"
 
 
 @requires_torch
