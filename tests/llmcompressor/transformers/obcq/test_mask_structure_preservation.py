@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+import os
 
 import pytest
 from compressed_tensors.utils import tensor_follows_mask_structure
@@ -33,9 +34,9 @@ class TestMaskStructurePreserved(unittest.TestCase):
 
     def setUp(self) -> None:
         import torch
-
+        cwd = os.getcwd()
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = f"{cwd}/oneshot_output"
         self.output_first = Path(self.output) / "test_1"
         self.output_second = Path(self.output) / "test_2"
 

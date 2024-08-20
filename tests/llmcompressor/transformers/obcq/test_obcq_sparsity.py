@@ -1,6 +1,7 @@
 import math
 import shutil
 import unittest
+import os
 
 import pytest
 from parameterized import parameterized_class
@@ -23,8 +24,9 @@ class TestSparsities(unittest.TestCase):
     def setUp(self):
         import torch
 
+        cwd = os.getcwd()
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = f"{cwd}/oneshot_output"
 
     def test_sparsities(self):
         from llmcompressor.pytorch.model_load.helpers import get_session_model
@@ -71,10 +73,11 @@ class TestSparsitiesGPU(unittest.TestCase):
 
     def setUp(self):
         import torch
+        cwd = os.getcwd()
 
         from llmcompressor.transformers import SparseAutoModelForCausalLM
 
-        self.output = "./oneshot_output"
+        self.output = f"{cwd}/oneshot_output"
 
         self.model = SparseAutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16

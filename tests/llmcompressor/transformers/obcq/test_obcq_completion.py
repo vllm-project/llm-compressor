@@ -1,5 +1,6 @@
 import shutil
 import unittest
+import os
 
 import pytest
 from parameterized import parameterized_class
@@ -112,9 +113,9 @@ class TestOBCQCompletionSmall(TestOBCQCompletion):
 
     def setUp(self):
         import torch
-
+        cwd = os.getcwd()
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = f"{cwd}/oneshot_output"
 
     def test_obcq_completion_small(self):
         self._test_oneshot_completion()
@@ -135,11 +136,11 @@ class TestOBCQCompletionGPU(TestOBCQCompletion):
 
     def setUp(self):
         import torch
-
+        cwd = os.getcwd()
         from llmcompressor.transformers import SparseAutoModelForCausalLM
 
         self.model_name = None
-        self.output = "./oneshot_output"
+        self.output = f"{cwd}/oneshot_output"
 
         self.model_name = self.model
         self.model = SparseAutoModelForCausalLM.from_pretrained(

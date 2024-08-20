@@ -1,6 +1,7 @@
 import shutil
 import unittest
 from pathlib import Path
+import os
 
 import pytest
 import yaml
@@ -94,9 +95,10 @@ class TestConsecutiveRunsSmall(TestConsecutiveRuns):
 
     def setUp(self):
         import torch
+        cwd = os.getcwd()
 
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = f"{cwd}/oneshot_output"
         self.output_first = Path(self.output) / "test_1"
         self.output_second = Path(self.output) / "test_2"
 
@@ -123,8 +125,8 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         self.model = SparseAutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device
         )
-
-        self.output = "./oneshot_output"
+        cwd = os.getcwd()
+        self.output = f"{cwd}/oneshot_output"
         self.output_first = Path(self.output) / "test_1"
         self.output_second = Path(self.output) / "test_2"
 
