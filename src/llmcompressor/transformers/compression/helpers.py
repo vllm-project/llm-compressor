@@ -216,7 +216,9 @@ def calculate_offload_device_map(
     device_map = {}
     with init_empty_weights():
         dummy_model = AutoModelForCausalLM.from_pretrained(
-            model_stub, torch_dtype=torch_dtype, trust_remote_code=trust_remote_code,
+            model_stub,
+            torch_dtype=torch_dtype,
+            trust_remote_code=trust_remote_code,
         )
 
         reserved_memory = 0
