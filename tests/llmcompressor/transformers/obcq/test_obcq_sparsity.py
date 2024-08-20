@@ -12,7 +12,6 @@ GPU_CONFIGS_DIRECTORY = "llm-compressor/tests/llmcompressor/transformers/obcq/ob
 
 
 @requires_torch
-@pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestSparsities(unittest.TestCase):
     model = None
