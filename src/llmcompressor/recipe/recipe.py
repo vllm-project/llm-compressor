@@ -593,12 +593,19 @@ def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
     # try loading as json first, then yaml
     # if both fail, raise a ValueError
     try:
-        return json.loads(content)
+        ret = json.loads(content)
     except json.JSONDecodeError:
         try:
-            return yaml.safe_load(content)
+            ret = yaml.safe_load(content)
         except yaml.YAMLError as err:
             raise ValueError(f"Could not parse recipe from string {content}") from err
+    
+    if not type(ret) == dict:
+        raise ValueError(
+            f"Could not parse recipe from string {content}. If you meant load from "
+            "a file, please make sure that the specified file path exists"
+        )
+    return ret
 
 
 def _parse_recipe_from_md(file_path, yaml_str):
