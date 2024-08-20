@@ -599,8 +599,8 @@ def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
             ret = yaml.safe_load(content)
         except yaml.YAMLError as err:
             raise ValueError(f"Could not parse recipe from string {content}") from err
-    
-    if not type(ret) == dict:
+
+    if not isinstance(ret, dict):
         raise ValueError(
             f"Could not parse recipe from string {content}. If you meant load from "
             "a file, please make sure that the specified file path exists"
