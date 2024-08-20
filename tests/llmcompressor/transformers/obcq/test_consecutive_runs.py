@@ -8,9 +8,9 @@ from parameterized import parameterized_class
 
 from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
-CONFIGS_DIRECTORY = "llm-compressor/tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
+CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
 GPU_CONFIGS_DIRECTORY = (
-    "llm-compressor/tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/gpu"
+    "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/gpu"
 )
 
 
