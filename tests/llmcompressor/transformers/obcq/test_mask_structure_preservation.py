@@ -9,7 +9,7 @@ from llmcompressor.core import reset_session
 from tests.testing_utils import parse_params, requires_torch
 
 MASK_STRUCTURE_CONFIGS_DIRECTORY = (
-    "llm-compressor/tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/mask_structure"
+    "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/mask_structure"
 )
 
 
