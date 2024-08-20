@@ -11,12 +11,12 @@ MODEL_ID = "mistralai/Mistral-Nemo-Instruct-2407"
 
 # adjust based off number of desired GPUs
 device_map = calculate_offload_device_map(
-    MODEL_ID, reserve_for_hessians=True, num_gpus=2,
-    torch_dtype=torch.bfloat16
+    MODEL_ID, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.bfloat16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16)
+    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16
+)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
@@ -59,7 +59,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # define a llmcompressor recipe for W8A8 quantization
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"], sequential_update=True),
+    GPTQModifier(
+        targets="Linear", scheme="W8A8", ignore=["lm_head"], sequential_update=True
+    ),
 ]
 
 SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
