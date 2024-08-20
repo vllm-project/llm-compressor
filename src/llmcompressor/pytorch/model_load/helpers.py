@@ -122,6 +122,9 @@ def save_model_and_recipe(
     with open(recipe_path, "w") as fp:
         fp.write(recipe_yaml_str)
 
+    # copy python files from cache dir to save_path if any
+    _copy_python_files_from_model_cache(model, save_path)
+
 
 def fallback_to_cpu(device: str) -> str:
     """
@@ -207,3 +210,18 @@ def load_safetensors_state_dict(file_path: str) -> Dict[str, torch.Tensor]:
     """
     with safe_open(file_path, framework="pt", device="cpu") as f:
         return {key: f.get_tensor(key) for key in f.keys()}
+
+
+def _copy_python_files_from_model_cache(model: Module, save_path: str):
+    config = model.config
+    cache_dir = None
+    if hasattr(config, "_name_or_path"):
+        import os
+        import shutil
+
+        cache_dir = config._name_or_path
+        for file in os.listdir(cache_dir):
+            full_file_name = os.path.join(cache_dir, file)
+            if file.endswith(".py") and os.path.isfile(full_file_name):
+                logger.debug(f"Transferring {full_file_name} to {save_path}")
+                shutil.copy(full_file_name, save_path)
