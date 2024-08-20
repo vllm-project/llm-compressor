@@ -12,6 +12,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
+    trust_remote_code=True,
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

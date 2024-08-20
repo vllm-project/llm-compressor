@@ -9,7 +9,7 @@ OUTPUT_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
 # Load model
 # Note: device_map="auto" will offload to CPU if not enough space on GPU.
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
+    MODEL_ID, device_map="auto", torch_dtype="auto", trust_remote_code=True
 )
 
 # Configure the quantization scheme and algorithm (PTQ + FP8_DYNAMIC).
