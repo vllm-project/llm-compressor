@@ -9,9 +9,9 @@ from transformers import AutoConfig
 
 from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
-CONFIGS_DIRECTORY = "llm-compressor/tests/llmcompressor/transformers/finetune/finetune_oneshot_configs"
+CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_oneshot_configs"
 GPU_CONFIGS_DIRECTORY = (
-    "llm-compressor/tests/llmcompressor/transformers/finetune/finetune_oneshot_configs/gpu"
+    "tests/llmcompressor/transformers/finetune/finetune_oneshot_configs/gpu"
 )
 
 
