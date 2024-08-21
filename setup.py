@@ -59,6 +59,7 @@ setup(
         "transformers>4.0,<5.0",
         "datasets",
         "accelerate>=0.20.3",
+        "pynvml==11.5.3",
         "compressed-tensors"
         if version_info.is_release
         else "compressed-tensors-nightly",
@@ -90,7 +91,7 @@ setup(
             "llmcompressor.transformers.text_generation.oneshot=llmcompressor.transformers.finetune.text_generation:oneshot",  # noqa 501
         ]
     },
-    python_requires=">=3.8.0,<3.12",
+    python_requires=">=3.8",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",
