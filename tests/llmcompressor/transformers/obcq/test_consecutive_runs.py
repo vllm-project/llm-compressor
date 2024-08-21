@@ -57,7 +57,7 @@ class TestConsecutiveRuns(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=self.second_recipe,
             output_dir=self.output_second,
-            oneshot_device="cuda:1",
+            oneshot_device="cuda:0",
             clear_sparse_session=False,
         )
 
