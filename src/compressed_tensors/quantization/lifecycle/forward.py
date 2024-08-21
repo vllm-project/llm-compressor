@@ -17,6 +17,7 @@ from math import ceil
 from typing import Optional
 
 import torch
+from compressed_tensors.quantization.lifecycle.helpers import safe_permute
 from compressed_tensors.quantization.observers.helpers import calculate_range
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
@@ -45,6 +46,7 @@ def quantize(
     zero_point: torch.Tensor,
     args: QuantizationArgs,
     dtype: Optional[torch.dtype] = None,
+    g_idx: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Quantize the input tensor x using the QuantizationStrategy specified in args.
@@ -58,6 +60,7 @@ def quantize(
     :param zero_point: zero point tensor
     :param args: quantization args dictating how to quantize x
     :param dtype: optional dtype to cast the quantized output to
+    :param g_idx: optional mapping from column index to group index
     :return: fake quantized tensor
     """
     # ensure all tensors are on the same device
@@ -76,6 +79,7 @@ def quantize(
         dtype=dtype,
         do_quantize=True,
         do_dequantize=False,
+        g_idx=g_idx,
     )
 
 
@@ -86,6 +90,7 @@ def dequantize(
     zero_point: torch.Tensor = None,
     args: QuantizationArgs = None,
     dtype: Optional[torch.dtype] = None,
+    g_idx: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Dequantize a quantized input tensor x_q based on the strategy specified in args. If
@@ -96,6 +101,7 @@ def dequantize(
     :param zero_point: zero point tensor
     :param args: quantization args used to quantize x_q
     :param dtype: optional dtype to cast the dequantized output to
+    :param g_idx: optional mapping from column index to group index
     :return: dequantized float tensor
     """
     if args is None:
@@ -126,6 +132,7 @@ def dequantize(
         do_quantize=False,
         do_dequantize=True,
         dtype=dtype,
+        g_idx=g_idx,
     )
 
 
@@ -135,6 +142,7 @@ def fake_quantize(
     scale: torch.Tensor,
     zero_point: torch.Tensor,
     args: QuantizationArgs,
+    g_idx: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Fake quantize the input tensor x by quantizing then dequantizing with
@@ -147,6 +155,7 @@ def fake_quantize(
     :param scale: scale tensor
     :param zero_point: zero point tensor
     :param args: quantization args dictating how to quantize x
+    :param g_idx: optional mapping from column index to group index
     :return: fake quantized tensor
     """
     return _process_quantization(
@@ -156,6 +165,7 @@ def fake_quantize(
         args=args,
         do_quantize=True,
         do_dequantize=True,
+        g_idx=g_idx,
     )
 
 
@@ -164,21 +174,19 @@ def _process_quantization(
     x: torch.Tensor,
     scale: torch.Tensor,
     zero_point: torch.Tensor,
+    g_idx: Optional[torch.Tensor],
     args: QuantizationArgs,
     dtype: Optional[torch.dtype] = None,
     do_quantize: bool = True,
     do_dequantize: bool = True,
 ) -> torch.Tensor:
-
     q_min, q_max = calculate_range(args, x.device)
     group_size = args.group_size
 
     if args.strategy == QuantizationStrategy.GROUP:
         output_dtype = dtype if dtype is not None else x.dtype
         output = torch.zeros_like(x).to(output_dtype)
-
-        # TODO: vectorize the for loop
-        # TODO: fix genetric assumption about the tensor size for computing group
+        columns = output.shape[1]
 
         # TODO: make validation step for inputs
 
@@ -187,23 +195,38 @@ def _process_quantization(
             scale = scale.unsqueeze(1)
             zero_point = zero_point.unsqueeze(1) if zero_point is not None else None
 
-        columns = x.shape[1]
         if columns >= group_size:
             if columns % group_size != 0:
                 raise ValueError(
-                    "tesnor column shape must be divisble "
+                    "tensor column shape must be divisble "
                     f"by the given group_size {group_size}"
                 )
-        for i in range(ceil(columns / group_size)):
-            # scale.shape should be [nchan, ndim]
-            # sc.shape should be [nchan, 1] after unsqueeze
-            sc = scale[:, i].view(-1, 1)
-            zp = zero_point[:, i].view(-1, 1) if zero_point is not None else None
 
-            idx = i * group_size
+        # support column-order (default) quantization as well as other orderings
+        # such as activation ordering. Below checks if g_idx has been initialized
+        is_column_order = g_idx is None or -1 in g_idx
+        if is_column_order:
+            num_groups = int(ceil(columns / group_size))
+            group_sizes = torch.full((num_groups,), group_size, dtype=torch.int)
+
+        else:
+            group_indices, group_sizes = torch.unique(g_idx, return_counts=True)
+            group_sizes = group_sizes[torch.argsort(group_indices)]
+
+            perm = torch.argsort(g_idx)
+            x = safe_permute(x, perm, dim=1)
+
+        # TODO: experiment with vectorizing for loop for performance
+        end = 0
+        for index, group_count in enumerate(group_sizes):
+            sc = scale[:, index].view(-1, 1)
+            zp = zero_point[:, index].view(-1, 1) if zero_point is not None else None
+
+            start = end
+            end = start + group_count
             if do_quantize:
-                output[:, idx : (idx + group_size)] = _quantize(
-                    x[:, idx : (idx + group_size)],
+                output[:, start:end] = _quantize(
+                    x[:, start:end],
                     sc,
                     zp,
                     q_min,
@@ -211,13 +234,13 @@ def _process_quantization(
                     args,
                     dtype=dtype,
                 )
+
             if do_dequantize:
-                input = (
-                    output[:, idx : (idx + group_size)]
-                    if do_quantize
-                    else x[:, idx : (idx + group_size)]
-                )
-                output[:, idx : (idx + group_size)] = _dequantize(input, sc, zp)
+                input = output[:, start:end] if do_quantize else x[:, start:end]
+                output[:, start:end] = _dequantize(input, sc, zp)
+
+        if not is_column_order:
+            output = safe_permute(output, torch.argsort(perm), dim=1)
 
     else:  # covers channel, token and tensor strategies
         if do_quantize:
@@ -304,6 +327,8 @@ def maybe_calibrate_or_quantize(
         # skip quantization
         return value
 
+    g_idx = getattr(module, "weight_g_idx", None)
+
     if args.dynamic:
         # dynamic quantization - get scale and zero point directly from observer
         observer = getattr(module, f"{base_name}_observer")
@@ -326,7 +351,7 @@ def maybe_calibrate_or_quantize(
             update_parameter_data(module, updated_scale, f"{base_name}_scale")
             update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
-    return fake_quantize(value, scale, zero_point, args)
+    return fake_quantize(value, scale, zero_point, args, g_idx=g_idx)
 
 
 @torch.no_grad()

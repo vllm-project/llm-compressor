@@ -16,7 +16,9 @@
 Miscelaneous helpers for the quantization lifecycle
 """
 
+from typing import Set, Tuple
 
+import torch
 from torch.nn import Module
 
 
@@ -51,3 +53,53 @@ def enable_quantization(module: Module):
 
 def disable_quantization(module: Module):
     module.quantization_enabled = False
+
+
+# these datatypes are missing implementations required for standard permutation
+_EXPERIMENTAL_DTYPES: Set[Tuple[torch.dtype, torch.device]] = set()
+
+
+def safe_permute(value: torch.Tensor, perm: torch.Tensor, dim: int = 0) -> torch.Tensor:
+    """
+    Perform out-of-place permutation without using torch.Tensor.index_put_,
+    whose implementation is missing for datatypes such as `torch.float8_e4m3fn`
+
+    :param value: tensor to permute
+    :param perm: permutation map
+    :param dim: dimension along which to apply permutation
+    :return: permuted value
+    """
+    dtype_tuple = (value.dtype, value.device)
+
+    if dtype_tuple in _EXPERIMENTAL_DTYPES:
+        return _fallback_permute(value, perm, dim)
+
+    try:
+        return value[tuple([slice(None)] * dim + [perm])]
+    except RuntimeError:
+        # Mark dtype as experimental if advanced indexing fails
+        _EXPERIMENTAL_DTYPES.add(dtype_tuple)
+        return _fallback_permute(value, perm, dim)
+
+
+def _fallback_permute(
+    value: torch.Tensor, perm: torch.Tensor, dim: int
+) -> torch.Tensor:
+    """
+    Fallback permutation method for experimental dtypes.
+
+    :param value: tensor to permute
+    :param perm: permutation map
+    :param dim: dimension along which to apply permutation
+    :return: permuted value
+    """
+    value_ret = value.clone()  # cannot use zeros_like b/c of missing impl.
+    orig_slices = [slice(None)] * (dim + 1)
+    perm_slices = [slice(None)] * (dim + 1)
+
+    for index, perm_index in enumerate(perm):
+        orig_slices[dim] = index
+        perm_slices[dim] = perm_index
+        value_ret[tuple(orig_slices)] = value[tuple(perm_slices)]
+
+    return value_ret
