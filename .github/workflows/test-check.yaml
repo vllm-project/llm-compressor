@@ -29,7 +29,7 @@ jobs:
           && echo "::set-output name=branch::$(git branch --show-current)"
           || echo "::set-output name=branch::main"
   base-tests:
-    runs-on: ubuntu-22.04
+    runs-on: k8s-a100-solo
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
@@ -44,7 +44,7 @@ jobs:
       - name: "🔬 Running base tests"
         run: make test
   pytorch-tests:
-    runs-on: ubuntu-22.04
+    runs-on: k8s-a100-solo
     env:
       CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
@@ -76,7 +76,7 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: make test TARGETS=pytorch
   compat-pytorch-1_9-pytorch-tests:
-    runs-on: ubuntu-22.04
+    runs-on: k8s-a100-solo
     env:
       CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
@@ -108,7 +108,7 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: make test TARGETS=pytorch
   transformers-tests:
-    runs-on: ubuntu-22.04
+    runs-on: k8s-a100-solo
     env:
       CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
