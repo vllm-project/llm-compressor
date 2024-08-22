@@ -15,10 +15,8 @@
 
 import pytest
 import torch
-from compressed_tensors.quantization.lifecycle.helpers import (
-    _EXPERIMENTAL_DTYPES,
-    safe_permute,
-)
+from compressed_tensors.utils import safe_permute
+from compressed_tensors.utils.permute import _EXPERIMENTAL_DTYPES
 
 
 @pytest.mark.parametrize(

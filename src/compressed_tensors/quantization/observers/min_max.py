@@ -94,3 +94,11 @@ class MovingAverageMinMaxObserver(Observer):
         return self.calculate_qparams(
             observed, reduce_dims=reduce_dims, tensor_id=tensor_id
         )
+
+    def reset(self):
+        """
+        Reset the state of the observer, including min and maximum values
+        """
+        super().reset()
+        self.min_val = {}
+        self.max_val = {}

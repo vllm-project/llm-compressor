@@ -16,7 +16,7 @@
 Miscelaneous helpers for the quantization lifecycle
 """
 
-from typing import Set, Tuple
+from typing import Optional
 
 import torch
 from torch.nn import Module
@@ -29,17 +29,42 @@ __all__ = [
 ]
 
 
-def update_layer_weight_quant_params(layer: Module):
-    weight = getattr(layer, "weight", None)
+def update_layer_weight_quant_params(
+    layer: Module,
+    weight: Optional[torch.Tensor] = None,
+    g_idx: Optional[torch.Tensor] = None,
+    reset_obs: bool = False,
+):
+    """
+    Update quantization parameters on layer
+
+    :param layer: input layer
+    :param weight: weight to update quant params with, defaults to layer weight
+    :param g_idx: optional mapping from column index to group index
+    :param reset_obs: reset the observer before calculating quant params,
+        defaults to False
+    """
+    attached_weight = getattr(layer, "weight", None)
+
+    if weight is None:
+        weight = attached_weight
     scale = getattr(layer, "weight_scale", None)
     zero_point = getattr(layer, "weight_zero_point", None)
+    if g_idx is None:
+        g_idx = getattr(layer, "weight_g_idx", None)
     observer = getattr(layer, "weight_observer", None)
 
     if weight is None or observer is None or scale is None or zero_point is None:
         # scale, zp, or observer not calibratable or weight not available
         return
 
-    updated_scale, updated_zero_point = observer(weight)
+    if reset_obs:
+        observer.reset()
+
+    if attached_weight is not None:
+        weight = weight.to(attached_weight.dtype)
+
+    updated_scale, updated_zero_point = observer(weight, g_idx=g_idx)
 
     # update scale and zero point
     device = next(layer.parameters()).device
@@ -53,53 +78,3 @@ def enable_quantization(module: Module):
 
 def disable_quantization(module: Module):
     module.quantization_enabled = False
-
-
-# these datatypes are missing implementations required for standard permutation
-_EXPERIMENTAL_DTYPES: Set[Tuple[torch.dtype, torch.device]] = set()
-
-
-def safe_permute(value: torch.Tensor, perm: torch.Tensor, dim: int = 0) -> torch.Tensor:
-    """
-    Perform out-of-place permutation without using torch.Tensor.index_put_,
-    whose implementation is missing for datatypes such as `torch.float8_e4m3fn`
-
-    :param value: tensor to permute
-    :param perm: permutation map
-    :param dim: dimension along which to apply permutation
-    :return: permuted value
-    """
-    dtype_tuple = (value.dtype, value.device)
-
-    if dtype_tuple in _EXPERIMENTAL_DTYPES:
-        return _fallback_permute(value, perm, dim)
-
-    try:
-        return value[tuple([slice(None)] * dim + [perm])]
-    except RuntimeError:
-        # Mark dtype as experimental if advanced indexing fails
-        _EXPERIMENTAL_DTYPES.add(dtype_tuple)
-        return _fallback_permute(value, perm, dim)
-
-
-def _fallback_permute(
-    value: torch.Tensor, perm: torch.Tensor, dim: int
-) -> torch.Tensor:
-    """
-    Fallback permutation method for experimental dtypes.
-
-    :param value: tensor to permute
-    :param perm: permutation map
-    :param dim: dimension along which to apply permutation
-    :return: permuted value
-    """
-    value_ret = value.clone()  # cannot use zeros_like b/c of missing impl.
-    orig_slices = [slice(None)] * (dim + 1)
-    perm_slices = [slice(None)] * (dim + 1)
-
-    for index, perm_index in enumerate(perm):
-        orig_slices[dim] = index
-        perm_slices[dim] = perm_index
-        value_ret[tuple(orig_slices)] = value[tuple(perm_slices)]
-
-    return value_ret

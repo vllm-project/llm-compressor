@@ -171,3 +171,11 @@ class Observer(Module, RegistryMixin):
         # observed_tokens (batch_size * sequence_length)
         observed_tokens, _ = batch_tensor.shape
         self._num_observed_tokens += observed_tokens
+
+    def reset(self):
+        """
+        Reset the state of the observer
+        """
+        self._num_observed_tokens = None
+        self._scale = None
+        self._zero_point = None
