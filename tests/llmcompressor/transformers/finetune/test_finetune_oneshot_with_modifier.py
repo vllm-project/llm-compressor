@@ -6,8 +6,8 @@ import pytest
 
 from tests.testing_utils import requires_torch, requires_gpu
 
-@requires_gpu
 @pytest.mark.integration
+@requires_gpu
 @requires_torch
 class TestOneshotWithModifierObject(unittest.TestCase):
     def setUp(self):
