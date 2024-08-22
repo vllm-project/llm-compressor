@@ -121,12 +121,12 @@ jobs:
           python-version: '3.11'
       - uses: actions/checkout@v2
         with:
-          ref: ${{needs.test-setup.outputs.branch}}
+          ref: cleanup-runners
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
-          ref: ${{needs.test-setup.outputs.branch}}
+          ref: main
       - name: "⚙️ Install compressed-tensors dependencies"
         run: pip3 install -U pip && pip3 install setuptools compressed-tensors/
       - name: "Clean compressed-tensors directory"
