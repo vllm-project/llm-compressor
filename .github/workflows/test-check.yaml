@@ -44,7 +44,7 @@ jobs:
       - name: "🔬 Running base tests"
         run: make test
   pytorch-tests:
-    runs-on: k8s-eng-gpu-64G-v100-32G
+    runs-on: ubuntu-22.04
     env:
       CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
@@ -76,7 +76,7 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: make test TARGETS=pytorch
   compat-pytorch-1_9-pytorch-tests:
-    runs-on: k8s-eng-gpu-64G-v100-32G
+    runs-on: ubuntu-22.04
     env:
       CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
@@ -108,7 +108,7 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: make test TARGETS=pytorch
   transformers-tests:
-    runs-on: k8s-eng-gpu-64G-v100-32G
+    runs-on: ubuntu-22.04
     env:
       CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
