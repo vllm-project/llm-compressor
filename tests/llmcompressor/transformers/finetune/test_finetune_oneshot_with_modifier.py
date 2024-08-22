@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.testing_utils import requires_torch, requires_gpu
+from tests.testing_utils import requires_torch
 
 @requires_gpu
 @pytest.mark.integration
