@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.testing_utils import requires_torch
+from tests.testing_utils import requires_torch, requires_gpu
 
-
+@requires_gpu
 @pytest.mark.integration
 @requires_torch
 class TestOneshotWithModifierObject(unittest.TestCase):
@@ -24,8 +24,6 @@ class TestOneshotWithModifierObject(unittest.TestCase):
         ]
         model = "Xenova/llama2.c-stories15M"
         device = "cuda:0"
-        if not torch.cuda.is_available():
-            device = "cpu"
         dataset = "open_platypus"
         concatenate_data = False
         num_calibration_samples = 64
