@@ -5,6 +5,7 @@ import pytest
 
 from tests.testing_utils import requires_torch
 
+
 @pytest.mark.integration
 @requires_torch
 class TestFinetuneWithoutRecipe(unittest.TestCase):
