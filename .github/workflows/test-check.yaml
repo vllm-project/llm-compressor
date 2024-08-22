@@ -74,7 +74,8 @@ jobs:
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
-        run: make test TARGETS=pytorch
+        run: |
+          pytest tests/llmcompressor/pytorch
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
     env:
