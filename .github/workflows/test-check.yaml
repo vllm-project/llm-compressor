@@ -9,6 +9,14 @@ on:
       - main
       - 'release/*'
 
+env:
+  CADENCE: "commit"
+  CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
+  CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
+  CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
+  CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
+  CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+
 jobs:
   test-setup:
     runs-on: ubuntu-22.04
@@ -21,7 +29,9 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
-      - run: git branch --show-current
+      # TODO: for @DanH what is this supposed to be doing?
+      # The way it was being used before was only testing code on main,
+      # not on the current PR. git branch --show current does not work
       - name: Get current branch
         id: get-branch
         run: >
@@ -35,35 +45,18 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - name: do
-        run: | 
-          echo ${{ needs.test-setup.outputs.branch }}
       - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running base tests"
         run: make test
   pytorch-tests:
     runs-on: ubuntu-22.04
-    env:
-      CADENCE: "commit"
-      CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-      CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-      CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-      CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
-      CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -81,22 +74,11 @@ jobs:
           pytest tests/llmcompressor/pytorch
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
-    env:
-      CADENCE: "commit"
-      CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-      CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-      CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-      CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
-      CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -114,22 +96,12 @@ jobs:
           pytest tests/llmcompressor/pytorch
   transformers-tests:
     runs-on: ubuntu-22.04
-    env:
-      CADENCE: "commit"
-      CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-      CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-      CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-      CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
-      CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
