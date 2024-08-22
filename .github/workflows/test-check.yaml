@@ -36,7 +36,7 @@ jobs:
         id: get-branch
         run: >
           (git branch --show-current | grep -E "release/")
-          && echo "::set-output name=branch::${{ github.ref_name }}"
+          && echo "::set-output name=branch::$(git branch --show-current)"
           || echo "::set-output name=branch::main"
   base-tests:
     runs-on: ubuntu-22.04
