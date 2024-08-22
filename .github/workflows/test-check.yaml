@@ -137,12 +137,26 @@ jobs:
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Install dependencies"
+        id: install
         run: pip3 install .[dev]
-      - name: "🔬 Running transformers tests"
+      - name: "🔬 Running transformers tests[skipping over finetune]"
+        if: always() && steps.install.outcome == 'success'
         run: |
           pytest tests/llmcompressor/transformers/compression
+      - name: Running GPTQ Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
           pytest tests/llmcompressor/transformers/gptq
+      - name: Running OBCQ Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
           pytest tests/llmcompressor/transformers/obcq
+      - name: Running ONESHOT Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
           pytest tests/llmcompressor/transformers/onehsot
+      - name: Running Sparsification Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
           pytest tests/llmcompressor/transformers/sparsification
           ptyest tests/llmcompressor/transformers/test_clear_ml.py
