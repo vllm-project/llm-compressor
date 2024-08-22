@@ -3,7 +3,7 @@ import unittest
 
 import pytest
 
-from tests.testing_utils import requires_torch, requires_gpu
+from tests.testing_utils import requires_torch
 
 
 @pytest.mark.skip(reason="slow")

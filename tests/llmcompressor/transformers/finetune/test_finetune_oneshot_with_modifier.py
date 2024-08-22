@@ -6,7 +6,7 @@ import pytest
 
 from tests.testing_utils import requires_torch, requires_gpu
 
-@pytest.mark.skip(reason="slow")
+@pytest.mark.skip(reason="no way of currently testing this")
 class TestOneshotWithModifierObject(unittest.TestCase):
     def setUp(self):
         self.output = Path("./finetune_output")
