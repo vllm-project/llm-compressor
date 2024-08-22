@@ -1,4 +1,4 @@
-cadence: "commit"
+cadence: "nightly"
 test_type: "sanity"
 model: "Xenova/llama2.c-stories15M"
 dataset: open_platypus
