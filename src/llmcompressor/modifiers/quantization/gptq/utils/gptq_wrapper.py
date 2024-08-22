@@ -118,12 +118,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     self.H = self.H[perm][:, perm]
 
             # fetch latest correct scale and ZP relevant for any changes
-            from compressed_tensors.quantization import update_layer_weight_quant_params
-
             # TODO: experiment with updating before each block
-            update_layer_weight_quant_params(self.layer, weight=W, reset_obs=True)
-            scale = self.layer.weight_scale.data
-            zero_point = self.layer.weight_zero_point.data
+            observer = getattr(self.layer, "weight_observer")  # must have observer
+            observer.reset()
+            scale, zero_point = observer(W, g_idx=None)  # W is already permuted
 
         group_size = (
             quant_scheme.weights.group_size
