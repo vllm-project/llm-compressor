@@ -3,9 +3,9 @@ import unittest
 
 import pytest
 
-from tests.testing_utils import requires_torch
+from tests.testing_utils import requires_torch, @requires_gpu
 
-
+@requires_gpu
 @pytest.mark.integration
 @requires_torch
 class TestFinetuneWithoutRecipe(unittest.TestCase):
