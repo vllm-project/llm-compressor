@@ -35,6 +35,9 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+      - name: do
+        run: | 
+          echo ${{ needs.test-setup.outputs.branch }}
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -120,8 +123,6 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
-        with:
-          ref: cleanup-runners
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
