@@ -140,4 +140,4 @@ jobs:
         run: pip3 install .[dev]
       - name: "🔬 Running transformers tests"
         run: |
-          pytest tests/llmcompressor/pytorch
+          pytest tests/llmcompressor/transformers
