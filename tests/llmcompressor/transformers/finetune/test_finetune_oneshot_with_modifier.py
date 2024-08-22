@@ -23,6 +23,7 @@ class TestOneshotWithModifierObject(unittest.TestCase):
             SparseGPTModifier(sparsity=0.5, targets=[r"re:model.layers.\d+$"])
         ]
         model = "Xenova/llama2.c-stories15M"
+        device = "cuda:0"
         if not torch.cuda.is_available():
             device = "cpu"
         dataset = "open_platypus"
