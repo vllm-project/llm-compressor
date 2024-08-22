@@ -106,7 +106,6 @@ jobs:
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
-        working-directory: llm-compressor
         run: |
           pytest tests/llmcompressor/pytorch
   transformers-tests:
@@ -139,6 +138,5 @@ jobs:
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running transformers tests"
-        working-directory: llm-compressor
         run: |
           pytest tests/llmcompressor/pytorch
