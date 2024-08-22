@@ -5,7 +5,7 @@ import pytest
 
 from tests.testing_utils import requires_torch, @requires_gpu
 
-@pyetst.mark.skip(reason="slow")
+@pytest.mark.skip(reason="slow")
 class TestFinetuneWithoutRecipe(unittest.TestCase):
     def setUp(self):
         self.output = "./finetune_output"
