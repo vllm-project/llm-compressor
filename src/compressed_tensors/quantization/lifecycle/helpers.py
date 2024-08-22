@@ -64,7 +64,7 @@ def update_layer_weight_quant_params(
     if attached_weight is not None:
         weight = weight.to(attached_weight.dtype)
 
-    updated_scale, updated_zero_point = observer(weight, g_idx=g_idx)
+    updated_scale, updated_zero_point = observer(weight)
 
     # update scale and zero point
     device = next(layer.parameters()).device
