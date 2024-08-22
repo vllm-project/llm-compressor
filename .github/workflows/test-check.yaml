@@ -58,10 +58,8 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
         with:
           ref: ${{needs.test-setup.outputs.branch}}
-      - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -91,10 +89,8 @@ jobs:
         with:
           python-version: '3.9'
       - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
         with:
           ref: ${{needs.test-setup.outputs.branch}}
-      - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -124,7 +120,6 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
         with:
           ref: ${{needs.test-setup.outputs.branch}}
       - uses: actions/checkout@v2
@@ -150,7 +145,7 @@ jobs:
       - name: Running ONESHOT Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/onehsot
+          pytest tests/llmcompressor/transformers/oneshot
       - name: Running Sparsification Tests
         if: always() && steps.install.outcome == 'success'
         run: |
