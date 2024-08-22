@@ -2,6 +2,10 @@ import time
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.utils.metric_logging import (
+    get_GPU_memory_usage,
+    get_layer_size_bytes,
+)
 
 try:
     import transformers
@@ -79,6 +83,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
+
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
@@ -240,8 +245,28 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 W[:, i2:] -= w_err * W_nz_mask[:, i2:]
             else:
                 W[:, i2:] -= w_err
-        logger.info("time %.2f" % (time.time() - tick))
-        logger.info("error %.2f" % torch.sum(Losses).item())
+
+        if "METRIC" in logger._core.levels.keys():
+            logger.log("METRIC", "time %.2f" % (time.time() - tick))
+            logger.log("METRIC", "error %.2f" % torch.sum(Losses).item())
+
+            gpu_usage = get_GPU_memory_usage()
+            if len(gpu_usage) > 0:
+                for i in range(len(gpu_usage)):
+                    perc = gpu_usage[i][0] * 100
+                    total_memory = int(gpu_usage[i][1])  # GB
+                    logger.log(
+                        "METRIC",
+                        (
+                            f"GPU {i} | usage: {perc:.2f}%"
+                            f" | total memory: {total_memory} GB"
+                        )
+                    )
+
+            logger.log(
+                "METRIC",
+                f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB",
+            )
 
         if actorder:
             # restore original permutation

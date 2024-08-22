@@ -46,6 +46,7 @@ jobs:
   pytorch-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
+      CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
@@ -77,6 +78,7 @@ jobs:
   compat-pytorch-1_9-pytorch-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
+      CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
@@ -108,6 +110,7 @@ jobs:
   transformers-tests:
     runs-on: k8s-eng-gpu-64G-v100-32G
     env:
+      CADENCE: "commit"
       CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
       CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
       CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
