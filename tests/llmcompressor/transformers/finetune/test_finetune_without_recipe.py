@@ -12,7 +12,6 @@ class TestFinetuneWithoutRecipe(unittest.TestCase):
     def setUp(self):
         self.output = "./finetune_output"
 
-    @unittest.skip
     def test_finetune_without_recipe(self):
         import torch
 
