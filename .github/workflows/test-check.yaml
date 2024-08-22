@@ -26,7 +26,7 @@ jobs:
         id: get-branch
         run: >
           (git branch --show-current | grep -E "release/")
-          && echo "::set-output name=branch::$(git branch --show-current)"
+          && echo "::set-output name=branch::${{ github.ref_name }}"
           || echo "::set-output name=branch::main"
   base-tests:
     runs-on: ubuntu-22.04
@@ -61,8 +61,10 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
         with:
           ref: ${{needs.test-setup.outputs.branch}}
+      - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -92,8 +94,10 @@ jobs:
         with:
           python-version: '3.9'
       - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
         with:
           ref: ${{needs.test-setup.outputs.branch}}
+      - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -125,9 +129,12 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
+          ref: ${{needs.test-setup.outputs.branch}}
+      - uses: actions/checkout@v2
+        with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
-          ref: main
+          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install compressed-tensors dependencies"
         run: pip3 install -U pip && pip3 install setuptools compressed-tensors/
       - name: "Clean compressed-tensors directory"
