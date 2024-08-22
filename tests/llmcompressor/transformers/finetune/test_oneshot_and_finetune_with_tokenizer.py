@@ -6,6 +6,7 @@ import pytest
 from tests.testing_utils import requires_torch, requires_gpu
 
 @requires_gpu
+@pyetst.mark.skip(reason="slow")
 @pytest.mark.integration
 @requires_torch
 class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):

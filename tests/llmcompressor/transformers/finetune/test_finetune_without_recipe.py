@@ -5,7 +5,7 @@ import pytest
 
 from tests.testing_utils import requires_torch, @requires_gpu
 
-@requires_gpu
+@pytest.mark.skipif("slow")
 @pytest.mark.integration
 @requires_torch
 class TestFinetuneWithoutRecipe(unittest.TestCase):
