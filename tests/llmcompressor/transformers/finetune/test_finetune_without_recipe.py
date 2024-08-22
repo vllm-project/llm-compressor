@@ -5,11 +5,14 @@ import pytest
 
 from tests.testing_utils import requires_torch, requires_gpu
 
-@pytest.mark.skip(reason="no way of currently testing this")
+@requires_gpu
+@pytest.mark.integration
+@requires_torch
 class TestFinetuneWithoutRecipe(unittest.TestCase):
     def setUp(self):
         self.output = "./finetune_output"
 
+    @unittest.skip
     def test_finetune_without_recipe(self):
         import torch
 

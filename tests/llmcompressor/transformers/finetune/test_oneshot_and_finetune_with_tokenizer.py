@@ -3,10 +3,12 @@ import unittest
 
 import pytest
 
-from tests.testing_utils import requires_torch
+from tests.testing_utils import requires_torch, requires_gpu
 
 
-@pytest.mark.skip(reason="slow")
+@requires_gpu
+@pytest.mark.integration
+@requires_torch
 class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
     def setUp(self):
         self.output = "./finetune_output"
