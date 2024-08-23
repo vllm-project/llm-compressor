@@ -7,8 +7,13 @@ from torch.nn import Module
 def get_GPU_memory_usage() -> List[Tuple]:
     try:
         import pynvml
+        from pynvml import NVMLError
 
-        pynvml.nvmlInit()
+        try:
+            pynvml.nvmlInit()
+        except NVMLError as _err:
+            logger.warning(f"Pynml library error:\n {_err}")
+            return []
 
         device_count = pynvml.nvmlDeviceGetCount()
         usage = []  # [(percentage, total_memory_MB)]
