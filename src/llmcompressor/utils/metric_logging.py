@@ -8,7 +8,7 @@ def get_GPU_memory_usage() -> List[Tuple]:
     try:
         import pynvml
         from pynvml import NVMLError
-        
+
         try:
             pynvml.nvmlInit()
         except NVMLError as _err:
@@ -33,8 +33,8 @@ def get_GPU_memory_usage() -> List[Tuple]:
     except ImportError:
         logger.warning("Failed to obtain GPU usage from pynvml")
         return []
-        
-        
+
+
 def get_layer_size_bytes(module: Module) -> float:
     param_size = 0
     buffer_size = 0
