@@ -143,7 +143,7 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
 
         from llmcompressor.transformers import SparseAutoModelForCausalLM
 
-        self.device = "auto"
+        self.device = "cuda:0"
         self.output = "./oneshot_output"
 
         self.model = SparseAutoModelForCausalLM.from_pretrained(
