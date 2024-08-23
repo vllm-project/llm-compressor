@@ -100,6 +100,7 @@ class TestOBCQCompletion(unittest.TestCase):
 
 
 @requires_torch
+@requires_gpu
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOBCQCompletionSmall(TestOBCQCompletion):
