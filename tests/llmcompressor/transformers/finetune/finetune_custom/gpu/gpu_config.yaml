@@ -1,5 +1,5 @@
-cadence: "weekly"
+cadence: "nightly"
 test_type: "regression"
-model: “neuralmagic/Llama-2-7b-ultrachat200k”
+model: "neuralmagic/Llama-2-7b-ultrachat200k"
 file_extension: json
 num_train_epochs: 0.5
