@@ -241,7 +241,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         (
                             f"GPU {i} | usage: {perc:.2f}%"
                             f" | total memory: {total_memory} GB"
-                        )
+                        ),
                     )
 
             logger.log(

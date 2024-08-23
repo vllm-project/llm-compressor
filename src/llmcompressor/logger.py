@@ -75,7 +75,7 @@ def configure_logger(config: Optional[LoggerConfig] = None):
         logger_config.console_log_level = console_log_level.upper()
     if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
         logger_config.log_file = log_file
-    if log_file_level := os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL"):
+    if (log_file_level := os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL")) is not None:
         logger_config.log_file_level = log_file_level
 
     if logger_config.disabled:
@@ -103,6 +103,7 @@ def configure_logger(config: Optional[LoggerConfig] = None):
 
     if logger_config.metrics_disabled or "METRIC" in logger._core.levels.keys():
         return
+
     # initialize metric logger on loguru
     _initialize_metric_logging()
 
