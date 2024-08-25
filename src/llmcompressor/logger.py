@@ -64,23 +64,19 @@ def configure_logger(config: Optional[LoggerConfig] = None):
     :param config: The configuration for the logger to use.
     :type config: LoggerConfig
     """
-    if (disabled := os.getenv("LLM_COMPRESSOR_LOG_DISABLED")) is not None:
-        disabled = disabled.lower()
-    if (clear_loggers := os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS")) is not None:
-        clear_loggers = clear_loggers.lower()
-    if (console_log_level := os.getenv("LLM_COMPRESSOR_LOG_LEVEL")) is not None:
-        console_log_level = console_log_level.upper()
-    log_file = os.getenv("LLM_COMPRESSOR_LOG_FILE")
-    log_file_level = os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL")
+    logger_config = config or LoggerConfig()
 
-    # override from environment variables, if set
-    logger_config = LoggerConfig(
-        disabled=disabled or LoggerConfig.disabled,
-        clear_loggers=clear_loggers or LoggerConfig.clear_loggers,
-        console_log_level=console_log_level or LoggerConfig.console_log_level,
-        log_file=log_file or LoggerConfig.log_file,
-        log_file_level=log_file_level or LoggerConfig.log_file_level,
-    )
+    # env vars get priority
+    if (disabled := os.getenv("LLM_COMPRESSOR_LOG_DISABLED")) is not None:
+        logger_config.disabled = disabled.lower()
+    if (clear_loggers := os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS")) is not None:
+        logger_config.clear_loggers = clear_loggers.lower()
+    if (console_log_level := os.getenv("LLM_COMPRESSOR_LOG_LEVEL")) is not None:
+        logger_config.console_log_level = console_log_level.upper()
+    if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
+        logger_config.log_file = log_file
+    if (log_file_level := os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL")) is not None:
+        logger_config.log_file_level = log_file_level
 
     if logger_config.disabled:
         logger.disable("llmcompressor")
@@ -105,8 +101,9 @@ def configure_logger(config: Optional[LoggerConfig] = None):
         # log as json to the file for easier parsing
         logger.add(log_file, level=log_file_level.upper(), serialize=True)
 
-    if logger_config.metrics_disabled:
+    if logger_config.metrics_disabled or "METRIC" in logger._core.levels.keys():
         return
+
     # initialize metric logger on loguru
     _initialize_metric_logging()
 
