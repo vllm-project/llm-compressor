@@ -125,11 +125,11 @@ class GPTQWrapper(ModuleCompressionWrapper):
             scale = self.layer.weight_scale.data
             zero_point = self.layer.weight_zero_point.data
 
-        group_size = (
-            quant_scheme.weights.group_size
-            if quant_scheme.weights.group_size is not None
-            else W.shape[1]
-        )
+            group_size = (
+                quant_scheme.weights.group_size
+                if quant_scheme.weights.group_size is not None
+                else W.shape[1]
+            )
 
         # mask sparsity if applicable
         sparsity = tensor_sparsity(W)
