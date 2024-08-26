@@ -44,7 +44,7 @@ def set_module_for_calibration(module: Module, quantize_weights_upfront: bool = 
         return
     status = getattr(module, "quantization_status", None)
     if not status or status != QuantizationStatus.INITIALIZED:
-        raise _LOGGER.warning(
+        _LOGGER.warning(
             f"Attempting set module with status {status} to calibration mode. "
             f"but status is not {QuantizationStatus.INITIALIZED} - you may "
             "be calibrating an uninitialized module which may fail or attempting "
