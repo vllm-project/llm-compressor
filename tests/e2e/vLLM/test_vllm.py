@@ -26,6 +26,8 @@ class TestvLLM(unittest.TestCase):
         print(self.scheme)
 
         MODEL_ID = self.model
+        NUM_CALIBRATION_SAMPLES = 512
+        MAX_SEQUENCE_LENGTH = 2048
         prompts = [
             "The capital of France is",
             "The president of the US is",
@@ -57,9 +59,6 @@ class TestvLLM(unittest.TestCase):
             )
 
         if self.dataset_id:
-            NUM_CALIBRATION_SAMPLES = 512
-            MAX_SEQUENCE_LENGTH = 2048
-
             ds = load_dataset(self.dataset_id, split=self.dataset_split)
             ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
             ds = ds.map(preprocess)
@@ -73,6 +72,7 @@ class TestvLLM(unittest.TestCase):
         )
 
         # Apply quantization.
+        print(oneshot_kwargs)
         oneshot(**oneshot_kwargs)
 
         # Confirm generations of the quantized model look sane.
