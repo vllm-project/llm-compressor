@@ -28,11 +28,12 @@ class TestvLLM(unittest.TestCase):
             "The president of the US is",
             "My name is",
         ]
-
+        oneshot_kwargs = {}
         # Load model.
         model = SparseAutoModelForCausalLM.from_pretrained(
             MODEL_ID, device_map="auto", torch_dtype="auto"
         )
+        oneshot_kwargs["model"] = model
         tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
         def preprocess(example):
@@ -60,22 +61,16 @@ class TestvLLM(unittest.TestCase):
             ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
             ds = ds.map(preprocess)
             ds = ds.map(tokenize, remove_columns=ds.column_names)
+            oneshot_kwargs["ds"] = ds
+            oneshot_kwargs["max_seq_length"] = MAX_SEQUENCE_LENGTH
+            oneshot_kwargs["num_calibration_samples"] = NUM_CALIBRATION_SAMPLES
 
-        recipe = QuantizationModifier(
+        oneshot_kwargs["recipe"] = QuantizationModifier(
             targets="Linear", scheme=self.scheme, ignore=["lm_head"]
         )
 
         # Apply quantization.
-        if ds:
-            oneshot(
-                model=model,
-                dataset=ds,
-                recipe=recipe,
-                max_seq_length=MAX_SEQUENCE_LENGTH,
-                num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-            )
-        else:
-            oneshot(model=model, recipe=recipe)
+        oneshot(**oneshot_kwargs)
 
         # Confirm generations of the quantized model look sane.
         print("========== SAMPLE GENERATION ==============")
