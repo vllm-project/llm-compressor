@@ -1,12 +1,12 @@
+import unittest
+
 from transformers import AutoTokenizer
+from vllm import LLM, SamplingParams
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from vllm import LLM, SamplingParams
-
-import unittest
-
 from tests.testing_utils import requires_gpu
+
 
 @requires_gpu
 class TestvLLM(unittest.TestCase):
@@ -43,8 +43,7 @@ class TestvLLM(unittest.TestCase):
     tokenizer.save_pretrained(SAVE_DIR)
 
     sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-    llm  = LLM(model=model_path)
+    llm = LLM(model=SAVE_DIR)
     outputs = llm.generate(prompts, sampling_params)
     print(outputs)
     assert output
-
