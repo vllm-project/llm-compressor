@@ -247,7 +247,10 @@ class ModelCompressor:
         # Example:
         #  Replace `model.layers.0.self_attn.k_proj.output_scale`
         #  with    `model.layers.0.self_attn.k_scale`
-        if self.quantization_config.kv_cache_scheme is not None:
+        if (
+            self.quantization_config is not None
+            and self.quantization_config.kv_cache_scheme is not None
+        ):
             # HACK (mgoin): We assume the quantized modules in question
             # will be k_proj and v_proj since those are the default targets.
             # We check that both of these modules have output activation
