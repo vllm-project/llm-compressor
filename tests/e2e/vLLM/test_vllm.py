@@ -22,6 +22,9 @@ class TestvLLM(unittest.TestCase):
     dataset_split = None
 
     def test_vllm(self):
+        print("========== RUNNING ==============")
+        print(self.scheme)
+
         MODEL_ID = self.model
         prompts = [
             "The capital of France is",
@@ -61,7 +64,7 @@ class TestvLLM(unittest.TestCase):
             ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
             ds = ds.map(preprocess)
             ds = ds.map(tokenize, remove_columns=ds.column_names)
-            oneshot_kwargs["ds"] = ds
+            oneshot_kwargs["dataset"] = ds
             oneshot_kwargs["max_seq_length"] = MAX_SEQUENCE_LENGTH
             oneshot_kwargs["num_calibration_samples"] = NUM_CALIBRATION_SAMPLES
 
