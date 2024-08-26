@@ -133,6 +133,8 @@ model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 ```
 
+For running the model in vLLM, make sure to specify the `kv_cache_dtype="fp8"` argument to enable quantization of the kv cache, and thus usage of your calibrated scales.
+
 ## Evaluating Accuracy
 
 To evaluate the accuracy of your quantized model:
@@ -140,7 +142,7 @@ To evaluate the accuracy of your quantized model:
 1. Install `vllm` and `lm-evaluation-harness`:
 
 ```bash
-pip install vllm lm_eval==0.4.3
+pip install "vllm>=0.5.5" lm_eval==0.4.3
 ```
 
 2. Run an evaluation (e.g., on GSM-8K):
@@ -149,8 +151,16 @@ pip install vllm lm_eval==0.4.3
 MODEL=$PWD/Meta-Llama-3-8B-Instruct-FP8-KV
 lm_eval \
   --model vllm \
-  --model_args pretrained=$MODEL,add_bos_token=True \
-  --tasks gsm8k --num_fewshot 5 --batch_size auto --limit 250
+  --model_args pretrained=$MODEL,kv_cache_dtype=fp8,add_bos_token=True \
+  --tasks gsm8k --num_fewshot 5 --batch_size auto
+```
+
+```
+vllm (pretrained=Meta-Llama-3-8B-Instruct-FP8-KV,kv_cache_dtype=fp8,add_bos_token=True), gen_kwargs: (None), limit: None, num_fewshot: 5, batch_size: auto
+|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|
+|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|
+|gsm8k|      3|flexible-extract|     5|exact_match|↑  |0.7748|±  |0.0115|
+|     |       |strict-match    |     5|exact_match|↑  |0.7763|±  |0.0115|
 ```
 
 Note: Include `add_bos_token=True` as quantized models can be sensitive to the presence of the `bos` token.
