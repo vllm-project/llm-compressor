@@ -60,23 +60,22 @@ class TestvLLM(unittest.TestCase):
             ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
             ds = ds.map(preprocess)
             ds = ds.map(tokenize, remove_columns=ds.column_names)
-        else:
-            ds = None
-            NUM_CALIBRATION_SAMPLES = None
-            MAX_SEQUENCE_LENGTH = None
 
         recipe = QuantizationModifier(
             targets="Linear", scheme=self.scheme, ignore=["lm_head"]
         )
 
         # Apply quantization.
-        oneshot(
-            model=model,
-            dataset=ds,
-            recipe=recipe,
-            max_seq_length=MAX_SEQUENCE_LENGTH,
-            num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-        )
+        if ds:
+            oneshot(
+                model=model,
+                dataset=ds,
+                recipe=recipe,
+                max_seq_length=MAX_SEQUENCE_LENGTH,
+                num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+            )
+        else:
+            oneshot(model=model, recipe=recipe)
 
         # Confirm generations of the quantized model look sane.
         print("========== SAMPLE GENERATION ==============")
