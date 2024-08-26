@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 import torch
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 __all__ = [
@@ -68,6 +68,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         ranges will be observed with every sample. Defaults to False for static
         quantization. Note that enabling dynamic quantization will change the default
         observer to a memoryless one
+    :param actorder: whether to apply group quantization in decreasing order of
+        activation. Defaults to False for arbitrary ordering
     """
 
     num_bits: int = 8
@@ -77,6 +79,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     strategy: Optional[QuantizationStrategy] = None
     block_structure: Optional[str] = None
     dynamic: bool = False
+    actorder: bool = False
     observer: str = Field(
         default="minmax",
         description=(
@@ -105,33 +108,58 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
 
         return Observer.load_from_registry(self.observer, quantization_args=self)
 
-    @validator("strategy", pre=True, always=True)
-    def validate_strategy(cls, value, values):
-        group_size = values.get("group_size")
-
-        # use group_size to determinine strategy if not given explicity
-        if group_size is not None and value is None:
-            if group_size > 0:
-                return QuantizationStrategy.GROUP
-
-            elif group_size == -1:
-                return QuantizationStrategy.CHANNEL
-
-            else:
-                raise ValueError(
-                    f"group_size={group_size} with strategy {value} is invald. "
-                    "group_size > 0 for strategy='group' and "
-                    "group_size = -1 for 'channel'"
-                )
-
-        if value == QuantizationStrategy.GROUP:
-            if group_size is None:
-                raise ValueError(f"strategy {value} requires group_size to be set.")
-
+    @field_validator("group_size", mode="before")
+    def validate_group(cls, value) -> int:
         if value is None:
-            return QuantizationStrategy.TENSOR
+            return value
+
+        if value < -1:
+            raise ValueError(
+                f"Invalid group size {value}. Use group_size > 0 for "
+                "strategy='group' and group_size = -1 for 'channel'"
+            )
 
         return value
+
+    @model_validator(mode="before")
+    def validate_strategy(values) -> Dict[str, Any]:
+        model_fields = QuantizationArgs.model_fields
+        strategy = values.get("strategy", model_fields["strategy"].default)
+        group_size = values.get("group_size", model_fields["group_size"].default)
+        actorder = values.get("actorder", model_fields["actorder"].default)
+
+        if strategy is not None:
+            strategy = QuantizationStrategy(strategy.lower())
+
+        else:
+            # use group_size to determinine strategy if not given explicity
+            if group_size is None:
+                strategy = QuantizationStrategy.TENSOR
+            elif group_size > 0:
+                strategy = QuantizationStrategy.GROUP
+            elif group_size == -1:
+                strategy = QuantizationStrategy.CHANNEL
+            else:
+                raise ValueError(
+                    f"Invalid group size {group_size}. Use group_size > 0 for "
+                    "strategy='group' and group_size = -1 for 'channel'"
+                )
+
+        if strategy == QuantizationStrategy.GROUP:
+            if group_size is None or group_size <= 0:
+                raise ValueError(
+                    f"strategy {strategy} requires group_size to be "
+                    "set to a positive value"
+                )
+
+        if actorder and strategy != QuantizationStrategy.GROUP:
+            raise ValueError(
+                "Group quantization must be specified in order to apply "
+                "activation ordering"
+            )
+
+        values["strategy"] = strategy
+        return values
 
     def pytorch_dtype(self) -> torch.dtype:
         if self.type == QuantizationType.FLOAT:

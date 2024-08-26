@@ -149,16 +149,27 @@ def _initialize_scale_zero_point_observer(
                 weight_shape[1] // quantization_args.group_size,
             )
 
-    # initializes empty scale and zero point parameters for the module
+    # initializes empty scale, zero point, and g_idx parameters for the module
     init_scale = Parameter(
         torch.empty(expected_shape, dtype=module.weight.dtype, device=device),
         requires_grad=False,
     )
     module.register_parameter(f"{base_name}_scale", init_scale)
 
+    # TODO: @kylesayrs do not initialize if symmetric
     zp_dtype = quantization_args.pytorch_dtype()
     init_zero_point = Parameter(
         torch.empty(expected_shape, device=device, dtype=zp_dtype),
         requires_grad=False,
     )
     module.register_parameter(f"{base_name}_zero_point", init_zero_point)
+
+    # initialize with empty for actorder, to be populated by GPTQ or state_dict
+    if quantization_args.actorder:
+        g_idx_shape = (weight_shape[1],)
+        g_idx_dtype = torch.int
+        init_g_idx = Parameter(
+            torch.full(g_idx_shape, -1, device=device, dtype=g_idx_dtype),
+            requires_grad=False,
+        )
+        module.register_parameter(f"{base_name}_g_idx", init_g_idx)

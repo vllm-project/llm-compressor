@@ -18,6 +18,11 @@ import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 
+def make_dummy_g_idx(columns: int, group_size: int) -> torch.Tensor:
+    perm = torch.randperm(columns)
+    return torch.tensor([index // group_size for index in range(columns)])[perm]
+
+
 @pytest.mark.parametrize(
     "symmetric,expected_scale,expected_zero_point",
     [
@@ -89,3 +94,20 @@ def test_min_max_observer_value_update():
         else:
             assert abs(curr_max - 2.2600) < delta
             assert abs(curr_min - (-0.2900)) < delta
+
+
+def test_g_idx():
+    group_size = 2
+    input_shape = (128, 512)
+    tensor = torch.rand(input_shape)
+    weights = QuantizationArgs(num_bits=8, group_size=group_size)
+    g_idx = make_dummy_g_idx(tensor.shape[1], group_size)
+
+    observer = weights.get_observer()
+    scale_g_idx, zero_point_g_idx = observer(tensor, g_idx=g_idx)
+
+    observer.reset()
+    scale, zero_point = observer(tensor[:, torch.argsort(g_idx)])
+
+    assert scale_g_idx == pytest.approx(scale)
+    assert zero_point_g_idx == pytest.approx(zero_point)

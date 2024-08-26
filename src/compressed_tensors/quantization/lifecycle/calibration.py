@@ -54,13 +54,14 @@ def set_module_for_calibration(module: Module, quantize_weights_upfront: bool = 
     if quantize_weights_upfront and module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
         observer = module.weight_observer
+        g_idx = getattr(module, "weight_g_idx", None)
 
         offloaded = False
         if is_module_offloaded(module):
             module._hf_hook.pre_forward(module)
             offloaded = True
 
-        scale, zero_point = observer(module.weight)
+        scale, zero_point = observer(module.weight, g_idx=g_idx)
         update_parameter_data(module, scale, "weight_scale")
         update_parameter_data(module, zero_point, "weight_zero_point")
 

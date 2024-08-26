@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+from math import ceil
 from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
@@ -21,6 +22,7 @@ from compressed_tensors.quantization.quant_args import (
     QuantizationStrategy,
 )
 from compressed_tensors.registry.registry import RegistryMixin
+from compressed_tensors.utils import safe_permute
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
 
@@ -46,15 +48,18 @@ class Observer(Module, RegistryMixin):
         self._num_observed_tokens = None
 
     @torch.no_grad()
-    def forward(self, observed: Tensor) -> Tuple[FloatTensor, IntTensor]:
+    def forward(
+        self, observed: Tensor, g_idx: Optional[Tensor] = None
+    ) -> Tuple[FloatTensor, IntTensor]:
         """
         maps directly to get_qparams
-        :param observed: optional observed tensor to calculate quantization parameters
-            from
+        :param observed: optional observed tensor from which to calculate
+            quantization parameters
+        :param g_idx: optional mapping from column index to group index
         :return: tuple of scale and zero point based on last observed value
         """
         self.record_observed_tokens(observed)
-        return self.get_qparams(observed=observed)
+        return self.get_qparams(observed=observed, g_idx=g_idx)
 
     def calculate_qparams(
         self,
@@ -77,7 +82,9 @@ class Observer(Module, RegistryMixin):
         ...
 
     def get_qparams(
-        self, observed: Optional[Tensor] = None
+        self,
+        observed: Optional[Tensor] = None,
+        g_idx: Optional[Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Convenience function to wrap overwritten calculate_qparams
@@ -86,6 +93,7 @@ class Observer(Module, RegistryMixin):
 
         :param observed: optional observed tensor to calculate quantization parameters
             from
+        :param g_idx: optional mapping from column index to group index
         :return: tuple of scale and zero point based on last observed value
         """
         if observed is not None:
@@ -97,20 +105,42 @@ class Observer(Module, RegistryMixin):
                 self._scale, self._zero_point = self.calculate_qparams(observed)
 
             elif self.quantization_args.strategy == QuantizationStrategy.GROUP:
+                rows = observed.shape[0]
                 columns = observed.shape[1]
-                scales, zero_points = [], []
-                group_idxs = range(0, columns, self.quantization_args.group_size)
-                for group_id, group_idx in enumerate(group_idxs):
-                    scale, zero_point = self.get_qparams_along_dim(
-                        observed[:, group_idx : (group_idx + group_size)],
-                        0,
-                        tensor_id=group_id,
-                    )
-                    scales.append(scale)
-                    zero_points.append(zero_point)
+                num_groups = int(ceil(columns / group_size))
+                self._scale = torch.empty(
+                    (rows, num_groups), dtype=observed.dtype, device=observed.device
+                )
+                zp_dtype = self.quantization_args.pytorch_dtype()
+                self._zero_point = torch.empty(
+                    (rows, num_groups), dtype=zp_dtype, device=observed.device
+                )
 
-                self._scale = torch.cat(scales, dim=1, out=self._scale)
-                self._zero_point = torch.cat(zero_points, dim=1, out=self._zero_point)
+                # support column-order (default) quantization as well as other orderings
+                # such as activation ordering. Below checks if g_idx has initialized
+                is_column_order = g_idx is None or -1 in g_idx
+                if is_column_order:
+                    group_sizes = torch.full((num_groups,), group_size, dtype=torch.int)
+                else:
+                    group_indices, group_sizes = torch.unique(g_idx, return_counts=True)
+                    group_sizes = group_sizes[torch.argsort(group_indices)]
+
+                    perm = torch.argsort(g_idx)
+                    observed = safe_permute(observed, perm, dim=1)
+
+                # TODO: experiment with vectorizing for loop for performance
+                end = 0
+                for group_index, group_count in enumerate(group_sizes):
+                    start = end
+                    end = start + group_count
+                    scale, zero_point = self.get_qparams_along_dim(
+                        observed[:, start:end],
+                        0,
+                        tensor_id=group_index,
+                    )
+
+                    self._scale[:, group_index] = scale.squeeze(1)
+                    self._zero_point[:, group_index] = zero_point.squeeze(1)
 
             elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
                 # assume observed is transposed, because its the output, hence use dim 0
@@ -132,6 +162,8 @@ class Observer(Module, RegistryMixin):
         dim: Union[int, Iterable[int]],
         tensor_id: Optional[Any] = None,
     ):
+        if isinstance(dim, int):
+            dim = [dim]
         dim = set(dim)
 
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx not in dim)

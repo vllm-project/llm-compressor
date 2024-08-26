@@ -234,5 +234,7 @@ def is_quantization_param(name: str) -> bool:
         return True
     if name.endswith("zero_point"):
         return True
+    if name.endswith("g_idx"):
+        return True
 
     return False

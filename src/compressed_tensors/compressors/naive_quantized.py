@@ -44,7 +44,12 @@ class QuantizationCompressor(Compressor):
     type to the type specified by the layer's QuantizationArgs.
     """
 
-    COMPRESSION_PARAM_NAMES = ["weight", "weight_scale", "weight_zero_point"]
+    COMPRESSION_PARAM_NAMES = [
+        "weight",
+        "weight_scale",
+        "weight_zero_point",
+        "weight_g_idx",
+    ]
 
     def compress(
         self,
@@ -71,6 +76,7 @@ class QuantizationCompressor(Compressor):
                 prefix = name[: -(len(weight_suffix))]
                 scale = model_state.get(merge_names(prefix, "weight_scale"), None)
                 zp = model_state.get(merge_names(prefix, "weight_zero_point"), None)
+                g_idx = model_state.get(merge_names(prefix, "weight_g_idx"), None)
                 if scale is not None and zp is not None:
                     # weight is quantized, compress it
                     quant_args = names_to_scheme[prefix]
@@ -82,6 +88,7 @@ class QuantizationCompressor(Compressor):
                             zero_point=zp,
                             args=quant_args,
                             dtype=quant_args.pytorch_dtype(),
+                            g_idx=g_idx,
                         )
             elif name.endswith("zero_point"):
                 if torch.all(value == 0):
@@ -116,12 +123,14 @@ class QuantizationCompressor(Compressor):
                     weight_data[param_name] = f.get_tensor(full_name)
 
             if "weight_scale" in weight_data:
-                zero_point = weight_data.get("weight_zero_point", None)
                 scale = weight_data["weight_scale"]
+                zero_point = weight_data.get("weight_zero_point", None)
+                g_idx = weight_data.get("weight_g_idx", None)
                 decompressed = dequantize(
                     x_q=weight_data["weight"],
                     scale=scale,
                     zero_point=zero_point,
+                    g_idx=g_idx,
                 )
                 yield merge_names(weight_name, "weight"), decompressed
 

@@ -89,7 +89,7 @@ def update_parameter_data(
 
     :param module: layer containing the parameter to update
     :param new_param_data: tensor to update parameter with
-    :param param_name:
+    :param param_name: name of layer parameter to update
     """
     device = next(module.parameters()).device
 
@@ -99,6 +99,9 @@ def update_parameter_data(
         offloaded = True
 
     parameter = getattr(module, param_name, None)
+    if parameter is None:
+        raise ValueError("Attempted to update uninitialized parameter")
+
     dtype = parameter.dtype
     parameter.data = new_param_data.to(device).to(dtype)
 

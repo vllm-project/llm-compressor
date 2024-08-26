@@ -44,6 +44,7 @@ class PackedQuantizationCompressor(Compressor):
         "weight_packed",
         "weight_scale",
         "weight_zero_point",
+        "weight_g_idx",
         "weight_shape",
     ]
 
@@ -72,6 +73,7 @@ class PackedQuantizationCompressor(Compressor):
                 prefix = name[: -(len(weight_suffix))]
                 scale = model_state.get(merge_names(prefix, "weight_scale"), None)
                 zp = model_state.get(merge_names(prefix, "weight_zero_point"), None)
+                g_idx = model_state.get(merge_names(prefix, "weight_g_idx"), None)
                 shape = torch.tensor(value.shape)
                 if scale is not None and zp is not None:
                     # weight is quantized, compress it
@@ -82,6 +84,7 @@ class PackedQuantizationCompressor(Compressor):
                             x=value,
                             scale=scale,
                             zero_point=zp,
+                            g_idx=g_idx,
                             args=quant_args,
                             dtype=torch.int8,
                         )
@@ -128,9 +131,10 @@ class PackedQuantizationCompressor(Compressor):
                     weight_data[param_name] = f.get_tensor(full_name)
 
             if "weight_scale" in weight_data:
-                zero_point = weight_data.get("weight_zero_point", None)
-                scale = weight_data["weight_scale"]
                 weight = weight_data["weight_packed"]
+                scale = weight_data["weight_scale"]
+                zero_point = weight_data.get("weight_zero_point", None)
+                g_idx = weight_data.get("weight_g_idx", None)
                 num_bits = weight_data["num_bits"]
                 original_shape = torch.Size(weight_data["weight_shape"])
                 unpacked = unpack_from_int32(weight, num_bits, original_shape)
@@ -138,6 +142,7 @@ class PackedQuantizationCompressor(Compressor):
                     x_q=unpacked,
                     scale=scale,
                     zero_point=zero_point,
+                    g_idx=g_idx,
                 )
                 yield merge_names(weight_name, "weight"), decompressed
 
