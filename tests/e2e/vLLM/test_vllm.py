@@ -1,5 +1,6 @@
 import unittest
 
+from datasets import load_dataset
 from parameterized import parameterized_class
 from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
@@ -17,6 +18,8 @@ CONFIGS_DIRECTORY = "tests/e2e/vLLM/configs"
 class TestvLLM(unittest.TestCase):
     model = None
     scheme = None
+    dataset_id = None
+    dataset_split = None
 
     def test_vllm(self):
         MODEL_ID = self.model
@@ -32,16 +35,48 @@ class TestvLLM(unittest.TestCase):
         )
         tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-        # Configure the quantization algorithm and scheme.
-        # In this case, we:
-        #   * quantize the weights to fp8 with per channel via ptq
-        #   * quantize the activations to fp8 with dynamic per token
+        def preprocess(example):
+            return {
+                "text": tokenizer.apply_chat_template(
+                    example["messages"],
+                    tokenize=False,
+                )
+            }
+
+        def tokenize(sample):
+            return tokenizer(
+                sample["text"],
+                padding=False,
+                max_length=MAX_SEQUENCE_LENGTH,
+                truncation=True,
+                add_special_tokens=False,
+            )
+
+        if self.dataset_id:
+            NUM_CALIBRATION_SAMPLES = 512
+            MAX_SEQUENCE_LENGTH = 2048
+
+            ds = load_dataset(self.dataset_id, split=self.dataset_split)
+            ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+            ds = ds.map(preprocess)
+            ds = ds.map(tokenize, remove_columns=ds.column_names)
+        else:
+            ds = None
+            NUM_CALIBRATION_SAMPLES = None
+            MAX_SEQUENCE_LENGTH = None
+
         recipe = QuantizationModifier(
             targets="Linear", scheme=self.scheme, ignore=["lm_head"]
         )
 
         # Apply quantization.
-        oneshot(model=model, recipe=recipe)
+        oneshot(
+            model=model,
+            dataset=ds,
+            recipe=recipe,
+            max_seq_length=MAX_SEQUENCE_LENGTH,
+            num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+        )
 
         # Confirm generations of the quantized model look sane.
         print("========== SAMPLE GENERATION ==============")
@@ -57,6 +92,7 @@ class TestvLLM(unittest.TestCase):
         model.save_pretrained(SAVE_DIR)
         tokenizer.save_pretrained(SAVE_DIR)
 
+        # Run vLLM with saved model
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         llm = LLM(model=SAVE_DIR)
         outputs = llm.generate(prompts, sampling_params)
