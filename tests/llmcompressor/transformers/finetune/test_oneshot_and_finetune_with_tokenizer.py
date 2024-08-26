@@ -2,18 +2,26 @@ import shutil
 import unittest
 
 import pytest
+from parameterized import parameterized_class
 
-from tests.testing_utils import requires_torch
+from tests.testing_utils import parse_params, requires_gpu, requires_torch
+
+CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_tokenizer"
 
 
 @pytest.mark.integration
 @requires_torch
+@requires_gpu
+@parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
+    model = None
+    dataset = None
+    dataset_config_name = None
+
     def setUp(self):
         self.output = "./finetune_output"
 
     def test_oneshot_and_finetune_with_tokenizer(self):
-        import torch
         from datasets import load_dataset
         from transformers import AutoTokenizer
 
@@ -23,17 +31,16 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"
         )
         tokenizer = AutoTokenizer.from_pretrained(
-            "Xenova/llama2.c-stories15M",
+            self.model,
         )
         device = "cuda:0"
-        if not torch.cuda.is_available():
-            device = "cpu"
-        model = SparseAutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map=device
+        model_loaded = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map=device
         )
 
-        dataset_config_name = "wikitext-2-raw-v1"
-        dataset = load_dataset("wikitext", dataset_config_name, split="train[:50%]")
+        dataset_loaded = load_dataset(
+            self.dataset, self.dataset_config_name, split="train[:50%]"
+        )
 
         concatenate_data = True
         run_stages = True
@@ -41,9 +48,9 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         splits = {"train": "train[:50%]", "calibration": "train[50%:60%]"}
 
         compress(
-            model=model,
-            dataset=dataset,
-            dataset_config_name=dataset_config_name,
+            model=model_loaded,
+            dataset=dataset_loaded,
+            dataset_config_name=self.dataset_config_name,
             run_stages=run_stages,
             output_dir=self.output,
             recipe=recipe_str,
