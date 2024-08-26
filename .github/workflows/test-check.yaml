@@ -117,11 +117,11 @@ jobs:
       - name: "🔬 Running transformers tests"
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/finetune -v
+          pytest tests/llmcompressor/transformers/compression -v
       - name: Run Finetune Tests
         if: always() && steps.install.outcome == 'success'       
         run: |
-          pytest -v tests/llmcompressor/transformers/compression -m unit
+          pytest -v tests/llmcompressor/transformers/finetune -m unit
       - name: Running GPTQ Tests
         if: always() && steps.install.outcome == 'success'
         run: |
