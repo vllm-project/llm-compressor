@@ -133,8 +133,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 torch.per_tensor_symmetric,
             ]
         else:  # weight_quant_args is not None
-            actorder = weight_quant_args.actorder
-            if actorder:
+            if weight_quant_args.actorder:
                 # use hessian to create a permutation of weights
                 perm = torch.argsort(torch.diag(self.H), descending=True)
 
@@ -243,7 +242,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         if "METRIC" in logger._core.levels.keys():
             self.log_metrics(tick, Losses)
 
-        if actorder:
+        if weight_quant_args is not None and weight_quant_args.actorder:
             # restore original permutation
             invperm = torch.argsort(perm)
             W = W[:, invperm]
