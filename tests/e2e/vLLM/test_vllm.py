@@ -35,6 +35,7 @@ class TestvLLM(unittest.TestCase):
         print(self.scheme)
 
         self.save_dir = None
+        self.device = "cuda:0"
         self.oneshot_kwargs = {}
         self.num_calibration_samples = 512
         self.max_seq_length = 2048
@@ -47,7 +48,7 @@ class TestvLLM(unittest.TestCase):
     def test_vllm(self):
         # Load model.
         loaded_model = SparseAutoModelForCausalLM.from_pretrained(
-            self.model, device_map="auto", torch_dtype="auto"
+            self.model, device_map=self.device, torch_dtype="auto"
         )
         tokenizer = AutoTokenizer.from_pretrained(self.model)
 
@@ -88,24 +89,18 @@ class TestvLLM(unittest.TestCase):
         # Apply quantization.
         print("ONESHOT KWARGS", self.oneshot_kwargs)
         oneshot(
-            **self.oneshot_kwargs, output_dir=self.save_dir, clear_sparse_session=True
+            **self.oneshot_kwargs,
+            output_dir=self.save_dir,
+            clear_sparse_session=True,
+            oneshot_device=self.device,
         )
-
-        # Confirm generations of the quantized model look sane.
-        print("========== SAMPLE GENERATION ==============")
-        input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-            "cuda"
-        )
-        output = loaded_model.generate(input_ids, max_new_tokens=20)
-        print(tokenizer.decode(output[0]))
-        print("==========================================")
 
         # Run vLLM with saved model
         print("================= RUNNING vLLM =========================")
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         llm = LLM(model=self.save_dir)
         outputs = llm.generate(self.prompts, sampling_params)
-        print("========== vLLM GENERATION ==============")
+        print("================= vLLM GENERATION ======================")
         print(outputs)
         assert outputs
 
