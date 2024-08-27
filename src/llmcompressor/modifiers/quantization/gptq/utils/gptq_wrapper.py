@@ -1,5 +1,9 @@
 import time
 
+from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization.lifecycle.forward import fake_quantize
+from compressed_tensors.quantization.observers import MemorylessObserver
+
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
 from llmcompressor.utils import get_attr_chain
@@ -7,9 +11,6 @@ from llmcompressor.utils.metric_logging import (
     get_GPU_memory_usage,
     get_layer_size_bytes,
 )
-from compressed_tensors.quantization.observers import MemorylessObserver
-from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 
 try:
     import transformers
@@ -25,8 +26,8 @@ import torch.nn as nn
 from compressed_tensors.utils import (
     get_offloaded_device,
     is_module_offloaded,
-    update_prefix_dict,
     update_parameter_data,
+    update_prefix_dict,
 )
 from loguru import logger
 
@@ -88,7 +89,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
-        weight_quant_args = get_attr_chain(self.layer, "quantization_scheme.weights", None)
+        weight_quant_args = get_attr_chain(
+            self.layer, "quantization_scheme.weights", None
+        )
         weight_fake_quant = getattr(self.layer, "weight_fake_quant", None)
         if weight_quant_args is None and weight_fake_quant is None:
             logger.debug("Skipping layer GPTQ quantization...")
@@ -126,7 +129,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
             zero_point = weight_fake_quant.zero_point
             dtype = weight_fake_quant.dtype
             tensor_scheme = weight_fake_quant.qscheme in [
-                torch.per_tensor_affine, torch.per_tensor_symmetric
+                torch.per_tensor_affine,
+                torch.per_tensor_symmetric,
             ]
         else:  # weight_quant_args is not None
             observer = MemorylessObserver(weight_quant_args)
@@ -192,9 +196,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     else:  # strategy == QuantizationStrategy.GROUP
                         # get the group index for the current column
                         column_idx = i1 + i
-                        input_dim_group = (
-                            column_idx // weight_quant_args.group_size
-                        )
+                        input_dim_group = column_idx // weight_quant_args.group_size
 
                         # Since we're only applying quantization to a slice, this
                         # ends up being a channelwise application
