@@ -3,7 +3,7 @@ on:
   pull_request:
     branches:
       - main
-    types: [labeled]
+    types: [opened, synchronize]
 
 jobs:
   pr_reminder:
