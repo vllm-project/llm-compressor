@@ -1,3 +1,4 @@
+import shutil
 import unittest
 
 from datasets import load_dataset
@@ -21,25 +22,26 @@ class TestvLLM(unittest.TestCase):
     dataset_id = None
     dataset_split = None
 
-    def test_vllm(self):
+    def setUp(self):
         print("========== RUNNING ==============")
         print(self.scheme)
 
-        MODEL_ID = self.model
-        NUM_CALIBRATION_SAMPLES = 512
-        MAX_SEQUENCE_LENGTH = 2048
-        prompts = [
+        self.save_dir = None
+        self.oneshot_kwargs = {}
+        self.num_calibration_samples = 512
+        self.max_seq_length = 2048
+        self.prompts = [
             "The capital of France is",
             "The president of the US is",
             "My name is",
         ]
-        oneshot_kwargs = {}
+
+    def test_vllm(self):
         # Load model.
-        model = SparseAutoModelForCausalLM.from_pretrained(
-            MODEL_ID, device_map="auto", torch_dtype="auto"
+        loaded_model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map="auto", torch_dtype="auto"
         )
-        oneshot_kwargs["model"] = model
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+        tokenizer = AutoTokenizer.from_pretrained(self.model)
 
         def preprocess(example):
             return {
@@ -53,45 +55,51 @@ class TestvLLM(unittest.TestCase):
             return tokenizer(
                 sample["text"],
                 padding=False,
-                max_length=MAX_SEQUENCE_LENGTH,
+                max_length=self.max_seq_length,
                 truncation=True,
                 add_special_tokens=False,
             )
 
         if self.dataset_id:
             ds = load_dataset(self.dataset_id, split=self.dataset_split)
-            ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+            ds = ds.shuffle(seed=42).select(range(self.num_calibration_samples))
             ds = ds.map(preprocess)
             ds = ds.map(tokenize, remove_columns=ds.column_names)
-            oneshot_kwargs["dataset"] = ds
-            oneshot_kwargs["max_seq_length"] = MAX_SEQUENCE_LENGTH
-            oneshot_kwargs["num_calibration_samples"] = NUM_CALIBRATION_SAMPLES
+            self.oneshot_kwargs["dataset"] = ds
+            self.oneshot_kwargs["max_seq_length"] = self.max_seq_length
+            self.oneshot_kwargs["num_calibration_samples"] = (
+                self.num_calibration_samples
+            )
 
-        oneshot_kwargs["recipe"] = QuantizationModifier(
+        self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        self.oneshot_kwargs["model"] = loaded_model
+        self.oneshot_kwargs["recipe"] = QuantizationModifier(
             targets="Linear", scheme=self.scheme, ignore=["lm_head"]
         )
 
         # Apply quantization.
-        print(oneshot_kwargs)
-        oneshot(**oneshot_kwargs)
+        print("ONESHOT KWARGS", self.oneshot_kwargs)
+        oneshot(
+            **self.oneshot_kwargs, output_dir=self.save_dir, clear_sparse_session=True
+        )
 
         # Confirm generations of the quantized model look sane.
         print("========== SAMPLE GENERATION ==============")
         input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
             "cuda"
         )
-        output = model.generate(input_ids, max_new_tokens=20)
+        output = loaded_model.generate(input_ids, max_new_tokens=20)
         print(tokenizer.decode(output[0]))
         print("==========================================")
 
-        # Save to disk in compressed-tensors format.
-        SAVE_DIR = MODEL_ID.split("/")[1] + f"-{self.scheme}"
-        model.save_pretrained(SAVE_DIR)
-        tokenizer.save_pretrained(SAVE_DIR)
-
         # Run vLLM with saved model
+        print("================= RUNNING vLLM =========================")
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        llm = LLM(model=SAVE_DIR)
-        outputs = llm.generate(prompts, sampling_params)
+        llm = LLM(model=self.save_dir)
+        outputs = llm.generate(self.prompts, sampling_params)
+        print("========== vLLM GENERATION ==============")
         print(outputs)
         assert outputs
+
+    def tearDown(self):
+        shutil.rmtree(self.save_dir)
