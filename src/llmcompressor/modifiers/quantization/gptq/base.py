@@ -170,9 +170,7 @@ class GPTQModifier(Modifier):
         if not self.initialized_structure_:
             self.on_initialize_structure(state, **kwargs)
         if self.quantization_modifier_:
-            self.quantization_modifier_.initialize(
-                state, freeze_quantization=False, **kwargs
-            )
+            self.quantization_modifier_.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
