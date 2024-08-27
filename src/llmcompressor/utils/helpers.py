@@ -58,6 +58,7 @@ __all__ = [
     "parse_kwarg_tuples",
     "is_package_available",
     "import_from_path",
+    "get_attr_chain",
 ]
 
 
@@ -1008,3 +1009,15 @@ def import_from_path(path: str) -> str:
         return getattr(module, class_name)
     except AttributeError:
         raise AttributeError(f"Cannot find {class_name} in {_path}")
+
+
+def get_attr_chain(obj: Any, chain_str: str, default: Any = None) -> Any:
+    attr_names = chain_str.split(".")
+
+    res = obj
+    for attr_name in attr_names:
+        if not hasattr(res, attr_name):
+            return default
+        res = getattr(res, attr_name)
+
+    return res
