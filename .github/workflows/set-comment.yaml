@@ -7,7 +7,6 @@ on:
 
 jobs:
   pr_reminder:
-    if: contains(github.event.pull_request.labels.*.name, 'ready')
     runs-on: ubuntu-latest
     steps:
       - name: Remind to run full CI on PR
