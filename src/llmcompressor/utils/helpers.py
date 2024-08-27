@@ -58,7 +58,7 @@ __all__ = [
     "parse_kwarg_tuples",
     "is_package_available",
     "import_from_path",
-    "get_attr_chain",
+    "getattr_chain",
 ]
 
 
@@ -1011,13 +1011,33 @@ def import_from_path(path: str) -> str:
         raise AttributeError(f"Cannot find {class_name} in {_path}")
 
 
-def get_attr_chain(obj: Any, chain_str: str, default: Any = None) -> Any:
+def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
+    """
+    Chain multiple getattr calls, separated by `.`
+
+    :param obj: base object whose attributes are being retrieved
+    :param chain_str: attribute names separated by `.`
+    :param default: default value, throw error otherwise
+
+    """
+    if len(args) >= 1:
+        has_default = True
+        default = args[0]
+    elif "default" in kwargs:
+        has_default = True
+        default = kwargs["default"]
+    else:
+        has_default = False
+
     attr_names = chain_str.split(".")
 
     res = obj
     for attr_name in attr_names:
         if not hasattr(res, attr_name):
-            return default
+            if has_default:
+                return default
+            else:
+                raise AttributeError(f"{res} object has no attribute {attr_name}")
         res = getattr(res, attr_name)
 
     return res

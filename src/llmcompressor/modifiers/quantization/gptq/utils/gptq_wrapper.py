@@ -6,7 +6,7 @@ from compressed_tensors.quantization.observers import MemorylessObserver
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
-from llmcompressor.utils import get_attr_chain
+from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
     get_GPU_memory_usage,
     get_layer_size_bytes,
@@ -89,7 +89,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
-        weight_quant_args = get_attr_chain(
+        weight_quant_args = getattr_chain(
             self.layer, "quantization_scheme.weights", None
         )
         weight_fake_quant = getattr(self.layer, "weight_fake_quant", None)
