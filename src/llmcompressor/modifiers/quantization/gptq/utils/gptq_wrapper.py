@@ -110,7 +110,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W = W.flatten(1)
         elif isinstance(self.layer, transformers.Conv1D):
             W.transpose_(0, 1)
-        W.to(dtype=torch.float)
+        W = W.float()
 
         # sparsity mask
         sparsity = tensor_sparsity(W)
