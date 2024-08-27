@@ -33,7 +33,7 @@ MIXTRAL_MAPPINGS: List[LayerMap] = [
 ]
 
 # Registry of layer mappings for different architectures
-## Add more mappings here
+#   Add more mappings here
 MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
     "LlamaForCausalLM": LLAMA_MAPPINGS,
     "MixtralForCausalLM": MIXTRAL_MAPPINGS,
