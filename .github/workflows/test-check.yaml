@@ -95,6 +95,7 @@ jobs:
         run: |
           pytest tests/llmcompressor/pytorch -v
   transformers-tests:
+    if: contains(github.event.pull_request.labels.*.name, 'ready')
     runs-on: ubuntu-22.04
     needs: test-setup
     steps:
