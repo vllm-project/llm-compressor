@@ -1,10 +1,10 @@
 import shutil
 import unittest
 
+import pytest
 from datasets import load_dataset
 from parameterized import parameterized_class
 from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
@@ -12,9 +12,17 @@ from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
 CONFIGS_DIRECTORY = "tests/e2e/vLLM/configs"
 
+try:
+    from vllm import LLM, SamplingParams
+
+    vllm_installed = True
+except ImportError:
+    vllm_installed = False
+
 
 @requires_gpu
 @requires_torch
+@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestvLLM(unittest.TestCase):
     model = None
