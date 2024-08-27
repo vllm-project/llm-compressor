@@ -8,7 +8,7 @@ on:
     branches:
       - main
       - 'release/*'
-    types: [labeled]
+    types: [labeled, opened, synchronize]
 
 env:
   CADENCE: "commit"
