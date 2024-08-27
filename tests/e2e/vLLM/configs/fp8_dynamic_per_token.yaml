@@ -1,0 +1,5 @@
+cadence: "nightly"
+test_type: "regression"
+#model: "meta-llama/Meta-Llama-3-8B-Instruct"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+scheme: FP8_DYNAMIC

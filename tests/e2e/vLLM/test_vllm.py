@@ -29,6 +29,7 @@ class TestvLLM(unittest.TestCase):
     scheme = None
     dataset_id = None
     dataset_split = None
+    recipe = None
 
     def setUp(self):
         print("========== RUNNING ==============")
@@ -82,9 +83,15 @@ class TestvLLM(unittest.TestCase):
 
         self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         self.oneshot_kwargs["model"] = loaded_model
-        self.oneshot_kwargs["recipe"] = QuantizationModifier(
-            targets="Linear", scheme=self.scheme, ignore=["lm_head"]
-        )
+        if self.recipe:
+            self.oneshot_kwargs["recipe"] = self.recipe
+        else:
+            # Test assumes that if a recipe was not provided, using
+            # a compatible preset sceme from:
+            # https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
+            self.oneshot_kwargs["recipe"] = QuantizationModifier(
+                targets="Linear", scheme=self.scheme, ignore=["lm_head"]
+            )
 
         # Apply quantization.
         print("ONESHOT KWARGS", self.oneshot_kwargs)
@@ -94,15 +101,19 @@ class TestvLLM(unittest.TestCase):
             clear_sparse_session=True,
             oneshot_device=self.device,
         )
-
+        tokenizer.save_pretrained(self.save_dir)
         # Run vLLM with saved model
         print("================= RUNNING vLLM =========================")
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         llm = LLM(model=self.save_dir)
         outputs = llm.generate(self.prompts, sampling_params)
         print("================= vLLM GENERATION ======================")
-        print(outputs)
-        assert outputs
+        for output in outputs:
+            assert output
+            prompt = output.prompt
+            generated_text = output.outputs[0].text
+            print("PROMPT", prompt)
+            print("GENERATED TEXT", generated_text)
 
     def tearDown(self):
         shutil.rmtree(self.save_dir)
