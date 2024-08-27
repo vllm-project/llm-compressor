@@ -71,7 +71,7 @@ jobs:
         run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
         run: |
-          pytest tests/llmcompressor/pytorch
+          pytest tests/llmcompressor/pytorch -v
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
     needs: test-setup
@@ -93,7 +93,7 @@ jobs:
         run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
         run: |
-          pytest tests/llmcompressor/pytorch
+          pytest tests/llmcompressor/pytorch -v
   transformers-tests:
     runs-on: ubuntu-22.04
     needs: test-setup
@@ -117,21 +117,21 @@ jobs:
       - name: "🔬 Running transformers tests[skipping over finetune]"
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/compression
+          pytest tests/llmcompressor/transformers/compression -v
       - name: Running GPTQ Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/gptq
+          pytest tests/llmcompressor/transformers/gptq -v
       - name: Running ONESHOT Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/oneshot
+          pytest tests/llmcompressor/transformers/oneshot -v
       - name: Running Sparsification Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/sparsification
-          ptyest tests/llmcompressor/transformers/test_clear_ml.py
+          pytest tests/llmcompressor/transformers/sparsification -v
+          ptyest tests/llmcompressor/transformers/test_clear_ml.py -v
       - name: Running OBCQ Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/obcq
+          pytest -v tests/llmcompressor/transformers/obcq -v
