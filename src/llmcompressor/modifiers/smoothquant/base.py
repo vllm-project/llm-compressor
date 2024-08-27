@@ -7,16 +7,15 @@ from torch.nn import Module
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.smoothquant.utils import (
+    get_layer_mappings_from_architecture,
+)
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
 
-DEFAULT_SMOOTHQUANT_MAPPINGS = [
-    [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
-    [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"],
-]
 
 __all__ = ["SmoothQuantScale", "SmoothQuantMapping", "SmoothQuantModifier"]
 
@@ -93,7 +92,7 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: List[Tuple] = DEFAULT_SMOOTHQUANT_MAPPINGS
+    mappings: Optional[List[Tuple]] = None
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
@@ -124,6 +123,7 @@ class SmoothQuantModifier(Modifier):
             )
 
         self.ignore = [] if not self.ignore else self.ignore
+        self.mappings = self._infer_mappings_from_model(state.model, self.mappings)
         self.resolved_mappings_ = self._resolve_mappings(state.model)
         self.scales_ = {}
 
@@ -161,6 +161,17 @@ class SmoothQuantModifier(Modifier):
             self.resolved_mappings_.clear()
 
         return True
+
+    def _infer_mappings_from_model(
+        self, model: Module, mappings: Optional[List[Tuple]] = None
+    ) -> List[Tuple]:
+        if mappings is not None:
+            return mappings
+
+        logger.info("No mappings provided, inferring from model...")
+        return get_layer_mappings_from_architecture(
+            architecture=model.__class__.__name__
+        )
 
     def _resolve_mappings(self, model: Module) -> List:
         """
