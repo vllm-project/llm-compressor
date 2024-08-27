@@ -37,7 +37,7 @@ class TestvLLM(unittest.TestCase):
         self.save_dir = None
         self.device = "cuda:0"
         self.oneshot_kwargs = {}
-        self.num_calibration_samples = 512
+        self.num_calibration_samples = 256
         self.max_seq_length = 2048
         self.prompts = [
             "The capital of France is",
