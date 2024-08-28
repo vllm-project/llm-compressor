@@ -253,7 +253,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             self.log_metrics(tick, Losses)
 
         if strategy == QuantizationStrategy.GROUP:
-            if weight_quant_args.actorder == "normal":  # TODO: better name
+            if weight_quant_args.actorder:  # TODO: better name
                 # restore original permutation
                 invperm = torch.argsort(perm)
                 W = W[:, invperm]
