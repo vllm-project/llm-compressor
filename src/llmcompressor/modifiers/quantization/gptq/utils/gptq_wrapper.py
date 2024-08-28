@@ -92,9 +92,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         weight_quant_args = getattr_chain(
             self.layer, "quantization_scheme.weights", None
         )
-        weight_fake_quant = getattr(self.layer, "weight_fake_quant", None)
-        if weight_quant_args is None and weight_fake_quant is None:
-            logger.debug("Skipping layer GPTQ quantization...")
+        if weight_quant_args is None:
+            logger.debug("Skipping unquantized layer...")
             return
 
         if is_module_offloaded(self.layer):
@@ -123,25 +122,23 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         tick = time.time()
 
-        # compute quantization parameters
-        if weight_fake_quant is not None:
-            scale = weight_fake_quant.scale
-            zero_point = weight_fake_quant.zero_point
-            dtype = weight_fake_quant.dtype
-            tensor_scheme = weight_fake_quant.qscheme in [
-                torch.per_tensor_affine,
-                torch.per_tensor_symmetric,
-            ]
-        else:  # weight_quant_args is not None
-            if weight_quant_args.actorder:
-                # use hessian to create a permutation of weights
-                perm = torch.argsort(torch.diag(self.H), descending=True)
+        # consider activation ordering
+        if weight_quant_args.actorder:
+            # use hessian to create a permutation of weights
+            perm = torch.argsort(torch.diag(self.H), descending=True)
 
-                # permute weight and hessian
-                W = W[:, perm]
-                self.H = self.H[perm][:, perm]
+            # permute weight and hessian
+            W = W[:, perm]
+            self.H = self.H[perm][:, perm]
+
+            # update quantization parameters for activation ordering
             observer = MemorylessObserver(weight_quant_args)
-            scale, zero_point = observer(W)
+            _scale, _zero_point = observer(W)
+            update_parameter_data(self.layer, _scale, "weight_scale")
+            update_parameter_data(self.layer, _zero_point, "weight_zero_point")
+
+        scale = self.layer.scale
+        zero_point = self.layer.zero_point
 
         # mask dead hessian values
         dead = torch.diag(self.H) == 0
@@ -178,44 +175,42 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 d = Hinv1[i, i]
                 q = w.clone()
 
-                if weight_fake_quant is not None:
-                    if tensor_scheme:
-                        q = torch.quantize_per_tensor(q, scale, zero_point, dtype)
-                    else:
-                        q = torch.quantize_per_channel(q, scale, zero_point, 0, dtype)
-                    q = torch.dequantize(q)
-                else:  # weight_quant_args is not None:
-                    strategy = weight_quant_args.strategy
-                    if strategy == QuantizationStrategy.TENSOR:
-                        q = fake_quantize(
-                            q,
-                            scale,
-                            zero_point,
-                            self.layer.quantization_scheme.weights,
-                        )
-                    elif strategy == QuantizationStrategy.CHANNEL:
-                        # TODO: for channelwise why isn't this just a 1d tensor?
-                        q = fake_quantize(
-                            q,
-                            scale[:, 0],
-                            zero_point[:, 0],
-                            weight_quant_args,
-                        )
-                    else:  # strategy == QuantizationStrategy.GROUP
-                        # get the group index for the current column
-                        column_idx = i1 + i
-                        input_dim_group = column_idx // weight_quant_args.group_size
+                # quantize column
+                strategy = weight_quant_args.strategy
+                if strategy == QuantizationStrategy.TENSOR:
+                    q = fake_quantize(
+                        q,
+                        scale,
+                        zero_point,
+                        self.layer.quantization_scheme.weights,
+                    )
+                elif strategy == QuantizationStrategy.CHANNEL:
+                    q = fake_quantize(
+                        q,
+                        scale[:, 0],
+                        zero_point[:, 0],
+                        weight_quant_args,
+                    )
+                elif strategy == QuantizationStrategy.GROUP:
+                    # get the group index for the current column
+                    column_idx = i1 + i
+                    input_dim_group = column_idx // weight_quant_args.group_size
 
-                        # Since we're only applying quantization to a slice, this
-                        # ends up being a channelwise application
-                        altered_qargs = copy(weight_quant_args)
-                        altered_qargs.strategy = QuantizationStrategy.CHANNEL
-                        q = fake_quantize(
-                            q,
-                            scale[:, input_dim_group],
-                            zero_point[:, input_dim_group],
-                            altered_qargs,
-                        )
+                    # Since we're only applying quantization to a slice, this
+                    # ends up being a channelwise application
+                    altered_qargs = copy(weight_quant_args)
+                    altered_qargs.strategy = QuantizationStrategy.CHANNEL
+                    q = fake_quantize(
+                        q,
+                        scale[:, input_dim_group],
+                        zero_point[:, input_dim_group],
+                        altered_qargs,
+                    )
+                else:
+                    raise ValueError(
+                        "Quantization strategy is not supported for GPTQ: "
+                        f"{strategy}"
+                    )
 
                 # propagate column error
                 Q1[:, i] = q
@@ -242,7 +237,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         if "METRIC" in logger._core.levels.keys():
             self.log_metrics(tick, Losses)
 
-        if weight_quant_args is not None and weight_quant_args.actorder:
+        if weight_quant_args.actorder:
             # restore original permutation
             invperm = torch.argsort(perm)
             W = W[:, invperm]
@@ -254,7 +249,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             ).to(device=invperm.device)
 
             # invert to get the group index of the unpermuted weight
-            self.layer.weight_g_idx.data = g_idx[invperm]
+            update_parameter_data(self.layer, g_idx[invperm], "weight_g_idx")
 
         if isinstance(self.layer, transformers.Conv1D):
             W.transpose_(0, 1)
@@ -264,8 +259,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
         # the weight in place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
-        update_parameter_data(self.layer, scale, "weight_scale")
-        update_parameter_data(self.layer, zero_point, "weight_zero_point")
 
         if is_module_offloaded(self.layer):
             device = get_offloaded_device(self.layer)
