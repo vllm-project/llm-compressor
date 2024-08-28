@@ -93,7 +93,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             self.layer, "quantization_scheme.weights", None
         )
         if weight_quant_args is None:
-            logger.debug("Skipping unquantized layer...")
+            logger.debug(f"Skipping unquantized layer {self.name}...")
             return
 
         if is_module_offloaded(self.layer):
