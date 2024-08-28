@@ -25,9 +25,17 @@ MAX_SEQUENCE_LENGTH = 2048
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
+
 def process_and_tokenize(example):
     text = tokenizer.apply_chat_template(example["messages"], tokenize=False)
-    return tokenizer(text, padding=False, max_length=MAX_SEQUENCE_LENGTH, truncation=True, add_special_tokens=False)
+    return tokenizer(
+        text,
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
+    )
+
 
 ds = ds.map(process_and_tokenize, remove_columns=ds.column_names)
 

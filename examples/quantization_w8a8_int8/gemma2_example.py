@@ -7,7 +7,10 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 # 1) Select model and load it.
 MODEL_ID = "google/gemma-2-2b-it"
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto",)
+    MODEL_ID,
+    device_map="auto",
+    torch_dtype="auto",
+)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # 2) Prepare calibration dataset.
@@ -62,7 +65,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    output_dir=MODEL_ID.split("/")[1] + "-INT8"
+    output_dir=MODEL_ID.split("/")[1] + "-INT8",
 )
 
 # Confirm generations of the quantized model look sane.
