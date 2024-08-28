@@ -1,15 +1,15 @@
-import pytest
-
 from types import SimpleNamespace
+
+import pytest
 
 from llmcompressor.utils import (
     ALL_TOKEN,
     convert_to_bool,
     flatten_iterable,
+    getattr_chain,
     interpolate,
     parse_kwarg_tuples,
     validate_str_iterable,
-    getattr_chain,
 )
 
 
@@ -120,7 +120,7 @@ def test_getattr_chain():
     assert getattr_chain(base, "b.c") == "value"
     assert getattr_chain(base, "b.d") is None
     assert getattr_chain(base, "b.d", "default") is None
-    
+
     assert getattr_chain(base, "b.d.dne", "default") == "default"
     with pytest.raises(AttributeError):
         getattr_chain(base, "b.d.dne")
