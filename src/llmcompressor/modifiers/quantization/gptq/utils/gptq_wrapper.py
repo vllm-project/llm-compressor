@@ -137,8 +137,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
             update_parameter_data(self.layer, _scale, "weight_scale")
             update_parameter_data(self.layer, _zero_point, "weight_zero_point")
 
-        scale = self.layer.scale
-        zero_point = self.layer.zero_point
+        scale = self.layer.weight_scale
+        zero_point = self.layer.weight_zero_point
 
         # mask dead hessian values
         dead = torch.diag(self.H) == 0
