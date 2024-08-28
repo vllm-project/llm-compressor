@@ -33,9 +33,9 @@ def test_ignore():
         first_compressor.add_batch(torch.ones(2), None)
         first_compressor.compress()
 
-        first_compressor = GPTQWrapper("second_layer", model.second_layer)
-        first_compressor.add_batch(torch.ones(3), None)
-        first_compressor.compress()
+        second_compressor = GPTQWrapper("second_layer", model.second_layer)
+        second_compressor.add_batch(torch.ones(3), None)
+        second_compressor.compress()
 
     assert sum("Skipping unquantized layer first_layer" in m for m in messages) == 1
     assert sum("Skipping unquantized layer second_layer" in m for m in messages) == 0
