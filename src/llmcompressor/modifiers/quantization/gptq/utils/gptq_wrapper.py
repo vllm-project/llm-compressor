@@ -172,7 +172,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         self.layer.quantization_scheme.weights,
                     )
                 elif strategy == QuantizationStrategy.CHANNEL:
-                    # TODO: for channelwise why isn't this just a 1d tensor?
                     q = fake_quantize(
                         q,
                         scale[:, 0],
