@@ -1,0 +1,7 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_tensor_weight_static_per_tensor_act.yaml
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+scheme: W8A8_tensor_weight_static_per_tensor_act
