@@ -22,13 +22,31 @@ except ImportError:
 WNA16 = "tests/e2e/vLLM/configs/WNA16"
 FP8 = "tests/e2e/vLLM/configs/FP8"
 INT8 = "tests/e2e/vLLM/configs/INT8"
+CONFIGS = [WNA16, FP8, INT8]
 
 
 @requires_gpu
 @requires_torch
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
-@parameterized_class(parse_params([WNA16, FP8, INT8]))
+@parameterized_class(parse_params(CONFIGS))
 class TestvLLM(unittest.TestCase):
+    """
+    The following test quantizes a model using a preset scheme or recipe,
+    runs the model using vLLM, and then pushes the model to the hub for
+    future use. Each test case is focused on a specific quantization type
+    (e.g W4A16 with grouped quantization, W4N16 with channel quantization).
+    To add a new test case, a new config has to be added to one of the folders
+    listed in the `CONFIGS` folder. If the test case is for a data type not listed
+    in `CONFIGS`, a new folder can be created and added to the list. The tests
+    run on a cadence defined by the `cadence` field. Each config defines the model
+    to quantize. Optionally, a dataset id and split can be provided for calibration.
+    Finally, all config files must list a scheme. The scheme can be a preset scheme
+    from https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py # noqa: E501
+    or another identifier which can be used for the particular test case. If a recipe
+    is not provided, it is assumed that the scheme provided is a preset scheme and will
+    be used for quantization. Otherwise, the recipe will always be used if given.
+    """
+
     model = None
     scheme = None
     dataset_id = None
@@ -91,8 +109,7 @@ class TestvLLM(unittest.TestCase):
             self.oneshot_kwargs["recipe"] = self.recipe
         else:
             # Test assumes that if a recipe was not provided, using
-            # a compatible preset sceme from:
-            # https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
+            # a compatible preset sceme
             self.oneshot_kwargs["recipe"] = QuantizationModifier(
                 targets="Linear", scheme=self.scheme, ignore=["lm_head"]
             )
@@ -101,10 +118,10 @@ class TestvLLM(unittest.TestCase):
         print("ONESHOT KWARGS", self.oneshot_kwargs)
         oneshot(
             **self.oneshot_kwargs,
-            output_dir=self.save_dir,
             clear_sparse_session=True,
             oneshot_device=self.device,
         )
+        self.oneshot_kwargs["model"].save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
         # Run vLLM with saved model
         print("================= RUNNING vLLM =========================")
@@ -118,6 +135,10 @@ class TestvLLM(unittest.TestCase):
             generated_text = output.outputs[0].text
             print("PROMPT", prompt)
             print("GENERATED TEXT", generated_text)
+
+        print("================= UPLOADING TO HUB ======================")
+        self.oneshot_kwargs["model"].push_to_hub(f"nm-testing/{self.save_dir}-e2e")
+        tokenizer.push_to_hub(f"nm-testing/{self.save_dir}-e2e")
 
     def tearDown(self):
         shutil.rmtree(self.save_dir)
