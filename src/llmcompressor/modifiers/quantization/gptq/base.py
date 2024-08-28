@@ -59,7 +59,7 @@ class GPTQModifier(Modifier):
     |                    symmetric: true
     |                    strategy: "tensor"
     |                    group_size: 128
-    |                    actorder: True
+    |                    actorder: False
 
 
     :param sequential_update: Whether or not to update weights sequentially by layer,
