@@ -46,6 +46,7 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
@@ -65,6 +66,7 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+      - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -87,6 +89,7 @@ jobs:
         with:
           python-version: '3.9'
       - uses: actions/checkout@v2
+      - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
@@ -107,6 +110,7 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+      - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
