@@ -10,8 +10,6 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
-CONFIGS_DIRECTORY = "tests/e2e/vLLM/configs"
-
 try:
     from vllm import LLM, SamplingParams
 
@@ -19,11 +17,17 @@ try:
 except ImportError:
     vllm_installed = False
 
+# Defines the file paths to the directories containing the test configs
+# for each of the quantization schemes
+WNA16 = "tests/e2e/vLLM/configs/WNA16"
+FP8 = "tests/e2e/vLLM/configs/FP8"
+INT8 = "tests/e2e/vLLM/configs/INT8"
+
 
 @requires_gpu
 @requires_torch
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
-@parameterized_class(parse_params(CONFIGS_DIRECTORY))
+@parameterized_class(parse_params([WNA16, FP8, INT8]))
 class TestvLLM(unittest.TestCase):
     model = None
     scheme = None
@@ -39,7 +43,7 @@ class TestvLLM(unittest.TestCase):
         self.device = "cuda:0"
         self.oneshot_kwargs = {}
         self.num_calibration_samples = 256
-        self.max_seq_length = 2048
+        self.max_seq_length = 1048
         self.prompts = [
             "The capital of France is",
             "The president of the US is",
