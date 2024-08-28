@@ -122,20 +122,35 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         tick = time.time()
 
-        # consider activation ordering
-        if weight_quant_args.actorder:
-            # use hessian to create a permutation of weights
-            perm = torch.argsort(torch.diag(self.H), descending=True)
+        if strategy == QuantizationStrategy.GROUP:
+            # mapping from column index to group index (if group quantization)
+            g_idx = torch.tensor(
+                [i // weight_quant_args.group_size for i in range(self.columns)],
+                dtype=torch.int, device=W.device
+            )
 
-            # permute weight and hessian
-            W = W[:, perm]
-            self.H = self.H[perm][:, perm]
+            if weight_quant_args.actorder == "normal":  # TODO: better name
+                # use hessian to create a permutation of weights
+                perm = torch.argsort(torch.diag(self.H), descending=True)
+                W = W[:, perm]
+                self.H = self.H[perm][:, perm]
 
-            # update quantization parameters for activation ordering
+                # use identity g_idx (invert permutation later)
+
+            # compute quantization parameters
             observer = MemorylessObserver(weight_quant_args)
             _scale, _zero_point = observer(W)
             update_parameter_data(self.layer, _scale, "weight_scale")
             update_parameter_data(self.layer, _zero_point, "weight_zero_point")
+
+            if weight_quant_args.actorder == "static":  # TODO: better name
+                # use hessian to create a permutation of weights
+                perm = torch.argsort(torch.diag(self.H), descending=True)
+                W = W[:, perm]
+                self.H = self.H[perm][:, perm]
+
+                # permute g_idx to maintain identity mapping after unpermutation
+                g_idx = g_idx[perm]
 
         scale = self.layer.weight_scale
         zero_point = self.layer.weight_zero_point
@@ -194,7 +209,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 elif strategy == QuantizationStrategy.GROUP:
                     # get the group index for the current column
                     column_idx = i1 + i
-                    input_dim_group = column_idx // weight_quant_args.group_size
+                    group_index = g_idx[column_idx]
 
                     # Since we're only applying quantization to a slice, this
                     # ends up being a channelwise application
@@ -202,8 +217,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
                     q = fake_quantize(
                         q,
-                        scale[:, input_dim_group],
-                        zero_point[:, input_dim_group],
+                        scale[:, group_index],
+                        zero_point[:, group_index],
                         altered_qargs,
                     )
                 else:
@@ -237,19 +252,14 @@ class GPTQWrapper(ModuleCompressionWrapper):
         if "METRIC" in logger._core.levels.keys():
             self.log_metrics(tick, Losses)
 
-        if weight_quant_args.actorder:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
+        if strategy == QuantizationStrategy.GROUP:
+            if weight_quant_args.actorder == "normal":  # TODO: better name
+                # restore original permutation
+                invperm = torch.argsort(perm)
+                W = W[:, invperm]
+                g_idx = g_idx[invperm]
 
-            # g_idx describes the group index of the permuted weight
-            g_idx = torch.tensor(
-                [i // weight_quant_args.group_size for i in range(self.columns)],
-                dtype=torch.int,
-            ).to(device=invperm.device)
-
-            # invert to get the group index of the unpermuted weight
-            update_parameter_data(self.layer, g_idx[invperm], "weight_g_idx")
+                update_parameter_data(self.layer, g_idx, "weight_g_idx")
 
         if isinstance(self.layer, transformers.Conv1D):
             W.transpose_(0, 1)
