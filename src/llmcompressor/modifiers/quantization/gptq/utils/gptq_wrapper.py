@@ -122,11 +122,23 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         tick = time.time()
 
-        # update quantization parameters for activation ordering
-        observer = MemorylessObserver(weight_quant_args)
-        scale, zero_point = observer(W)
-        update_parameter_data(self.layer, scale, "weight_scale")
-        update_parameter_data(self.layer, zero_point, "weight_zero_point")
+        # consider activation ordering
+        if weight_quant_args.actorder:
+            # use hessian to create a permutation of weights
+            perm = torch.argsort(torch.diag(self.H), descending=True)
+
+            # permute weight and hessian
+            W = W[:, perm]
+            self.H = self.H[perm][:, perm]
+
+            # update quantization parameters for activation ordering
+            observer = MemorylessObserver(weight_quant_args)
+            _scale, _zero_point = observer(W)
+            update_parameter_data(self.layer, _scale, "weight_scale")
+            update_parameter_data(self.layer, _zero_point, "weight_zero_point")
+
+        scale = self.layer.weight_scale
+        zero_point = self.layer.weight_zero_point
 
         # mask dead hessian values
         dead = torch.diag(self.H) == 0
@@ -135,6 +147,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         Losses = torch.zeros(self.rows, device=self.dev)
 
+        # compute inverse hessian in place to save memory
         damp = percdamp * torch.mean(torch.diag(self.H))
         diag = torch.arange(self.columns, device=self.dev)
         self.H[diag, diag] += damp
@@ -224,12 +237,26 @@ class GPTQWrapper(ModuleCompressionWrapper):
         if "METRIC" in logger._core.levels.keys():
             self.log_metrics(tick, Losses)
 
+        if weight_quant_args.actorder:
+            # restore original permutation
+            invperm = torch.argsort(perm)
+            W = W[:, invperm]
+
+            # g_idx describes the group index of the permuted weight
+            g_idx = torch.tensor(
+                [i // weight_quant_args.group_size for i in range(self.columns)],
+                dtype=torch.int,
+            ).to(device=invperm.device)
+
+            # invert to get the group index of the unpermuted weight
+            update_parameter_data(self.layer, g_idx[invperm], "weight_g_idx")
+
         if isinstance(self.layer, transformers.Conv1D):
             W.transpose_(0, 1)
         W = W.reshape(final_shape).to(final_dtype)
 
-        # This is a bit hacky, but FSDP updates only work if we change the weight in
-        # place, clone() or direct assignment won't work
+        # This is a bit hacky, but FSDP updates only work if we change
+        # the weight in place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
 
