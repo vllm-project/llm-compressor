@@ -36,7 +36,7 @@ jobs:
       
       - name: Install whl
         run: |
-            pip3 install $FILENAME[dev]
+            pip3 install $FILENAME[dev,accelerate]
       
       - name: Remove src files and run tests
         run: |
