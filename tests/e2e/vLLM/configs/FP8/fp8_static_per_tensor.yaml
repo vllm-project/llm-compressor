@@ -1,0 +1,6 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+scheme: FP8
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
