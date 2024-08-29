@@ -1,0 +1,4 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+scheme: FP8_DYNAMIC
