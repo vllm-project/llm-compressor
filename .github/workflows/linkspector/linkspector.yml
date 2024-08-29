@@ -1,0 +1,10 @@
+aliveStatusCodes:
+  - 0
+  - 200
+ignorePatterns:
+  - pattern: '.*localhost.*'
+  - pattern: '.*127\\.0\\.0\\.1.*'
+  - pattern: '.*0\\.0\\.0\\.0.*'
+dirs:
+  - .
+useGitIgnore: true
