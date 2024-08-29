@@ -19,6 +19,7 @@ from torch.nn import Embedding, Linear, Module, Parameter
 from torch.nn.modules.conv import Conv2d, Conv3d, _ConvNd
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
+from compressed_tensors.quantization import QuantizedCache
 
 try:
     quant_err = None
@@ -358,6 +359,8 @@ def tensors_module_forward(
     tensors: Union[Tensor, Iterable[Tensor], Mapping[Any, Tensor]],
     module: Module,
     check_feat_lab_inp: bool = True,
+    cache: Optional[QuantizedCache] = None,
+    use_cache: bool = False,
 ) -> Any:
     """
     Default function for calling into a model with data for a forward execution.
@@ -391,7 +394,7 @@ def tensors_module_forward(
         return module(tensors)
 
     if isinstance(tensors, Mapping):
-        return module(**tensors)
+        return module(**tensors, past_key_values=cache, use_cache=use_cache)
 
     if isinstance(tensors, Iterable):
         return module(*tensors)

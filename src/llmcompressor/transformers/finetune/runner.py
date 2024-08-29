@@ -191,6 +191,17 @@ class StageRunner:
                     find_and_move_state_dicts_to_cpu(self._output_dir)
 
         else:
+            from compressed_tensors.quantization.cache import QuantizedCache
+            cache = QuantizedCache.get_value_from_registry("kv-cache")
+            print(cache.k_scales)
+            print(len(cache.k_scales))
+            
+            breakpoint()
+            print(self.trainer.model.model.layers[0].self_attn.k_proj.output_scale)
+            print(self.trainer.model.model.layers[0].self_attn.v_scale)
+            
+            # above should be the same
+            
             save_model_and_recipe(
                 model=self.trainer.model,
                 save_path=self._output_dir,

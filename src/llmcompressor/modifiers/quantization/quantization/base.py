@@ -19,6 +19,7 @@ from torch.nn import Module
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
+from compressed_tensors.quantization.cache import QuantizedCache
 
 __all__ = ["QuantizationModifier"]
 
@@ -68,10 +69,13 @@ class QuantizationModifier(Modifier):
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
-
+    # cache: Optional[QuantizedCache] = None
+    
     def on_initialize_structure(self, state: State, **kwargs):
         module = state.model
         self._apply_modifier_to_model(module)
+        # self.cache = None
+        # cache = QuantizedCache(quantization_args)
         module.apply(freeze_module_quantization)
 
     def on_initialize(
@@ -235,12 +239,20 @@ class QuantizationModifier(Modifier):
 
         module_training = module.training
         module.eval()
+        
+        cache = None
+        use_cache = False
+        if "kv-cache" in QuantizedCache.registered_names():
+            cache = QuantizedCache.get_value_from_registry("kv_cache")
+            use_cache = True
 
         run_calibration_forward(
             module,
             self.calibration_dataloader_,
             self.num_calibration_steps,
             self.calibration_function_,
+            cache=cache,
+            use_cache=use_cache,
         )
 
         if module_training:
