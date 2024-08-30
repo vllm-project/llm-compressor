@@ -1,0 +1,9 @@
+quant_stage:
+  quant_modifiers:
+    QuantizationModifier:
+      sequential_update: false
+      ignore: [lm_head]
+      config_groups:
+        group_0:
+          weights: {num_bits: 8, type: int, symmetric: true, strategy: channel, dynamic: false}
+          targets: [Linear]

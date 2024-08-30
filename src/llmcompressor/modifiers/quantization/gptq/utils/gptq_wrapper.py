@@ -1,7 +1,12 @@
 import time
 
+from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization.lifecycle.forward import fake_quantize
+from compressed_tensors.quantization.observers import MemorylessObserver
+
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
     get_GPU_memory_usage,
     get_layer_size_bytes,
@@ -21,6 +26,7 @@ import torch.nn as nn
 from compressed_tensors.utils import (
     get_offloaded_device,
     is_module_offloaded,
+    update_parameter_data,
     update_prefix_dict,
 )
 from loguru import logger
@@ -83,6 +89,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
+        weight_quant_args = getattr_chain(
+            self.layer, "quantization_scheme.weights", None
+        )
+        if weight_quant_args is None:
+            logger.debug(f"Skipping unquantized layer {self.name}...")
+            return
 
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
@@ -92,12 +104,14 @@ class GPTQWrapper(ModuleCompressionWrapper):
         W = self.layer.weight.data.clone()
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
+        # standardize shape and dtype
         if isinstance(self.layer, nn.Conv2d):
             W = W.flatten(1)
-        if isinstance(self.layer, transformers.Conv1D):
-            W = W.t()
+        elif isinstance(self.layer, transformers.Conv1D):
+            W.transpose_(0, 1)
         W = W.float()
 
+        # sparsity mask
         sparsity = tensor_sparsity(W)
         preserve_zeros = sparsity >= SPARSITY_THRESHOLD
         W_nz_mask = (
@@ -108,23 +122,32 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         tick = time.time()
 
-        if hasattr(self.layer, "quantization_scheme"):
-            quant_scheme = self.layer.quantization_scheme
-            if quant_scheme.weights is not None:
-                # fetch latest correct scale and ZP relevant for any changes
-                # such as activation reordering
-                from compressed_tensors.quantization import (
-                    update_layer_weight_quant_params,
-                )
+        # consider activation ordering
+        if weight_quant_args.actorder:
+            # use hessian to create a permutation of weights
+            perm = torch.argsort(torch.diag(self.H), descending=True)
 
-                update_layer_weight_quant_params(self.layer)
+            # permute weight and hessian
+            W = W[:, perm]
+            self.H = self.H[perm][:, perm]
 
+            # update quantization parameters for activation ordering
+            observer = MemorylessObserver(weight_quant_args)
+            _scale, _zero_point = observer(W)
+            update_parameter_data(self.layer, _scale, "weight_scale")
+            update_parameter_data(self.layer, _zero_point, "weight_zero_point")
+
+        scale = self.layer.weight_scale
+        zero_point = self.layer.weight_zero_point
+
+        # mask dead hessian values
         dead = torch.diag(self.H) == 0
         self.H[dead, dead] = 1
         W[:, dead] = 0
 
         Losses = torch.zeros(self.rows, device=self.dev)
 
+        # compute inverse hessian in place to save memory
         damp = percdamp * torch.mean(torch.diag(self.H))
         diag = torch.arange(self.columns, device=self.dev)
         self.H[diag, diag] += damp
@@ -152,61 +175,44 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 d = Hinv1[i, i]
                 q = w.clone()
 
-                if hasattr(self.layer, "weight_fake_quant"):
-                    scale = self.layer.weight_fake_quant.scale
-                    zero_point = self.layer.weight_fake_quant.zero_point
-                    dtype = self.layer.weight_fake_quant.dtype
-                    qscheme = self.layer.weight_fake_quant.qscheme
-                    if qscheme in [torch.per_tensor_affine, torch.per_tensor_symmetric]:
-                        q = torch.quantize_per_tensor(q, scale, zero_point, dtype)
-                    else:
-                        q = torch.quantize_per_channel(q, scale, zero_point, 0, dtype)
-                    q = torch.dequantize(q)
-                elif hasattr(self.layer, "quantization_scheme"):
-                    quant_scheme = self.layer.quantization_scheme
-                    if quant_scheme.weights is not None:
-                        scale = self.layer.weight_scale
-                        zero_point = self.layer.weight_zero_point
-                        from compressed_tensors.quantization import QuantizationStrategy
-                        from compressed_tensors.quantization.lifecycle.forward import (
-                            fake_quantize,
-                        )
+                # quantize column
+                strategy = weight_quant_args.strategy
+                if strategy == QuantizationStrategy.TENSOR:
+                    q = fake_quantize(
+                        q,
+                        scale,
+                        zero_point,
+                        self.layer.quantization_scheme.weights,
+                    )
+                elif strategy == QuantizationStrategy.CHANNEL:
+                    q = fake_quantize(
+                        q,
+                        scale[:, 0],
+                        zero_point[:, 0],
+                        weight_quant_args,
+                    )
+                elif strategy == QuantizationStrategy.GROUP:
+                    # get the group index for the current column
+                    column_idx = i1 + i
+                    input_dim_group = column_idx // weight_quant_args.group_size
 
-                        strategy = quant_scheme.weights.strategy
+                    # Since we're only applying quantization to a slice, this
+                    # ends up being a channelwise application
+                    altered_qargs = copy(weight_quant_args)
+                    altered_qargs.strategy = QuantizationStrategy.CHANNEL
+                    q = fake_quantize(
+                        q,
+                        scale[:, input_dim_group],
+                        zero_point[:, input_dim_group],
+                        altered_qargs,
+                    )
+                else:
+                    raise ValueError(
+                        "Quantization strategy is not supported for GPTQ: "
+                        f"{strategy}"
+                    )
 
-                        if strategy == QuantizationStrategy.TENSOR:
-                            q = fake_quantize(
-                                q,
-                                scale,
-                                zero_point,
-                                self.layer.quantization_scheme.weights,
-                            )
-                        elif strategy == QuantizationStrategy.CHANNEL:
-                            # TODO: for channelwise why isn't this just a 1d tensor?
-                            q = fake_quantize(
-                                q,
-                                scale[:, 0],
-                                zero_point[:, 0],
-                                quant_scheme.weights,
-                            )
-                        else:  # strategy == QuantizationStrategy.GROUP
-                            # get the group index for the current column
-                            column_idx = i1 + i
-                            input_dim_group = (
-                                column_idx // quant_scheme.weights.group_size
-                            )
-
-                            # Since we're only applying quantization to a slice, this
-                            # ends up being a channelwise application
-                            altered_qargs = copy(quant_scheme.weights)
-                            altered_qargs.strategy = QuantizationStrategy.CHANNEL
-                            q = fake_quantize(
-                                q,
-                                scale[:, input_dim_group],
-                                zero_point[:, input_dim_group],
-                                altered_qargs,
-                            )
-
+                # propagate column error
                 Q1[:, i] = q
                 Losses1[:, i] = (w - q) ** 2 / d**2
 
@@ -218,6 +224,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     W1[:, i:] -= w1_err
                 Err1[:, i] = err1
 
+            # propagate block error
             W[:, i1:i2] = Q1
             Losses += torch.sum(Losses1, 1) / 2
 
@@ -228,33 +235,28 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 W[:, i2:] -= w_err
 
         if "METRIC" in logger._core.levels.keys():
-            logger.log("METRIC", "time %.2f" % (time.time() - tick))
-            logger.log("METRIC", "error %.2f" % torch.sum(Losses).item())
+            self.log_metrics(tick, Losses)
 
-            gpu_usage = get_GPU_memory_usage()
-            if len(gpu_usage) > 0:
-                for i in range(len(gpu_usage)):
-                    perc = gpu_usage[i][0] * 100
-                    total_memory = int(gpu_usage[i][1])  # GB
-                    logger.log(
-                        "METRIC",
-                        (
-                            f"GPU {i} | usage: {perc:.2f}%"
-                            f" | total memory: {total_memory} GB"
-                        ),
-                    )
+        if weight_quant_args.actorder:
+            # restore original permutation
+            invperm = torch.argsort(perm)
+            W = W[:, invperm]
 
-            logger.log(
-                "METRIC",
-                f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB",
-            )
+            # g_idx describes the group index of the permuted weight
+            g_idx = torch.tensor(
+                [i // weight_quant_args.group_size for i in range(self.columns)],
+                dtype=torch.int,
+            ).to(device=invperm.device)
+
+            # invert to get the group index of the unpermuted weight
+            update_parameter_data(self.layer, g_idx[invperm], "weight_g_idx")
 
         if isinstance(self.layer, transformers.Conv1D):
-            W = W.t()
+            W.transpose_(0, 1)
         W = W.reshape(final_shape).to(final_dtype)
 
-        # This is a bit hacky, but FSDP updates only work if we change the weight in
-        # place, clone() or direct assignment won't work
+        # This is a bit hacky, but FSDP updates only work if we change
+        # the weight in place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
 
@@ -263,13 +265,37 @@ class GPTQWrapper(ModuleCompressionWrapper):
             update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
             self.layer._hf_hook.post_forward(self.layer, None)
 
-        del W
-        del Losses
-        del diag
-
     def free(self):
         """
         Free the Hessian memory after the layer is complete
         """
         delattr(self, "H")
         super().free()
+
+    def log_metrics(self, start_tick: float, losses: torch.Tensor):
+        """
+        Log metrics related to compression algorithm
+
+        :param start_tick: time when algorithm started"
+        :param losses: loss as result of algorithm
+        """
+        logger.log("METRIC", "time %.2f" % (time.time() - start_tick))
+        logger.log("METRIC", "error %.2f" % torch.sum(losses).item())
+
+        gpu_usage = get_GPU_memory_usage()
+        if len(gpu_usage) > 0:
+            for i in range(len(gpu_usage)):
+                perc = gpu_usage[i][0] * 100
+                total_memory = int(gpu_usage[i][1])  # GB
+                logger.log(
+                    "METRIC",
+                    (
+                        f"GPU {i} | usage: {perc:.2f}%"
+                        f" | total memory: {total_memory} GB"
+                    ),
+                )
+
+        logger.log(
+            "METRIC",
+            f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB",
+        )
