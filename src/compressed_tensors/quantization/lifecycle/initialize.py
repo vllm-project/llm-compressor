@@ -41,6 +41,7 @@ _LOGGER = logging.getLogger(__name__)
 def initialize_module_for_quantization(
     module: Module,
     scheme: Optional[QuantizationScheme] = None,
+    force_zero_point: bool = True,
 ):
     """
     attaches appropriate scales, zero points, and observers to a layer
@@ -52,6 +53,8 @@ def initialize_module_for_quantization(
     :param scheme: scheme to use for quantization. if None is provided,
         will attempt to use scheme stored in the module under `quantization_scheme`,
         if not provided, the layer will be skipped
+    :param force_zero_point: whether to force initialization of a zero point for
+        symmetric quantization
     """
     scheme = scheme or getattr(module, "quantization_scheme", None)
     if scheme is None:
@@ -59,14 +62,18 @@ def initialize_module_for_quantization(
         return
 
     if scheme.input_activations is not None:
-        _initialize_scale_zero_point_observer(module, "input", scheme.input_activations)
+        _initialize_scale_zero_point_observer(
+            module, "input", scheme.input_activations, force_zero_point=force_zero_point
+        )
     if scheme.weights is not None:
         if hasattr(module, "weight"):
-            weight_shape = None
-            if isinstance(module, torch.nn.Linear):
-                weight_shape = module.weight.shape
+            weight_shape = module.weight.shape
             _initialize_scale_zero_point_observer(
-                module, "weight", scheme.weights, weight_shape=weight_shape
+                module,
+                "weight",
+                scheme.weights,
+                weight_shape=weight_shape,
+                force_zero_point=force_zero_point,
             )
         else:
             _LOGGER.warning(
@@ -76,7 +83,10 @@ def initialize_module_for_quantization(
             )
     if scheme.output_activations is not None:
         _initialize_scale_zero_point_observer(
-            module, "output", scheme.output_activations
+            module,
+            "output",
+            scheme.output_activations,
+            force_zero_point=force_zero_point,
         )
 
     module.quantization_scheme = scheme
@@ -124,6 +134,7 @@ def _initialize_scale_zero_point_observer(
     base_name: str,
     quantization_args: QuantizationArgs,
     weight_shape: Optional[torch.Size] = None,
+    force_zero_point: bool = True,
 ):
     # initialize observer module and attach as submodule
     observer = quantization_args.get_observer()
@@ -149,20 +160,24 @@ def _initialize_scale_zero_point_observer(
                 weight_shape[1] // quantization_args.group_size,
             )
 
+    scale_dtype = module.weight.dtype
+    if scale_dtype not in [torch.float16, torch.bfloat16, torch.float32]:
+        scale_dtype = torch.float16
+
     # initializes empty scale, zero point, and g_idx parameters for the module
     init_scale = Parameter(
-        torch.empty(expected_shape, dtype=module.weight.dtype, device=device),
+        torch.empty(expected_shape, dtype=scale_dtype, device=device),
         requires_grad=False,
     )
     module.register_parameter(f"{base_name}_scale", init_scale)
 
-    # TODO: @kylesayrs do not initialize if symmetric
-    zp_dtype = quantization_args.pytorch_dtype()
-    init_zero_point = Parameter(
-        torch.empty(expected_shape, device=device, dtype=zp_dtype),
-        requires_grad=False,
-    )
-    module.register_parameter(f"{base_name}_zero_point", init_zero_point)
+    if force_zero_point or not quantization_args.symmetric:
+        zp_dtype = quantization_args.pytorch_dtype()
+        init_zero_point = Parameter(
+            torch.zeros(expected_shape, device=device, dtype=zp_dtype),
+            requires_grad=False,
+        )
+        module.register_parameter(f"{base_name}_zero_point", init_zero_point)
 
     # initialize with empty for actorder, to be populated by GPTQ or state_dict
     if quantization_args.actorder:

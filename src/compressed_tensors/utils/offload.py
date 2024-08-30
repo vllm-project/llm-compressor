@@ -91,6 +91,9 @@ def update_parameter_data(
     :param new_param_data: tensor to update parameter with
     :param param_name: name of layer parameter to update
     """
+    if not hasattr(module, param_name):
+        return
+
     device = next(module.parameters()).device
 
     offloaded = False

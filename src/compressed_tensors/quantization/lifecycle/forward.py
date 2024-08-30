@@ -62,14 +62,6 @@ def quantize(
     :param g_idx: optional mapping from column index to group index
     :return: fake quantized tensor
     """
-    # ensure all tensors are on the same device
-    # assumes that the target device is the input
-    # tensor's device
-    if x.device != scale.device:
-        scale = scale.to(x.device)
-    if x.device != zero_point.device:
-        zero_point = zero_point.to(x.device)
-
     return _process_quantization(
         x=x,
         scale=scale,
@@ -274,6 +266,7 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
             return forward_func_orig.__get__(module, module.__class__)(*args, **kwargs)
 
         input_ = args[0]
+        compressed = module.quantization_status == QuantizationStatus.COMPRESSED
 
         if scheme.input_activations is not None:
             # calibrate and (fake) quantize input activations when applicable
@@ -281,7 +274,7 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
                 module, input_, "input", scheme.input_activations
             )
 
-        if scheme.weights is not None:
+        if scheme.weights is not None and not compressed:
             # calibrate and (fake) quantize weights when applicable
             unquantized_weight = self.weight.data.clone()
             self.weight.data = maybe_calibrate_or_quantize(
@@ -300,7 +293,7 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
             )
 
         # restore back to unquantized_value
-        if scheme.weights is not None:
+        if scheme.weights is not None and not compressed:
             self.weight.data = unquantized_weight
 
         return output
@@ -314,11 +307,16 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
 def maybe_calibrate_or_quantize(
     module: Module, value: torch.Tensor, base_name: str, args: "QuantizationArgs"
 ) -> torch.Tensor:
-    # only run quantized for the included stages
-    if module.quantization_status not in {
-        QuantizationStatus.CALIBRATION,
-        QuantizationStatus.FROZEN,
-    }:
+    # don't run quantization if we haven't entered calibration mode
+    if module.quantization_status == QuantizationStatus.INITIALIZED:
+        return value
+
+    # in compressed mode, the weight is already compressed and quantized so we don't
+    # need to run fake quantization
+    if (
+        module.quantization_status == QuantizationStatus.COMPRESSED
+        and base_name == "weight"
+    ):
         return value
 
     if value.numel() == 0:
@@ -335,7 +333,7 @@ def maybe_calibrate_or_quantize(
     else:
         # static quantization - get previous scale and zero point from layer
         scale = getattr(module, f"{base_name}_scale")
-        zero_point = getattr(module, f"{base_name}_zero_point")
+        zero_point = getattr(module, f"{base_name}_zero_point", None)
 
         if (
             module.quantization_status == QuantizationStatus.CALIBRATION
@@ -364,7 +362,9 @@ def _quantize(
     dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
 
-    scaled = x / scale + zero_point.to(x.dtype)
+    scaled = x / scale
+    if zero_point is not None:
+        scaled += zero_point.to(x.dtype)
     # clamp first because cast isn't guaranteed to be saturated (ie for fp8)
     clamped_value = torch.clamp(
         scaled,
@@ -385,11 +385,11 @@ def _dequantize(
     zero_point: torch.Tensor = None,
     dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
+    dequant_value = x_q.to(scale.dtype)
 
-    dequant_value = x_q
     if zero_point is not None:
         dequant_value = dequant_value - zero_point.to(scale.dtype)
-    dequant_value = dequant_value.to(scale.dtype) * scale
+    dequant_value = dequant_value * scale
 
     if dtype is not None:
         dequant_value = dequant_value.to(dtype)

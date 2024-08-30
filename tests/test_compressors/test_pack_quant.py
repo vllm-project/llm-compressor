@@ -17,7 +17,6 @@ import math
 import shutil
 from collections import OrderedDict
 
-from compressed_tensors.quantization.lifecycle.apply import apply_quantization_status
 import pytest
 import torch
 from compressed_tensors import PackedQuantizationCompressor
@@ -30,7 +29,6 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
-    QuantizationStrategy,
     apply_quantization_config,
     apply_quantization_status,
 )
@@ -42,11 +40,12 @@ from torch.nn.modules import Linear, Sequential
 def get_dummy_quant_config(num_bits=4, strategy=None, group_size=None):
     config_groups = {
         "group_1": QuantizationScheme(
-            targets=["Linear"], weights=QuantizationArgs(
+            targets=["Linear"],
+            weights=QuantizationArgs(
                 num_bits=num_bits,
                 strategy=strategy,
                 group_size=group_size,
-            )
+            ),
         ),
     }
     ignore = ["lm_head"]

@@ -128,7 +128,9 @@ def test_reload_match(strategy, group_size, sc, zp, tmp_path):
         dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
-    reconstructed_dense_gen = compressor.decompress(tmp_path)
+    reconstructed_dense_gen = compressor.decompress(
+        tmp_path, names_to_scheme=quantized_modules_to_args
+    )
     reconstructed_dense = {}
     for name, value in reconstructed_dense_gen:
         reconstructed_dense[name] = value

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import logging
-from typing import Dict, Generator, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.compressors import Compressor
@@ -21,10 +21,7 @@ from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import QuantizationArgs
 from compressed_tensors.quantization.lifecycle.forward import dequantize, quantize
 from compressed_tensors.quantization.utils import can_quantize
-from compressed_tensors.utils import get_nested_weight_mappings, merge_names
-from safetensors import safe_open
 from torch import Tensor
-from tqdm import tqdm
 
 
 __all__ = [
@@ -51,88 +48,78 @@ class QuantizationCompressor(Compressor):
         "weight_g_idx",
     ]
 
-    def compress(
+    def compression_param_info(
         self,
-        model_state: Dict[str, Tensor],
-        names_to_scheme: Dict[str, QuantizationArgs],
-        **kwargs,
-    ) -> Dict[str, Tensor]:
+        weight_shape: torch.Size,
+        quantization_args: Optional[QuantizationArgs] = None,
+    ) -> Dict[str, Tuple[torch.Size, torch.dtype]]:
         """
-        Compresses a dense state dict
+        Creates a dictionary of expected shapes and dtypes for each compression
+            parameter used by the compressor
 
-        :param model_state: state dict of uncompressed model
-        :param names_to_scheme: quantization args for each quantized weight, needed for
-        quantize function to calculate bit depth
-        :return: compressed state dict
+        :param weight_shape: uncompressed weight shape
+        :param quantization_args: quantization parameters for the weight
+        :return: dictionary mapping compressed parameter names to shape and dtype
         """
-        compressed_dict = {}
-        weight_suffix = ".weight"
-        _LOGGER.debug(
-            f"Compressing model with {len(model_state)} parameterized layers..."
+        dtype = quantization_args.pytorch_dtype()
+        return {"weight": (weight_shape, dtype)}
+
+    def compress_weight(
+        self,
+        weight: Tensor,
+        scale: Tensor,
+        zero_point: Optional[Tensor] = None,
+        g_idx: Optional[torch.Tensor] = None,
+        quantization_args: Optional[QuantizationArgs] = None,
+        device: Optional[torch.device] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Compresses a single uncompressed weight
+
+        :param weight: uncompressed weight tensor
+        :param scale: quantization scale for weight
+        :param zero_point: quantization zero point for weight
+        :param g_idx: optional mapping from column index to group index
+        :param quantization_args: quantization parameters for weight
+        :param device: optional device to move compressed output to
+        :return: dictionary of compressed weight data
+        """
+        if can_quantize(weight, quantization_args):
+            quantized_weight = quantize(
+                x=weight,
+                scale=scale,
+                zero_point=zero_point,
+                g_idx=g_idx,
+                args=quantization_args,
+                dtype=quantization_args.pytorch_dtype(),
+            )
+
+            if device is not None:
+                quantized_weight = quantized_weight.to(device)
+
+        return {"weight": quantized_weight}
+
+    def decompress_weight(
+        self,
+        compressed_data: Dict[str, Tensor],
+        quantization_args: Optional[QuantizationArgs] = None,
+    ) -> torch.Tensor:
+        """
+        Decompresses a single compressed weight
+
+        :param compressed_data: dictionary of data needed for decompression
+        :param quantization_args: quantization parameters for the weight
+        :return: tensor of the decompressed weight
+        """
+        weight = compressed_data["weight"]
+        scale = compressed_data["weight_scale"]
+        zero_point = compressed_data.get("weight_zero_point", None)
+        g_idx = compressed_data.get("weight_g_idx", None)
+        decompressed_weight = dequantize(
+            x_q=weight, scale=scale, zero_point=zero_point, g_idx=g_idx
         )
 
-        for name, value in tqdm(model_state.items(), desc="Compressing model"):
-            if name.endswith(weight_suffix):
-                prefix = name[: -(len(weight_suffix))]
-                scale = model_state.get(merge_names(prefix, "weight_scale"), None)
-                zp = model_state.get(merge_names(prefix, "weight_zero_point"), None)
-                g_idx = model_state.get(merge_names(prefix, "weight_g_idx"), None)
-                if scale is not None and zp is not None:
-                    # weight is quantized, compress it
-                    quant_args = names_to_scheme[prefix]
-                    if can_quantize(value, quant_args):
-                        # only quantize if not already quantized
-                        value = quantize(
-                            x=value,
-                            scale=scale,
-                            zero_point=zp,
-                            args=quant_args,
-                            dtype=quant_args.pytorch_dtype(),
-                            g_idx=g_idx,
-                        )
-            elif name.endswith("zero_point"):
-                if torch.all(value == 0):
-                    # all zero_points are 0, no need to include in
-                    # compressed state_dict
-                    continue
-            compressed_dict[name] = value.to("cpu")
-
-        return compressed_dict
-
-    def decompress(
-        self, path_to_model_or_tensors: str, device: str = "cpu", **kwargs
-    ) -> Generator[Tuple[str, Tensor], None, None]:
-        """
-        Reads a compressed state dict located at path_to_model_or_tensors
-        and returns a generator for sequentially decompressing back to a
-        dense state dict
-
-        :param model_path: path to compressed safetensors model (directory with
-            one or more safetensors files) or compressed tensors file
-        :param device: optional device to load intermediate weights into
-        :return: compressed state dict
-        """
-        weight_mappings = get_nested_weight_mappings(
-            path_to_model_or_tensors, self.COMPRESSION_PARAM_NAMES
-        )
-        for weight_name in weight_mappings.keys():
-            weight_data = {}
-            for param_name, safe_path in weight_mappings[weight_name].items():
-                full_name = merge_names(weight_name, param_name)
-                with safe_open(safe_path, framework="pt", device=device) as f:
-                    weight_data[param_name] = f.get_tensor(full_name)
-
-            if "weight_scale" in weight_data:
-                scale = weight_data["weight_scale"]
-                zero_point = weight_data.get("weight_zero_point", None)
-                g_idx = weight_data.get("weight_g_idx", None)
-                decompressed = dequantize(
-                    x_q=weight_data["weight"],
-                    scale=scale,
-                    zero_point=zero_point,
-                    g_idx=g_idx,
-                )
-                yield merge_names(weight_name, "weight"), decompressed
+        return decompressed_weight
 
 
 @Compressor.register(name=CompressionFormat.int_quantized.value)

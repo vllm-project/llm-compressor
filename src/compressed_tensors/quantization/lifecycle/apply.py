@@ -43,7 +43,7 @@ from compressed_tensors.quantization.utils import (
     is_kv_cache_quant_scheme,
     iter_named_leaf_modules,
 )
-from compressed_tensors.utils.helpers import fix_fsdp_module_name
+from compressed_tensors.utils.helpers import fix_fsdp_module_name, replace_module
 from compressed_tensors.utils.offload import update_parameter_data
 from compressed_tensors.utils.safetensors_load import get_safetensors_folder
 from torch.nn import Module
@@ -104,12 +104,16 @@ def load_pretrained_quantization(model: Module, model_name_or_path: str):
             )
 
 
-def apply_quantization_config(model: Module, config: QuantizationConfig) -> Dict:
+def apply_quantization_config(
+    model: Module, config: QuantizationConfig, run_compressed: bool = False
+) -> Dict:
     """
     Initializes the model for quantization in-place based on the given config
 
     :param model: model to apply quantization config to
     :param config: quantization config
+    :param run_compressed: Whether the model will be run in compressed mode or
+        decompressed fully on load
     """
     # remove reference to the original `config`
     # argument. This function can mutate it, and we'd
@@ -124,6 +128,9 @@ def apply_quantization_config(model: Module, config: QuantizationConfig) -> Dict
         for target in scheme.targets:
             target_to_scheme[target] = scheme
 
+    if run_compressed:
+        from compressed_tensors.linear.compressed_linear import CompressedLinear
+
     # list of submodules to ignore
     ignored_submodules = defaultdict(list)
     # mark appropriate layers for quantization by setting their quantization schemes
@@ -136,10 +143,23 @@ def apply_quantization_config(model: Module, config: QuantizationConfig) -> Dict
             continue  # layer matches ignore list, continue
         targets = find_name_or_class_matches(name, submodule, target_to_scheme)
         if targets:
+            scheme = _scheme_from_targets(target_to_scheme, targets, name)
+            if run_compressed:
+                format = config.format
+                if isinstance(submodule, torch.nn.Linear):
+                    # TODO: expand to more module types
+                    compressed_linear = CompressedLinear.from_linear(
+                        submodule,
+                        quantization_scheme=scheme,
+                        quantization_format=format,
+                    )
+                    replace_module(model, name, compressed_linear)
+
             # target matched - add layer and scheme to target list
             submodule.quantization_scheme = _scheme_from_targets(
                 target_to_scheme, targets, name
             )
+
             names_to_scheme[name] = submodule.quantization_scheme.weights
 
     if config.ignore is not None and ignored_submodules is not None:
@@ -149,8 +169,8 @@ def apply_quantization_config(model: Module, config: QuantizationConfig) -> Dict
                 "not found in the model: "
                 f"{set(config.ignore) - set(ignored_submodules)}"
             )
-    # apply current quantization status across all targeted layers
 
+    # apply current quantization status across all targeted layers
     apply_quantization_status(model, config.quantization_status)
     return names_to_scheme
 
@@ -198,7 +218,12 @@ def apply_quantization_status(model: Module, status: QuantizationStatus):
     current_status = infer_quantization_status(model)
 
     if status >= QuantizationStatus.INITIALIZED > current_status:
-        model.apply(initialize_module_for_quantization)
+        force_zero_point_init = status != QuantizationStatus.COMPRESSED
+        model.apply(
+            lambda module: initialize_module_for_quantization(
+                module, force_zero_point=force_zero_point_init
+            )
+        )
 
     if current_status < status >= QuantizationStatus.CALIBRATION > current_status:
         # only quantize weights up front when our end goal state is calibration,

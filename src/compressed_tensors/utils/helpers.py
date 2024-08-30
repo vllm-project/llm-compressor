@@ -22,6 +22,7 @@ __all__ = [
     "infer_compressor_from_model_config",
     "fix_fsdp_module_name",
     "tensor_follows_mask_structure",
+    "replace_module",
 ]
 
 FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
@@ -90,3 +91,15 @@ def tensor_follows_mask_structure(tensor, mask: str = "2:4") -> bool:
         raise ValueError()
 
     return True
+
+
+def replace_module(model: torch.nn.Module, name: str, new_module: torch.nn.Module):
+    if "." in name:
+        parent_name = name.rsplit(".", 1)[0]
+        child_name = name[len(parent_name) + 1 :]
+        parent = model.get_submodule(parent_name)
+    else:
+        parent_name = ""
+        parent = model
+        child_name = name
+    setattr(parent, child_name, new_module)

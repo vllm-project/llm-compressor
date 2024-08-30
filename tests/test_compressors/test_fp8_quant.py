@@ -95,9 +95,15 @@ def test_quant_format(strategy, group_size, sc, zp):
 
     # check compressed to int8
     assert compressed_state_dict["dummy.weight_scale"].dtype == torch.float32
-    assert torch.equal(compressed_state_dict["dummy.weight_scale"], dense_state_dict["dummy.weight_scale"])
+    assert torch.equal(
+        compressed_state_dict["dummy.weight_scale"],
+        dense_state_dict["dummy.weight_scale"],
+    )
     if group_size is not None:
-        assert torch.equal(compressed_state_dict["dummy.weight_g_idx"], dense_state_dict["dummy.weight_g_idx"])
+        assert torch.equal(
+            compressed_state_dict["dummy.weight_g_idx"],
+            dense_state_dict["dummy.weight_g_idx"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -132,7 +138,9 @@ def test_reload_match(strategy, group_size, tmp_path):
         model.state_dict(), names_to_scheme=quantized_modules_to_args
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
-    reconstructed_dense_gen = compressor.decompress(tmp_path)
+    reconstructed_dense_gen = compressor.decompress(
+        tmp_path, names_to_scheme=quantized_modules_to_args
+    )
     reconstructed_dense = {}
     for name, value in reconstructed_dense_gen:
         reconstructed_dense[name] = value
