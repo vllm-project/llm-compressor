@@ -259,7 +259,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
             self._log_metrics(tick, Losses)
 
         if strategy == QuantizationStrategy.GROUP:
-            if actorder == ActivationOrderingStrategy.GROUP:
+            if actorder == ActivationOrderingStrategy.WEIGHT:
+                # restore original permutation
+                invperm = torch.argsort(perm)
+                W = W[:, invperm]
+
+            elif actorder == ActivationOrderingStrategy.GROUP:
                 # restore original permutation
                 invperm = torch.argsort(perm)
                 W = W[:, invperm]
