@@ -70,9 +70,7 @@ class QuantizationModifier(Modifier):
     calibration_function_: Any = None
 
     def on_initialize_structure(self, state: State, **kwargs):
-        module = state.model
-        self._apply_modifier_to_model(module)
-        module.apply(freeze_module_quantization)
+        pass
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.end and self.end != -1:
