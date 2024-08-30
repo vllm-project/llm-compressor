@@ -14,14 +14,10 @@ from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM, PreTrainedModel
 
-from llmcompressor.pytorch.model_load.helpers import initialize_recipe
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
 )
-from llmcompressor.transformers.utils.helpers import (
-    download_model_directory,
-    resolve_recipe,
-)
+from llmcompressor.transformers.utils.helpers import download_model_directory
 
 __all__ = ["SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
 
@@ -142,10 +138,6 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
                 compressor.decompress(
                     model_path=pretrained_model_name_or_path, model=model
                 )
-
-        recipe = resolve_recipe(recipe=recipe, model_path=pretrained_model_name_or_path)
-        if recipe:
-            initialize_recipe(model=model, recipe_path=recipe)
 
         return model
 
