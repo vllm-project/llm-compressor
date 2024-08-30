@@ -21,6 +21,7 @@ from typing import OrderedDict as OrderedDictType
 from typing import Union
 
 import torch
+from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization.lifecycle.calibration import (
     set_module_for_calibration,
 )
@@ -146,14 +147,15 @@ def apply_quantization_config(
             scheme = _scheme_from_targets(target_to_scheme, targets, name)
             if run_compressed:
                 format = config.format
-                if isinstance(submodule, torch.nn.Linear):
-                    # TODO: expand to more module types
-                    compressed_linear = CompressedLinear.from_linear(
-                        submodule,
-                        quantization_scheme=scheme,
-                        quantization_format=format,
-                    )
-                    replace_module(model, name, compressed_linear)
+                if format != CompressionFormat.dense.value:
+                    if isinstance(submodule, torch.nn.Linear):
+                        # TODO: expand to more module types
+                        compressed_linear = CompressedLinear.from_linear(
+                            submodule,
+                            quantization_scheme=scheme,
+                            quantization_format=format,
+                        )
+                        replace_module(model, name, compressed_linear)
 
             # target matched - add layer and scheme to target list
             submodule.quantization_scheme = _scheme_from_targets(

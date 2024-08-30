@@ -28,7 +28,7 @@ from compressed_tensors.base import (
     SPARSITY_CONFIG_NAME,
 )
 from compressed_tensors.compressors import Compressor
-from compressed_tensors.config import SparsityCompressionConfig
+from compressed_tensors.config import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationStatus,
@@ -241,7 +241,10 @@ class ModelCompressor:
             compressed_state_dict = self.quantization_compressor.compress(
                 state_dict, names_to_scheme=quantized_modules_to_args
             )
-            self.quantization_config.quantization_status = QuantizationStatus.COMPRESSED
+            if self.quantization_config.format != CompressionFormat.dense.value:
+                self.quantization_config.quantization_status = (
+                    QuantizationStatus.COMPRESSED
+                )
 
         if self.sparsity_compressor is not None:
             compressed_state_dict = self.sparsity_compressor.compress(
