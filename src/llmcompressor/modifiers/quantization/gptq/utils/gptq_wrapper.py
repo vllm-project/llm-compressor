@@ -142,13 +142,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 self.H = self.H[perm][:, perm]
 
                 # compute quantization parameters
-                self._update_quantization_parameters()
+                self._update_quantization_parameters(weight_quant_args, W)
 
                 # use identity g_idx (invert permutation later)
 
             elif actorder == ActivationOrderingStrategy.WEIGHT:
                 # update groups first, then permute by activation order
-                self._update_quantization_parameters()
+                self._update_quantization_parameters(weight_quant_args, W)
 
                 # use hessian to create a permutation of weights
                 # python doesn't support inlining, so repeat code to save mem
