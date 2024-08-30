@@ -128,7 +128,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         tick = time.time()
 
         if strategy == QuantizationStrategy.GROUP:
-            # mapping from column index to group index (if group quantization)
+            # mapping from column index to group index
             g_idx = (
                 torch.arange(self.columns, device=W.device, dtype=torch.int)
                 // weight_quant_args.group_size
@@ -296,7 +296,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
     def _update_quantization_parameters(self, args: QuantizationArgs, W: torch.Tensor):
         observer = MemorylessObserver(args)
-        _scale, _zero_point = observer(W)
+        _scale, _zero_point = observer(W, g_idx=None)
         update_parameter_data(self.layer, _scale, "weight_scale")
         update_parameter_data(self.layer, _zero_point, "weight_zero_point")
 
