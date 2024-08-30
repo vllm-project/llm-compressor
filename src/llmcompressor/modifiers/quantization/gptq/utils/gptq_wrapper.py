@@ -10,7 +10,8 @@ from compressed_tensors.quantization.observers import MemorylessObserver
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
-from llmcompressor.utils import getattr_chain, tensor_sparsity
+from llmcompressor.pytorch.utils.helpers import tensor_sparsity
+from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
     get_GPU_memory_usage,
     get_layer_size_bytes,
