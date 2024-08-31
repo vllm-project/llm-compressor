@@ -2,12 +2,12 @@ from itertools import cycle
 from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from compressed_tensors.quantization import QuantizedCache
 from torch.nn import Module
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.pytorch.utils import tensors_module_forward, tensors_to_device
-from compressed_tensors.quantization import QuantizedCache
 
 __all__ = ["EarlyStopException", "apply_pad_mask_to_batch", "run_calibration_forward"]
 
@@ -46,8 +46,6 @@ def run_calibration_forward(
     calibration_function: Optional[Callable] = None,
     device: Optional[str] = None,
     mask_padding: bool = False,
-    cache: Optional[QuantizedCache] = None,
-    use_cache: bool = False
 ) -> List[torch.Tensor]:
     """
     Helper function used by one-shot modifiers, runs calibration data through a model to
@@ -92,11 +90,10 @@ def run_calibration_forward(
         batch = tensors_to_device(batch, model_device)
         with torch.no_grad():
             try:
-                if cache is not None:
-                    # reset the kv cache states, conflict with attention_mask
-                    cache.reset() 
-
-                forward_fn(batch, module=model, cache=cache, use_cache=use_cache)
+                out = forward_fn(
+                    batch,
+                    module=model,
+                )
             except EarlyStopException as e:
                 # model was stopped early, save last calculated output and
                 # move on to next calibration sample

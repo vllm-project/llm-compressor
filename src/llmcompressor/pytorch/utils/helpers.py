@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 import numpy
 import torch
+from compressed_tensors.quantization import QuantizedCache
 from loguru import logger
 from packaging import version
 from torch import Tensor
@@ -19,7 +20,6 @@ from torch.nn import Embedding, Linear, Module, Parameter
 from torch.nn.modules.conv import Conv2d, Conv3d, _ConvNd
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
-from compressed_tensors.quantization import QuantizedCache
 
 try:
     quant_err = None

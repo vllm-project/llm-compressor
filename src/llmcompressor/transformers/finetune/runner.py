@@ -4,6 +4,7 @@ import re
 from typing import List, Optional
 
 import torch
+from compressed_tensors.quantization.cache import QuantizedCache
 from loguru import logger
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
@@ -64,6 +65,7 @@ class StageRunner:
         self.tokenizer = None
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
+        self.kvcache: Optional[QuantizedCache] = None
 
     def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = True):
         """
@@ -168,7 +170,10 @@ class StageRunner:
 
         self.trainer.accelerator.wait_for_everyone()
 
-        self.trainer.one_shot(calibration_data=calib_data, stage=stage)
+        self.trainer.one_shot(
+            calibration_data=calib_data,
+            stage=stage,
+        )
 
         if is_fsdp_model(self.trainer.model):
             try:
@@ -192,22 +197,26 @@ class StageRunner:
 
         else:
             from compressed_tensors.quantization.cache import QuantizedCache
-            cache = QuantizedCache.get_value_from_registry("kv-cache")
-            print(cache.k_scales)
-            print(len(cache.k_scales))
-            
+
+            # cache = QuantizedCache.get_value_from_registry("kv-cache")
+            # print(cache.k_scales)
+            # print(len(cache.k_scales))
+
             breakpoint()
-            print(self.trainer.model.model.layers[0].self_attn.k_proj.output_scale)
+            # print(self.trainer.model.model.layers[0].self_attn.k_proj.output_scale)
             print(self.trainer.model.model.layers[0].self_attn.v_scale)
-            
+            for i in range(22):
+                print(self.trainer.model.model.layers[i].self_attn.v_scale)
+
             # above should be the same
-            
+
             save_model_and_recipe(
                 model=self.trainer.model,
                 save_path=self._output_dir,
                 tokenizer=self.tokenizer,
                 save_safetensors=self._training_args.save_safetensors,
                 save_compressed=self._training_args.save_compressed,
+                # cache=self.cache,
             )
 
     def train(self, checkpoint: str, stage: Optional[str] = None):

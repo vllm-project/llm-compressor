@@ -5,6 +5,7 @@ from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.quantization.cache import QuantizedCache
 from loguru import logger
 from torch.nn import Module
 from torch.utils.data import DataLoader, IterableDataset
@@ -390,7 +391,10 @@ class SessionManagerMixIn:
         return output
 
     def one_shot(
-        self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
+        self,
+        calibration_data: Optional[DataLoader] = None,
+        stage: Optional[str] = None,
+        # kv_cache: Optional[QuantizedCache] = None,
     ):
         """
         Run oneshot calibration on the active model
@@ -408,6 +412,7 @@ class SessionManagerMixIn:
             copy_data=False,
             accelerator=self.accelerator,
             min_tokens_per_module=self.min_tokens_per_module,
+            # kv_cache=kv_cache
         )
 
         # log model sparsity

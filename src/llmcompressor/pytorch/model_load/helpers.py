@@ -96,6 +96,7 @@ def save_model_and_recipe(
     tokenizer: Optional[Any] = None,
     save_safetensors: bool = False,
     save_compressed: bool = False,
+    # cache: Optional[QuantizedCache] = None
 ):
     """
     Save a model, tokenizer and the currently loaded recipe to file
@@ -108,7 +109,10 @@ def save_model_and_recipe(
     """
 
     model.save_pretrained(
-        save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
+        save_path,
+        save_compressed=save_compressed,
+        safe_serialization=save_safetensors,
+        # cache=cache,
     )
 
     if tokenizer is not None:
