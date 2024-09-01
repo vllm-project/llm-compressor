@@ -6,4 +6,4 @@ dataset_id: openai/gsm8k
 dataset_config: main
 dataset_split: train
 scheme: W4A16
-save_dir: TinyLlama/TinyLlama-1.1B-Chat-v1.0-actorder-weight
+save_dir: TinyLlama-1.1B-Chat-v1.0-actorder-weight
