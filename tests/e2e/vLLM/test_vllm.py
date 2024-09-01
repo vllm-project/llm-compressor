@@ -17,12 +17,8 @@ try:
 except ImportError:
     vllm_installed = False
 
-# Defines the file paths to the directories containing the test configs
-# for each of the quantization schemes
-WNA16 = "tests/e2e/vLLM/configs/WNA16"
-FP8 = "tests/e2e/vLLM/configs/FP8"
-INT8 = "tests/e2e/vLLM/configs/INT8"
-CONFIGS = [WNA16, FP8, INT8]
+
+CONFIGS = "tests/e2e/vLLM/configs"
 
 
 @requires_gpu

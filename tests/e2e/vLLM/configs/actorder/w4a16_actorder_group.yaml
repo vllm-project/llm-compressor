@@ -1,0 +1,5 @@
+cadence: "nightly"
+test_type: "regression"
+model: Qwen/Qwen2-0.5B-Instruct
+recipe: tests/e2e/vLLM/recipes/FP8/recipe_w4a16_actorder_group.yaml
+scheme: W4A16
