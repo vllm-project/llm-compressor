@@ -59,7 +59,7 @@ def _validate_test_config(config: dict):
             try:
                 f.type(config_value)
             except ValueError:
-                raise False
+                return False
     return True
 
 
