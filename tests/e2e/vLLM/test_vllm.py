@@ -49,12 +49,12 @@ class TestvLLM(unittest.TestCase):
     dataset_config = None
     dataset_split = None
     recipe = None
+    save_dir = None
 
     def setUp(self):
         print("========== RUNNING ==============")
         print(self.scheme)
 
-        self.save_dir = None
         self.device = "cuda:0"
         self.oneshot_kwargs = {}
         self.num_calibration_samples = 256
@@ -82,7 +82,9 @@ class TestvLLM(unittest.TestCase):
                 self.num_calibration_samples
             )
 
-        self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        if self.save_dir is None:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+            
         self.oneshot_kwargs["model"] = loaded_model
         if self.recipe:
             self.oneshot_kwargs["recipe"] = self.recipe

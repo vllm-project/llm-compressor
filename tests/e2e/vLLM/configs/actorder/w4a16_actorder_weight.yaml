@@ -6,3 +6,4 @@ dataset_id: openai/gsm8k
 dataset_config: main
 dataset_split: train
 scheme: W4A16
+save_dir: Qwen2-0.5B-Instruct-actorder-weight
