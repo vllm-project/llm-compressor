@@ -8,7 +8,7 @@ from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu, requires_torch, preprocess_tokenize_dataset
 
 try:
     from vllm import LLM, SamplingParams
@@ -46,6 +46,7 @@ class TestvLLM(unittest.TestCase):
     model = None
     scheme = None
     dataset_id = None
+    dataset_config = None
     dataset_split = None
     recipe = None
 
@@ -71,28 +72,10 @@ class TestvLLM(unittest.TestCase):
         )
         tokenizer = AutoTokenizer.from_pretrained(self.model)
 
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["messages"],
-                    tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
-                padding=False,
-                max_length=self.max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
         if self.dataset_id:
-            ds = load_dataset(self.dataset_id, split=self.dataset_split)
+            ds = load_dataset(self.dataset_id, name=self.dataset_config, split=self.dataset_split)
             ds = ds.shuffle(seed=42).select(range(self.num_calibration_samples))
-            ds = ds.map(preprocess)
-            ds = ds.map(tokenize, remove_columns=ds.column_names)
+            ds = preprocess_tokenize_dataset(ds, tokenizer, self.max_seq_length)
             self.oneshot_kwargs["dataset"] = ds
             self.oneshot_kwargs["max_seq_length"] = self.max_seq_length
             self.oneshot_kwargs["num_calibration_samples"] = (
@@ -137,4 +120,5 @@ class TestvLLM(unittest.TestCase):
         tokenizer.push_to_hub(f"nm-testing/{self.save_dir}-e2e")
 
     def tearDown(self):
-        shutil.rmtree(self.save_dir)
+        if self.save_dir is not None:
+            shutil.rmtree(self.save_dir)

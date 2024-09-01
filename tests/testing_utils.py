@@ -7,6 +7,8 @@ from subprocess import PIPE, STDOUT, run
 from typing import List, Optional, Union
 
 import yaml
+from datasets import Dataset
+from transformers import AutoTokenizer
 
 from tests.data import CustomTestConfig, TestConfig
 
@@ -121,3 +123,49 @@ def run_cli_command(cmd: List[str]):
         should be a string
     """
     return run(cmd, stdout=PIPE, stderr=STDOUT, check=False, encoding="utf-8")
+
+
+def preprocess_tokenize_dataset(ds: Dataset, tokenizer: AutoTokenizer, max_seq_length: int) -> Dataset:
+    """
+    Helper function to preprocess and tokenize a dataset according to presets
+    
+    :param ds: language dataset to preprocess and tokenize
+    :param tokenizer: tokenizer to be used for tokenization
+    :param max_seq_length: maximum sequence length of samples
+    """
+    if ds.info.dataset_name == "gsm8k":
+        def preprocess(example):
+            return example
+        
+        def tokenize(sample):
+            return tokenizer(
+                sample["question"],
+                padding=False,
+                max_length=max_seq_length,
+                truncation=True,
+                add_special_tokens=False,
+            )
+    elif ds.info.dataset_name == "ultrachat_200k":
+        def preprocess(example):
+            return {
+                "text": tokenizer.apply_chat_template(
+                    example["messages"],
+                    tokenize=False,
+                )
+            }
+        
+        def tokenize(sample):
+            return tokenizer(
+                sample["text"],
+                padding=False,
+                max_length=max_seq_length,
+                truncation=True,
+                add_special_tokens=False,
+            )
+    else:
+        raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
+
+    ds = ds.map(preprocess)
+    ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+    return ds
