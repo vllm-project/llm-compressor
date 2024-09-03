@@ -131,7 +131,7 @@ def parse_args(**kwargs):
     return model_args, data_args, training_args
 
 
-def intialize_model_from_path(
+def initialize_model_from_path(
     model_args: ModelArguments,
     training_args: TrainingArguments,
 ):
@@ -298,7 +298,7 @@ def main(
     tokenizer = model_args.tokenizer
 
     if isinstance(model, str) or isinstance(model, PosixPath):
-        (teacher, model_path, model) = intialize_model_from_path(
+        (teacher, model_path, model) = initialize_model_from_path(
             model_args,
             training_args,
         )
@@ -311,7 +311,7 @@ def main(
 
     pre_initialize_structure(model=model)
 
-    # intialize session manager
+    # initialize session manager
     initialize_recipe(model, None)
 
     # Load datasets
