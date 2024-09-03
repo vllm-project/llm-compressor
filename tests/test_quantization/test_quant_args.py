@@ -14,6 +14,7 @@
 
 import pytest
 from compressed_tensors.quantization import (
+    ActivationOrdering,
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
@@ -39,6 +40,9 @@ def test_group():
     assert group.strategy == QuantizationStrategy.GROUP
     assert group.group_size == kwargs["group_size"]
 
+    with pytest.raises(ValueError):
+        QuantizationArgs(strategy=QuantizationStrategy.GROUP, group_size=-1)
+
 
 def test_block():
     kwargs = {"strategy": "block", "block_structure": "2x4"}
@@ -56,25 +60,40 @@ def test_infer_strategy():
     assert args.strategy == QuantizationStrategy.CHANNEL
 
 
+def test_enums():
+    assert QuantizationArgs(
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.GROUP,
+        actorder=ActivationOrdering.WEIGHT,
+        group_size=1,
+    ) == QuantizationArgs(type="InT", strategy="GROUP", actorder="weight", group_size=1)
+
+
 def test_actorder():
-    args = QuantizationArgs(group_size=128, actorder=True)
+    # test group inference with actorder
+    args = QuantizationArgs(group_size=128, actorder=ActivationOrdering.GROUP)
     assert args.strategy == QuantizationStrategy.GROUP
-    assert args.actorder
 
+    # test invalid pairings
     with pytest.raises(ValueError):
-        args = QuantizationArgs(group_size=None, actorder=True)
+        QuantizationArgs(group_size=None, actorder="weight")
+    with pytest.raises(ValueError):
+        QuantizationArgs(group_size=-1, actorder="weight")
+    with pytest.raises(ValueError):
+        QuantizationArgs(strategy="tensor", actorder="weight")
 
-    with pytest.raises(ValueError):
-        args = QuantizationArgs(group_size=-1, actorder=True)
-
-    with pytest.raises(ValueError):
-        args = QuantizationArgs(strategy="tensor", actorder=True)
+    # test boolean defaulting
+    assert (
+        QuantizationArgs(group_size=1, actorder="weight").actorder
+        == ActivationOrdering.WEIGHT
+    )
+    assert QuantizationArgs(group_size=1, actorder=None).actorder is None
 
 
 def test_invalid():
     with pytest.raises(ValidationError):
-        _ = QuantizationArgs(type="invalid")
+        QuantizationArgs(type="invalid")
     with pytest.raises(ValidationError):
-        _ = QuantizationArgs(strategy="invalid")
+        QuantizationArgs(strategy="invalid")
     with pytest.raises(ValidationError):
-        _ = QuantizationArgs(strategy=QuantizationStrategy.GROUP)
+        QuantizationArgs(strategy=QuantizationStrategy.GROUP)

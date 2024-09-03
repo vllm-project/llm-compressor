@@ -108,6 +108,7 @@ class Compressor(RegistryMixin):
                 prefix = name[: -(len(weight_suffix))]
                 scale = model_state.get(merge_names(prefix, "weight_scale"), None)
                 zp = model_state.get(merge_names(prefix, "weight_zero_point"), None)
+                g_idx = model_state.get(merge_names(prefix, "weight_g_idx"), None)
                 if scale is not None:
                     # weight is quantized, compress it
                     quant_args = names_to_scheme[prefix]
@@ -115,6 +116,7 @@ class Compressor(RegistryMixin):
                         weight=value,
                         scale=scale,
                         zero_point=zp,
+                        g_idx=g_idx,
                         quantization_args=quant_args,
                         device="cpu",
                     )

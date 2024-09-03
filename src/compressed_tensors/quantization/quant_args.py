@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import torch
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -25,6 +25,7 @@ __all__ = [
     "QuantizationStrategy",
     "QuantizationArgs",
     "round_to_quantized_type",
+    "ActivationOrdering",
 ]
 
 FP8_DTYPE = torch.float8_e4m3fn
@@ -51,6 +52,19 @@ class QuantizationStrategy(str, Enum):
     TOKEN = "token"
 
 
+class ActivationOrdering(str, Enum):
+    """
+    Enum storing strategies for activation ordering
+
+    Group: reorder groups and weight\n
+    Weight: only reorder weight, not groups. Slightly lower latency and
+    accuracy compared to group actorder\n
+    """
+
+    GROUP = "group"
+    WEIGHT = "weight"
+
+
 class QuantizationArgs(BaseModel, use_enum_values=True):
     """
     User facing arguments used to define a quantization config for weights or
@@ -69,17 +83,17 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         quantization. Note that enabling dynamic quantization will change the default
         observer to a memoryless one
     :param actorder: whether to apply group quantization in decreasing order of
-        activation. Defaults to False for arbitrary ordering
+        activation. Defaults to None for arbitrary ordering
     """
 
     num_bits: int = 8
-    type: QuantizationType = QuantizationType.INT.value
+    type: QuantizationType = QuantizationType.INT
     symmetric: bool = True
     group_size: Optional[int] = None
     strategy: Optional[QuantizationStrategy] = None
     block_structure: Optional[str] = None
     dynamic: bool = False
-    actorder: bool = False
+    actorder: Optional[ActivationOrdering] = None
     observer: str = Field(
         default="minmax",
         description=(
@@ -108,8 +122,15 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
 
         return Observer.load_from_registry(self.observer, quantization_args=self)
 
+    @field_validator("type", mode="before")
+    def validate_type(cls, value) -> QuantizationType:
+        if isinstance(value, str):
+            return QuantizationType(value.lower())
+
+        return value
+
     @field_validator("group_size", mode="before")
-    def validate_group(cls, value) -> int:
+    def validate_group(cls, value) -> Union[int, None]:
         if value is None:
             return value
 
@@ -121,18 +142,29 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
 
         return value
 
-    @model_validator(mode="before")
-    def validate_strategy(values) -> Dict[str, Any]:
-        model_fields = QuantizationArgs.model_fields
-        strategy = values.get("strategy", model_fields["strategy"].default)
-        group_size = values.get("group_size", model_fields["group_size"].default)
-        actorder = values.get("actorder", model_fields["actorder"].default)
+    @field_validator("strategy", mode="before")
+    def validate_strategy(cls, value) -> Union[QuantizationStrategy, None]:
+        if isinstance(value, str):
+            return QuantizationStrategy(value.lower())
 
-        if strategy is not None:
-            strategy = QuantizationStrategy(strategy.lower())
+        return value
 
-        else:
-            # use group_size to determinine strategy if not given explicity
+    @field_validator("actorder", mode="before")
+    def validate_actorder(cls, value) -> Optional[ActivationOrdering]:
+        if isinstance(value, str):
+            return ActivationOrdering(value.lower())
+
+        return value
+
+    @model_validator(mode="after")
+    def validate_model_after(model: "QuantizationArgs") -> Dict[str, Any]:
+        # extract user-passed values from dictionary
+        strategy = model.strategy
+        group_size = model.group_size
+        actorder = model.actorder
+
+        # infer strategy
+        if strategy is None:
             if group_size is None:
                 strategy = QuantizationStrategy.TENSOR
             elif group_size > 0:
@@ -145,6 +177,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                     "strategy='group' and group_size = -1 for 'channel'"
                 )
 
+        # validate strategy and group
         if strategy == QuantizationStrategy.GROUP:
             if group_size is None or group_size <= 0:
                 raise ValueError(
@@ -152,14 +185,16 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                     "set to a positive value"
                 )
 
-        if actorder and strategy != QuantizationStrategy.GROUP:
+        # validate activation ordering and strategy
+        if actorder is not None and strategy != QuantizationStrategy.GROUP:
             raise ValueError(
-                "Group quantization must be specified in order to apply "
+                "Must use group quantization strategy in order to apply "
                 "activation ordering"
             )
 
-        values["strategy"] = strategy
-        return values
+        # write back modified values
+        model.strategy = strategy
+        return model
 
     def pytorch_dtype(self) -> torch.dtype:
         if self.type == QuantizationType.FLOAT:
