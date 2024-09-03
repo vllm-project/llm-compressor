@@ -3,4 +3,4 @@ test_type: "smoke"
 tokenize: False
 model: "Xenova/llama2.c-stories15M"
 dataset: open_platypus
-recipe: "tests/llmcompressor/transformers/oneshot/oneshot_configs/recipes/recipe.yaml"
+recipe: "tests/llmcompressor/transformers/oneshot/oneshot_recipes/recipe.yaml"

@@ -101,13 +101,7 @@ def parse_params(
     if not isinstance(expected_cadence, list):
         expected_cadence = [expected_cadence]
 
-    # skip if cadence doesn't match
-    if cadence not in expected_cadence:
-        logging.debug(
-            f"Skipping testing model: {path} for cadence: {config['cadence']}"
-        )
-        return []
-
+    # validate
     if type == "custom":
         config = CustomTestConfig(**config)
     elif not _validate_test_config(config):
@@ -115,6 +109,14 @@ def parse_params(
             "The config provided does not comply with the expected structure "
             "See tests.data.TestConfig for the expected fields."
         )
+
+    # skip if cadence doesn't match
+    if cadence not in expected_cadence:
+        logging.debug(
+            f"Skipping testing model: {path} for cadence: {expected_cadence}"
+        )
+        return []
+    
     return [config]
 
 
