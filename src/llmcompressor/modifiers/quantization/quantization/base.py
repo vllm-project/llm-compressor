@@ -82,7 +82,7 @@ class QuantizationModifier(Modifier):
         self.calibration_dataloader_ = state.data.calib
         module = state.model
 
-        # intialize quantization in appropriate modules
+        # initialize quantization in appropriate modules
         config = self._apply_modifier_to_model(module)
 
         if self.calculate_start() == -1:  # one-shot
