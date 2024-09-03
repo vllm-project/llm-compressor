@@ -68,7 +68,8 @@ def _validate_test_config(config: dict):
 # Set cadence in the config. The environment must set if nightly, weekly or commit
 # tests are running
 def parse_params(
-    path: str, type: Optional[str] = None
+    path: str, type: Optional[str] = None,
+    recurse: bool = False
 ) -> List[Union[dict, CustomTestConfig]]:
     """
     Collect parameters recursively from directory or file path

@@ -4,4 +4,4 @@ tokenize: False
 model: "Xenova/llama2.c-stories15M"
 dataset: "gsm8k"
 dataset_config_name: "main"
-recipe: "tests/llmcompressor/transformers/oneshot/oneshot_recipes/recipe.yaml"
+recipe: "tests/llmcompressor/transformers/oneshot/oneshot_configs/recipe/recipe.yaml"
