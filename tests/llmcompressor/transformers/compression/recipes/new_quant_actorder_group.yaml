@@ -10,7 +10,7 @@ test_stage:
                         symmetric: False
                         strategy: "group"
                         group_size: 128
-                        actorder: True
+                        actorder: "group"
                     input_activations: null
                     output_activations: null
                     targets: ["Linear"]
