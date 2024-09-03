@@ -1,4 +1,5 @@
 import time
+from typing import Tuple
 
 from compressed_tensors.quantization import (
     ActivationOrdering,
@@ -136,12 +137,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
             if actorder == ActivationOrdering.GROUP:
                 # permute by activation order first, then update groups
-                # python doesn't support inlining, so repeat code to save mem
-                perm = torch.argsort(torch.diag(self.H), descending=True)
-                W = W[:, perm]
-                self.H = self.H[perm][:, perm]
-
-                # compute quantization parameters
+                W, self.H, perm = self._apply_activation_ordering(W, self.H)
                 self._update_quantization_parameters(weight_quant_args, W)
 
                 # use identity g_idx (invert permutation later)
@@ -149,12 +145,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             elif actorder == ActivationOrdering.WEIGHT:
                 # update groups first, then permute by activation order
                 self._update_quantization_parameters(weight_quant_args, W)
-
-                # use hessian to create a permutation of weights
-                # python doesn't support inlining, so repeat code to save mem
-                perm = torch.argsort(torch.diag(self.H), descending=True)
-                W = W[:, perm]
-                self.H = self.H[perm][:, perm]
+                W, self.H, perm = self._apply_activation_ordering(W, self.H)
 
                 # permute g_idx to maintain identity mapping after unpermutation
                 g_idx = g_idx[perm]
@@ -295,10 +286,27 @@ class GPTQWrapper(ModuleCompressionWrapper):
         super().free()
 
     def _update_quantization_parameters(self, args: QuantizationArgs, W: torch.Tensor):
+        """
+        Update layer quantization parameters with potentially permuted weight
+
+        :param args: quantization arguments
+        :param W: weight to calculate quantization parameters from
+        """
         observer = MemorylessObserver(args)
         _scale, _zero_point = observer(W, g_idx=None)
         update_parameter_data(self.layer, _scale, "weight_scale")
         update_parameter_data(self.layer, _zero_point, "weight_zero_point")
+
+    def _apply_activation_ordering(
+        self, W: torch.Tensor, H: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Permute weight and hessian in order of greatest outupt activations
+
+        :param W: weight to permute
+        """
+        perm = torch.argsort(torch.diag(H), descending=True)
+        return W[:, perm], H[perm][:, perm], perm
 
     def _log_metrics(self, start_tick: float, losses: torch.Tensor):
         """
