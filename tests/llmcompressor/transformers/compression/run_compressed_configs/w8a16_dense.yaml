@@ -1,0 +1,3 @@
+cadence: "commit"
+test_type: "regression"
+model_stub: "nm-testing/tinyllama-w8a16-dense"
