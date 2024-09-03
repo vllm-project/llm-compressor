@@ -112,11 +112,9 @@ def parse_params(
 
     # skip if cadence doesn't match
     if cadence not in expected_cadence:
-        logging.debug(
-            f"Skipping testing model: {path} for cadence: {expected_cadence}"
-        )
+        logging.debug(f"Skipping testing model: {path} for cadence: {expected_cadence}")
         return []
-    
+
     return [config]
 
 
