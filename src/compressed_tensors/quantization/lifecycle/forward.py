@@ -348,7 +348,16 @@ def maybe_calibrate_or_quantize(
             update_parameter_data(module, updated_scale, f"{base_name}_scale")
             update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
-    return fake_quantize(value, scale, zero_point, args, g_idx=g_idx)
+            scale = updated_scale
+            zero_point = updated_zero_point
+
+    return fake_quantize(
+        x=value,
+        scale=scale,
+        zero_point=zero_point,
+        args=args,
+        g_idx=g_idx,
+    )
 
 
 @torch.no_grad()
