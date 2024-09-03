@@ -110,6 +110,7 @@ def is_preset_scheme(name: str) -> bool:
     """
     return name.upper() in PRESET_SCHEMES
 
+UNQUANTIZED = dict()
 
 # 8 bit integer weights and 8 bit activations quantization
 W8A8 = dict(
@@ -208,6 +209,8 @@ FP8_DYNAMIC = dict(
 )
 
 PRESET_SCHEMES = {
+    # Unquantized (no-op)
+    "UNQUANTIZED": UNQUANTIZED,
     # Integer weight only schemes
     "W8A16": W8A16,
     "W4A16": W4A16,

@@ -271,6 +271,9 @@ class ModelCompressor:
             v_proj_has_quant_output = 0
             for name, module in model.named_modules():
                 if not hasattr(module, "quantization_scheme"):
+                    # We still want to count non-quantized q_proj
+                    if name.endswith(".q_proj"):
+                        q_proj_has_no_quant_output += 1
                     continue
                 out_act = module.quantization_scheme.output_activations
                 if name.endswith(".q_proj") and out_act is None:

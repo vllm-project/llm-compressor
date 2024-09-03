@@ -181,7 +181,7 @@ def calculate_compression_ratio(model: Module) -> float:
         for parameter in model.parameters():
             uncompressed_bits = get_torch_bit_depth(parameter)
             compressed_bits = uncompressed_bits
-            if is_module_quantized(submodule):
+            if is_module_quantized(submodule) and submodule.quantization_scheme.weights:
                 compressed_bits = submodule.quantization_scheme.weights.num_bits
 
             num_weights = parameter.numel()
