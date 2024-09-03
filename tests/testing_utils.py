@@ -7,6 +7,8 @@ from subprocess import PIPE, STDOUT, run
 from typing import List, Optional, Union
 
 import yaml
+from datasets import Dataset
+from transformers import AutoTokenizer
 
 from tests.data import CustomTestConfig, TestConfig
 
@@ -42,10 +44,8 @@ def requires_gpu(test_case):
     return unittest.skipUnless(is_gpu_available(), "test requires GPU")(test_case)
 
 
-def _load_yaml(configs_directory, file):
-    if file.endswith(".yaml") or file.endswith(".yml"):
-        config_path = os.path.join(configs_directory, file)
-        # reads the yaml file
+def _load_yaml(config_path: str):
+    if config_path.endswith(".yaml") or config_path.endswith(".yml"):
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
         return config
@@ -61,47 +61,61 @@ def _validate_test_config(config: dict):
             try:
                 f.type(config_value)
             except ValueError:
-                raise False
+                return False
     return True
 
 
 # Set cadence in the config. The environment must set if nightly, weekly or commit
 # tests are running
 def parse_params(
-    configs_directory: str, type: Optional[str] = None
+    path: str, type: Optional[str] = None
 ) -> List[Union[dict, CustomTestConfig]]:
-    # parses the config file provided
-    assert os.path.isdir(
-        configs_directory
-    ), f"Config_directory {configs_directory} is not a directory"
+    """
+    Collect parameters recursively from directory or file path
 
-    config_dicts = []
-    for file in os.listdir(configs_directory):
-        config = _load_yaml(configs_directory, file)
-        if not config:
-            continue
+    :param path: path to directory or config path
+    :param type: set to "custom" for custom script tests
 
-        cadence = os.environ.get("CADENCE", "commit")
-        expected_cadence = config.get("cadence")
+    :return: test configurations
+    :rtype: List[Union[dict, CustomTestConfig]]
+    """
+    # recursive case
+    if os.path.isdir(path):
+        return sum(
+            (
+                parse_params(os.path.join(path, filename))
+                for filename in os.listdir(path)
+                if filename[0] != "."
+            ),
+            start=[],
+        )
 
-        if not isinstance(expected_cadence, list):
-            expected_cadence = [expected_cadence]
-        if cadence in expected_cadence:
-            if type == "custom":
-                config = CustomTestConfig(**config)
-            else:
-                if not _validate_test_config(config):
-                    raise ValueError(
-                        "The config provided does not comply with the expected "
-                        "structure. See tests.data.TestConfig for the expected "
-                        "fields."
-                    )
-            config_dicts.append(config)
-        else:
-            logging.info(
-                f"Skipping testing model: {file} for cadence: {config['cadence']}"
-            )
-    return config_dicts
+    # load config yaml
+    config = _load_yaml(path)
+    if not config:
+        return []
+
+    # collect cadence
+    cadence = os.environ.get("CADENCE", "commit")
+    expected_cadence = config.get("cadence")
+    if not isinstance(expected_cadence, list):
+        expected_cadence = [expected_cadence]
+
+    # skip if cadence doesn't match
+    if cadence not in expected_cadence:
+        logging.debug(
+            f"Skipping testing model: {path} for cadence: {config['cadence']}"
+        )
+        return []
+
+    if type == "custom":
+        config = CustomTestConfig(**config)
+    elif not _validate_test_config(config):
+        raise ValueError(
+            "The config provided does not comply with the expected structure "
+            "See tests.data.TestConfig for the expected fields."
+        )
+    return [config]
 
 
 def run_cli_command(cmd: List[str]):
@@ -113,3 +127,53 @@ def run_cli_command(cmd: List[str]):
         should be a string
     """
     return run(cmd, stdout=PIPE, stderr=STDOUT, check=False, encoding="utf-8")
+
+
+def preprocess_tokenize_dataset(
+    ds: Dataset, tokenizer: AutoTokenizer, max_seq_length: int
+) -> Dataset:
+    """
+    Helper function to preprocess and tokenize a dataset according to presets
+
+    :param ds: language dataset to preprocess and tokenize
+    :param tokenizer: tokenizer to be used for tokenization
+    :param max_seq_length: maximum sequence length of samples
+    """
+    if ds.info.dataset_name == "gsm8k":
+
+        def preprocess(example):
+            return example
+
+        def tokenize(sample):
+            return tokenizer(
+                sample["question"],
+                padding=False,
+                max_length=max_seq_length,
+                truncation=True,
+                add_special_tokens=False,
+            )
+    elif ds.info.dataset_name == "ultrachat_200k":
+
+        def preprocess(example):
+            return {
+                "text": tokenizer.apply_chat_template(
+                    example["messages"],
+                    tokenize=False,
+                )
+            }
+
+        def tokenize(sample):
+            return tokenizer(
+                sample["text"],
+                padding=False,
+                max_length=max_seq_length,
+                truncation=True,
+                add_special_tokens=False,
+            )
+    else:
+        raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
+
+    ds = ds.map(preprocess)
+    ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+    return ds
