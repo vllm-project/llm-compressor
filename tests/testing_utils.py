@@ -67,10 +67,12 @@ def _validate_test_config(config: dict):
 
 # Set cadence in the config. The environment must set if nightly, weekly or commit
 # tests are running
-def parse_params(path: str, type: Optional[str] = None) -> List[Union[dict, CustomTestConfig]]:
+def parse_params(
+    path: str, type: Optional[str] = None
+) -> List[Union[dict, CustomTestConfig]]:
     """
     Collect parameters recursively from directory or file path
-    
+
     :param path: path to directory or config path
     :param type: set to "custom" for custom script tests
 
@@ -85,14 +87,14 @@ def parse_params(path: str, type: Optional[str] = None) -> List[Union[dict, Cust
                 for filename in os.listdir(path)
                 if filename[0] != "."
             ),
-            start=[]
+            start=[],
         )
-    
+
     # load config yaml
     config = _load_yaml(path)
     if not config:
         return []
-    
+
     # collect cadence
     cadence = os.environ.get("CADENCE", "commit")
     expected_cadence = config.get("cadence")
@@ -101,7 +103,9 @@ def parse_params(path: str, type: Optional[str] = None) -> List[Union[dict, Cust
 
     # skip if cadence doesn't match
     if cadence not in expected_cadence:
-        logging.debug(f"Skipping testing model: {path} for cadence: {config['cadence']}")
+        logging.debug(
+            f"Skipping testing model: {path} for cadence: {config['cadence']}"
+        )
         return []
 
     if type == "custom":
@@ -125,18 +129,21 @@ def run_cli_command(cmd: List[str]):
     return run(cmd, stdout=PIPE, stderr=STDOUT, check=False, encoding="utf-8")
 
 
-def preprocess_tokenize_dataset(ds: Dataset, tokenizer: AutoTokenizer, max_seq_length: int) -> Dataset:
+def preprocess_tokenize_dataset(
+    ds: Dataset, tokenizer: AutoTokenizer, max_seq_length: int
+) -> Dataset:
     """
     Helper function to preprocess and tokenize a dataset according to presets
-    
+
     :param ds: language dataset to preprocess and tokenize
     :param tokenizer: tokenizer to be used for tokenization
     :param max_seq_length: maximum sequence length of samples
     """
     if ds.info.dataset_name == "gsm8k":
+
         def preprocess(example):
             return example
-        
+
         def tokenize(sample):
             return tokenizer(
                 sample["question"],
@@ -146,6 +153,7 @@ def preprocess_tokenize_dataset(ds: Dataset, tokenizer: AutoTokenizer, max_seq_l
                 add_special_tokens=False,
             )
     elif ds.info.dataset_name == "ultrachat_200k":
+
         def preprocess(example):
             return {
                 "text": tokenizer.apply_chat_template(
@@ -153,7 +161,7 @@ def preprocess_tokenize_dataset(ds: Dataset, tokenizer: AutoTokenizer, max_seq_l
                     tokenize=False,
                 )
             }
-        
+
         def tokenize(sample):
             return tokenizer(
                 sample["text"],

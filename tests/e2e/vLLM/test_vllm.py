@@ -8,7 +8,12 @@ from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from tests.testing_utils import parse_params, requires_gpu, requires_torch, preprocess_tokenize_dataset
+from tests.testing_utils import (
+    parse_params,
+    preprocess_tokenize_dataset,
+    requires_gpu,
+    requires_torch,
+)
 
 try:
     from vllm import LLM, SamplingParams
@@ -73,7 +78,9 @@ class TestvLLM(unittest.TestCase):
         tokenizer = AutoTokenizer.from_pretrained(self.model)
 
         if self.dataset_id:
-            ds = load_dataset(self.dataset_id, name=self.dataset_config, split=self.dataset_split)
+            ds = load_dataset(
+                self.dataset_id, name=self.dataset_config, split=self.dataset_split
+            )
             ds = ds.shuffle(seed=42).select(range(self.num_calibration_samples))
             ds = preprocess_tokenize_dataset(ds, tokenizer, self.max_seq_length)
             self.oneshot_kwargs["dataset"] = ds
@@ -84,7 +91,7 @@ class TestvLLM(unittest.TestCase):
 
         if self.save_dir is None:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
-            
+
         self.oneshot_kwargs["model"] = loaded_model
         if self.recipe:
             self.oneshot_kwargs["recipe"] = self.recipe

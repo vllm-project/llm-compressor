@@ -1,7 +1,7 @@
 import time
 
 from compressed_tensors.quantization import (
-    ActivationOrderingStrategy,
+    ActivationOrdering,
     QuantizationArgs,
     QuantizationStrategy,
 )
@@ -134,7 +134,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 // weight_quant_args.group_size
             )
 
-            if actorder == ActivationOrderingStrategy.GROUP:
+            if actorder == ActivationOrdering.GROUP:
                 # permute by activation order first, then update groups
                 # python doesn't support inlining, so repeat code to save mem
                 perm = torch.argsort(torch.diag(self.H), descending=True)
@@ -146,7 +146,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
                 # use identity g_idx (invert permutation later)
 
-            elif actorder == ActivationOrderingStrategy.WEIGHT:
+            elif actorder == ActivationOrdering.WEIGHT:
                 # update groups first, then permute by activation order
                 self._update_quantization_parameters(weight_quant_args, W)
 
@@ -259,12 +259,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
             self._log_metrics(tick, Losses)
 
         if strategy == QuantizationStrategy.GROUP:
-            if actorder == ActivationOrderingStrategy.WEIGHT:
+            if actorder == ActivationOrdering.WEIGHT:
                 # restore original permutation
                 invperm = torch.argsort(perm)
                 W = W[:, invperm]
 
-            elif actorder == ActivationOrderingStrategy.GROUP:
+            elif actorder == ActivationOrdering.GROUP:
                 # restore original permutation
                 invperm = torch.argsort(perm)
                 W = W[:, invperm]
