@@ -80,7 +80,7 @@ def parse_params(
         ), f"Config_directory {current_config_dir} is not a directory"
 
         for file in os.listdir(current_config_dir):
-            config = _load_yaml(current_config_dir, file)
+            config = _load_yaml(os.path.join(current_config_dir, file))
             if not config:
                 continue
 
