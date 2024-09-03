@@ -111,6 +111,10 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         # restore transformers logging level now that model shell is loaded
         transformers_logger.setLevel(level=restore_log_level)
 
+        # HfQuantizer Quantization
+        if hasattr(model.config, "quantization_config"):
+            return model
+
         # override the PreTrainedModel instance with compression save function
         modify_save_pretrained(model)
 

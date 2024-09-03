@@ -1,0 +1,3 @@
+cadence: "commit"
+test_type: "regression"
+model_stub: "nm-testing/tinyllama-fp8-dynamic-compressed"
