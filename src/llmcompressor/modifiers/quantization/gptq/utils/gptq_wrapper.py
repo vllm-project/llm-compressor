@@ -7,7 +7,6 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import fake_quantize
-from compressed_tensors.quantization.observers import MemorylessObserver
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
@@ -292,7 +291,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param args: quantization arguments
         :param W: weight to calculate quantization parameters from
         """
-        observer = MemorylessObserver(args)
+        observer = args.get_observer()
         _scale, _zero_point = observer(W, g_idx=None)
         update_parameter_data(self.layer, _scale, "weight_scale")
         update_parameter_data(self.layer, _zero_point, "weight_zero_point")
