@@ -50,6 +50,7 @@ class LoggerConfig:
     console_log_level: Optional[str] = "INFO"
     log_file: Optional[str] = None
     log_file_level: Optional[str] = None
+    metrics_disabled: bool = False
 
 
 def configure_logger(config: Optional[LoggerConfig] = None):
@@ -63,24 +64,19 @@ def configure_logger(config: Optional[LoggerConfig] = None):
     :param config: The configuration for the logger to use.
     :type config: LoggerConfig
     """
+    logger_config = config or LoggerConfig()
 
-    _ENV_CONFIG = LoggerConfig(
-        disabled=os.getenv("LLM_COMPRESSOR_LOG_DISABLED") == "true",
-        clear_loggers=os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS") == "true",
-        console_log_level=os.getenv("LLM_COMPRESSOR_LOG_LEVEL"),
-        log_file=os.getenv("LLM_COMPRESSOR_LOG_FILE"),
-        log_file_level=os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL"),
-    )
-
-    if not config:
-        config = LoggerConfig()
-    # override from environment variables, if set
-    logger_config = LoggerConfig(
-        disabled=_ENV_CONFIG.disabled or config.disabled,
-        console_log_level=_ENV_CONFIG.console_log_level or config.console_log_level,
-        log_file=_ENV_CONFIG.log_file or config.log_file,
-        log_file_level=_ENV_CONFIG.log_file_level or config.log_file_level,
-    )
+    # env vars get priority
+    if (disabled := os.getenv("LLM_COMPRESSOR_LOG_DISABLED")) is not None:
+        logger_config.disabled = disabled.lower()
+    if (clear_loggers := os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS")) is not None:
+        logger_config.clear_loggers = clear_loggers.lower()
+    if (console_log_level := os.getenv("LLM_COMPRESSOR_LOG_LEVEL")) is not None:
+        logger_config.console_log_level = console_log_level.upper()
+    if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
+        logger_config.log_file = log_file
+    if (log_file_level := os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL")) is not None:
+        logger_config.log_file_level = log_file_level
 
     if logger_config.disabled:
         logger.disable("llmcompressor")
@@ -104,6 +100,23 @@ def configure_logger(config: Optional[LoggerConfig] = None):
         log_file_level = logger_config.log_file_level or "INFO"
         # log as json to the file for easier parsing
         logger.add(log_file, level=log_file_level.upper(), serialize=True)
+
+    if logger_config.metrics_disabled or "METRIC" in logger._core.levels.keys():
+        return
+
+    # initialize metric logger on loguru
+    _initialize_metric_logging()
+
+
+def _initialize_metric_logging() -> None:
+    """
+    Initalize metric logging for loguru and metric-related libraries
+    Defaults to stdout
+    usage:
+        `logger.log("METRIC", "foo description, bar result")`
+
+    """
+    logger.level("METRIC", no=38, color="<yellow>", icon="📈")
 
 
 # invoke logger setup on import with default values enabling console logging with INFO

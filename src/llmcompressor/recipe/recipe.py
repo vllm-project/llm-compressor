@@ -118,9 +118,9 @@ class Recipe(RecipeBase):
         if not os.path.isfile(path_or_modifiers):
             # not a local file
             # assume it's a string
-            logger.warning(
-                "Could not process input as a file path or zoo stub, "
-                "attempting to process it as a string."
+            logger.debug(
+                "Could not initialize recipe as a file path or zoo stub, "
+                "attempting to process as a string."
             )
             logger.debug(f"Input string: {path_or_modifiers}")
             obj = _load_json_or_yaml_string(path_or_modifiers)

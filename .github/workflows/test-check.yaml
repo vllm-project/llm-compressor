@@ -8,6 +8,15 @@ on:
     branches:
       - main
       - 'release/*'
+    types: [labeled, opened, synchronize]
+
+env:
+  CADENCE: "commit"
+  CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
+  CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
+  CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
+  CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
+  CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
   test-setup:
@@ -21,7 +30,9 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0
-      - run: git branch --show-current
+      # TODO: for @DanH what is this supposed to be doing?
+      # The way it was being used before was only testing code on main,
+      # not on the current PR. git branch --show current does not work
       - name: Get current branch
         id: get-branch
         run: >
@@ -38,28 +49,24 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
+          repository: "neuralmagic/compressed-tensors"
+          path: "compressed-tensors"
           ref: ${{needs.test-setup.outputs.branch}}
+      - name: "⚙️ Install compressed-tensors dependencies"
+        run: pip3 install -U pip && pip3 install setuptools compressed-tensors/
+      - name: "Clean compressed-tensors directory"
+        run: rm -r compressed-tensors/
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running base tests"
         run: make test
   pytorch-tests:
-    runs-on: k8s-eng-gpu-64G-v100-32G
-    env:
-      CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-      CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-      CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-      CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
-      CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+    runs-on: ubuntu-22.04
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
@@ -73,15 +80,10 @@ jobs:
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
-        run: make test TARGETS=pytorch
+        run: |
+          pytest tests/llmcompressor/pytorch -v
   compat-pytorch-1_9-pytorch-tests:
-    runs-on: k8s-eng-gpu-64G-v100-32G
-    env:
-      CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-      CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-      CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-      CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
-      CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+    runs-on: ubuntu-22.04
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
@@ -90,10 +92,6 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions/checkout@v2
         with:
-          ref: ${{needs.test-setup.outputs.branch}}
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
           ref: ${{needs.test-setup.outputs.branch}}
@@ -104,24 +102,17 @@ jobs:
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
-        run: make test TARGETS=pytorch
+        run: |
+          pytest tests/llmcompressor/pytorch -v
   transformers-tests:
-    runs-on: k8s-eng-gpu-64G-v100-32G
-    env:
-      CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-      CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-      CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-      CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
-      CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+    if: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ready') }}
+    runs-on: ubuntu-22.04
     needs: test-setup
     steps:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
       - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
       - uses: actions/checkout@v2
         with:
           repository: "neuralmagic/compressed-tensors"
@@ -132,6 +123,26 @@ jobs:
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "⚙️ Install dependencies"
+        id: install
         run: pip3 install .[dev]
-      - name: "🔬 Running transformers tests"
-        run: make test TARGETS=transformers
+      - name: "🔬 Running transformers tests[skipping over finetune]"
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          pytest tests/llmcompressor/transformers/compression -v
+      - name: Running GPTQ Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          pytest tests/llmcompressor/transformers/gptq -v
+      - name: Running ONESHOT Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          pytest tests/llmcompressor/transformers/oneshot -v
+      - name: Running Sparsification Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          pytest tests/llmcompressor/transformers/sparsification -v
+          ptyest tests/llmcompressor/transformers/test_clear_ml.py -v
+      - name: Running OBCQ Tests
+        if: always() && steps.install.outcome == 'success'
+        run: |
+          pytest -v tests/llmcompressor/transformers/obcq -v
