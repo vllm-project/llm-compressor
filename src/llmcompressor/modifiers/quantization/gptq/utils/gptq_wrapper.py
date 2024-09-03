@@ -117,15 +117,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W.transpose_(0, 1)
         W = W.float()
 
-        # sparsity mask
-        sparsity = tensor_sparsity(W)
-        preserve_zeros = sparsity >= SPARSITY_THRESHOLD
-        W_nz_mask = (
-            (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
-            if preserve_zeros
-            else None
-        )
-
         tick = time.time()
 
         if strategy == QuantizationStrategy.GROUP:
@@ -152,6 +143,15 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         scale = self.layer.weight_scale
         zero_point = self.layer.weight_zero_point
+
+        # sparsity mask
+        sparsity = tensor_sparsity(W)
+        preserve_zeros = sparsity >= SPARSITY_THRESHOLD
+        W_nz_mask = (
+            (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
+            if preserve_zeros
+            else None
+        )
 
         # mask dead hessian values
         dead = torch.diag(self.H) == 0
