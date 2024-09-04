@@ -82,11 +82,12 @@ def test_actorder():
     with pytest.raises(ValueError):
         QuantizationArgs(strategy="tensor", actorder="weight")
 
-    # test boolean defaulting
+    # test boolean and none defaulting
     assert (
-        QuantizationArgs(group_size=1, actorder="weight").actorder
-        == ActivationOrdering.WEIGHT
+        QuantizationArgs(group_size=1, actorder=True).actorder
+        == ActivationOrdering.GROUP
     )
+    assert QuantizationArgs(group_size=1, actorder=False).actorder is None
     assert QuantizationArgs(group_size=1, actorder=None).actorder is None
 
 

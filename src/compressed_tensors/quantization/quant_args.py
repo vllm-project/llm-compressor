@@ -93,7 +93,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     strategy: Optional[QuantizationStrategy] = None
     block_structure: Optional[str] = None
     dynamic: bool = False
-    actorder: Optional[ActivationOrdering] = None
+    actorder: Union[ActivationOrdering, bool, None] = None
     observer: str = Field(
         default="minmax",
         description=(
@@ -151,6 +151,9 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
 
     @field_validator("actorder", mode="before")
     def validate_actorder(cls, value) -> Optional[ActivationOrdering]:
+        if isinstance(value, bool):
+            return ActivationOrdering.GROUP if value else None
+
         if isinstance(value, str):
             return ActivationOrdering(value.lower())
 
