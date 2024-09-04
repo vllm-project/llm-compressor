@@ -88,7 +88,7 @@ In our case, we will apply the default GPTQ recipe for `int4` (which uses static
 
 ```python
 from llmcompressor.transformers import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Configure the quantization algorithm to run.
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
