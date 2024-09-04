@@ -51,7 +51,8 @@ def get_layer_mappings_from_architecture(architecture: str) -> List[LayerMap]:
 
     if architecture not in MAPPINGS_REGISTRY:
         logger.info(
-            f"Architecture {architecture} not found in mappings. Using default mappings"
+            f"Architecture {architecture} not found in mappings. "
+            f"Using default mappings: {DEFAULT_SMOOTHQUANT_MAPPINGS}"
         )
 
     return MAPPINGS_REGISTRY.get(architecture, DEFAULT_SMOOTHQUANT_MAPPINGS)

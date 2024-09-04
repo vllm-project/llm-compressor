@@ -168,7 +168,7 @@ class SmoothQuantModifier(Modifier):
         if mappings is not None:
             return mappings
 
-        logger.info("No mappings provided, inferring from model...")
+        logger.info("No SmoothQuantModifier.mappings provided, inferring from model...")
         return get_layer_mappings_from_architecture(
             architecture=model.__class__.__name__
         )
