@@ -8,7 +8,7 @@ on:
     branches:
       - main
       - 'release/*'
-    types: [labeled, opened, synchronize]
+    types: [opened, synchronize]
 
 env:
   CADENCE: "commit"
@@ -105,7 +105,6 @@ jobs:
         run: |
           pytest tests/llmcompressor/pytorch -v
   transformers-tests:
-    if: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ready') }}
     runs-on: ubuntu-22.04
     needs: test-setup
     steps:
@@ -146,10 +145,3 @@ jobs:
         if: always() && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/obcq -v
-  check-test:
-    needs: transformers-tests # other job must finish
-    runs-on: ubuntu-22.04
-    steps:
-      - name: "Return Status"
-        run: |
-          return 0
