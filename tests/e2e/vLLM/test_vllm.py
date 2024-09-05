@@ -8,7 +8,12 @@ from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import (
+    parse_params,
+    preprocess_tokenize_dataset,
+    requires_gpu,
+    requires_torch,
+)
 
 try:
     from vllm import LLM, SamplingParams
@@ -17,12 +22,8 @@ try:
 except ImportError:
     vllm_installed = False
 
-# Defines the file paths to the directories containing the test configs
-# for each of the quantization schemes
-WNA16 = "tests/e2e/vLLM/configs/WNA16"
-FP8 = "tests/e2e/vLLM/configs/FP8"
-INT8 = "tests/e2e/vLLM/configs/INT8"
-CONFIGS = [WNA16, FP8, INT8]
+
+CONFIGS = "tests/e2e/vLLM/configs"
 
 
 @requires_gpu
@@ -50,14 +51,15 @@ class TestvLLM(unittest.TestCase):
     model = None
     scheme = None
     dataset_id = None
+    dataset_config = None
     dataset_split = None
     recipe = None
+    save_dir = None
 
     def setUp(self):
         print("========== RUNNING ==============")
         print(self.scheme)
 
-        self.save_dir = None
         self.device = "cuda:0"
         self.oneshot_kwargs = {}
         self.num_calibration_samples = 256
@@ -75,35 +77,21 @@ class TestvLLM(unittest.TestCase):
         )
         tokenizer = AutoTokenizer.from_pretrained(self.model)
 
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["messages"],
-                    tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
-                padding=False,
-                max_length=self.max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
         if self.dataset_id:
-            ds = load_dataset(self.dataset_id, split=self.dataset_split)
+            ds = load_dataset(
+                self.dataset_id, name=self.dataset_config, split=self.dataset_split
+            )
             ds = ds.shuffle(seed=42).select(range(self.num_calibration_samples))
-            ds = ds.map(preprocess)
-            ds = ds.map(tokenize, remove_columns=ds.column_names)
+            ds = preprocess_tokenize_dataset(ds, tokenizer, self.max_seq_length)
             self.oneshot_kwargs["dataset"] = ds
             self.oneshot_kwargs["max_seq_length"] = self.max_seq_length
             self.oneshot_kwargs["num_calibration_samples"] = (
                 self.num_calibration_samples
             )
 
-        self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        if self.save_dir is None:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+
         self.oneshot_kwargs["model"] = loaded_model
         if self.recipe:
             self.oneshot_kwargs["recipe"] = self.recipe
@@ -141,4 +129,5 @@ class TestvLLM(unittest.TestCase):
         tokenizer.push_to_hub(f"nm-testing/{self.save_dir}-e2e")
 
     def tearDown(self):
-        shutil.rmtree(self.save_dir)
+        if self.save_dir is not None:
+            shutil.rmtree(self.save_dir)

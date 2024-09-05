@@ -1,11 +1,16 @@
 import time
+from typing import Tuple
 
-from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization import (
+    ActivationOrdering,
+    QuantizationArgs,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.lifecycle.forward import fake_quantize
-from compressed_tensors.quantization.observers import MemorylessObserver
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
     get_GPU_memory_usage,
@@ -89,9 +94,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
-        weight_quant_args = getattr_chain(
-            self.layer, "quantization_scheme.weights", None
-        )
+        args_loc = "quantization_scheme.weights"
+        weight_quant_args = getattr_chain(self.layer, args_loc, None)
         if weight_quant_args is None:
             logger.debug(f"Skipping unquantized layer {self.name}...")
             return
@@ -99,10 +103,11 @@ class GPTQWrapper(ModuleCompressionWrapper):
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
+        strategy = weight_quant_args.strategy
+        actorder = weight_quant_args.actorder
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
-        from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
         # standardize shape and dtype
         if isinstance(self.layer, nn.Conv2d):
@@ -110,6 +115,33 @@ class GPTQWrapper(ModuleCompressionWrapper):
         elif isinstance(self.layer, transformers.Conv1D):
             W.transpose_(0, 1)
         W = W.float()
+
+        tick = time.time()
+
+        if strategy == QuantizationStrategy.GROUP:
+            # mapping from column index to group index
+            g_idx = (
+                torch.arange(self.columns, device=W.device, dtype=torch.int)
+                // weight_quant_args.group_size
+            )
+
+            if actorder == ActivationOrdering.GROUP:
+                # permute by activation order first, then update groups
+                W, self.H, perm = self._apply_activation_ordering(W, self.H)
+                self._update_quantization_parameters(weight_quant_args, W)
+
+                # use identity g_idx (invert permutation later)
+
+            elif actorder == ActivationOrdering.WEIGHT:
+                # update groups first, then permute by activation order
+                self._update_quantization_parameters(weight_quant_args, W)
+                W, self.H, perm = self._apply_activation_ordering(W, self.H)
+
+                # permute g_idx to maintain identity mapping after unpermutation
+                g_idx = g_idx[perm]
+
+        scale = self.layer.weight_scale
+        zero_point = self.layer.weight_zero_point
 
         # sparsity mask
         sparsity = tensor_sparsity(W)
@@ -119,26 +151,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if preserve_zeros
             else None
         )
-
-        tick = time.time()
-
-        # consider activation ordering
-        if weight_quant_args.actorder:
-            # use hessian to create a permutation of weights
-            perm = torch.argsort(torch.diag(self.H), descending=True)
-
-            # permute weight and hessian
-            W = W[:, perm]
-            self.H = self.H[perm][:, perm]
-
-            # update quantization parameters for activation ordering
-            observer = MemorylessObserver(weight_quant_args)
-            _scale, _zero_point = observer(W)
-            update_parameter_data(self.layer, _scale, "weight_scale")
-            update_parameter_data(self.layer, _zero_point, "weight_zero_point")
-
-        scale = self.layer.weight_scale
-        zero_point = self.layer.weight_zero_point
 
         # mask dead hessian values
         dead = torch.diag(self.H) == 0
@@ -176,7 +188,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 q = w.clone()
 
                 # quantize column
-                strategy = weight_quant_args.strategy
                 if strategy == QuantizationStrategy.TENSOR:
                     q = fake_quantize(
                         q,
@@ -194,7 +205,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 elif strategy == QuantizationStrategy.GROUP:
                     # get the group index for the current column
                     column_idx = i1 + i
-                    input_dim_group = column_idx // weight_quant_args.group_size
+                    group_index = g_idx[column_idx]
 
                     # Since we're only applying quantization to a slice, this
                     # ends up being a channelwise application
@@ -202,8 +213,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
                     q = fake_quantize(
                         q,
-                        scale[:, input_dim_group],
-                        zero_point[:, input_dim_group],
+                        scale[:, group_index],
+                        zero_point[:, group_index],
                         altered_qargs,
                     )
                 else:
@@ -235,21 +246,22 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 W[:, i2:] -= w_err
 
         if "METRIC" in logger._core.levels.keys():
-            self.log_metrics(tick, Losses)
+            self._log_metrics(tick, Losses)
 
-        if weight_quant_args.actorder:
-            # restore original permutation
-            invperm = torch.argsort(perm)
-            W = W[:, invperm]
+        if strategy == QuantizationStrategy.GROUP:
+            if actorder == ActivationOrdering.WEIGHT:
+                # restore original permutation
+                invperm = torch.argsort(perm)
+                W = W[:, invperm]
 
-            # g_idx describes the group index of the permuted weight
-            g_idx = torch.tensor(
-                [i // weight_quant_args.group_size for i in range(self.columns)],
-                dtype=torch.int,
-            ).to(device=invperm.device)
+            elif actorder == ActivationOrdering.GROUP:
+                # restore original permutation
+                invperm = torch.argsort(perm)
+                W = W[:, invperm]
+                g_idx = g_idx[invperm]
 
-            # invert to get the group index of the unpermuted weight
-            update_parameter_data(self.layer, g_idx[invperm], "weight_g_idx")
+                # only save g_idx if mapping is not identity
+                update_parameter_data(self.layer, g_idx, "weight_g_idx")
 
         if isinstance(self.layer, transformers.Conv1D):
             W.transpose_(0, 1)
@@ -272,7 +284,30 @@ class GPTQWrapper(ModuleCompressionWrapper):
         delattr(self, "H")
         super().free()
 
-    def log_metrics(self, start_tick: float, losses: torch.Tensor):
+    def _update_quantization_parameters(self, args: QuantizationArgs, W: torch.Tensor):
+        """
+        Update layer quantization parameters with potentially permuted weight
+
+        :param args: quantization arguments
+        :param W: weight to calculate quantization parameters from
+        """
+        observer = args.get_observer()
+        _scale, _zero_point = observer(W, g_idx=None)
+        update_parameter_data(self.layer, _scale, "weight_scale")
+        update_parameter_data(self.layer, _zero_point, "weight_zero_point")
+
+    def _apply_activation_ordering(
+        self, W: torch.Tensor, H: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Permute weight and hessian in order of greatest outupt activations
+
+        :param W: weight to permute
+        """
+        perm = torch.argsort(torch.diag(H), descending=True)
+        return W[:, perm], H[perm][:, perm], perm
+
+    def _log_metrics(self, start_tick: float, losses: torch.Tensor):
         """
         Log metrics related to compression algorithm
 
