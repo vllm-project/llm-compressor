@@ -124,10 +124,14 @@ jobs:
       - name: "⚙️ Install dependencies"
         id: install
         run: pip3 install .[dev]
-      - name: "🔬 Running transformers tests[skipping over finetune]"
+      - name: "🔬 Running transformers tests"
         if: always() && steps.install.outcome == 'success'
         run: |
           pytest tests/llmcompressor/transformers/compression -v
+      - name: Run Finetune Tests
+        if: always() && steps.install.outcome == 'success'       
+        run: |
+          pytest -v tests/llmcompressor/transformers/finetune -m unit
       - name: Running GPTQ Tests
         if: always() && steps.install.outcome == 'success'
         run: |
