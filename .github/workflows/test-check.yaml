@@ -146,3 +146,10 @@ jobs:
         if: always() && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/obcq -v
+  check-test:
+    needs: transformers-tests # other job must finish
+    runs-on: ubuntu-22.04
+    steps:
+      - name: "Return Status"
+        run: |
+          return 0
