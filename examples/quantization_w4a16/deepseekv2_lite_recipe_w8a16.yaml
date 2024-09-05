@@ -1,0 +1,7 @@
+DEFAULT_stage:
+  DEFAULT_modifiers:
+    GPTQModifier:
+      sequential_update: true
+      targets: Linear
+      ignore: [lm_head, 're:.*block_sparse_moe\.gate']
+      scheme: W8A16

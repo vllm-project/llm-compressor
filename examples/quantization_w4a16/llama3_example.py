@@ -5,11 +5,15 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+#MODEL_ID = "/home/dsikka/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-V2-Lite/snapshots/604d5664dddd88a0433dbae533b7fe9472482de0"
+print("RUNNING DEEPSEEK")
+MODEL_ID = "deepseek-ai/DeepSeek-V2-Lite"
+MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Instruct"
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
+    trust_remote_code=True,
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -55,8 +59,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 # Note: to reduce GPU memory use `sequential_update=False`
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
-
+# recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+recipe = "/home/dsikka/llm-compressor/examples/quantization_w4a16/deepseekv2_lite_recipe.yaml"
+#recipe = "/home/dsikka/llm-compressor/examples/quantization_w4a16/deepseekv2_lite_recipe_w8a16.yaml"
 # Apply algorithms.
 oneshot(
     model=model,
@@ -75,6 +80,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = "/home/dsikka/deepseek_output-w4a16-large-channel"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
