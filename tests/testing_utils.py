@@ -68,54 +68,48 @@ def _validate_test_config(config: dict):
 # Set cadence in the config. The environment must set if nightly, weekly or commit
 # tests are running
 def parse_params(
-    path: str, type: Optional[str] = None
+    configs_directory: Union[list, str], type: Optional[str] = None
 ) -> List[Union[dict, CustomTestConfig]]:
-    """
-    Collect parameters recursively from directory or file path
+    # parses the config files provided
 
-    :param path: path to directory or config path
-    :param type: set to "custom" for custom script tests
+    config_dicts = []
 
-    :return: test configurations
-    :rtype: List[Union[dict, CustomTestConfig]]
-    """
-    # recursive case
-    if os.path.isdir(path):
-        return sum(
-            (
-                parse_params(os.path.join(path, filename))
-                for filename in os.listdir(path)
-                if filename[0] != "."
-            ),
-            start=[],
-        )
+    def _parse_configs_dir(current_config_dir):
+        assert os.path.isdir(
+            current_config_dir
+        ), f"Config_directory {current_config_dir} is not a directory"
 
-    # load config yaml
-    config = _load_yaml(path)
-    if not config:
-        return []
+        for file in os.listdir(current_config_dir):
+            config = _load_yaml(os.path.join(current_config_dir, file))
+            if not config:
+                continue
 
-    # collect cadence
-    cadence = os.environ.get("CADENCE", "commit")
-    expected_cadence = config.get("cadence")
-    if not isinstance(expected_cadence, list):
-        expected_cadence = [expected_cadence]
+            cadence = os.environ.get("CADENCE", "commit")
+            expected_cadence = config.get("cadence")
 
-    # skip if cadence doesn't match
-    if cadence not in expected_cadence:
-        logging.debug(
-            f"Skipping testing model: {path} for cadence: {config['cadence']}"
-        )
-        return []
-
-    if type == "custom":
-        config = CustomTestConfig(**config)
-    elif not _validate_test_config(config):
-        raise ValueError(
-            "The config provided does not comply with the expected structure "
-            "See tests.data.TestConfig for the expected fields."
-        )
-    return [config]
+            if not isinstance(expected_cadence, list):
+                expected_cadence = [expected_cadence]
+            if cadence in expected_cadence:
+                if type == "custom":
+                    config = CustomTestConfig(**config)
+                else:
+                    if not _validate_test_config(config):
+                        raise ValueError(
+                            "The config provided does not comply with the expected "
+                            "structure. See tests.data.TestConfig for the expected "
+                            "fields."
+                        )
+                config_dicts.append(config)
+            else:
+                logging.info(
+                    f"Skipping testing model: {file} for cadence: {expected_cadence}"
+                )
+    if isinstance(configs_directory, list):
+        for config in configs_directory:
+            _parse_configs_dir(config)
+    else:
+        _parse_configs_dir(configs_directory)
+    return config_dicts
 
 
 def run_cli_command(cmd: List[str]):
