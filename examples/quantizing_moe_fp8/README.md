@@ -22,7 +22,7 @@ python3 mixtral_moe.py
 
 ## Creating a Quantized MoE Model
 
-This example leverages `LLMCompressor` and `Compressed-Tensors` to create an FP8-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `open_platypus` dataset.
+This example leverages `llm-compressor` and `compressed-tensors` to create an FP8-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `open_platypus` dataset.
 
 You can follow the detailed steps below or simply run the example script with:
 
@@ -86,11 +86,11 @@ config_groups = {
                     "input_activations": None,
                     "output_activations": None,
                     "weights": {
-                        "num_bits": 8
-                        "type": "int"
-                        "symmetric": true
-                        "strategy": "tensor"
-                        "group_size": 128 
+                        "num_bits": 8,
+                        "type": "int",
+                        "symmetric": true,
+                        "strategy": "tensor",
+                        "group_size": 128, 
                     }
                }
 }
