@@ -17,17 +17,17 @@ pip install -e .
 The provided example script demonstrates an end-to-end process for applying the quantization algorithm:
 
 ```bash
-python3 tinymixtral_4_248_moe.py
+python3 mixtral_moe.py
 ```
 
 ## Creating a Quantized MoE Model
 
-This example leverages `LLMCompressor` and `Compressed-Tensors` to create an FP8-quantized `TinyMixtral 4x248M MoE` model. The model is calibrated and trained using the `open_platypus` dataset.
+This example leverages `LLMCompressor` and `Compressed-Tensors` to create an FP8-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `open_platypus` dataset.
 
 You can follow the detailed steps below or simply run the example script with:
 
 ```bash
-python examples/quantizing_moe_fp8/tinymixtral_4_248_moe.py
+python examples/quantizing_moe_fp8/mixtral_moe.py
 ```
 
 ### Step 1: Select a Model, Dataset, and Recipe
@@ -41,17 +41,19 @@ In this step, you'll choose a baseline model for quantization, a dataset for cal
 ```python
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
-recipe = GPTQModifier(scheme="FP8", targets="Linear", ignore=["lm_head"])
+recipe = GPTQModifier(scheme="FP8", targets="Linear", ignore=["lm_head", "re:.*block_sparse_moe.gate"], sequential_update=True)
 ```
+
+NOTE: `.*block_sparse_moe.gate` layers do not quantize well, hence they are ignored!
 
 ### Step 2: Run Quantization Using Oneshot
 
-The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be sparsified and saved to `"tinymixtral-4-248-moe_quantized_fp8"`.
+The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be sparsified and saved to `Mixtral-8x7B-Instruct-v0.1-FP8`.
 
 ```python
 from llmcompressor.transformers import oneshot
 
-output_dir = "tinymixtral-4-248-moe_quantized_fp8"
+output_dir = "Mixtral-8x7B-Instruct-v0.1-FP8"
 
 oneshot(
     model=model,
@@ -60,8 +62,8 @@ oneshot(
     save_compressed=True,
     output_dir=output_dir,
     overwrite_output_dir=True,
-    max_seq_length=128,
-    num_calibration_samples=1000,
+    max_seq_length=2048,
+    num_calibration_samples=512,
 )
 ```
 
