@@ -10,17 +10,19 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
     set_module_for_calibration,
+    ActivationOrdering,
 )
 from compressed_tensors.quantization.observers.helpers import get_observer_token_count
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 
-__all__ = ["QuantizationModifier"]
+__all__ = ["QuantizationModifier", "CONTIGUOUS_ACTIVATION_ORDERINGS"]
+CONTIGUOUS_ACTIVATION_ORDERINGS = {ActivationOrdering.GROUP}
 
 
 class QuantizationModifier(Modifier):
@@ -68,6 +70,25 @@ class QuantizationModifier(Modifier):
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
+
+    @field_validator("config_groups", mode="after")
+    def validate_config_groups(self, config_groups) -> Optional[Dict[str, QuantizationScheme]]:
+        if config_groups is not None:
+            for value in config_groups.values():
+                subfields = [value.weights, value.input_activations, value.output_activations]
+                for quant_args in subfields:
+                    if quant_args is not None:
+                        if quant_args.actorder in CONTIGUOUS_ACTIVATION_ORDERINGS:
+                            if quant_args.contiguous_groups == False:
+                                raise ValueError(f"Cannot set contiguous_groups={quant_args.contiguous_groups} for activation ordering {quant_args.actorder}")
+                            quant_args.contiguous_groups = True
+                        else:
+                            if quant_args.contiguous_groups == True:
+                                raise ValueError(f"Cannot set contiguous_groups={quant_args.contiguous_groups} for activation ordering {quant_args.actorder}")
+                            quant_args.contiguous_groups = False
+
+        return config_groups
+
 
     def on_initialize_structure(self, state: State, **kwargs):
         pass

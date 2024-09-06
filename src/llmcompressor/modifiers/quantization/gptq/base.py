@@ -8,11 +8,12 @@ from compressed_tensors.quantization import (
     freeze_module_quantization,
 )
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
+from llmcompressor.modifiers.quantization import CONTIGUOUS_ACTIVATION_ORDERINGS
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_wrapper import GPTQWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
@@ -109,6 +110,24 @@ class GPTQModifier(Modifier):
     layer_compressors_: Optional[List[Any]] = None
     compressible_layers_: Optional[List] = None
     quantization_modifier_: Any = None
+
+    @field_validator("config_groups", mode="after")
+    def validate_config_groups(self, config_groups) -> Optional[Dict[str, QuantizationScheme]]:
+        if config_groups is not None:
+            for value in config_groups.values():
+                subfields = [value.weights, value.input_activations, value.output_activations]
+                for quant_args in subfields:
+                    if quant_args is not None:
+                        if quant_args.actorder in CONTIGUOUS_ACTIVATION_ORDERINGS:
+                            if quant_args.contiguous_groups == False:
+                                raise ValueError(f"Cannot set contiguous_groups={quant_args.contiguous_groups} for activation ordering {quant_args.actorder}")
+                            quant_args.contiguous_groups = True
+                        else:
+                            if quant_args.contiguous_groups == True:
+                                raise ValueError(f"Cannot set contiguous_groups={quant_args.contiguous_groups} for activation ordering {quant_args.actorder}")
+                            quant_args.contiguous_groups = False
+
+        return config_groups
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
