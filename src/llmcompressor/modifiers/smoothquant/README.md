@@ -34,7 +34,7 @@ Instead of targeting broader modules like `mlp`, we specify the lower-level proj
 A mapping in SmoothQuant takes the form:
 
 ```python
-([layers smoothed inputs pass into], output_to_smooth)
+[[layers smoothed inputs pass into], output_to_smooth]
 ```
 
 For example, in the default mapping:
@@ -47,7 +47,7 @@ This specifies that we want to smooth the inputs feeding into the projections (`
 
 To create your own mappings, follow these steps:
 
-1. **Identify the layers you want to smooth inputs into**:
+1. **Identify the layers you want to pass smoothed input activations into**:
    You can find the exact names of these layers by exploring the relevant model file (e.g., `modeling_llama.py`). For example, you might target layers related to the self-attention or feed-forward blocks.
 
 2. **Match leaf modules**:
@@ -58,7 +58,7 @@ To create your own mappings, follow these steps:
 
 ### Example Custom Mapping
 
-Let’s say you’re working with a model that has layers named similarly to LLaMA, and you want to smooth the input activations of the self-attention layers as well as the feed-forward layers. Here’s how you might specify the mapping:
+Let’s say you’re working with a model that has layers named similarly to LLaMA, and you want to smooth the input activations of the self-attention layers as well as the feed-forward layers. Here is how you might specify the mapping:
 
 ```python
 mapping = [
