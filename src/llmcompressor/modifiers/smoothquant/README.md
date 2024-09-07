@@ -33,12 +33,12 @@ Instead of targeting broader modules like `mlp`, we explicitly specify the lower
 
 A mapping in SmoothQuant takes the form:
 
-"`python
-[[layers smoothed inputs pass into], output_to_smooth]
+```python
+[[layers smoothed input activations pass into], output_to_smooth]
 ```
 
 For example, in the default mapping:
-"`python
+```python
 [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
 ```
 This specifies that we want to smooth the inputs feeding into the projections (`gate_proj`, `up_proj`) and the output from `post_attention_layernorm`.
