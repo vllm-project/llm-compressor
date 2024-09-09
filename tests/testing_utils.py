@@ -147,7 +147,7 @@ def preprocess_tokenize_dataset(
                 add_special_tokens=False,
             )
     elif ds.info.dataset_name == "ultrachat_200k":
-
+        print("dataset name", ds.info.dataset_name)
         def preprocess(example):
             return {
                 "text": tokenizer.apply_chat_template(
@@ -166,6 +166,7 @@ def preprocess_tokenize_dataset(
             )
     else:
         raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
+
 
     ds = ds.map(preprocess)
     ds = ds.map(tokenize, remove_columns=ds.column_names)
