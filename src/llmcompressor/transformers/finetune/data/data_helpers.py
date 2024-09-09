@@ -80,12 +80,14 @@ def get_raw_dataset(
     :return: the requested dataset
 
     """
+    trust_remote_code = kwargs.pop("trust_remote_code_data", False)
 
     raw_datasets = load_dataset(
         data_args.dataset,
         data_args.dataset_config_name,
         cache_dir=cache_dir,
         streaming=streaming,
+        trust_remote_code=trust_remote_code,
         **kwargs,
     )
     return raw_datasets
