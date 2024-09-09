@@ -45,9 +45,8 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
         default=None,
         metadata={
             "help": (
-                "The preprocessing function to apply ",
-                "or the preprocessing func name in "
-                "src/llmcompressor/transformers/utils/preprocessing_functions.py",
+                "The preprocessing function to apply or the preprocessing func name in "
+                "src/llmcompressor/transformers/utils/preprocessing_functions.py"
             )
         },
     )
