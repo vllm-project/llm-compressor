@@ -146,7 +146,6 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
                 compressor.decompress(
                     model_path=pretrained_model_name_or_path, model=model
                 )
-        # if recipe:
         recipe = resolve_recipe(recipe=recipe, model_path=pretrained_model_name_or_path)
 
         if recipe:
