@@ -158,7 +158,7 @@ class TestDatasets(unittest.TestCase):
             dataset=dataset_key,
             dataset_config_name=dataset_config,
             concatenate_data=do_concat,
-            trust_remote_code=True,
+            trust_remote_code_data=True,
         )
         manager = TextGenerationDataset.load_from_registry(
             data_args.dataset,
@@ -269,7 +269,7 @@ class TestSplitLoading(unittest.TestCase):
         data_args = DataTrainingArguments(
             dataset="open_platypus",
             splits=split_def,
-            trust_remote_code=True,
+            trust_remote_code_data=True,
         )
         training_args = TrainingArguments(do_train=True, output_dir="dummy")
         model_args = ModelArguments(model=None)
