@@ -160,7 +160,8 @@ class DataTrainingArguments(CustomDataTrainingArguments):
                 "The minimum percentage of tokens (out of the total number) "
                 "that the module should 'receive' throughout the forward "
                 "pass of the calibration. If a module receives fewer tokens, "
-                "a warning will be logged. Defaults to 1/num_of_experts"
+                "a warning will be logged. Defaults to 1/num_of_experts."
+                "note: this argument is only relevant for MoE models"
             ),
         },
     )
