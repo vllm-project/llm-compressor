@@ -158,6 +158,7 @@ class TestDatasets(unittest.TestCase):
             dataset=dataset_key,
             dataset_config_name=dataset_config,
             concatenate_data=do_concat,
+            trust_remote_code=True,
         )
         manager = TextGenerationDataset.load_from_registry(
             data_args.dataset,
@@ -265,7 +266,11 @@ class TestSplitLoading(unittest.TestCase):
     def test_split_loading(self, split_def):
         from llmcompressor.transformers.finetune.model_args import ModelArguments
 
-        data_args = DataTrainingArguments(dataset="open_platypus", splits=split_def)
+        data_args = DataTrainingArguments(
+            dataset="open_platypus",
+            splits=split_def,
+            trust_remote_code=True,
+        )
         training_args = TrainingArguments(do_train=True, output_dir="dummy")
         model_args = ModelArguments(model=None)
         stage_runner = StageRunner(
