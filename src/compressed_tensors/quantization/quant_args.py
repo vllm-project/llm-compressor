@@ -187,6 +187,12 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                     f"strategy {strategy} requires group_size to be "
                     "set to a positive value"
                 )
+        if (
+            group_size is not None
+            and group_size > 0
+            and strategy != QuantizationStrategy.GROUP
+        ):
+            raise ValueError("group_size requires strategy to be set to 'group'")
 
         # validate activation ordering and strategy
         if actorder is not None and strategy != QuantizationStrategy.GROUP:

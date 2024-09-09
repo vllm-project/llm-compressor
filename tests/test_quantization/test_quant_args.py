@@ -43,6 +43,16 @@ def test_group():
     with pytest.raises(ValueError):
         QuantizationArgs(strategy=QuantizationStrategy.GROUP, group_size=-1)
 
+    args = QuantizationArgs(group_size=128, strategy="group")
+    assert args.group_size == 128
+    assert args.strategy == "group"
+
+    with pytest.raises(ValueError):
+        QuantizationArgs(strategy=QuantizationStrategy.GROUP)
+
+    with pytest.raises(ValueError):
+        QuantizationArgs(strategy="tensor", group_size=128)
+
 
 def test_block():
     kwargs = {"strategy": "block", "block_structure": "2x4"}

@@ -67,7 +67,7 @@ def make_dummy_g_idx(columns: int, group_size: int) -> torch.Tensor:
         ],
         [
             QuantizationStrategy.CHANNEL,
-            128,
+            None,
             torch.rand((512, 1)) * 0.01,
             torch.zeros((512, 1), dtype=torch.int8),
         ],

@@ -57,7 +57,7 @@ def get_dummy_quant_config(strategy, group_size=None):
         [
             QuantizationStrategy.CHANNEL,
             False,
-            128,
+            None,
             torch.rand((512, 1)) * 0.01,
             ((torch.rand((512, 1)) - 0.5) * 127).to(torch.int8),
         ],
@@ -102,7 +102,7 @@ def test_quant_format(strategy, symmetric, group_size, sc, zp):
         ],
         [
             QuantizationStrategy.CHANNEL,
-            128,
+            None,
             torch.rand((300, 1)) * 0.01,
             torch.zeros((300, 1), dtype=torch.int8),
         ],
