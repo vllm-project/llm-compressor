@@ -27,4 +27,5 @@ markers = [
     "regression: detailed tests to ensure major functions work correctly",
     "integration: tests which integrate with a third party service such as HF",
     "unit: tests to ensure code correctness and regression test functionality",
+    "example: tests for content in the 'examples' folder"
 ]
