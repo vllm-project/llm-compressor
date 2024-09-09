@@ -104,6 +104,7 @@ def parse_params(
                 logging.info(
                     f"Skipping testing model: {file} for cadence: {expected_cadence}"
                 )
+
     if isinstance(configs_directory, list):
         for config in configs_directory:
             _parse_configs_dir(config)
