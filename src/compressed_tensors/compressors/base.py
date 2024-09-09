@@ -125,8 +125,8 @@ class Compressor(RegistryMixin):
                 else:
                     compressed_dict[name] = value.to("cpu")
             elif name.endswith("zero_point") and torch.all(value == 0):
-                # all zero_points are 0, no need to include in
-                # compressed state_dict
+                continue
+            elif name.endswith("g_idx") and torch.any(value <= -1):
                 continue
             else:
                 compressed_dict[name] = value.to("cpu")
