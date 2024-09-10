@@ -114,7 +114,6 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
         max_column_size[no_split_name] = 0
         for name, module in no_split_layer.named_modules():
             if isinstance(module, Linear):
-                print(name)
                 for param in module.parameters():
                     column_size = param.shape[1]
                     total_hessian_elems[no_split_name] += column_size * column_size
