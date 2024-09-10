@@ -13,12 +13,13 @@ test_stage:
           weights:
             num_bits: 8
           targets: ["Linear"]
+    GPTQModifier:
+      block_size: 128
+      sequential_update: True
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
       sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-    GPTQModifier:
-      block_size: 128
-      sequential_update: False
+      targets: ["model.layers.0"]
