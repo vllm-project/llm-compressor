@@ -1,11 +1,5 @@
 test_stage:
   obcq_modifiers:
-    SmoothQuantModifier:
-      smoothing_strength: 0.5
-      mappings: [
-        [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
-        [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
-      ]
     QuantizationModifier:
       ignore: ["lm_head"]
       config_groups:
@@ -13,12 +7,13 @@ test_stage:
           weights:
             num_bits: 8
           targets: ["Linear"]
+    GPTQModifier:
+      block_size: 128
+      sequential_update: True
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
       sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-    GPTQModifier:
-      block_size: 128
-      sequential_update: False
+      targets: ["model.layers.0"]

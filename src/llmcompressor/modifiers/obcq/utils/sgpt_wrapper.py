@@ -1,6 +1,11 @@
 import time
 
+from compressed_tensors.quantization.lifecycle.forward import (
+    maybe_calibrate_or_quantize,
+)
+
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.utils import getattr_chain
 
 try:
     import transformers
@@ -83,6 +88,10 @@ class SparseGptWrapper(ModuleCompressionWrapper):
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
+        args_loc = "quantization_scheme.weights"
+        weight_quant_args = getattr_chain(self.layer, args_loc, None)
+        if weight_quant_args is not None:
+            W = maybe_calibrate_or_quantize(self.layer, W, "weight", weight_quant_args)
 
         if isinstance(self.layer, nn.Conv2d):
             W = W.flatten(1)
@@ -114,6 +123,14 @@ class SparseGptWrapper(ModuleCompressionWrapper):
                 torch.tensor(1, dtype=torch.bool),
                 torch.tensor(0, dtype=torch.bool),
             )
+            current_sparsity = mask.sum() / W.numel()
+            print(current_sparsity, sparsity)
+            if current_sparsity > sparsity:
+                raise ValueError(
+                    "The target sparsity is lower than the sparsity "
+                    "of the base model. Please retry "
+                    "after turning preserve_sparsity_mask=False"
+                )
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
         for i1 in range(0, self.columns, blocksize):
@@ -140,12 +157,6 @@ class SparseGptWrapper(ModuleCompressionWrapper):
                             int(tmp.numel() * sparsity)
                         ]
                         mask1 = tmp <= thresh
-                    else:
-                        raise ValueError(
-                            "The target sparsity is lower than the sparsity "
-                            "of the base model. Please retry "
-                            "after turning preserve_sparsity_mask=False"
-                        )
                 else:
                     tmp = W1**2 / (torch.diag(Hinv1).reshape((1, -1))) ** 2
                     thresh = torch.sort(tmp.flatten())[0][int(tmp.numel() * sparsity)]
@@ -198,6 +209,8 @@ class SparseGptWrapper(ModuleCompressionWrapper):
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
         W = W.reshape(final_shape).to(final_dtype)
+        if weight_quant_args is not None:
+            W = maybe_calibrate_or_quantize(self.layer, W, "weight", weight_quant_args)
 
         # This is a bit hacky, but FSDP updates only work if we change the weight in
         # place, clone() or direct assignment won't work
