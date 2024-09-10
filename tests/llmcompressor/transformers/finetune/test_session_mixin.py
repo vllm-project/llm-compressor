@@ -26,6 +26,7 @@ class MixInTest(SessionManagerMixIn, Trainer):
         )
 
 
+@pytest.mark.unit
 def test_mixin_init():
     model_state_path = "Xenova/llama2.c-stories15M"
     model = AutoModelForCausalLM.from_pretrained(model_state_path)
@@ -54,6 +55,7 @@ def mixin_trainer():
     )
 
 
+@pytest.mark.unit
 def test_mixin_session_init(mixin_trainer):
     mixin_trainer.initialize_session(epoch=0.0, checkpoint=None)
     session = active_session()

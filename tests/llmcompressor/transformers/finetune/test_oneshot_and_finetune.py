@@ -94,7 +94,7 @@ class TestOneshotAndFinetuneGPU(TestOneshotAndFinetune):
 
         from llmcompressor.transformers import SparseAutoModelForCausalLM
 
-        self.device = "auto"
+        self.device = "cuda:0"
         self.output = "./finetune_output"
 
         self.model = SparseAutoModelForCausalLM.from_pretrained(

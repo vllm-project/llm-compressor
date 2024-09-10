@@ -1,0 +1,5 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+recipe: tests/e2e/vLLM/recipes/FP8/recipe_fp8_weight_only_per_tensor.yaml
+scheme: FP8A16_tensor

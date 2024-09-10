@@ -2,51 +2,29 @@ import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
+from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-# define a llmcompressor recipe for FP8 quantization
-# this recipe requires calibration
-recipe = """
-quant_stage:
-    quant_modifiers:
-        GPTQModifier:
-            sequential_update: true
-            ignore: ["lm_head"]
-            config_groups:
-                group_0:
-                    weights:
-                        num_bits: 8
-                        type: int
-                        strategy: tensor
-                        dynamic: false
-                        symmetric: true
-                    input_activations:
-                        num_bits: 8
-                        type: float
-                        strategy: tensor
-                        dynamic: false
-                        symmetric: true
-                    targets: ["Linear"]
-"""
+MODEL_ID = "mistralai/Mistral-Nemo-Instruct-2407"
 
-model_stub = "meta-llama/Meta-Llama-3-70B-Instruct"
-
+# adjust based off number of desired GPUs
 device_map = calculate_offload_device_map(
-    model_stub, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.float16
+    MODEL_ID, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.bfloat16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
-    model_stub, torch_dtype=torch.float16, device_map=device_map
+    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16
 )
-tokenizer = AutoTokenizer.from_pretrained(model_stub)
-output_dir = "./output_llama3b_70b_w8a8"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 4
-MAX_SEQUENCE_LENGTH = 512
+NUM_CALIBRATION_SAMPLES = 512
+MAX_SEQUENCE_LENGTH = 2048
+
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
@@ -78,6 +56,15 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
+# define a llmcompressor recipe for W8A8 quantization
+recipe = [
+    SmoothQuantModifier(smoothing_strength=0.8),
+    GPTQModifier(
+        targets="Linear", scheme="W8A8", ignore=["lm_head"], sequential_update=True
+    ),
+]
+
+SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
 
 oneshot(
     model=model,
@@ -86,5 +73,5 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
-    output_dir=output_dir,
+    output_dir=SAVE_DIR,
 )

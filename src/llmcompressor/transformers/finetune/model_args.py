@@ -69,3 +69,11 @@ class ModelArguments:
             "model has a output word embedding layer."
         },
     )
+    trust_remote_code: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether or not to allow for custom models to execute their "
+            "own modeling files. This option should only be set to True for "
+            "repositories you trust and in which you have read the code"
+        },
+    )
