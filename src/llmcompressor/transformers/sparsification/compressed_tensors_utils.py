@@ -114,7 +114,8 @@ def modify_save_pretrained(model: PreTrainedModel):
                 return
 
             # if we've gotten to this point we have a config so we can run compression
-            kwargs["safe_serialization"] = True
+            # default safe serialization to True if not explicitly set
+            kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
             if state_dict is None:
                 state_dict = get_state_dict_offloaded_model(model)
 
