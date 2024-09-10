@@ -28,7 +28,7 @@ def cleanse_shard(
     A function to cleanse a state_dict of shared pointers.
     Adapted from safetensors.torch.save_model method.
 
-    
+
     :param state_dict: the state_dict to cleanse
     :param force_contiguous: whether to force the tensors to be contiguous
     :param metadata: a dictionary to store the mapping of removed names to kept names
