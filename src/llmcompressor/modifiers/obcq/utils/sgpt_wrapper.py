@@ -124,7 +124,6 @@ class SparseGptWrapper(ModuleCompressionWrapper):
                 torch.tensor(0, dtype=torch.bool),
             )
             current_sparsity = mask.sum() / W.numel()
-            print(current_sparsity, sparsity)
             if current_sparsity > sparsity:
                 raise ValueError(
                     "The target sparsity is lower than the sparsity "
