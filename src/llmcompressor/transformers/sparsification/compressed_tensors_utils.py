@@ -1,13 +1,14 @@
 import re
 import weakref
 from functools import wraps
-from typing import Optional
+from typing import Dict, Optional
 
 import torch
 import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
+from safetensors.torch import _remove_duplicate_names
 from transformers import PreTrainedModel
 
 from llmcompressor.transformers.compression.quantization_format import (
@@ -18,6 +19,35 @@ from llmcompressor.transformers.compression.sparsity_config import (
 )
 
 __all__ = ["modify_save_pretrained"]
+
+
+def cleanse_shard(
+    state_dict, force_contiguous=False, metadata: Optional[Dict[str, str]] = None
+):
+    """
+    A function to cleanse a state_dict of shared pointers.
+    Adapted from safetensors.torch.save_model method.
+
+    
+    :param state_dict: the state_dict to cleanse
+    :param force_contiguous: whether to force the tensors to be contiguous
+    :param metadata: a dictionary to store the mapping of removed names to kept names
+    :return: the cleansed state_dict and the metadata
+    """
+    to_removes = _remove_duplicate_names(state_dict)
+
+    for kept_name, to_remove_group in to_removes.items():
+        for to_remove in to_remove_group:
+            if metadata is None:
+                metadata = {}
+
+            if to_remove not in metadata:
+                # Do not override user data
+                metadata[to_remove] = kept_name
+            del state_dict[to_remove]
+    if force_contiguous:
+        state_dict = {k: v.contiguous() for k, v in state_dict.items()}
+    return state_dict, metadata or {}
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -114,7 +144,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 return
 
             # if we've gotten to this point we have a config so we can run compression
-            kwargs["safe_serialization"] = True
+            kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
             if state_dict is None:
                 state_dict = get_state_dict_offloaded_model(model)
 
@@ -122,6 +152,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             if state_dict is not None and len(state_dict) > 0:
                 compressed_state_dict = compressor.compress(model, state_dict)
                 kwargs["state_dict"] = compressed_state_dict
+                compressed_state_dict, _ = cleanse_shard(compressed_state_dict)
 
                 original_save_pretrained.__get__(model, model_class)(
                     save_directory, **kwargs
