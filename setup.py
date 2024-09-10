@@ -12,18 +12,18 @@ package_path = os.path.join(
 )
 version_info = extract_version_info(package_path)
 
-if version_info.is_release:
+if version_info.build_type == "release":
     package_name = "llmcompressor"
-elif version_info.is_dev:
+elif version_info.build_type == "dev":
     package_name = "llmcompressor-dev"
-elif version_info.is_nightly:
+elif version_info.build_type == "nightly":
     package_name = "llmcompressor-nightly"
 else:
     raise ValueError(f"Unsupported build type {version_info.build_type}")
 
 
 setup(
-    name="llmcompressor",
+    name=package_name,
     version=version_info.version,
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",

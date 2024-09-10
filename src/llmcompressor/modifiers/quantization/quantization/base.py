@@ -18,7 +18,10 @@ from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
+from llmcompressor.modifiers.utils.pytorch_helpers import (
+    is_moe_model,
+    run_calibration_forward,
+)
 
 __all__ = ["QuantizationModifier"]
 
@@ -82,7 +85,7 @@ class QuantizationModifier(Modifier):
         self.calibration_dataloader_ = state.data.calib
         module = state.model
 
-        # intialize quantization in appropriate modules
+        # initialize quantization in appropriate modules
         config = self._apply_modifier_to_model(module)
 
         if self.calculate_start() == -1:  # one-shot
@@ -254,13 +257,30 @@ class QuantizationModifier(Modifier):
             (out of all the tokens in a batch) a module should
             receive during calibration
         """
-        if threshold is None:
-            logger.debug("Skipping token distribution check. threshold is None.")
-            return
 
         if self.calibration_dataloader_ is None:
             logger.debug("Skipping token distribution check. No calibration data.")
             return
+
+        if not is_moe_model(model):
+            logger.debug("Skipping token distribution check. Not a MoE model.")
+            return
+
+        if threshold is None:
+            logger.warning(
+                "Mixture of Experts model detected, but threshold not set. "
+                "Defaulting token threshold to 1/num_experts."
+            )
+
+            if not hasattr(model.config, "num_local_experts"):
+                logger.warning(
+                    "Mixture of Experts model detected but `num_local_experts` "
+                    "not found in model config. Skipping distribution check."
+                )
+                return
+
+            threshold = 1 / model.config.num_local_experts
+            logger.debug(f"Setting token threshold to {threshold}.")
 
         all_tokens = self.calibration_dataloader_.dataset["input_ids"]
         total_token_count = sum(len(sample) for sample in all_tokens)
