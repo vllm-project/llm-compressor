@@ -3,6 +3,7 @@ import tempfile
 import pytest
 import yaml
 
+from llmcompressor.core import State, Event
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.base import SparseGPTModifier
 from llmcompressor.recipe import Recipe
@@ -101,11 +102,37 @@ def test_recipe_can_be_created_from_modifier_instances():
 
 
 class A_FirstDummyModifier(Modifier):
-    pass
+    def on_initialize_structure(self, state: State, **kwargs):
+        pass
+    def on_initialize(self, state: State, **kwargs) -> bool:
+        pass
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        pass
+    def on_start(self, state: State, event: Event, **kwargs):
+        pass
+    def on_update(self, state: State, event: Event, **kwargs):
+        pass
+    def on_end(self, state: State, event: Event, **kwargs):
+        pass
+    def on_event(self, state: State, event: Event, **kwargs):
+        pass
 
 
 class B_SecondDummyModifier(Modifier):
-    pass
+    def on_initialize_structure(self, state: State, **kwargs):
+        pass
+    def on_initialize(self, state: State, **kwargs) -> bool:
+        pass
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        pass
+    def on_start(self, state: State, event: Event, **kwargs):
+        pass
+    def on_update(self, state: State, event: Event, **kwargs):
+        pass
+    def on_end(self, state: State, event: Event, **kwargs):
+        pass
+    def on_event(self, state: State, event: Event, **kwargs):
+        pass
 
 
 def test_create_recipe_string_from_modifiers_with_default_group_name():
