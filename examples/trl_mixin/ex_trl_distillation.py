@@ -58,6 +58,7 @@ training_args = TrainingArguments(
     logging_steps=50,
     gradient_checkpointing=True,
     bf16=True,
+    save_safetensors=False,  # workaround for shared tensors
 )
 trainer = SFTTrainer(
     model=model,

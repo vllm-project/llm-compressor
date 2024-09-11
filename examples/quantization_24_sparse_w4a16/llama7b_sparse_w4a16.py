@@ -23,7 +23,7 @@ max_seq_length = 512
 num_calibration_samples = 512
 
 # set training parameters for finetuning
-num_train_epochs = 0.5
+num_train_epochs = 0.01
 logging_steps = 500
 save_steps = 5000
 gradient_checkpointing = True  # saves memory during training
