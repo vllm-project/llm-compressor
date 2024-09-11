@@ -25,6 +25,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
+# its recommended to use more calibration samples for MoE models so each expert is hit
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 2048
