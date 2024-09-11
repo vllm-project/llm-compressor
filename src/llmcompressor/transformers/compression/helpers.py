@@ -107,21 +107,25 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     :return: number of bytes required to reserve for GPTQ on a single layer
     """
     transformer_layers = get_layers(get_no_split_params(model), model)
-    single_layer = transformer_layers[list(transformer_layers.keys())[0]]
-    total_hessian_elems = 0
-    max_column_size = 0
-    for _, module in single_layer.named_modules():
-        if isinstance(module, Linear):
-            for param in module.parameters():
-                column_size = param.shape[1]
-                total_hessian_elems += column_size * column_size
-                if column_size > max_column_size:
-                    # max extra memory for inverse calculation
-                    max_column_size = column_size
+    total_hessian_elems = {}
+    max_column_size = {}
+    for no_split_name, no_split_layer in transformer_layers.items():
+        total_hessian_elems[no_split_name] = 0
+        max_column_size[no_split_name] = 0
+        for name, module in no_split_layer.named_modules():
+            if isinstance(module, Linear):
+                for param in module.parameters():
+                    column_size = param.shape[1]
+                    total_hessian_elems[no_split_name] += column_size * column_size
+                    if column_size > max_column_size[no_split_name]:
+                        # max extra memory for inverse calculation
+                        max_column_size[no_split_name] = column_size
 
+    max_total_hessian_elems = max(total_hessian_elems.values())
+    overall_max_column_size = max(max_column_size.values())
     bytes_per_weight = 32 // 8  # hessians are float32
-    inverse_reserved = max_column_size * max_column_size
-    return (total_hessian_elems + inverse_reserved) * bytes_per_weight
+    inverse_reserved = overall_max_column_size * overall_max_column_size
+    return (max_total_hessian_elems + inverse_reserved) * bytes_per_weight
 
 
 def quantization_memory_requirement(model: torch.nn.Module) -> int:

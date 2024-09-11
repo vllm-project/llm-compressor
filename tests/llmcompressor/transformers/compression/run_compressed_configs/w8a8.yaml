@@ -1,3 +1,3 @@
 cadence: "commit"
 test_type: "regression"
-model_stub: "nm-testing/tinyllama-w4a16-compressed"
+model_stub: "nm-testing/tinyllama-w8a8-compressed"
