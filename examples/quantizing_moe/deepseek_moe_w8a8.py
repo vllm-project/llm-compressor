@@ -27,7 +27,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 2048
 MAX_SEQUENCE_LENGTH = 2048
 
 
@@ -67,13 +67,13 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = [
     GPTQModifier(
         targets="Linear",
-        scheme="W4A16",
+        scheme="W8A8",
         ignore=["lm_head", "re:.*mlp.gate$"],
         sequential_update=True,
     ),
 ]
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8"
 
 oneshot(
     model=model,
@@ -84,3 +84,12 @@ oneshot(
     save_compressed=True,
     output_dir=SAVE_DIR,
 )
+
+
+print("========== SAMPLE GENERATION ==============")
+SAMPLE_INPUT = ["I love quantization because"]
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+inputs = tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(model.device)
+output = model.generate(**inputs, max_length=50)
+text_output = tokenizer.batch_decode(output)
+print(text_output)
