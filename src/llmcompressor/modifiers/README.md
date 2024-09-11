@@ -39,7 +39,7 @@ suitable for FP8 quantization. A variety of quantization schemes are supported v
 
 ### [GPTQ](./quantization/gptq/base.py)
 One-shot algorithm that uses calibration data to select the ideal bin for weight quantization. 
-This algorithm is applied on top of the basic quantization alogrithm, and affects weights only.
+This algorithm is applied on top of the basic quantization algorithm, and affects weights only.
 The implementation is based on [GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers](https://arxiv.org/pdf/2210.17323). The algorithm is very similar to SparseGPT: A small amount of calibration data is used 
 to calculate a Hessian for each layers input activations, this Hessian is then used to 
 solve a regression problem that minimizes the error introduced by a given quantization configuration. This algorithm 
