@@ -62,7 +62,7 @@ rather than the linear smoothing done by SmoothQuant. The implementation is base
 [FPTQ: Fine-grained Post-Training Quantization for Large Language Models](https://arxiv.org/pdf/2308.15987)
 
 ### [Constant Pruning](./pruning/constant/base.py)
-One-shot pruning algorithms often introduce accuracy degredation that can be recovered with finetuning. This 
+One-shot pruning algorithms often introduce accuracy degradation that can be recovered with finetuning. This 
 modifier ensures that the sparsity mask of the model is maintained during finetuning, allowing a sparse 
 model to recover accuracy while maintaining its sparsity structure. It is intended to be used after a pruning modifier
 such as `SparseGPT` or `WANDA` has already been applied.
