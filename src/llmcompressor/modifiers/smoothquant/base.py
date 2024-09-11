@@ -102,9 +102,6 @@ class SmoothQuantModifier(Modifier):
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
 
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run SmoothQuant on the given state
@@ -143,9 +140,6 @@ class SmoothQuantModifier(Modifier):
         pass
 
     def on_end(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_event(self, state: State, event: Event, **kwargs):
         pass
 
     def on_finalize(self, state: State, **kwargs) -> bool:

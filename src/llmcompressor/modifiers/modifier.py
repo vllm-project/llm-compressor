@@ -224,14 +224,15 @@ class Modifier(BaseModel, ModifierInterface):
     def on_initialize_structure(self, state: State, **kwargs):
         """
         on_initialize_structure is called before the model is initialized
-        with the modifier structure. Must be implemented by the inheriting
-        modifier.
+        with the modifier structure.
+
+        TODO: Depreciate this function as part of the lifecycle
 
         :param state: The current state of the model
         :param kwargs: Additional arguments for initializing the structure
             of the model in question
         """
-        raise NotImplementedError()
+        pass
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

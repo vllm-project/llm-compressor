@@ -115,6 +115,8 @@ class GPTQModifier(Modifier):
         Check the model's quantization state matches that expected by this modifier,
         adding a default quantization scheme if needed
 
+        TODO: Depreciate and fold into `on_initialize`
+
         :param state: session state storing input model and calibration data
         """
         quantization_already_active = qat_active(state.model)
@@ -193,9 +195,6 @@ class GPTQModifier(Modifier):
         pass
 
     def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_event(self, state: State, event: Event, **kwargs):
         pass
 
     def on_finalize(self, state: "State", **kwargs) -> bool:

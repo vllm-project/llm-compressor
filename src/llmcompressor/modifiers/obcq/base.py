@@ -83,9 +83,6 @@ class SparseGPTModifier(Modifier):
     prunem_: Optional[int] = None
     compressible_layers_: Optional[List] = None
 
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass
-
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
         Initialize and run the OBCQ algorithm on the current state
@@ -124,9 +121,6 @@ class SparseGPTModifier(Modifier):
         pass
 
     def on_end(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_event(self, state: State, event: Event, **kwargs):
         pass
 
     def initialize_compression(
