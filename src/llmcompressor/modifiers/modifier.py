@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from typing import Optional
 
 from pydantic import BaseModel
@@ -9,7 +10,7 @@ from llmcompressor.modifiers.interface import ModifierInterface
 __all__ = ["Modifier"]
 
 
-class Modifier(BaseModel, ModifierInterface):
+class Modifier(BaseModel, ModifierInterface, ABC):
     """
     A base class for all modifiers to inherit from.
     Modifiers are used to modify the training process for a model.
@@ -221,6 +222,7 @@ class Modifier(BaseModel, ModifierInterface):
 
         return self.end is not None and current >= self.end
 
+    @abstractmethod
     def on_initialize_structure(self, state: State, **kwargs):
         """
         on_initialize_structure is called before the model is initialized
@@ -233,6 +235,7 @@ class Modifier(BaseModel, ModifierInterface):
         """
         raise NotImplementedError()
 
+    @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         on_initialize is called on modifier initialization and
@@ -245,6 +248,7 @@ class Modifier(BaseModel, ModifierInterface):
         """
         raise NotImplementedError()
 
+    @abstractmethod
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         on_finalize is called on modifier finalization and
@@ -257,6 +261,7 @@ class Modifier(BaseModel, ModifierInterface):
         """
         raise NotImplementedError()
 
+    @abstractmethod
     def on_start(self, state: State, event: Event, **kwargs):
         """
         on_start is called when the modifier starts and
@@ -268,6 +273,7 @@ class Modifier(BaseModel, ModifierInterface):
         """
         raise NotImplementedError()
 
+    @abstractmethod
     def on_update(self, state: State, event: Event, **kwargs):
         """
         on_update is called when the model in question must be
@@ -280,6 +286,7 @@ class Modifier(BaseModel, ModifierInterface):
         """
         raise NotImplementedError()
 
+    @abstractmethod
     def on_end(self, state: State, event: Event, **kwargs):
         """
         on_end is called when the modifier ends and must be implemented
@@ -291,6 +298,7 @@ class Modifier(BaseModel, ModifierInterface):
         """
         raise NotImplementedError()
 
+    @abstractmethod
     def on_event(self, state: State, event: Event, **kwargs):
         """
         on_event is called whenever an event is triggered
