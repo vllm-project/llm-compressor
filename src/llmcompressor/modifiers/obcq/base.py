@@ -6,7 +6,7 @@ from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.utils.sgpt_wrapper import SparseGptWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
@@ -89,9 +89,6 @@ class SparseGPTModifier(Modifier):
 
         :param state: session state storing input model and calibration data
         """
-        if not self.initialized_structure_:
-            self.on_initialize_structure(state, **kwargs)
-
         if self.sparsity == 0.0:
             raise ValueError(
                 "To use the SparseGPTModifier, target sparsity must be > 0.0"
@@ -110,18 +107,6 @@ class SparseGPTModifier(Modifier):
         self.apply_compression(calibration_dataloader)
 
         return True
-
-    def on_finalize(self, state: State, **kwargs):
-        return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        pass
 
     def initialize_compression(
         self,

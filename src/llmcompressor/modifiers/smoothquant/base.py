@@ -5,7 +5,7 @@ import torch
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
@@ -132,15 +132,6 @@ class SmoothQuantModifier(Modifier):
         self._apply_smoothing(state.model)
 
         return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        pass
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """

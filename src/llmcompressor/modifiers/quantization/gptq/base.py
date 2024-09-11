@@ -11,7 +11,7 @@ from loguru import logger
 from pydantic import Field
 from torch.nn import Module
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_wrapper import GPTQWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
@@ -191,12 +191,6 @@ class GPTQModifier(Modifier):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
     def on_finalize(self, state: "State", **kwargs) -> bool:
         """
         disable the quantization observers used by the OBCQ algorithm
@@ -207,9 +201,6 @@ class GPTQModifier(Modifier):
             self.quantization_modifier_.finalize(state, **kwargs)
 
         return True
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        pass
 
     def compressible_layers(self) -> Dict:
         """

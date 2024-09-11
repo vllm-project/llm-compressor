@@ -96,9 +96,6 @@ class QuantizationModifier(Modifier):
 
         return True
 
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        return True
-
     def on_start(self, state: State, event: Event, **kwargs):
         module = state.model
         module.apply(set_module_for_calibration)

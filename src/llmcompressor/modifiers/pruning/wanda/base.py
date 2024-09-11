@@ -6,7 +6,7 @@ from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.wanda.utils.wanda_wrapper import WandaWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
@@ -81,18 +81,6 @@ class WandaPruningModifier(Modifier):
         self.apply_compression(calibration_dataloader)
 
         return True
-
-    def on_finalize(self, state: State, **kwargs):
-        return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        pass
 
     def compressible_layers(self) -> Dict:
         """

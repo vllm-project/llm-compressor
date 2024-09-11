@@ -248,7 +248,6 @@ class Modifier(BaseModel, ModifierInterface, ABC):
         """
         raise NotImplementedError()
 
-    @abstract_method
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         on_finalize is called on modifier finalization and
@@ -259,9 +258,8 @@ class Modifier(BaseModel, ModifierInterface, ABC):
         :return: True if the modifier was finalized successfully,
             False otherwise
         """
-        raise NotImplementedError()
+        return True
 
-    @abstract_method
     def on_start(self, state: State, event: Event, **kwargs):
         """
         on_start is called when the modifier starts and
@@ -271,9 +269,8 @@ class Modifier(BaseModel, ModifierInterface, ABC):
         :param event: The event that triggered the start
         :param kwargs: Additional arguments for starting the modifier
         """
-        raise NotImplementedError()
+        pass
 
-    @abstract_method
     def on_update(self, state: State, event: Event, **kwargs):
         """
         on_update is called when the model in question must be
@@ -284,9 +281,8 @@ class Modifier(BaseModel, ModifierInterface, ABC):
         :param event: The event that triggered the update
         :param kwargs: Additional arguments for updating the model
         """
-        raise NotImplementedError()
+        pass
 
-    @abstract_method
     def on_end(self, state: State, event: Event, **kwargs):
         """
         on_end is called when the modifier ends and must be implemented
@@ -296,7 +292,7 @@ class Modifier(BaseModel, ModifierInterface, ABC):
         :param event: The event that triggered the end
         :param kwargs: Additional arguments for ending the modifier
         """
-        raise NotImplementedError()
+        pass
 
     def on_event(self, state: State, event: Event, **kwargs):
         """
