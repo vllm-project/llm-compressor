@@ -6,7 +6,7 @@ from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.core.state import State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.utils.sgpt_wrapper import SparseGptWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
@@ -84,14 +84,7 @@ class SparseGPTModifier(Modifier):
     compressible_layers_: Optional[List] = None
 
     def on_initialize_structure(self, state: State, **kwargs):
-        """
-        Initialize the structure of the model for compression.
-        This modifier does not modifiy the model structure, so this method
-        is a no-op.
-
-        :param state: session state storing input model and calibration data
-        """
-        return True
+        pass
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
@@ -122,15 +115,19 @@ class SparseGPTModifier(Modifier):
         return True
 
     def on_finalize(self, state: State, **kwargs):
-        """
-        Nothing to do on finalize, on this level.
-        Quantization Modifier if any will be finalized in the subclass
-
-        :param state: session state storing input model and calibration data
-        :param kwargs: additional arguments
-        :return: True
-        """
         return True
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        pass
+
+    def on_update(self, state: State, event: Event, **kwargs):
+        pass
+
+    def on_end(self, state: State, event: Event, **kwargs):
+        pass
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        pass
 
     def initialize_compression(
         self,

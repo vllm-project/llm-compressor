@@ -32,6 +32,9 @@ class OutputDistillationModifier(Modifier):
     wrapped_kd_model_: Any = None
     fsdp_active_: bool = False
 
+    def on_initialize_structure(self, state: State, **kwargs):
+        pass
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         if state.model is None or state.teacher_model is None:
             return False
@@ -131,6 +134,9 @@ class OutputDistillationModifier(Modifier):
             student_wrapper.kd_enabled = False
             teacher_wrapper.kd_enabled = False
         self.wrapped_kd_model_.kd_enabled = False
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        pass
 
     def _create_model_wrapper(
         self, student_model: Module, teacher_model: Module, state: State

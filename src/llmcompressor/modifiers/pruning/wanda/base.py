@@ -6,7 +6,7 @@ from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.core.state import State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.wanda.utils.wanda_wrapper import WandaWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
@@ -62,13 +62,7 @@ class WandaPruningModifier(Modifier):
     prunem_: Optional[int] = None
 
     def on_initialize_structure(self, state: State, **kwargs):
-        """
-        This modifier does not alter the model structure.
-        This method is a no-op.
-
-        :param state: Unused, kept to conform to the parent method signature
-        :param kwargs: Unused, kept to conform to the parent method signature
-        """
+        pass
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -92,14 +86,19 @@ class WandaPruningModifier(Modifier):
         return True
 
     def on_finalize(self, state: State, **kwargs):
-        """
-        Nothing to clean up for this module
-
-        :param state: Unused, kept to conform to the parent method signature
-        :param kwargs: Unused, kept to conform to the parent method signature
-        """
-
         return True
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        pass
+
+    def on_update(self, state: State, event: Event, **kwargs):
+        pass
+
+    def on_end(self, state: State, event: Event, **kwargs):
+        pass
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        pass
 
     def compressible_layers(self) -> Dict:
         """

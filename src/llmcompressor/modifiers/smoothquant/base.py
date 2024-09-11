@@ -103,7 +103,7 @@ class SmoothQuantModifier(Modifier):
     scales_: Optional[Dict] = None
 
     def on_initialize_structure(self, state: State, **kwargs):
-        pass  # nothing needed for this modifier
+        pass
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
