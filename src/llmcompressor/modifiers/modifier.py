@@ -1,4 +1,4 @@
-from abc import ABC, abstract_method
+from abc import ABC, abstractmethod
 from typing import Optional
 
 from pydantic import BaseModel
@@ -235,7 +235,7 @@ class Modifier(BaseModel, ModifierInterface, ABC):
         """
         pass
 
-    @abstract_method
+    @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         on_initialize is called on modifier initialization and
