@@ -61,7 +61,7 @@ setup(
         "accelerate>=0.20.3",
         "pynvml==11.5.3",
         "compressed-tensors"
-        if version_info.is_release
+        if version_info.build_type == "release"
         else "compressed-tensors-nightly",
     ],
     extras_require={
