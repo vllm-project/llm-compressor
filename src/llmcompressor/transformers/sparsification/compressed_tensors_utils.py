@@ -73,6 +73,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.get("state_dict", None)
 
+            # find offloaded state dict
+            if state_dict is None:
+                state_dict = get_state_dict_offloaded_model(model)
+
             if sparsity_config is not None:
                 sparsity_config.global_sparsity = (
                     SparsityConfigMetadata.infer_global_sparsity(
@@ -113,11 +117,6 @@ def modify_save_pretrained(model: PreTrainedModel):
                     save_directory, **kwargs
                 )
                 return
-
-            # if we've gotten to this point we have a config so we can run compression
-            # default safe serialization to True if not explicitly set
-            if state_dict is None:
-                state_dict = get_state_dict_offloaded_model(model)
 
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
