@@ -10,8 +10,9 @@ from compressed_tensors.quantization import QuantizationStatus
 from transformers import AutoConfig
 
 from llmcompressor.core import reset_session
+from llmcompressor.core.session_functions import create_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot, train
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
@@ -208,3 +209,93 @@ def test_quant_model_reload(format, dtype, tmp_path):
             assert torch.equal(dense_tensor, reconstructed_tensor)
 
     shutil.rmtree(tmp_path)
+
+
+class TestModelSaveAndReload:
+    model = "Xenova/llama2.c-stories15M"
+
+    def test_simple_save_and_reload(self, tmp_path):
+        output_dir = tmp_path / "output"
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map="auto", torch_dtype="auto"
+        )
+
+        # save
+        model.save_pretrained(
+            output_dir,
+            save_compressed=True,
+            safe_serialization=True,
+        )
+
+        # load normal
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            output_dir, device_map="auto"
+        )
+
+    def test_save_and_reload_with_oneshot(self, tmp_path):
+        output_dir = tmp_path / "oneshot_out"
+        recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
+        dataset = "open_platypus"
+        concatenate_data = False
+        num_calibration_samples = 64
+        splits = {"calibration": "train[:10%]"}
+
+        # base
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map="auto"
+        )
+
+        # save oneshot
+        with create_session():
+            oneshot(
+                model=model,
+                dataset=dataset,
+                output_dir=output_dir,
+                num_calibration_samples=num_calibration_samples,
+                recipe=recipe_str,
+                concatenate_data=concatenate_data,
+                splits=splits,
+            )
+
+        # load oneshot
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            output_dir, device_map="auto"
+        )
+
+    def test_save_and_reload_with_train(self, tmp_path):
+        output_dir = tmp_path / "distill_out"
+        dataset = "open_platypus"
+        concatenate_data = False
+        splits = "train[:50%]"
+        max_steps = 50
+        num_calibration_samples = 64
+        recipe_str = (
+            "tests/llmcompressor/transformers/finetune/test_finetune_recipe.yaml"
+        )
+
+        # base
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map="auto"
+        )
+        distill_teacher = SparseAutoModelForCausalLM.from_pretrained(
+            self.model, device_map="auto"
+        )
+
+        # distill
+        with create_session():
+            train(
+                model=model,
+                distill_teacher=distill_teacher,
+                dataset=dataset,
+                output_dir=output_dir,
+                num_calibration_samples=num_calibration_samples,
+                recipe=recipe_str,
+                concatenate_data=concatenate_data,
+                splits=splits,
+                max_steps=max_steps,
+            )
+
+        # load
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            output_dir, device_map="auto"
+        )
