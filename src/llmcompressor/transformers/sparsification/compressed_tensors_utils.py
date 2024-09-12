@@ -94,6 +94,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                     model, state_dict=state_dict, compress=False
                 )
 
+            breakpoint()
             quantization_format = infer_quantization_format(
                 model=model,
                 quantization_format=quantization_format,
@@ -115,7 +116,6 @@ def modify_save_pretrained(model: PreTrainedModel):
 
             # if we've gotten to this point we have a config so we can run compression
             # default safe serialization to True if not explicitly set
-            kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
             if state_dict is None:
                 state_dict = get_state_dict_offloaded_model(model)
 

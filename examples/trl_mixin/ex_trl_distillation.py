@@ -8,8 +8,10 @@ from llmcompressor.transformers import (
     TrainingArguments,
 )
 
-model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
-teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
+#model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
+#teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
+model_path = "Xenova/llama2.c-stories15M"
+teacher_path = "Xenova/llama2.c-stories15M"
 output_dir = "./output_trl_sft_test_7b_gsm8k"
 
 model = SparseAutoModelForCausalLM.from_pretrained(
@@ -71,6 +73,7 @@ trainer = SFTTrainer(
     data_args=data_args,
     max_seq_length=data_args.max_seq_length,
     packing=True,
+    max_steps=4,
 )
 trainer.train()
 trainer.save_model()

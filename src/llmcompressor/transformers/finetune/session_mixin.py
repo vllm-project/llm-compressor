@@ -23,6 +23,7 @@ from llmcompressor.core import (
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.pytorch.model_load.helpers import RECIPE_FILE_NAME, get_session_model
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
+from llmcompressor.transformers import TrainingArguments
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
@@ -68,8 +69,21 @@ class SessionManagerMixIn:
         self.recipe_args = recipe_args
         self.teacher = teacher
 
-        # parse training and metadata args
+        # copied from HFTraininer
+        # TODO: clone
         training_args = kwargs.get("args")
+        if training_args is None:
+            output_dir = "tmp_trainer"
+            logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
+            training_args = TrainingArguments(output_dir=output_dir)
+
+        # force save_safetensors and save_compressed to be false
+
+        if teacher is not None:
+            training_args.save_safetensors = False
+        kwargs["args"] = training_args
+
+        # extract metadata
         self.metadata = (
             self._extract_metadata(
                 metadata_args=METADATA_ARGS,

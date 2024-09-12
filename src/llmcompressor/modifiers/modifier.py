@@ -231,7 +231,7 @@ class Modifier(BaseModel, ModifierInterface):
         :param kwargs: Additional arguments for initializing the structure
             of the model in question
         """
-        raise NotImplementedError()
+        pass
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
