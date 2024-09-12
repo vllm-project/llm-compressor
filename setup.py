@@ -74,6 +74,7 @@ setup(
             # example test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
+            "flash_attn~=2.6.3",
             "trl>=0.10.1",
             # linting, formatting, and type checking
             "black~=24.4.2",
