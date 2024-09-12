@@ -75,6 +75,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
             skip_compression_stats: bool = False,
+            safe_serialization: bool = True,
             **kwargs,
         ):
             """
@@ -91,6 +92,8 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param skip_compression_stats: whether to skip the calculation of
             compression statistics (such as global sparsity and sparsity structure) when
             saving a model in dense format
+            :param safe_serialization: whether to use safe serialization (safetensors)
+            when saving the model. Default is True
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
@@ -143,19 +146,17 @@ def modify_save_pretrained(model: PreTrainedModel):
                 )
                 return
 
-            # if we've gotten to this point we have a config so we can run compression
-            kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
             if state_dict is None:
                 state_dict = get_state_dict_offloaded_model(model)
 
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
                 compressed_state_dict = compressor.compress(model, state_dict)
-                kwargs["state_dict"] = compressed_state_dict
                 compressed_state_dict, _ = cleanse_shard(compressed_state_dict)
+                kwargs["state_dict"] = compressed_state_dict
 
                 original_save_pretrained.__get__(model, model_class)(
-                    save_directory, **kwargs
+                    save_directory, safe_serialization=safe_serialization, **kwargs
                 )
                 compressor.update_config(save_directory)
 
