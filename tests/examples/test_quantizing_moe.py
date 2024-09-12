@@ -1,5 +1,6 @@
 import shlex
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ from tests.testing_utils import run_cli_command
 
 @pytest.fixture
 def example_dir() -> str:
-    return "examples/quantizing_moe_fp8"
+    return "examples/quantizing_moe"
 
 
 @pytest.mark.example
@@ -23,7 +24,7 @@ def example_dir() -> str:
 @requires_torch
 class TestQuantizingMOE:
     """
-    Tests for examples in the "quantizing_moe_fp8" example folder.
+    Tests for examples in the "quantizing_moe" example folder.
     """
 
     def test_doc_example_command(self, example_dir: str, tmp_path: Path):
@@ -39,6 +40,17 @@ class TestQuantizingMOE:
         shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
 
         command = shlex.split(command)
+        result = run_cli_command(command, cwd=tmp_path / example_dir)
+
+        assert result.returncode == 0, gen_cmd_fail_message(command, result)
+
+    def test_deepseek_example_script(self, example_dir: str, tmp_path: Path):
+        """
+        Test for the "deepseek_moe_w8a8.py" script in the folder.
+        """
+        shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
+
+        command = [sys.executable, "deepseek_moe_w8a8.py"]
         result = run_cli_command(command, cwd=tmp_path / example_dir)
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
