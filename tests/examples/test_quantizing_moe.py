@@ -13,6 +13,10 @@ from tests.examples.utils import (
 )
 from tests.testing_utils import run_cli_command
 
+# flash_attn module is required. It cannot safely be specified as a dependency because
+# it rqeuires a number of non-standard packages to be installed in order to be built
+# such as pytorch, and thus cannot be installed in a clean environment (those
+# dependencies must be installed prior to attempting to install flash_attn)
 pytest.importorskip("flash_attn", reason="flash_attn is required")
 
 
