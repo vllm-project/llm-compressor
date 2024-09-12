@@ -13,6 +13,8 @@ from tests.examples.utils import (
 )
 from tests.testing_utils import run_cli_command
 
+pytest.importorskip("flash_attn", reason="flash_attn is required")
+
 
 @pytest.fixture
 def example_dir() -> str:
