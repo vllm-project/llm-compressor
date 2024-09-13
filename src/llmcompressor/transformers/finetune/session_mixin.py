@@ -415,8 +415,7 @@ class SessionManagerMixIn:
         # self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
 
-    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False,
-    ):
+    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         """
         Override of the save_model function and expects it to exist in the parent.
         Calls into super() to save the model and additionally saves any recipes
