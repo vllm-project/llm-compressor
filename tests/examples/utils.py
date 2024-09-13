@@ -2,7 +2,7 @@ import re
 import shlex
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pytest
 from bs4 import BeautifulSoup, ResultSet, Tag
@@ -14,6 +14,28 @@ requires_gpu = pytest.mark.skipif(not is_gpu_available(), reason="GPU is require
 requires_torch = pytest.mark.skipif(
     not is_torch_available(), reason="torch is required"
 )
+
+
+def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator:
+    """
+    Pytest decorator to skip based on total available GPU memory (across all GPUs). This
+    also plays nicely with the CUDA_VISIBLE_DEVICES environment variable by default
+    thanks to PyTorch.
+
+    Note: make sure to account for measured memory vs. simple specs. For example, H100
+    has '80 GiB' VRAM, however, the actual number, at least per PyTorch, is ~79.2 GiB.
+
+    :param amount: amount of required GPU memory in GiB
+    """
+    import torch
+
+    vram_bytes = sum(
+        torch.cuda.mem_get_info(device_id)[1]
+        for device_id in range(torch.cuda.device_count())
+    )
+    actual_vram = vram_bytes / 1024**3
+    reason = f"{required_amount} GiB GPU memory required, {actual_vram:.1f} GiB GPU memory found"
+    return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
 
 
 def gen_cmd_fail_message(command: List[str], result: CompletedProcess[str]) -> str:

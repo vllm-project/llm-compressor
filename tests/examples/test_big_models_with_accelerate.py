@@ -8,6 +8,7 @@ from tests.examples.utils import (
     ReadMe,
     gen_cmd_fail_message,
     requires_gpu,
+    requires_gpu_mem,
     requires_torch,
 )
 from tests.testing_utils import run_cli_command
@@ -40,7 +41,7 @@ class TestBigModelsWithAccelerate:
         "script_filename",
         [
             "cpu_offloading_fp8.py",
-            "multi_gpu_int8.py",
+            pytest.param("multi_gpu_int8.py", marks=requires_gpu_mem(630)),
             "multi_gpu_int8_sequential_update.py",
         ],
     )
