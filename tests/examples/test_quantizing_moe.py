@@ -50,13 +50,18 @@ class TestQuantizingMOE:
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
 
-    def test_deepseek_example_script(self, example_dir: str, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "script_filename", ["deepseek_moe_w4a16.py", "deepseek_moe_w8a8.py"]
+    )
+    def test_deepseek_example_script(
+        self, script_filename: str, example_dir: str, tmp_path: Path
+    ):
         """
-        Test for the "deepseek_moe_w8a8.py" script in the folder.
+        Test for the other example scripts in the folder.
         """
         shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
 
-        command = [sys.executable, "deepseek_moe_w8a8.py"]
+        command = [sys.executable, script_filename]
         result = run_cli_command(command, cwd=tmp_path / example_dir)
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
