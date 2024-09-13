@@ -84,9 +84,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
     def compress(
         self,
         blocksize: int = 128,
-        percdamp: float = 0.1,
+        percdamp: float = 0.01,
     ):
-        percdamp = 0.1
         """
         Run pruning and quantization(if applicable) on the layer up to the target
         sparsity value.
