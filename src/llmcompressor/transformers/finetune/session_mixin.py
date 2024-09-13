@@ -69,21 +69,8 @@ class SessionManagerMixIn:
         self.recipe_args = recipe_args
         self.teacher = teacher
 
-        # copied from HFTraininer
-        # TODO: clone
-        training_args = kwargs.get("args")
-        if training_args is None:
-            output_dir = "tmp_trainer"
-            logger.info(f"No `TrainingArguments` passed, using `output_dir={output_dir}`.")
-            training_args = TrainingArguments(output_dir=output_dir)
-
-        # force save_safetensors and save_compressed to be false
-
-        if teacher is not None:
-            training_args.save_safetensors = False
-        kwargs["args"] = training_args
-
         # extract metadata
+        training_args = kwargs.get("args")
         self.metadata = (
             self._extract_metadata(
                 metadata_args=METADATA_ARGS,
@@ -429,7 +416,11 @@ class SessionManagerMixIn:
         self.accelerator.wait_for_everyone()
 
     def save_model(
-        self, output_dir: Optional[str] = None, _internal_call=False, _is_oneshot=False
+        self,
+        output_dir: Optional[str] = None,
+        _internal_call: bool = False,
+        save_compressed: Optional[bool] = None,
+        save_safetensors: Optional[bool] = None,
     ):
         """
         Override of the save_model function and expects it to exist in the parent.
@@ -447,15 +438,15 @@ class SessionManagerMixIn:
         if not is_fsdp_model(self.model):
             self.model.save_pretrained(
                 output_dir,
-                save_compressed=self.args.save_compressed,
-                safe_serialization=self.args.save_safetensors,
+                save_compressed=save_compressed,
+                safe_serialization=save_safetensors,
             )
         else:  # FSDP model
             save_pretrained_fsdp(
                 model=self.model,
                 accelerator=self.accelerator,
                 output_dir=output_dir,
-                save_compressed=self.args.save_compressed,
+                save_compressed=save_compressed,
                 save_safetensors=self.metadata.get("save_safetensors", False),
             )
 

@@ -3,11 +3,12 @@ from trl import SFTTrainer as TRLSFTTrainer
 
 from llmcompressor.transformers import TrainingArguments
 from llmcompressor.transformers.finetune.session_mixin import SessionManagerMixIn
+from llmcompressor.transformers.finetune.checkpoints_mixin import SafeCheckpointsMixin
 
 __all__ = ["SFTTrainer"]
 
 
-class SFTTrainer(SessionManagerMixIn, TRLSFTTrainer):
+class SFTTrainer(SafeCheckpointsMixin, SessionManagerMixIn, TRLSFTTrainer):
     def __init__(self, *args, **kwargs):
         sft_config_args = kwargs.get("args")
         if (
