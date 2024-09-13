@@ -2,7 +2,6 @@ import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
