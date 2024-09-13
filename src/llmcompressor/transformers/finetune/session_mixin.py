@@ -69,7 +69,7 @@ class SessionManagerMixIn:
         self.recipe_args = recipe_args
         self.teacher = teacher
 
-        # extract metadata
+        # parse training and metadata args
         training_args = kwargs.get("args")
         self.metadata = (
             self._extract_metadata(
@@ -415,12 +415,7 @@ class SessionManagerMixIn:
         # self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
 
-    def save_model(
-        self,
-        output_dir: Optional[str] = None,
-        _internal_call: bool = False,
-        save_compressed: Optional[bool] = None,
-        save_safetensors: Optional[bool] = None,
+    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False,
     ):
         """
         Override of the save_model function and expects it to exist in the parent.
@@ -438,15 +433,15 @@ class SessionManagerMixIn:
         if not is_fsdp_model(self.model):
             self.model.save_pretrained(
                 output_dir,
-                save_compressed=save_compressed,
-                safe_serialization=save_safetensors,
+                save_compressed=self.args.save_compressed,
+                safe_serialization=self.args.save_safetensors,
             )
         else:  # FSDP model
             save_pretrained_fsdp(
                 model=self.model,
                 accelerator=self.accelerator,
                 output_dir=output_dir,
-                save_compressed=save_compressed,
+                save_compressed=self.args.save_compressed,
                 save_safetensors=self.metadata.get("save_safetensors", False),
             )
 
