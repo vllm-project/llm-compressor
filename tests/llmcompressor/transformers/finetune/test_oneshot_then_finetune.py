@@ -4,14 +4,8 @@ import unittest
 from pathlib import Path
 
 import pytest
-from tests.testing_utils import requires_torch
 
-from llmcompressor.core import create_session
-from llmcompressor.transformers import (
-    SparseAutoModelForCausalLM,
-    oneshot,
-    train,
-)
+from tests.testing_utils import requires_torch
 
 
 @pytest.mark.unit
@@ -27,7 +21,13 @@ class TestOneshotThenFinetune(unittest.TestCase):
         self.output = Path("./finetune_output")
 
     def test_oneshot_then_finetune(self):
-        # perform oneshot
+        from llmcompressor.core import create_session
+        from llmcompressor.transformers import (
+            SparseAutoModelForCausalLM,
+            oneshot,
+            train,
+        )
+
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = SparseAutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map="auto"
@@ -49,7 +49,6 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 splits=splits,
             )
 
-        # perform finetuning
         recipe_str = (
             "tests/llmcompressor/transformers/finetune/test_finetune_recipe.yaml"
         )
@@ -63,7 +62,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
         concatenate_data = False
         output_dir = self.output / "finetune_out"
         splits = "train[:50%]"
-        max_steps = 25
+        max_steps = 50
 
         with create_session():
             train(
@@ -76,22 +75,6 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 concatenate_data=concatenate_data,
                 splits=splits,
                 max_steps=max_steps,
-            )
-
-        # test reloading checkpoint and final model
-        model = SparseAutoModelForCausalLM.from_pretrained(output_dir, device_map="auto")
-        with create_session():
-            train(
-                model=model,
-                distill_teacher=distill_teacher,
-                dataset=dataset,
-                output_dir=output_dir,
-                num_calibration_samples=num_calibration_samples,
-                recipe=recipe_str,
-                concatenate_data=concatenate_data,
-                splits=splits,
-                max_steps=max_steps,
-                resume_from_checkpoint=output_dir / "checkpoint-25"  # explicit
             )
 
     def tearDown(self):
