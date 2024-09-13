@@ -17,7 +17,7 @@ pip install -e .
 The provided example script demonstrates an end-to-end process for applying the quantization algorithm:
 
 ```bash
-python3 mixtral_moe.py
+python3 mixtral_moe_fp8.py
 ```
 
 ## Creating a Quantized MoE Model
