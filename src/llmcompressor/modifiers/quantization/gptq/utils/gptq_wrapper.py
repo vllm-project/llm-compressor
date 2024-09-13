@@ -314,15 +314,16 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param start_tick: time when algorithm started"
         :param losses: loss as result of algorithm
         """
-        logger.log("METRIC", "time %.2f" % (time.time() - start_tick))
-        logger.log("METRIC", "error %.2f" % torch.sum(losses).item())
+        patch = logger.patch(lambda r: r.update(function="compress"))
+        patch.log("METRIC", "time %.2f" % (time.time() - start_tick))
+        patch.log("METRIC", "error %.2f" % torch.sum(losses).item())
 
         gpu_usage = get_GPU_memory_usage()
         if len(gpu_usage) > 0:
             for i in range(len(gpu_usage)):
                 perc = gpu_usage[i][0] * 100
                 total_memory = int(gpu_usage[i][1])  # GB
-                logger.log(
+                patch.log(
                     "METRIC",
                     (
                         f"GPU {i} | usage: {perc:.2f}%"
@@ -330,7 +331,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     ),
                 )
 
-        logger.log(
+        patch.log(
             "METRIC",
             f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB",
         )
