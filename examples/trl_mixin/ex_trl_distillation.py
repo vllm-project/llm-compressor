@@ -71,7 +71,6 @@ trainer = SFTTrainer(
     data_args=data_args,
     max_seq_length=data_args.max_seq_length,
     packing=True,
-    max_steps=4,
 )
 trainer.train()
 trainer.save_model()
