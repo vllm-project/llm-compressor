@@ -416,7 +416,7 @@ class SessionManagerMixIn:
         self.accelerator.wait_for_everyone()
 
     def save_model(
-        self, output_dir: Optional[str] = None, _internal_call: bool = False
+        self, output_dir: Optional[str] = None, _internal_call=False, _is_oneshot=False
     ):
         """
         Override of the save_model function and expects it to exist in the parent.
