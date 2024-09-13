@@ -1,16 +1,19 @@
 from typing import Optional
 
+
 class SafeCheckpointsMixin:
     """
     Assumes that all loading and saving of checkpoints is done within the train call
+    and that all model saving after finalization happens outisdeof the train call
 
     | Checkpoints     | Normal         | Distillation            |
     | --------------- | -------------- | ----------------------- |
     | save_compressed | Precision loss | Precision loss          |
     | save_safetensors| OK             | Error, shared tensors   |
-    
-    
+
+
     """
+
     def train(self, *args, stage: Optional[str] = None, **kwargs):
         # capture original args
         original_save_compressed = self.args.save_compressed
@@ -23,8 +26,10 @@ class SafeCheckpointsMixin:
         if self.teacher is not None and self.teacher not in ("disable", "self"):
             self.args.save_safetensors = False
 
-        super().train(*args, stage=stage, **kwargs)
+        output = super().train(*args, stage=stage, **kwargs)
 
         # restore original args
         self.args.save_compressed = original_save_compressed
         self.args.save_safetensors = original_save_safetensors
+
+        return output

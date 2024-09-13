@@ -8,11 +8,8 @@ from llmcompressor.transformers import (
     TrainingArguments,
 )
 
-#model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
-#teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
-model_path = "Xenova/llama2.c-stories15M"
-teacher_path = "Xenova/llama2.c-stories15M"
-output_dir = "./output_trl_sft_test_7b_gsm8k"
+model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
+teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     model_path, torch_dtype="auto", device_map="auto"
