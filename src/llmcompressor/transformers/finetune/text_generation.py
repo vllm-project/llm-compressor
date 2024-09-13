@@ -146,14 +146,14 @@ def initialize_model_from_path(
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         tie_word_embeddings=model_args.tie_word_embeddings,
-        trust_remote_code=model_args.trust_remote_code,
+        trust_remote_code=model_args.trust_remote_code_model,
     )
     teacher_config = (
         AutoConfig.from_pretrained(
             model_args.distill_teacher,
             use_auth_token=True if model_args.use_auth_token else None,
             tie_word_embeddings=model_args.tie_word_embeddings,
-            trust_remote_code=model_args.trust_remote_code,
+            trust_remote_code=model_args.trust_remote_code_model,
         )
         if model_args.distill_teacher
         else None
@@ -187,7 +187,7 @@ def initialize_model_from_path(
         "use_auth_token": True if model_args.use_auth_token else None,
         "torch_dtype": parse_dtype(model_args.precision),
         "device_map": device_map,
-        "trust_remote_code": model_args.trust_remote_code,
+        "trust_remote_code": model_args.trust_remote_code_model,
     }
     teacher_device_map = None if fsdp_enabled else "auto"
     teacher_kwargs = {
@@ -196,7 +196,7 @@ def initialize_model_from_path(
         "use_auth_token": True if model_args.use_auth_token else None,
         "torch_dtype": parse_dtype(model_args.precision),
         "device_map": teacher_device_map,
-        "trust_remote_code": model_args.trust_remote_code,
+        "trust_remote_code": model_args.trust_remote_code_model,
     }
     # this calls from_pretrained under the hood so should be FSDP safe
     model = SparseAutoModel.text_generation_from_pretrained(
@@ -227,7 +227,7 @@ def initialize_tokenizer_from_path(model_args, model, teacher):
         use_fast=True,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
-        trust_remote_code=model_args.trust_remote_code,
+        trust_remote_code=model_args.trust_remote_code_model,
     )
 
     return tokenizer
