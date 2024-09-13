@@ -98,7 +98,6 @@ def modify_save_pretrained(model: PreTrainedModel):
                     model, state_dict=state_dict, compress=False
                 )
 
-            breakpoint()
             quantization_format = infer_quantization_format(
                 model=model,
                 quantization_format=quantization_format,
