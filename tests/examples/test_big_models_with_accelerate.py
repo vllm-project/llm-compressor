@@ -38,21 +38,39 @@ class TestBigModelsWithAccelerate:
         assert code.startswith("pip install llmcompressor")
 
     @pytest.mark.parametrize(
-        "script_filename",
+        ("script_filename", "visible_gpus"),
         [
-            "cpu_offloading_fp8.py",
-            pytest.param("multi_gpu_int8.py", marks=requires_gpu_mem(630)),
-            "multi_gpu_int8_sequential_update.py",
+            pytest.param("cpu_offloading_fp8.py", "", id="cpu_offloading"),
+            pytest.param(
+                "multi_gpu_int8.py",
+                "0",
+                marks=requires_gpu_mem(630),
+                id="multi_gpu_int8",
+            ),
+            pytest.param(
+                "multi_gpu_int8_sequential_update.py",
+                "",
+                id="multi_gpu_int8_sequential_update",
+            ),
         ],
     )
     @requires_gpu
     @requires_torch
     def test_example_scripts(
-        self, example_dir: str, script_filename: str, tmp_path: Path
+        self,
+        example_dir: str,
+        visible_gpus: str,
+        script_filename: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ):
         """
         Test for the example scripts in the folder.
         """
+
+        if visible_gpus:
+            monkeypatch.setenv("CUDA_VISIBLE_DEVICES", visible_gpus)
+
         shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
 
         script_path = tmp_path / example_dir / script_filename

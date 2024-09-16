@@ -34,7 +34,10 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
         for device_id in range(torch.cuda.device_count())
     )
     actual_vram = vram_bytes / 1024**3
-    reason = f"{required_amount} GiB GPU memory required, {actual_vram:.1f} GiB GPU memory found"
+    reason = (
+        f"{required_amount} GiB GPU memory required, "
+        f"{actual_vram:.1f} GiB GPU memory found"
+    )
     return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
 
 
