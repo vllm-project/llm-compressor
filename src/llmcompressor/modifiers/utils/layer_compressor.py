@@ -57,7 +57,7 @@ class LayerCompressor:
         self.layer_index = layer_index
         self.name = name
         self.args = args
-        self.handles = None
+        self.handles = []
         self.early_stop_handle = None
         self.modules = {}
 
@@ -118,7 +118,6 @@ class LayerCompressor:
 
             return tmp
 
-        self.handles = []
         for name in self.modules:
             self.handles.append(subset[name].register_forward_hook(add_batch(name)))
 
@@ -144,6 +143,8 @@ class LayerCompressor:
         """
         for handle in self.handles:
             handle.remove()
+
+        self.handles = []
 
     def revert_layer_wrappers(self):
         """
@@ -171,7 +172,6 @@ class LayerCompressor:
                 logger.info(f"Compressing {full_name}...")
                 module.compress(**self.args)
                 module.free()
-                print("done")
 
         self.layer.apply(compress_module)
         torch.cuda.empty_cache()

@@ -1,3 +1,6 @@
+import copy
+import gc
+from enum import Enum
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
@@ -8,7 +11,7 @@ from compressed_tensors.quantization import (
     freeze_module_quantization,
 )
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core.state import State
@@ -24,6 +27,12 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 __all__ = ["GPTQModifier"]
+
+
+class SequentialUpdateType(str, Enum):
+    QUANTIZED = "quantized"
+    UNQUANTIZED = "unquantized"
+    OFF = "off"
 
 
 class GPTQModifier(Modifier):
@@ -93,7 +102,7 @@ class GPTQModifier(Modifier):
         and activation 8 bit quantization on the Linear layers.
     """
 
-    sequential_update: Optional[bool] = False
+    sequential_update: Union[SequentialUpdateType, bool] = False
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -109,6 +118,16 @@ class GPTQModifier(Modifier):
     layer_compressors_: Optional[List[Any]] = None
     compressible_layers_: Optional[List] = None
     quantization_modifier_: Any = None
+
+    @field_validator("sequential_update", mode="before")
+    def validate_sequential_update(cls, value) -> SequentialUpdateType:
+        if isinstance(value, bool):
+            return SequentialUpdateType.QUANTIZED if value else SequentialUpdateType.OFF
+
+        if isinstance(value, str):
+            return SequentialUpdateType(value.lower())
+
+        return value
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
@@ -240,12 +259,10 @@ class GPTQModifier(Modifier):
             args = self._pruning_arguments()
             comp_cls = self._compression_class()
             compressor = LayerCompressor(comp_cls, self.model, layer, idx, name, args)
-            if not self.sequential_update:
-                # add all batch processing hooks before the forward pass
-                compressor.pre_compress()
+            compressor.pre_compress()
             self.layer_compressors_.append(compressor)
 
-        if self.sequential_update:
+        if self.sequential_update is not None:
             first_layer_compressor = self.layer_compressors_[0]
             first_layer_compressor.set_early_stop()
 
@@ -282,16 +299,30 @@ class GPTQModifier(Modifier):
             logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
             # Prune/quantize using GPTQ
-            if self.sequential_update:
+            if self.sequential_update != SequentialUpdateType.OFF:
                 # in sequential mode we run the forward pass for each transformer layer
                 # one at a time, caching the intermediate outputs between layers
                 layer_compressor.pre_compress()
                 logger.info(f"Calibrating {layer_compressor.name}...")
-                intermediates = layer_compressor.calibrate_layer(intermediates)
+                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                unquantized_outputs = copy.deepcopy(unquantized_outputs)
 
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
+
+            if self.sequential_update == SequentialUpdateType.UNQUANTIZED:
+                intermediates = unquantized_outputs
+            elif self.sequential_update == SequentialUpdateType.QUANTIZED:
+                quantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                difference = self._get_output_difference(
+                    unquantized_outputs, quantized_outputs
+                )
+                logger.info(f"Mean output difference from quantization: {difference}")
+                intermediates = quantized_outputs
+
+            del unquantized_outputs
+            gc.collect()
             torch.cuda.empty_cache()
 
         self.model.config.use_cache = forward_pass_use_cache
@@ -353,3 +384,32 @@ class GPTQModifier(Modifier):
         :return: wrapper class used for root modules of this compression class
         """
         return GPTQWrapper
+
+    def _get_output_difference(self, unquantized, quantized):
+        unquantized_outputs = sum(
+            [
+                [output for output in outputs]
+                if isinstance(outputs, Iterable)
+                else [outputs]
+                for outputs, _ in unquantized
+            ],
+            start=[],
+        )
+
+        quantized_outputs = sum(
+            [
+                [output for output in outputs]
+                if isinstance(outputs, Iterable)
+                else [outputs]
+                for outputs, _ in quantized
+            ],
+            start=[],
+        )
+
+        assert len(unquantized_outputs) == len(quantized_outputs)
+        return sum(
+            [
+                torch.nn.functional.l1_loss(unq, q)
+                for unq, q in zip(unquantized_outputs, quantized_outputs)
+            ]
+        ) / len(unquantized_outputs)
