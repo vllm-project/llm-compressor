@@ -29,10 +29,22 @@ from llmcompressor.utils.pytorch.module import (
 __all__ = ["GPTQModifier"]
 
 
-class SequentialUpdateType(str, Enum):
-    QUANTIZED = "quantized"
+class SequentialUpdateMethod(str, Enum):
+    """
+    Enum storing different methods by which to sequentially update the weights
+    of a model
+
+
+    Linear: apply compression and proceed with weight-quantized outputs for each
+        linear layer. NOT IMPLEMENTED\n
+    Layer: apply compression and proceed with weight-quantized outputs for each
+        transformer block (layer)\n
+    Off: compute all outputs and hessians in one, weight-unquantized forward pass\n
+    """
+
+    LINEAR = "linear"
+    LAYER = "layer"
     UNQUANTIZED = "unquantized"
-    OFF = "off"
 
 
 class GPTQModifier(Modifier):
@@ -53,7 +65,7 @@ class GPTQModifier(Modifier):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
-    |          sequential_update: True
+    |          sequential_update: "layer"
     |          dampening_frac: 0.001
     |          block_size: 128
     |          config_groups:
@@ -71,8 +83,11 @@ class GPTQModifier(Modifier):
     |                    actorder: False
 
 
-    :param sequential_update: Whether or not to update weights sequentially by layer,
-        True saves on GPU memory
+    :param sequential_update: Smallest module by which weights should be quantized.
+        Note that each module input uses outputs computed from the previous module
+        which has quantized weights, except for in the case of "unquantized", where
+        outputs are computed using unquantized weights and updates and performed
+        per-layer
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
@@ -102,7 +117,7 @@ class GPTQModifier(Modifier):
         and activation 8 bit quantization on the Linear layers.
     """
 
-    sequential_update: Union[SequentialUpdateType, bool] = False
+    sequential_update: Union[SequentialUpdateMethod, bool] = False
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -120,12 +135,24 @@ class GPTQModifier(Modifier):
     quantization_modifier_: Any = None
 
     @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value) -> SequentialUpdateType:
+    def validate_sequential_update(cls, value) -> SequentialUpdateMethod:
         if isinstance(value, bool):
-            return SequentialUpdateType.QUANTIZED if value else SequentialUpdateType.OFF
+            if value:
+                return SequentialUpdateMethod.LAYER
+            else:
+                options = ", ".join([method.name for method in SequentialUpdateMethod])
+                raise ValueError(
+                    "Running with sequential_update=False is no longer supported. "
+                    f"Please choose from {options}"
+                )
 
         if isinstance(value, str):
-            return SequentialUpdateType(value.lower())
+            value = SequentialUpdateMethod(value.lower())
+
+        if value == SequentialUpdateMethod.LINEAR:
+            raise ValueError(
+                "Linear sequential updating is not supported in the current version"
+            )
 
         return value
 
@@ -262,9 +289,8 @@ class GPTQModifier(Modifier):
             compressor.pre_compress()
             self.layer_compressors_.append(compressor)
 
-        if self.sequential_update is not None:
-            first_layer_compressor = self.layer_compressors_[0]
-            first_layer_compressor.set_early_stop()
+        first_layer_compressor = self.layer_compressors_[0]
+        first_layer_compressor.set_early_stop()
 
     @torch.no_grad()
     def apply_compression(
@@ -287,7 +313,6 @@ class GPTQModifier(Modifier):
         forward_pass_use_cache = self.model.config.use_cache
         self.model.config.use_cache = False
 
-        # in non-sequential mode we run calibration through the full model
         # in sequential mode we run calibration up to the first transformer target
         intermediates = run_calibration_forward(
             self.model, dataloader, mask_padding=True
@@ -298,27 +323,22 @@ class GPTQModifier(Modifier):
         for idx, layer_compressor in enumerate(self.layer_compressors_):
             logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
-            # Prune/quantize using GPTQ
-            if self.sequential_update != SequentialUpdateType.OFF:
-                # in sequential mode we run the forward pass for each transformer layer
-                # one at a time, caching the intermediate outputs between layers
-                layer_compressor.pre_compress()
-                logger.info(f"Calibrating {layer_compressor.name}...")
-                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
-                unquantized_outputs = copy.deepcopy(unquantized_outputs)
+            # in sequential mode we run the forward pass for each transformer layer
+            # one at a time, caching the intermediate outputs between layers
+            logger.info(f"Calibrating {layer_compressor.name}...")
+            unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
+            unquantized_outputs = copy.deepcopy(unquantized_outputs)
 
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
 
-            if self.sequential_update == SequentialUpdateType.UNQUANTIZED:
+            if self.sequential_update == SequentialUpdateMethod.UNQUANTIZED:
                 intermediates = unquantized_outputs
-            elif self.sequential_update == SequentialUpdateType.QUANTIZED:
+            else:
                 quantized_outputs = layer_compressor.calibrate_layer(intermediates)
-                difference = self._get_output_difference(
-                    unquantized_outputs, quantized_outputs
-                )
-                logger.info(f"Mean output difference from quantization: {difference}")
+                error = self._get_output_error(unquantized_outputs, quantized_outputs)
+                logger.info(f"Mean output error from quantization: {error:.3f}")
                 intermediates = quantized_outputs
 
             del unquantized_outputs
@@ -385,7 +405,7 @@ class GPTQModifier(Modifier):
         """
         return GPTQWrapper
 
-    def _get_output_difference(self, unquantized, quantized):
+    def _get_output_error(self, unquantized, quantized):
         unquantized_outputs = sum(
             [
                 [output for output in outputs]
