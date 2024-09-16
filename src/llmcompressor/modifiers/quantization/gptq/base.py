@@ -35,14 +35,14 @@ class SequentialUpdateMethod(str, Enum):
     of a model
 
 
-    Linear: apply compression and proceed with weight-quantized outputs for each
-        linear layer. NOT IMPLEMENTED\n
+    Module: apply compression and proceed with weight-quantized outputs for each
+        module within a transformer block (layer). NOT IMPLEMENTED\n
     Layer: apply compression and proceed with weight-quantized outputs for each
         transformer block (layer)\n
     Off: compute all outputs and hessians in one, weight-unquantized forward pass\n
     """
 
-    LINEAR = "linear"
+    MODULE = "module"
     LAYER = "layer"
     UNQUANTIZED = "unquantized"
 
@@ -83,7 +83,7 @@ class GPTQModifier(Modifier):
     |                    actorder: False
 
 
-    :param sequential_update: Smallest module by which weights should be quantized.
+    :param sequential_update: Smallest module unit by which weights should be quantized.
         Note that each module input uses outputs computed from the previous module
         which has quantized weights, except for in the case of "unquantized", where
         outputs are computed using unquantized weights and updates and performed
@@ -149,9 +149,9 @@ class GPTQModifier(Modifier):
         if isinstance(value, str):
             value = SequentialUpdateMethod(value.lower())
 
-        if value == SequentialUpdateMethod.LINEAR:
+        if value == SequentialUpdateMethod.MODULE:
             raise ValueError(
-                "Linear sequential updating is not supported in the current version"
+                'sequential_update="module" is not supported in the current version'
             )
 
         return value
