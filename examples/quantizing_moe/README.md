@@ -17,7 +17,7 @@ pip install -e .
 The provided example script demonstrates an end-to-end process for applying the quantization algorithm:
 
 ```bash
-python3 mixtral_moe.py
+python3 mixtral_moe_fp8.py
 ```
 
 ## Creating a Quantized MoE Model
@@ -27,7 +27,7 @@ This example leverages `llm-compressor` and `compressed-tensors` to create an FP
 You can follow the detailed steps below or simply run the example script with:
 
 ```bash
-python examples/quantizing_moe_fp8/mixtral_moe.py
+python examples/quantizing_moe/mixtral_moe_fp8.py
 ```
 
 ### Step 1: Select a Model, Dataset, and Recipe
