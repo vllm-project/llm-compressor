@@ -334,6 +334,7 @@ class GPTQModifier(Modifier):
                 logger.info(f"Mean output error from quantization: {error:.3f}")
                 intermediates = quantized_outputs
 
+            del unquantized_outputs
             gc.collect()
             torch.cuda.empty_cache()
 
