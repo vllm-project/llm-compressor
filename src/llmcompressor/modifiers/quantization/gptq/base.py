@@ -29,7 +29,7 @@ from llmcompressor.utils.pytorch.module import (
 __all__ = ["GPTQModifier"]
 
 
-class SequentialUpdateMethod(str, Enum):
+class UpdateMethod(str, Enum):
     """
     Enum storing different methods by which to sequentially update the weights
     of a model
@@ -44,7 +44,7 @@ class SequentialUpdateMethod(str, Enum):
 
     MODULE = "module"
     LAYER = "layer"
-    UNQUANTIZED = "unquantized"
+    OFF = "off"
 
 
 class GPTQModifier(Modifier):
@@ -117,7 +117,7 @@ class GPTQModifier(Modifier):
         and activation 8 bit quantization on the Linear layers.
     """
 
-    sequential_update: Union[SequentialUpdateMethod, bool] = False
+    sequential_update: Union[UpdateMethod, bool] = UpdateMethod.LAYER
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -135,21 +135,14 @@ class GPTQModifier(Modifier):
     quantization_modifier_: Any = None
 
     @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value) -> SequentialUpdateMethod:
+    def validate_sequential_update(cls, value) -> UpdateMethod:
         if isinstance(value, bool):
-            if value:
-                return SequentialUpdateMethod.LAYER
-            else:
-                options = ", ".join([method.name for method in SequentialUpdateMethod])
-                raise ValueError(
-                    "Running with sequential_update=False is no longer supported. "
-                    f"Please choose from {options}"
-                )
+            return UpdateMethod.LAYER if value else UpdateMethod.OFF
 
         if isinstance(value, str):
-            value = SequentialUpdateMethod(value.lower())
+            value = UpdateMethod(value.lower())
 
-        if value == SequentialUpdateMethod.MODULE:
+        if value == UpdateMethod.MODULE:
             raise ValueError(
                 'sequential_update="module" is not supported in the current version'
             )
@@ -289,8 +282,9 @@ class GPTQModifier(Modifier):
             compressor.pre_compress()
             self.layer_compressors_.append(compressor)
 
-        first_layer_compressor = self.layer_compressors_[0]
-        first_layer_compressor.set_early_stop()
+        if self.sequential_update != UpdateMethod.OFF:
+            first_layer_compressor = self.layer_compressors_[0]
+            first_layer_compressor.set_early_stop()
 
     @torch.no_grad()
     def apply_compression(
@@ -323,25 +317,23 @@ class GPTQModifier(Modifier):
         for idx, layer_compressor in enumerate(self.layer_compressors_):
             logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
-            # in sequential mode we run the forward pass for each transformer layer
-            # one at a time, caching the intermediate outputs between layers
-            logger.info(f"Calibrating {layer_compressor.name}...")
-            unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
-            unquantized_outputs = copy.deepcopy(unquantized_outputs)
+            if self.sequential_update != UpdateMethod.OFF:
+                # in sequential mode we run the forward pass for each transformer layer
+                # one at a time, caching the intermediate outputs between layers
+                logger.info(f"Calibrating {layer_compressor.name}...")
+                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                unquantized_outputs = copy.deepcopy(unquantized_outputs)
 
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
 
-            if self.sequential_update == SequentialUpdateMethod.UNQUANTIZED:
-                intermediates = unquantized_outputs
-            else:
+            if self.sequential_update != UpdateMethod.OFF:
                 quantized_outputs = layer_compressor.calibrate_layer(intermediates)
                 error = self._get_output_error(unquantized_outputs, quantized_outputs)
                 logger.info(f"Mean output error from quantization: {error:.3f}")
                 intermediates = quantized_outputs
 
-            del unquantized_outputs
             gc.collect()
             torch.cuda.empty_cache()
 
