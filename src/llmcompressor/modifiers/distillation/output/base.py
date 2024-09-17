@@ -99,6 +99,8 @@ class OutputDistillationModifier(Modifier):
         return True
 
     def on_finalize(self, state: State, **kwargs) -> bool:
+        print("on_finalize")
+        breakpoint()
         set_wrapped_model(state, self.wrapped_kd_model_.student_model)
 
         with summon_full_params_context(state.teacher_model, offload_to_cpu=True):
