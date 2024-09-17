@@ -108,6 +108,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
+        observer = weight_quant_args.get_observer()
 
         # standardize shape and dtype
         if isinstance(self.layer, nn.Conv2d):
@@ -118,6 +119,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         tick = time.time()
 
+        # prepare weight and observer for quantization
         if strategy == QuantizationStrategy.GROUP:
             # mapping from column index to group index
             g_idx = (
@@ -128,13 +130,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if actorder == ActivationOrdering.GROUP:
                 # permute by activation order first, then update groups
                 W, self.H, perm, invperm = self._apply_activation_ordering(W, self.H)
-                self._update_quantization_parameters(weight_quant_args, W)
-
+                observer(W)
+                
                 # use identity g_idx (invert permutation later)
 
             elif actorder == ActivationOrdering.WEIGHT:
                 # update groups first, then permute by activation order
-                self._update_quantization_parameters(weight_quant_args, W)
+                observer(W)
                 W, self.H, perm, invperm = self._apply_activation_ordering(W, self.H)
 
                 # permute g_idx to maintain identity mapping after unpermutation
@@ -143,10 +145,11 @@ class GPTQWrapper(ModuleCompressionWrapper):
         else:
             # ensure that quantization parameters are calculated using the same
             # floating point data type, regardless of quantization strategy
-            self._update_quantization_parameters(weight_quant_args, W)
-
-        scale = self.layer.weight_scale
-        zero_point = self.layer.weight_zero_point
+            observer(W)
+        
+        # needs update
+        if strategy == QuantizationStrategy.TENSOR:
+            needs_update = False
 
         # sparsity mask
         sparsity = tensor_sparsity(W)
@@ -194,17 +197,25 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
                 # quantize column
                 if strategy == QuantizationStrategy.TENSOR:
+                    # tensor does not need to iteratively update q params
+
                     q = fake_quantize(
                         q,
-                        scale,
-                        zero_point,
+                        observer._scale,
+                        observer._zero_point,
                         self.layer.quantization_scheme.weights,
                     )
                 elif strategy == QuantizationStrategy.CHANNEL:
+                    # TODO: come back to
+                    column_idx = i1 + i
+                    updated_scale, updated_zero_point = observer.calculate_qparams(q)
+                    observer._scale[column_idx] = updated_scale
+                    observer._zero_point[column_idx] = updated_zero_point
+
                     q = fake_quantize(
                         q,
-                        scale[:, 0],
-                        zero_point[:, 0],
+                        observer._scale[:, column_idx],
+                        observer._zero_point[:, column_idx],
                         weight_quant_args,
                     )
                 elif strategy == QuantizationStrategy.GROUP:
@@ -212,14 +223,21 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     column_idx = i1 + i
                     group_index = g_idx[column_idx]
 
+                    # update quantization parameters
+                    # note that since we're using W, it doesn't actually take into
+                    # account column error updates (good)
+                    updated_scale, updated_zero_point = observer.get_qparams_along_dim(W[:, g_idx == group_index], dim=0)
+                    observer._scale[:, group_index] = updated_scale[:, 0]
+                    observer._zero_point[:, group_index] = updated_zero_point[:, 0]
+
                     # Since we're only applying quantization to a slice, this
                     # ends up being a channelwise application
                     altered_qargs = copy(weight_quant_args)
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
                     q = fake_quantize(
                         q,
-                        scale[:, group_index],
-                        zero_point[:, group_index],
+                        observer._scale[:, group_index],
+                        observer._zero_point[:, group_index],
                         altered_qargs,
                     )
                 else:
@@ -240,14 +258,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     W1[:, i:] -= w1_err
                 Err1[:, i] = err1
 
-                # because weight values have been updated, so should q parameters
-                if actorder == ActivationOrdering.WEIGHT:
-                    W = W[:, invperm]
-                    self._update_quantization_parameters(weight_quant_args, W)
-                    W = W[:, perm]
-                else:
-                    self._update_quantization_parameters(weight_quant_args, W)
-
             # propagate block error
             W[:, i1:i2] = Q1
             Losses += torch.sum(Losses1, 1) / 2
@@ -258,6 +268,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             else:
                 W[:, i2:] -= w_err
 
+        # log metrics
         if "METRIC" in logger._core.levels.keys():
             self._log_metrics(tick, Losses)
 
@@ -283,6 +294,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
         # the weight in place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
+        update_parameter_data(self.layer, observer._scale, "weight_scale")
+        update_parameter_data(self.layer, observer._zero_point, "weight_zero_point")
 
         if is_module_offloaded(self.layer):
             device = get_offloaded_device(self.layer)
@@ -295,18 +308,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
         """
         delattr(self, "H")
         super().free()
-
-    def _update_quantization_parameters(self, args: QuantizationArgs, W: torch.Tensor):
-        """
-        Update layer quantization parameters with potentially permuted weight
-
-        :param args: quantization arguments
-        :param W: weight to calculate quantization parameters from
-        """
-        observer = args.get_observer()
-        _scale, _zero_point = observer(W, g_idx=None)
-        update_parameter_data(self.layer, _scale, "weight_scale")
-        update_parameter_data(self.layer, _zero_point, "weight_zero_point")
 
     def _apply_activation_ordering(
         self, W: torch.Tensor, H: torch.Tensor
