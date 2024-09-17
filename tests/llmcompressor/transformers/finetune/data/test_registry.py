@@ -3,6 +3,7 @@ import pytest
 from llmcompressor.transformers.finetune.data import (
     C4Dataset,
     OpenPlatypusDataset,
+    PileEvalDataset,
     TextGenerationDataset,
     WikiTextDataset,
 )
@@ -57,3 +58,19 @@ def test_open_platypus_initializes(tiny_llama_tokenizer):
     assert op_manager.text_column == "text"
     assert not op_manager.padding
     assert op_manager.max_seq_length == data_args.max_seq_length
+
+
+@pytest.mark.usefixtures("tiny_llama_tokenizer")
+def test_pile_eval_initializes(tiny_llama_tokenizer):
+    data_args = DataTrainingArguments(dataset="pile-eval", pad_to_max_length=False)
+    pile_eval_manager = TextGenerationDataset.load_from_registry(
+        data_args.dataset,
+        data_args=data_args,
+        split=None,
+        tokenizer=tiny_llama_tokenizer,
+    )
+    assert isinstance(pile_eval_manager, TextGenerationDataset)
+    assert isinstance(pile_eval_manager, PileEvalDataset)
+    assert pile_eval_manager.text_column == "text"
+    assert not pile_eval_manager.padding
+    assert pile_eval_manager.max_seq_length == data_args.max_seq_length
