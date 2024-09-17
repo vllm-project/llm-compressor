@@ -1,0 +1,40 @@
+name: build and test jobs for nightly and release
+run-name: ${{ github.actor }} triggered nightly or release on ${{ github.ref }}
+on:
+    schedule:
+      # * is a special character in YAML so you have to quote this string
+      - cron: '30 0 * * *'  # nightly run
+
+    workflow_dispatch:
+        inputs:
+            wf_category:
+                description: "workflow category, default is NIGHTLY"
+                type: choice
+                options:
+                    - NIGHTLY
+                    - RELEASE
+                default: NIGHTLY
+            push_to_pypi:
+                description: "when set and tests pass, then '.whl' & '.tar.gz' will be pushed to public pypi"
+                type: boolean
+                default: true
+            gitref:
+                description: "git commit hash or tag name" 
+                type: string
+                default: 'main'
+
+jobs:
+
+    BUILD-TEST:
+        uses: ./.github/workflows/build-test.yml
+        name: ${{ inputs.wf_category || 'NIGHTLY' }}
+        with:
+            wf_category: ${{ inputs.wf_category || 'NIGHTLY' }}
+            gitref: ${{ inputs.gitref || 'main' }}
+            push_to_pypi: ${{ inputs.push_to_pypi || true }}
+            test_configs: '[{"python":"3.11.4","label":"ubuntu-22.04","timeout":"40"},
+                            {"python":"3.10.12","label":"ubuntu-20.04","timeout":"40"},
+                            {"python":"3.9.17","label":"k8s-a100-solo","timeout":"40"},
+                            {"python":"3.8.17","label":"k8s-a100-duo","timeout":"40"}]'
+
+        secrets: inherit

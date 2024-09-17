@@ -1,0 +1,129 @@
+name: nightly test
+on:
+  # makes workflow reusable
+  workflow_call:
+    inputs:
+      gitref:
+        description: "git commit hash or branch name"
+        type: string
+        required: true
+      test_label:
+        description: "requested runner label"
+        type: string
+        required: true
+      python:
+        description: "python version, e.g. 3.10.12"
+        type: string
+        required: true
+      timeout:
+        description: "time limit for run in minutes "
+        type: string
+        required: true
+      whl:
+        description: "whl to test (variable appears late binding so unusable outside 'download artifact')"
+        type: string
+        required: true
+      testmo_run_id:
+        description: "testmo run id"
+        type: string
+        default: ''
+
+  # makes workflow manually callable
+  workflow_dispatch:
+    inputs:
+      gitref:
+        description: "git commit hash or branch name"
+        type: string
+        required: true
+      test_label:
+        description: "requested runner label"
+        type: string
+        required: true
+      python:
+        description: "python version, e.g. 3.10.12"
+        type: string
+        required: true
+      timeout:
+        description: "time limit for run in minutes "
+        type: string
+        required: true
+      whl:
+        description: "whl to test (variable appears late binding so unusable outside 'download artifact')"
+        type: string
+        required: true
+      testmo_run_id:
+        description: "testmo run id"
+        type: string
+        default: ''
+
+jobs:
+
+    TEST:
+
+        name: TEST (${{ inputs.python}}, ${{ inputs.test_label }})
+        runs-on: ${{ inputs.test_label }}
+        timeout-minutes: ${{ fromJson(inputs.timeout) }}
+
+        steps:
+
+            - name: set python
+              id: set_python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: ${{ inputs.python }}
+
+            - name: verify python
+              id: verify_python
+              uses: neuralmagic/nm-actions/actions/verify-python@v1.2.0
+              with:
+                  python-version: ${{ inputs.python }}
+
+            - name: checkout code
+              id: checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.gitref }}
+
+            - name: create virtualenv
+              id: create_venv
+              uses: neuralmagic/nm-actions/actions/create-virtualenv@v1.2.0
+              with:
+                  venv: TEST
+
+            - name: install testmo
+              uses: neuralmagic/nm-actions/actions/install-testmo@v1.0.0
+
+            - name: download whl
+              id: download
+              uses: actions/download-artifact@v4
+              with:
+                  name: ${{ inputs.whl }}
+                  path: ${{ inputs.whl }}
+
+            - name: run tests
+              id: test
+              uses: ./.github/actions/test/
+              with:
+                  venv: ${{ steps.create_venv.outputs.penv }}
+
+            - name: report test results
+              id: report_test
+              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.2.0
+              if: (success() || failure()) && ${{ inputs.testmo_run_id != '' }}
+              with:
+                  testmo_url: https://neuralmagic.testmo.net
+                  testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
+                  testmo_run_id: ${{ inputs.testmo_run_id }}
+                  results: test-results
+                  step_status: ${{ steps.test.outputs.status }}
+
+            - name: summary
+              uses: neuralmagic/nm-actions/actions/summary-test@v1.2.0
+              if: success() || failure()
+              with:
+                  test_label: ${{ inputs.test_label }}
+                  gitref: ${{ inputs.gitref }}
+                  testmo_run_url: https://neuralmagic.testmo.net/automation/runs/view/${{ inputs.testmo_run_id }}
+                  python: ${{ inputs.python }}
+                  whl: ${{ inputs.whl }}
+                  test_status: ${{ steps.test.outputs.status }}

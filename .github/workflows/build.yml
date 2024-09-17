@@ -1,0 +1,161 @@
+name: build
+on:
+  # makes workflow reusable
+  workflow_call:
+    inputs:
+      wf_category:
+        description: "categories: NIGHTLY, RELEASE"
+        type: string
+        default: NIGHTLY
+      build_label:
+        description: "requested runner label (specifies instance)"
+        type: string
+        required: true
+      timeout:
+        description: "time limit for run in minutes "
+        type: string
+        default: 20
+      gitref:
+        description: "git commit hash or branch name"
+        type: string
+        default: main
+    outputs:
+      whl:
+        description: 'basename for generated whl'
+        value: ${{ jobs.BUILD.outputs.whl }}
+      testmo_run_id:
+        description: 'testmo run id'
+        value: ${{ jobs.BUILD.outputs.testmo_run_id }}
+
+  # makes workflow manually callable
+  workflow_dispatch:
+    inputs:
+      wf_category:
+        description: "categories: NIGHTLY, RELEASE"
+        type: string
+        default: NIGHTLY
+      build_label:
+        description: "requested runner label (specifies instance)"
+        type: string
+        required: true
+      timeout:
+        description: "time limit for run in minutes "
+        type: string
+        default: 20
+      gitref:
+        description: "git commit hash or branch name"
+        type: string
+        default: main
+
+jobs:
+
+    BUILD:
+
+        runs-on: ${{ inputs.build_label }}
+        timeout-minutes: ${{ fromJson(inputs.timeout) }}
+        permissions:
+            contents: 'read'
+            id-token: 'write'
+
+        outputs:
+            run_id: ${{ github.run_id }}
+            whl: ${{ steps.build.outputs.whlname }}
+            tarfile: ${{ steps.build.outputs.tarname }}
+            testmo_run_id: ${{ steps.create_testmo_run.outputs.id }}
+
+        steps:
+
+            - name: set python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: '3.10'
+
+            - name: checkout code
+              id: checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ inputs.gitref }}
+
+            - name: install testmo
+              uses: neuralmagic/nm-actions/actions/install-testmo@v1.0.0
+
+            - name: create testmo run
+              id: create_testmo_run
+              uses: neuralmagic/nm-actions/actions/testmo-run-create@v1.2.0
+              if: success()
+              with:
+                testmo_url: https://neuralmagic.testmo.net
+                testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
+                source: 'build-test'
+                project_id: 14
+                run_name: compressedtensors-${{ inputs.wf_category }}-${{ inputs.gitref }}-${GITHUB_ACTOR}
+
+            - name: build
+              id: build
+              uses: neuralmagic/nm-actions/actions/build-ml-whl@v1.2.0
+              with:
+                  dev: false
+                  release: ${{ inputs.wf_category == 'RELEASE' }}
+
+            # GCP
+            - name: 'Authenticate to Google Cloud'
+              id: auth
+              uses: google-github-actions/auth@v2.1.3
+              with:
+                  project_id: ${{ secrets.GCP_PROJECT }}
+                  workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+                  service_account: ${{ secrets.GCP_GHA_SA }}
+
+            - name: 'Set up Cloud SDK'
+              uses: 'google-github-actions/setup-gcloud@v2'
+              with:
+                  version: '>= 473.0.0'
+
+            - name: copy whl and source distribution
+              run: |
+                  gcloud storage cp dist/${{ steps.build.outputs.whlname }} ${{ secrets.GCP_BUILD_ML_ASSETS2 }}/${{ github.run_id }}/${{ steps.build.outputs.whlname }}
+                  gcloud storage cp dist/${{ steps.build.outputs.tarname }} ${{ secrets.GCP_BUILD_ML_ASSETS2 }}/${{ github.run_id }}/${{ steps.build.outputs.tarname }}
+
+            - name: upload whl
+              uses: actions/upload-artifact@v4
+              if: success() || failure()
+              with:
+                  name: ${{ steps.build.outputs.whlname }}
+                  path: dist/${{ steps.build.outputs.whlname }}
+                  retention-days: 5
+
+            - name: upload tar.gz
+              uses: actions/upload-artifact@v4
+              if: success() || failure()
+              with:
+                  name: ${{ steps.build.outputs.tarname }}
+                  path: dist/${{ steps.build.outputs.tarname }}
+                  retention-days: 5
+
+            - name: summary
+              uses: neuralmagic/nm-actions/actions/summary-build@v1.2.0
+              if: success() || failure()
+              with:
+                  label: ${{ inputs.build_label }}
+                  gitref: ${{ inputs.gitref }}
+                  whl_status: ${{ steps.build.outputs.status }}
+
+            - name: report build status to testmo
+              id: report_build
+              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.2.0
+              if: (success() || failure()) && ${{ inputs.testmo_run_id != '' }}
+              with:
+                  testmo_url: https://neuralmagic.testmo.net
+                  testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
+                  testmo_run_id: ${{ steps.create_testmo_run.outputs.id }}
+                  results: build-results
+                  step_status: ${{ steps.build.outputs.status }}
+
+            - name: run status
+              id: run_status
+              if: success() || failure()
+              env:
+                  WHL_STATUS: ${{ steps.build.outputs.status }}
+              run: |
+                  echo "build status: ${WHL_STATUS}"
+                  if [ -z "${WHL_STATUS}" ] || [ "${WHL_STATUS}" -ne "0" ]; then exit 1; fi

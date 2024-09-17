@@ -1,0 +1,68 @@
+name: build-test
+on:
+
+  # makes workflow reusable
+  workflow_call:
+    inputs:
+      wf_category:
+        description: "workflow category: NIGHTLY, RELEASE"
+        type: string
+        default: NIGHTLY
+      push_to_pypi:
+        description: "When set to true, built whl and tar.gz will be pushed to public pypi if all tests pass"
+        type: boolean
+        default: false
+      gitref:
+        description: "git commit hash or tag name"
+        type: string
+        default: main
+
+      # build related parameters
+      build_label:
+        description: "requested runner label for build (specifies instance)"
+        type: string
+        default: ubuntu-20.04
+
+      # test related parameters
+      test_configs:
+        description: "python, label, timeout"
+        type: string
+        required: true
+
+jobs:
+
+    BUILD:
+        uses: ./.github/workflows/build.yml
+        with:
+            wf_category: ${{ inputs.wf_category }}
+            build_label: ${{ inputs.build_label }}
+            gitref: ${{ inputs.gitref }}
+            timeout: 20
+        secrets: inherit
+
+    TEST:
+        needs: [BUILD]
+        strategy:
+            fail-fast: false
+            matrix:
+                test_config: ${{ fromJson(inputs.test_configs) }}
+        uses: ./.github/workflows/test.yml
+        with:
+            gitref: ${{ inputs.gitref }}
+            test_label: ${{ matrix.test_config.label }}
+            python: ${{ matrix.test_config.python }}
+            timeout: ${{ matrix.test_config.timeout }}
+            whl: ${{ needs.BUILD.outputs.whl }}
+            testmo_run_id: ${{ needs.BUILD.outputs.testmo_run_id }}
+        secrets: inherit
+
+    UPLOAD:
+        needs: [BUILD, TEST]
+        uses: ./.github/workflows/upload.yml
+        with:
+            label: k8s-util
+            timeout: 40
+            run_id: ${{ github.run_id }}
+            push_to_pypi: ${{ inputs.push_to_pypi }}
+            testmo_run_id: ${{ needs.BUILD.outputs.testmo_run_id }}
+        secrets: inherit

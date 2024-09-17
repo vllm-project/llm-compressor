@@ -1,0 +1,32 @@
+name: test compressed-tensors
+description: 'test compressed-tensors'
+inputs:
+  venv:
+    description: "path of virtualenv"
+    required: true
+outputs:
+  status:
+    description: "final status from test"
+    value: ${{ steps.test.outputs.status }}
+runs:
+  using: composite
+  steps:
+
+    - name: install wheel
+      uses: neuralmagic/nm-actions/actions/install-whl@v1.2.0
+      with:
+          venv: ${{ inputs.venv }}
+          name: compressed
+          extra: "[dev,accelerate]"
+
+    - name: test
+      id: test
+      run: |
+          source ${{ inputs.venv }}/bin/activate
+          rm -rf src
+          SUCCESS=0
+          pytest tests --junitxml=test-results/report.xml || SUCCESS=$?
+          echo "status=${SUCCESS}" >> "$GITHUB_OUTPUT"
+          deactivate
+          exit ${SUCCESS}
+      shell: bash
