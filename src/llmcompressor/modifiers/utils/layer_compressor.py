@@ -128,14 +128,15 @@ class LayerCompressor:
         :param intermediates: inputs to run through the layer
         :return: outputs of the layer
         """
+        outputs = [None for _ in range(len(intermediates))]
         for idx in tqdm(range(len(intermediates))):
             args, kwargs = intermediates[idx]
             device = get_execution_device(self.layer)
             output = self.layer(*tensors_to_device(args, device), **kwargs)
-            intermediates[idx] = (tensors_to_device(output, "cpu"), kwargs)
+            outputs[idx] = (tensors_to_device(output, "cpu"), kwargs)
             torch.cuda.empty_cache()
 
-        return intermediates
+        return outputs
 
     def post_compress(self):
         """

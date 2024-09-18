@@ -313,6 +313,12 @@ class GPTQModifier(Modifier):
         )
         self.layer_compressors_[0].clear_early_stop()
 
+        # empty cache if not using sequential update
+        if self.sequential_update == UpdateMethod.OFF:
+            del intermediates
+            gc.collect()
+            torch.cuda.empty_cache()
+
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):
             logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
