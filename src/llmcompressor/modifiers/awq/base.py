@@ -134,7 +134,7 @@ class AWQModifier(Modifier):
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
         """
-        if self.end and self.end != -1:
+        if not (self.end is None or self.end == -1):
             raise ValueError(
                 f"{self.__class__.__name__} can only be applied during one-shot. "
                 f" Expected end to be None or -1, got {self.end}"
