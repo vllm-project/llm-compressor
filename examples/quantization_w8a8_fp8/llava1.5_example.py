@@ -4,10 +4,10 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.sparsification import create_sparse_auto_model_class
 
-MODEL_ID = "Qwen/Qwen2-VL-7B-Instruct"
+MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 
 # Load model.
-model_class = create_sparse_auto_model_class("Qwen2VLForConditionalGeneration")
+model_class = create_sparse_auto_model_class("LlavaForConditionalGeneration")
 model = model_class.from_pretrained(MODEL_ID, device_map="auto", torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
