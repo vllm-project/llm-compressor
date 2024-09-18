@@ -1,7 +1,9 @@
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
-__all__ = ["UpdateMethod", "validate_sequential_update"]
+import torch
+
+__all__ = ["UpdateMethod", "validate_sequential_update", "get_output_error"]
 
 
 class UpdateMethod(str, Enum):
@@ -33,3 +35,33 @@ def validate_sequential_update(value: Any) -> Optional[UpdateMethod]:
         )
 
     return value
+
+
+def get_output_error(unquantized, quantized):
+    unquantized_outputs = sum(
+        [
+            [output for output in outputs]
+            if isinstance(outputs, Iterable)
+            else [outputs]
+            for outputs, _ in unquantized
+        ],
+        start=[],
+    )
+
+    quantized_outputs = sum(
+        [
+            [output for output in outputs]
+            if isinstance(outputs, Iterable)
+            else [outputs]
+            for outputs, _ in quantized
+        ],
+        start=[],
+    )
+
+    assert len(unquantized_outputs) == len(quantized_outputs)
+    return sum(
+        [
+            torch.nn.functional.l1_loss(unq, q)
+            for unq, q in zip(unquantized_outputs, quantized_outputs)
+        ]
+    )

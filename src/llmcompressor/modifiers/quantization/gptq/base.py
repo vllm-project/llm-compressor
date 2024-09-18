@@ -1,4 +1,3 @@
-import copy
 import gc
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
@@ -18,6 +17,7 @@ from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils import (
     GPTQWrapper,
     UpdateMethod,
+    get_output_error,
     validate_sequential_update,
 )
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
@@ -306,8 +306,8 @@ class GPTQModifier(Modifier):
                 # in sequential mode we run the forward pass for each transformer layer
                 # one at a time, caching the intermediate outputs between layers
                 logger.info(f"Calibrating {layer_compressor.name}...")
+                layer_compressor.pre_compress()
                 unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
-                unquantized_outputs = copy.deepcopy(unquantized_outputs)
 
             layer_compressor.compress()
             layer_compressor.post_compress()
@@ -315,11 +315,11 @@ class GPTQModifier(Modifier):
 
             if self.sequential_update is not None:
                 quantized_outputs = layer_compressor.calibrate_layer(intermediates)
-                error = self._get_output_error(unquantized_outputs, quantized_outputs)
+                error = get_output_error(unquantized_outputs, quantized_outputs)
                 logger.info(f"Mean output error from quantization: {error:.3f}")
                 intermediates = quantized_outputs
+                del unquantized_outputs
 
-            del unquantized_outputs
             gc.collect()
             torch.cuda.empty_cache()
 
@@ -382,32 +382,3 @@ class GPTQModifier(Modifier):
         :return: wrapper class used for root modules of this compression class
         """
         return GPTQWrapper
-
-    def _get_output_error(self, unquantized, quantized):
-        unquantized_outputs = sum(
-            [
-                [output for output in outputs]
-                if isinstance(outputs, Iterable)
-                else [outputs]
-                for outputs, _ in unquantized
-            ],
-            start=[],
-        )
-
-        quantized_outputs = sum(
-            [
-                [output for output in outputs]
-                if isinstance(outputs, Iterable)
-                else [outputs]
-                for outputs, _ in quantized
-            ],
-            start=[],
-        )
-
-        assert len(unquantized_outputs) == len(quantized_outputs)
-        return sum(
-            [
-                torch.nn.functional.l1_loss(unq, q)
-                for unq, q in zip(unquantized_outputs, quantized_outputs)
-            ]
-        ) / len(unquantized_outputs)
