@@ -40,10 +40,10 @@ class TestBigModelsWithAccelerate:
     @pytest.mark.parametrize(
         ("script_filename", "visible_gpus"),
         [
-            pytest.param("cpu_offloading_fp8.py", "", id="cpu_offloading"),
+            pytest.param("cpu_offloading_fp8.py", "0", id="cpu_offloading"),
             pytest.param(
                 "multi_gpu_int8.py",
-                "0",
+                "",
                 marks=requires_gpu_mem(630),
                 id="multi_gpu_int8",
             ),
