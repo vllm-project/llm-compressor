@@ -62,7 +62,7 @@ def test_open_platypus_initializes(tiny_llama_tokenizer):
 
 @pytest.mark.usefixtures("tiny_llama_tokenizer")
 def test_pile_eval_initializes(tiny_llama_tokenizer):
-    data_args = DataTrainingArguments(dataset="pile-eval", pad_to_max_length=False)
+    data_args = DataTrainingArguments(dataset="pile_eval", pad_to_max_length=False)
     pile_eval_manager = TextGenerationDataset.load_from_registry(
         data_args.dataset,
         data_args=data_args,

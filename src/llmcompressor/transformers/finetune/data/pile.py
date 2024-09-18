@@ -1,9 +1,10 @@
+from copy import deepcopy
 from typing import Optional
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
 
-@TextGenerationDataset.register(name="mit-han-lab/pile-val-backup", alias=["pile-eval"])
+@TextGenerationDataset.register(name="pile_eval")
 class PileEvalDataset(TextGenerationDataset):
     """
     Child text generation class for the Open Platypus dataset
@@ -14,6 +15,8 @@ class PileEvalDataset(TextGenerationDataset):
     """
 
     def __init__(self, data_args, split, tokenizer):
+        data_args = deepcopy(data_args)
+        data_args.dataset = "mit-han-lab/pile-val-backup"
         super().__init__(
             text_column="text", data_args=data_args, split=split, tokenizer=tokenizer
         )
