@@ -1,9 +1,10 @@
+from copy import deepcopy
 from typing import Optional
 from copy import deepcopy
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
 
-@TextGenerationDataset.register(name="mit-han-lab/pile-val-backup", alias=["pile-eval"])
+@TextGenerationDataset.register(name="pile_eval")
 class PileEvalDataset(TextGenerationDataset):
     """
     Child text generation class for the PileEval dataset
