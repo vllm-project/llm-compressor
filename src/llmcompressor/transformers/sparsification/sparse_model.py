@@ -23,24 +23,20 @@ from llmcompressor.transformers.utils.helpers import (
     resolve_recipe,
 )
 
-__all__ = ["SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
+__all__ = ["create_sparse_auto_model_class", "SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
 
 
-class SparseAutoModelForCausalLM(AutoModelForCausalLM):
-    """
-    LLM Compressor wrapper for the AutoModelForCausalLM class
-    Its lifecycle is defined as follows:
-    1. If pretrained_model_name_or_path is a HuggingFace stub
-       the appropriate HuggingFace model will be downloaded
-       (if required) and the path to the deployment directory
-       of the model will be retrieved
-    2. The original model definition will be loaded, without
-        the model weights
-    3. The appropriate recipe will be applied to the model
-       if requested or required
-    4. The appropriate set of weights will be loaded into the model
-    """
-
+def create_sparse_auto_model_class(auto_model_class_name):
+    # Dynamically import the AutoModelForX class
+    exec(f"from transformers import {auto_model_class_name}")
+    auto_model_class = eval(auto_model_class_name)
+    
+    class_name = f"Sparse{auto_model_class_name}"
+    
+    # Define the new class
+    new_class = type(class_name, (auto_model_class,), {})
+    
+    # Add the from_pretrained class method
     @classmethod
     def from_pretrained(
         cls,
@@ -50,16 +46,6 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         *model_args,
         **kwargs,
     ) -> PreTrainedModel:
-        """
-         A wrapper around the AutoModelForCausalLM.from_pretrained method
-
-        :param pretrained_model_name_or_path: the name of or path to the model to load
-        :param recipe: the path to the recipe file to apply to the model. Can be a
-            string or Path object. If None, a recipe will be searched for in the
-            pretrained_model_name_or_path directory and applied if found
-        :return the created model for causal language modeling
-        """
-
         def skip(*args, **kwargs):
             pass
 
@@ -92,14 +78,14 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
 
         if kwargs.get("trust_remote_code"):
             # By artifically aliasing
-            # class name SparseAutoModelForCausallLM to
-            # AutoModelForCausalLM we can "trick" the
+            # class name SparseCLASSNAME to
+            # CLASSNAME we can "trick" the
             # `from_pretrained` method into properly
             # resolving the logic when
             # (has_remote_code and trust_remote_code) == True
-            cls.__name__ = AutoModelForCausalLM.__name__
+            cls.__name__ = auto_model_class.__name__
 
-        model = super(AutoModelForCausalLM, cls).from_pretrained(
+        model = super(auto_model_class, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
 
@@ -152,6 +138,14 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
             initialize_recipe(model=model, recipe_path=recipe)
 
         return model
+
+    # Add the from_pretrained method to the new class
+    setattr(new_class, 'from_pretrained', from_pretrained)
+    
+    return new_class
+
+
+SparseAutoModelForCausalLM = create_sparse_auto_model_class("AutoModelForCausalLM")
 
 
 class SparseAutoModel:
