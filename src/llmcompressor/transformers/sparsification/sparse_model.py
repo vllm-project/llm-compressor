@@ -31,10 +31,8 @@ def create_sparse_auto_model_class(auto_model_class_name):
     exec(f"from transformers import {auto_model_class_name}")
     auto_model_class = eval(auto_model_class_name)
     
-    class_name = f"Sparse{auto_model_class_name}"
-    
     # Define the new class
-    new_class = type(class_name, (auto_model_class,), {})
+    new_class = type(auto_model_class_name, (auto_model_class,), {})
     
     # Add the from_pretrained class method
     @classmethod
