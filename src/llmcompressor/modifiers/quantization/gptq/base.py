@@ -44,7 +44,7 @@ class GPTQModifier(Modifier):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
-    |          sequential_update: True
+    |          sequential_update: true
     |          dampening_frac: 0.001
     |          block_size: 128
     |          config_groups:
@@ -63,7 +63,7 @@ class GPTQModifier(Modifier):
 
 
     :param sequential_update: Whether or not to update weights sequentially by layer,
-        True saves on GPU memory
+        True saves on GPU memory, default is True
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
