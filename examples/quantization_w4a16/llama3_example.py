@@ -6,6 +6,7 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
@@ -54,7 +55,6 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-# Note: to reduce GPU memory use `sequential_update=False`
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
