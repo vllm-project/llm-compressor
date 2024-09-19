@@ -339,6 +339,7 @@ class GPTQModifier(Modifier):
                 error = self._get_output_error(unquantized_outputs, quantized_outputs)
                 logger.info(f"Mean output error from quantization: {error:.3f}")
                 intermediates = quantized_outputs
+                print(intermediates[0][0])
 
             del unquantized_outputs
             gc.collect()

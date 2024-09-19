@@ -59,6 +59,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         self.register_buffer(
             "H", torch.zeros((self.columns, self.columns), device=self.dev)
         )
+        self.n_samples = 0
 
     def add_batch(self, inp: torch.Tensor, out: torch.Tensor):
         """
@@ -76,9 +77,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
             inp = inp.t()
-        self.H *= self.nsamples / (self.nsamples + tmp)
-        self.nsamples += tmp
-        inp = math.sqrt(2 / self.nsamples) * inp.float()
+        self.H *= self.n_samples / (self.n_samples + tmp)
+        self.n_samples += tmp
+        inp = math.sqrt(2 / self.n_samples) * inp.float()
         self.H += inp.matmul(inp.t())
 
     def compress(
@@ -116,6 +117,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         elif isinstance(self.layer, transformers.Conv1D):
             W.transpose_(0, 1)
         W = W.float()
+        #W = W.to(dtype=torch.float32)
 
         tick = time.time()
 
@@ -142,6 +144,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 # permute g_idx to maintain identity mapping after unpermutation
                 g_idx = g_idx[perm]
 
+            else:
+                observer(W)
+
         else:
             # ensure that quantization parameters are calculated using the same
             # floating point data type, regardless of quantization strategy
@@ -166,6 +171,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         W[:, dead] = 0
 
         Losses = torch.zeros(self.rows, device=self.dev)
+        #Q = torch.zeros_like(W)
 
         # compute inverse hessian in place to save memory
         damp = percdamp * torch.mean(torch.diag(self.H))
@@ -193,7 +199,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             for i in range(count):
                 w = W1[:, i]
                 d = Hinv1[i, i]
-                q = w.clone()
+                q = w.clone()  # we should not be forced to clone w, instead fake_quantize should properly perform out of place
 
                 # quantize column
                 if strategy == QuantizationStrategy.TENSOR:
@@ -226,6 +232,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     # update quantization parameters
                     # note that since we're using W, it doesn't actually take into
                     # account column error updates (good)
+                    # TODO: only calculate parameters first time, subsequent times
+                    # are redundant
                     updated_scale, updated_zero_point = observer.get_qparams_along_dim(W[:, g_idx == group_index], dim=0)
                     observer._scale[:, group_index] = updated_scale[:, 0]
                     observer._zero_point[:, group_index] = updated_zero_point[:, 0]
@@ -234,6 +242,12 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     # ends up being a channelwise application
                     altered_qargs = copy(weight_quant_args)
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
+                    #if self.name == "model.layers.0.mlp.down_proj":
+                    #    import pickle
+                    #    with open('/home/kyle/autogptq/auto.pkl', 'rb') as f:
+                    #        # read the tensors from the file
+                    #        (_, _, my_scale) = pickle.load(f)
+                    #        observer._scale[:, group_index] = my_scale[:, 0]
                     q = fake_quantize(
                         q,
                         observer._scale[:, group_index],
@@ -247,6 +261,18 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     )
 
                 # propagate column error
+                # if self.name == "model.layers.0.mlp.down_proj":
+                #     import pickle
+                #     with open('lc.pkl', 'wb') as f:
+                #         # Dump the tensors into the file
+                #         pickle.dump((
+                #             w,
+                #             W[:, g_idx == group_index],
+                #             observer._scale[:, group_index]
+                #         ), f)
+                #     print("dumped to file")
+                #     breakpoint()
+                    
                 Q1[:, i] = q
                 Losses1[:, i] = (w - q) ** 2 / d**2
 
@@ -257,6 +283,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
                 else:
                     W1[:, i:] -= w1_err
                 Err1[:, i] = err1
+                # if self.name == "model.layers.0.mlp.down_proj":
+                #     breakpoint()
 
             # propagate block error
             W[:, i1:i2] = Q1
@@ -279,7 +307,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
             elif actorder == ActivationOrdering.GROUP:
                 # restore original permutation
-                invperm = torch.argsort(perm)
                 W = W[:, invperm]
                 g_idx = g_idx[invperm]
 
