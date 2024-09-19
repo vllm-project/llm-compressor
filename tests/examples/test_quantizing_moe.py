@@ -9,6 +9,7 @@ from tests.examples.utils import (
     ReadMe,
     gen_cmd_fail_message,
     requires_gpu,
+    requires_gpu_count,
     requires_torch,
 )
 from tests.testing_utils import run_cli_command
@@ -26,7 +27,7 @@ def example_dir() -> str:
 
 
 @pytest.mark.example
-@requires_gpu
+@requires_gpu_count(2)
 @requires_torch
 class TestQuantizingMOE:
     """

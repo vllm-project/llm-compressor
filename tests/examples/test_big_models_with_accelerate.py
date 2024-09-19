@@ -8,6 +8,7 @@ from tests.examples.utils import (
     ReadMe,
     gen_cmd_fail_message,
     requires_gpu,
+    requires_gpu_count,
     requires_gpu_mem,
     requires_torch,
 )
@@ -44,13 +45,14 @@ class TestBigModelsWithAccelerate:
             pytest.param(
                 "multi_gpu_int8.py",
                 "",
-                marks=requires_gpu_mem(630),
                 id="multi_gpu_int8",
+                marks=[requires_gpu_mem(630), requires_gpu_count(2)],
             ),
             pytest.param(
                 "multi_gpu_int8_sequential_update.py",
                 "",
                 id="multi_gpu_int8_sequential_update",
+                marks=requires_gpu_count(2),
             ),
         ],
     )
