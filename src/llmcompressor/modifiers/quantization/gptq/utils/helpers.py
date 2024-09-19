@@ -35,4 +35,4 @@ def get_output_error(
             torch.nn.functional.l1_loss(unq, q)
             for unq, q in zip(unquantized_outputs, quantized_outputs)
         ]
-    )
+    ) / len(unquantized_outputs)
