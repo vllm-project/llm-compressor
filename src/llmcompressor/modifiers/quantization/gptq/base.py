@@ -9,7 +9,7 @@ from compressed_tensors.quantization import (
     freeze_module_quantization,
 )
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core.state import State
@@ -113,6 +113,15 @@ class GPTQModifier(Modifier):
     layer_compressors_: Optional[List[Any]] = None
     compressible_layers_: Optional[List] = None
     quantization_modifier_: Any = None
+
+    @field_validator("sequential_update", mode="before")
+    def validate_sequential_update(cls, value: bool) -> bool:
+        if not value:
+            logger.warning(
+                "Not using sequential_update requires allocating all hessians in "
+                "GPU memory. If you are running into GPU memory issues, consider "
+                "using sequential_update=True"
+            )
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
