@@ -13,7 +13,11 @@
 # limitations under the License.
 
 import pytest
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationConfig,
+    QuantizationScheme,
+)
 from pydantic import ValidationError
 
 
@@ -49,3 +53,11 @@ def test_full_scheme():
 def test_needs_targets():
     with pytest.raises(ValidationError):
         _ = QuantizationScheme()
+
+
+def test_defaults():
+    targets = ["Linear"]
+    output = QuantizationScheme.default_scheme(targets=targets)
+    assert output.weights is None
+    assert output.input_activations is None
+    assert output.output_activations is None
