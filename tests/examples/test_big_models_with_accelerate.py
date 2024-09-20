@@ -46,13 +46,17 @@ class TestBigModelsWithAccelerate:
                 "multi_gpu_int8.py",
                 "",
                 id="multi_gpu_int8",
-                marks=[requires_gpu_mem(630), requires_gpu_count(2)],
+                marks=[
+                    requires_gpu_mem(630),
+                    requires_gpu_count(2),
+                    pytest.mark.multi_gpu,
+                ],
             ),
             pytest.param(
                 "multi_gpu_int8_sequential_update.py",
                 "",
                 id="multi_gpu_int8_sequential_update",
-                marks=requires_gpu_count(2),
+                marks=[requires_gpu_count(2), pytest.mark.multi_gpu],
             ),
         ],
     )

@@ -28,5 +28,6 @@ markers = [
     "integration: tests which integrate with a third party service such as HF",
     "unit: tests to ensure code correctness and regression test functionality",
     "example: tests for content in the 'examples' folder",
+    "multi_gpu: tests that require multiple GPUs",
 ]
 tmp_path_retention_policy = "failed"
