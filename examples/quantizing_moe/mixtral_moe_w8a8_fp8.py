@@ -34,9 +34,7 @@ layers_to_ignore: List[str] = [
     "re:.*block_sparse_moe.gate",  # does not quantize well
 ]
 
-recipe = QuantizationModifier(
-    scheme="FP8", targets="Linear", ignore=layers_to_ignore
-)
+recipe = QuantizationModifier(scheme="FP8", targets="Linear", ignore=layers_to_ignore)
 
 
 oneshot(
