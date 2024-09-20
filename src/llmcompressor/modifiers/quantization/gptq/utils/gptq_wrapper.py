@@ -199,7 +199,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
             for i in range(count):
                 w = W1[:, i]
                 d = Hinv1[i, i]
-                q = w.clone()  # we should not be forced to clone w, instead fake_quantize should properly perform out of place
 
                 # quantize column
                 if strategy == QuantizationStrategy.TENSOR:
@@ -212,7 +211,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         self.layer.quantization_scheme.weights,
                     )
                 elif strategy == QuantizationStrategy.CHANNEL:
-                    # TODO: come back to
+                    # TODO: finish
                     column_idx = i1 + i
                     updated_scale, updated_zero_point = observer.calculate_qparams(q)
                     observer._scale[column_idx] = updated_scale
@@ -232,24 +231,23 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     # update quantization parameters
                     # note that since we're using W, it doesn't actually take into
                     # account column error updates (good)
-                    # TODO: only calculate parameters first time, subsequent times
-                    # are redundant
-                    updated_scale, updated_zero_point = observer.get_qparams_along_dim(W[:, g_idx == group_index], dim=0)
-                    observer._scale[:, group_index] = updated_scale[:, 0]
-                    observer._zero_point[:, group_index] = updated_zero_point[:, 0]
+                    if column_idx % weight_quant_args.group_size == 0:
+                        updated_scale, updated_zero_point = observer.get_qparams_along_dim(W[:, g_idx == group_index], dim=0)
+                        observer._scale[:, group_index] = updated_scale[:, 0]
+                        observer._zero_point[:, group_index] = updated_zero_point[:, 0]
 
                     # Since we're only applying quantization to a slice, this
                     # ends up being a channelwise application
                     altered_qargs = copy(weight_quant_args)
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
-                    #if self.name == "model.layers.0.mlp.down_proj":
+                    # if self.name == "model.layers.0.self_attn.k_proj" and i1 + i == 0:
                     #    import pickle
                     #    with open('/home/kyle/autogptq/auto.pkl', 'rb') as f:
                     #        # read the tensors from the file
-                    #        (_, _, my_scale) = pickle.load(f)
-                    #        observer._scale[:, group_index] = my_scale[:, 0]
+                    #        (_, _, auto_scale, _) = pickle.load(f)
+                    #        observer._scale[:, group_index] = auto_scale
                     q = fake_quantize(
-                        q,
+                        w.clone(),
                         observer._scale[:, group_index],
                         observer._zero_point[:, group_index],
                         altered_qargs,
@@ -260,33 +258,42 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         f"{strategy}"
                     )
 
-                # propagate column error
-                # if self.name == "model.layers.0.mlp.down_proj":
-                #     import pickle
-                #     with open('lc.pkl', 'wb') as f:
-                #         # Dump the tensors into the file
-                #         pickle.dump((
-                #             w,
-                #             W[:, g_idx == group_index],
-                #             observer._scale[:, group_index]
-                #         ), f)
-                #     print("dumped to file")
-                #     breakpoint()
+                # propagate column errors
+                # print("column")
+                if self.name == "model.layers.0.self_attn.k_proj" and i1 + i == 0:
+                    import pickle
+                    with open('lc.pkl', 'wb') as f:
+                        # Dump the tensors into the file
+                        pickle.dump((
+                            w,
+                            W[:, g_idx == group_index],
+                            observer._scale[:, group_index],
+                            q
+                        ), f)
+                        #pickle.dump(W[:, g_idx == group_index], f)
+                    print("dumped to file")
+                    breakpoint()
                     
                 Q1[:, i] = q
                 Losses1[:, i] = (w - q) ** 2 / d**2
 
                 err1 = (w - q) / d
-                w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
-                if preserve_zeros:
-                    W1[:, i:] -= w1_err * W1_nz_mask[:, i:]
-                else:
-                    W1[:, i:] -= w1_err
+                # w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
+                # if preserve_zeros:
+                #     W1[:, i:] -= w1_err * W1_nz_mask[:, i:]
+                # else:
+                #     W1[:, i:] -= w1_err
+                # Err1[:, i] = err1
+
+                W1[:, i:] -= err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
                 Err1[:, i] = err1
+
+
                 # if self.name == "model.layers.0.mlp.down_proj":
                 #     breakpoint()
 
             # propagate block error
+            #print("block")
             W[:, i1:i2] = Q1
             Losses += torch.sum(Losses1, 1) / 2
 
@@ -328,6 +335,14 @@ class GPTQWrapper(ModuleCompressionWrapper):
             device = get_offloaded_device(self.layer)
             update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
             self.layer._hf_hook.post_forward(self.layer, None)
+
+        # if self.name == "model.layers.0.self_attn.k_proj":
+        #     import pickle
+        #     with open('lc.pkl', 'wb') as f:
+        #         # Dump the tensors into the file
+        #         pickle.dump(W, f)
+        #     print("dumped to file")
+        #     breakpoint()
 
     def free(self):
         """
