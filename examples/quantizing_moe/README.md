@@ -1,6 +1,6 @@
-# Quantizing TinyMixtral-4x248M-MoE Model with FP8
+# Quantizing Mixtral-8x7B-Instruct-v0.1 Model with FP8
 
-This directory contains an example script for quantizing the `TinyMixtral-4x248M-MoE` model using the FP8 quantization scheme.
+This directory contains an example script for quantizing the `Mixtral-8x7B-Instruct-v0.1` model using the static per-tensor FP8 quantization scheme.
 
 ## Installation
 
@@ -17,7 +17,7 @@ pip install -e .
 The provided example script demonstrates an end-to-end process for applying the quantization algorithm:
 
 ```bash
-python3 mixtral_moe_fp8.py
+python3 mixtral_moe_w8a8_fp8.py
 ```
 
 ## Creating a Quantized MoE Model
@@ -27,7 +27,7 @@ This example leverages `llm-compressor` and `compressed-tensors` to create an FP
 You can follow the detailed steps below or simply run the example script with:
 
 ```bash
-python examples/quantizing_moe/mixtral_moe_fp8.py
+python mixtral_moe_w8a8_fp8.py
 ```
 
 ### Step 1: Select a Model, Dataset, and Recipe
@@ -36,12 +36,12 @@ In this step, you'll choose a baseline model for quantization, a dataset for cal
 
 - **Models**: Can be referenced from a local directory or retrieved from the Hugging Face Hub.
 - **Datasets**: Can also be from a local directory or the Hugging Face Hub.
-- **Recipes**: These are YAML files or Python modifier objects that describe how a model should be optimized during or after training. In this example, we use a `GPTQModifier` object with the scheme set to `FP8`.
+- **Recipes**: These are YAML files or Python modifier objects that describe how a model should be optimized during or after training. In this example, we use a `QuantizationModifier` object with the scheme set to `FP8`.
 
 ```python
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
-recipe = GPTQModifier(scheme="FP8", targets="Linear", ignore=["lm_head", "re:.*block_sparse_moe.gate"], sequential_update=True)
+recipe = QuantizationModifier(scheme="FP8", targets="Linear", ignore=["lm_head", "re:.*block_sparse_moe.gate"])
 ```
 
 NOTE: `.*block_sparse_moe.gate` layers do not quantize well, hence they are ignored!
@@ -69,9 +69,11 @@ oneshot(
 
 ### Custom Quantization
 
+NOTE: Only per-tensor quantization is supported in vLLM as of now (`vllm==0.6.1`)
+
 The repository supports multiple quantization techniques configured via a recipe. Supported strategies include `tensor`, `group`, and `channel` quantization.
 
-In the above example, FP8 channel-wise quantization is used as specified by the `FP8` scheme. For other preset schemes, refer to the [quantization schemes](https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py) in the `Compressed-Tensors` library.
+In the above example, FP8 per-tensor quantization is used as specified by the `FP8` scheme. For other preset schemes, refer to the [quantization schemes](https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py) in the `compressed-tensors` library.
 
 A custom scheme can also be specified using `config_groups`:
 
@@ -89,7 +91,7 @@ config_groups = {
                         "num_bits": 8,
                         "type": "int",
                         "symmetric": true,
-                        "strategy": "tensor",
+                        "strategy": "group",
                         "group_size": 128, 
                     }
                }
