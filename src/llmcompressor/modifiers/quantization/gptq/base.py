@@ -123,6 +123,8 @@ class GPTQModifier(Modifier):
                 "using sequential_update=True"
             )
 
+        return value
+
     def on_initialize_structure(self, state: State, **kwargs):
         """
         Check the model's quantization state matches that expected by this modifier,
