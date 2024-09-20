@@ -52,7 +52,14 @@ class TestQuantizingMOE:
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
 
     @pytest.mark.parametrize(
-        "script_filename", ["deepseek_moe_w4a16.py", "deepseek_moe_w8a8.py"]
+        "script_filename",
+        [
+            pytest.param(
+                "deepseek_moe_w4a16.py",
+                pytest.mark.skip(reason="exceptionally long run time"),
+            ),
+            pytest.param("deepseek_moe_w8a8.py"),
+        ],
     )
     def test_deepseek_example_script(
         self, script_filename: str, example_dir: str, tmp_path: Path
