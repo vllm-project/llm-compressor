@@ -86,8 +86,8 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         should_be_default_quant_scheme = modifier.quantization_modifier_.config_groups[
             default_config_group_name
         ]
-        assert should_be_default_quant_scheme.input_activations is None 
-        assert should_be_default_quant_scheme.weight is None
+        assert should_be_default_quant_scheme.input_activations is None
+        assert should_be_default_quant_scheme.weights is None
 
 
 @pytest.mark.unit
