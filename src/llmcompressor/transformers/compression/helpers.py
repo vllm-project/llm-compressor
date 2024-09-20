@@ -1,14 +1,17 @@
-from typing import Dict, List, Optional, Union
+from collections import defaultdict
+from typing import Dict, List, Optional, Tuple, Union
 
 import psutil
 import torch
 from accelerate import infer_auto_device_map, init_empty_weights
 from accelerate.accelerator import get_state_dict_offloaded_model
+from compressed_tensors.quantization.utils import iter_named_leaf_modules, module_type
 from torch.nn.modules import Linear
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.pytorch.utils import get_linear_layers
+from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils.pytorch import get_layers, get_no_split_params
 
 __ALL__ = [
@@ -18,6 +21,8 @@ __ALL__ = [
     "hessian_memory_requirements",
     "custom_offload_device_map",
     "calculate_offload_device_map",
+    "infer_sparse_targets_and_ignores",
+    "is_sparse_compression_target",
 ]
 
 
@@ -29,6 +34,9 @@ def tensor_follows_mask_structure(tensor, mask: str = "2:4") -> bool:
         Note, some weights can incidentally be zero, so we check for
         atleast n zeros in each chunk of size m
     """
+
+    if mask.lower().strip() == "unstructured":
+        return True
 
     n, m = tuple(map(int, mask.split(":")))
     # Reshape the tensor into chunks of size m
@@ -240,3 +248,104 @@ def calculate_offload_device_map(
         del dummy_model
 
     return device_map
+
+
+def infer_sparse_targets_and_ignores(
+    model: torch.nn.Module,
+    sparsity_structure: str,
+    sparsity_threshold: float,
+) -> Tuple[List[str], List[str]]:
+    """
+    Infers the target and ignore layers in the given model
+    to be used for sparsity compression
+
+    :param model: model to check
+    :param sparsity_structure: sparsity structure to check against
+    :param sparsity_threshold: threshold for sparsity
+    :return: tuple of target and ignore layers
+    """
+
+    exhaustive_targets, exhaustive_ignore = _get_sparse_targets_ignore_dicts(
+        module=model,
+        sparsity_structure=sparsity_structure,
+        sparsity_threshold=sparsity_threshold,
+    )
+
+    return _reduce_targets_and_ignores_into_lists(
+        exhaustive_targets=exhaustive_targets,
+        exhaustive_ignore=exhaustive_ignore,
+    )
+
+
+def is_sparse_compression_target(
+    module: torch.nn.Module, sparsity_threshold: float, sparsity_structure: str
+) -> bool:
+    """
+    :param module: module to check
+    :param sparsity_threshold: threshold for sparsity
+    :param sparsity_structure: sparsity structure to check against
+    :return: whether or not the module is a target for sparsity compression,
+        i.e True if it is sparse and follows the sparsity structure, else False
+    """
+    return (
+        hasattr(module, "weight")
+        and tensor_sparsity(module.weight) >= sparsity_threshold
+        and tensor_follows_mask_structure(tensor=module.weight, mask=sparsity_structure)
+    )
+
+
+def _get_sparse_targets_ignore_dicts(
+    module: torch.nn.Module, sparsity_structure: str, sparsity_threshold: float
+) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """
+    Get sparse targets and ignore dictionaries
+
+    :param module: module to check
+    :param sparsity_structure: sparsity structure to check against
+    :param sparsity_threshold: threshold for sparsity
+    :return: tuple of exhaustive targets and ignore dictionaries
+    """
+    exhaustive_targets = defaultdict(list)
+    exhaustive_ignore = defaultdict(list)
+
+    for name, submodule in iter_named_leaf_modules(module):
+        layer_type = module_type(submodule)
+        is_target = is_sparse_compression_target(
+            module=submodule,
+            sparsity_threshold=sparsity_threshold,
+            sparsity_structure=sparsity_structure,
+        )
+        target_dict = exhaustive_targets if is_target else exhaustive_ignore
+        target_dict[layer_type].append(name)
+    return exhaustive_targets, exhaustive_ignore
+
+
+def _reduce_targets_and_ignores_into_lists(
+    exhaustive_targets: Dict[str, List[str]], exhaustive_ignore: Dict[str, List[str]]
+) -> Tuple[List[str], List[str]]:
+    """
+    Reduces the targets and ignores dictionaries into lists
+
+    :param exhaustive_targets: dictionary of target layers, must contain all
+        targetted layers in the model
+    :param exhaustive_ignore: dictionary of ignore layers, must contain all
+        ignored layers in the model
+    :return: tuple of reduced target and ignore layers
+    """
+
+    targets, ignore = [], []
+    all_layer_types = set(exhaustive_targets.keys()).union(
+        set(exhaustive_ignore.keys())
+    )
+    for layer_type in all_layer_types:
+        curr_targets = exhaustive_targets.get(layer_type, [])
+        curr_ignores = exhaustive_ignore.get(layer_type, [])
+
+        if len(curr_targets) > len(curr_ignores):
+            targets.append(layer_type)
+            ignore.extend(curr_ignores)
+        else:
+            ignore.append(layer_type)
+            targets.extend(curr_targets)
+
+    return targets, ignore
