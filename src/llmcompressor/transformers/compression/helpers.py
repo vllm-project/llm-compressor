@@ -26,10 +26,11 @@ __ALL__ = [
 ]
 
 
-def tensor_follows_mask_structure(tensor, mask: str = "2:4") -> bool:
+def tensor_follows_mask_structure(tensor: torch.Tensor, mask: str = "2:4") -> bool:
     """
     :param tensor: tensor to check
-    :param mask: mask structure to check for, in the format "n:m"
+    :param mask: mask structure to check for, in the format "n:m", also accepts
+        "unstructured" as a valid mask structure
     :return: True if the tensor follows the mask structure, False otherwise.
         Note, some weights can incidentally be zero, so we check for
         atleast n zeros in each chunk of size m
@@ -309,14 +310,14 @@ def _get_sparse_targets_ignore_dicts(
     exhaustive_ignore = defaultdict(list)
 
     for name, submodule in iter_named_leaf_modules(module):
-        layer_type = module_type(submodule)
+        submodule_type = module_type(submodule)
         is_target = is_sparse_compression_target(
             module=submodule,
             sparsity_threshold=sparsity_threshold,
             sparsity_structure=sparsity_structure,
         )
         target_dict = exhaustive_targets if is_target else exhaustive_ignore
-        target_dict[layer_type].append(name)
+        target_dict[submodule_type].append(name)
     return exhaustive_targets, exhaustive_ignore
 
 
@@ -334,18 +335,18 @@ def _reduce_targets_and_ignores_into_lists(
     """
 
     targets, ignore = [], []
-    all_layer_types = set(exhaustive_targets.keys()).union(
+    all_submodule_types = set(exhaustive_targets.keys()).union(
         set(exhaustive_ignore.keys())
     )
-    for layer_type in all_layer_types:
-        curr_targets = exhaustive_targets.get(layer_type, [])
-        curr_ignores = exhaustive_ignore.get(layer_type, [])
+    for submodule_type in all_submodule_types:
+        curr_targets = exhaustive_targets.get(submodule_type, [])
+        curr_ignores = exhaustive_ignore.get(submodule_type, [])
 
         if len(curr_targets) > len(curr_ignores):
-            targets.append(layer_type)
+            targets.append(submodule_type)
             ignore.extend(curr_ignores)
         else:
-            ignore.append(layer_type)
+            ignore.append(submodule_type)
             targets.extend(curr_targets)
 
     return targets, ignore
