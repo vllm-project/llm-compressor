@@ -62,7 +62,7 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# define a llmcompressor recipe for W416 quantization
+# define a llmcompressor recipe for INT8 W8A8 quantization
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
 recipe = [
