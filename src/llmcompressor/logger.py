@@ -110,7 +110,7 @@ def configure_logger(config: Optional[LoggerConfig] = None):
 
 def _initialize_metric_logging() -> None:
     """
-    Initalize metric logging for loguru and metric-related libraries
+    Initialize metric logging for loguru and metric-related libraries
     Defaults to stdout
     usage:
         `logger.log("METRIC", "foo description, bar result")`
