@@ -56,7 +56,7 @@ class TestQuantizingMOE:
         [
             pytest.param(
                 "deepseek_moe_w4a16.py",
-                pytest.mark.skip(reason="exceptionally long run time"),
+                marks=pytest.mark.skip(reason="exceptionally long run time"),
             ),
             pytest.param("deepseek_moe_w8a8.py"),
         ],
