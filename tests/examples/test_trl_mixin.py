@@ -23,7 +23,11 @@ class TestTRLMixin:
 
     @pytest.mark.parametrize(
         "script_filename",
-        ["ex_trl_constant.py", "ex_trl_distillation.py"],
+        [
+            "ex_trl_constant.py",
+            # ex_trl_distillation.py hits CUDA OOM on 1x H100 (80 GiB VRAM)
+            pytest.param("ex_trl_distillation.py", marks=pytest.mark.multi_gpu),
+        ],
     )
     def test_example_scripts(
         self, example_dir: str, script_filename: str, tmp_path: Path
