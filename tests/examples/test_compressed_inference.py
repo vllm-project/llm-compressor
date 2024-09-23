@@ -1,11 +1,13 @@
-import shutil
-import sys
 from pathlib import Path
 
 import pytest
 
-from tests.examples.utils import gen_cmd_fail_message, requires_gpu, requires_torch
-from tests.testing_utils import run_cli_command
+from tests.examples.utils import (
+    copy_and_run_script,
+    gen_cmd_fail_message,
+    requires_gpu,
+    requires_torch,
+)
 
 
 @pytest.fixture
@@ -25,9 +27,7 @@ class TestCompressedInference:
         """
         Test for the "fp8_compressed_inference.py" script in the folder.
         """
-        shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
-
-        command = [sys.executable, "fp8_compressed_inference.py"]
-        result = run_cli_command(command, cwd=tmp_path / example_dir)
+        script_filename = "fp8_compressed_inference.py"
+        command, result = copy_and_run_script(tmp_path, example_dir, script_filename)
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)

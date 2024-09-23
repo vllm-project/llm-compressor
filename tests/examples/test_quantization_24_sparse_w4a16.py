@@ -7,6 +7,7 @@ import pytest
 
 from tests.examples.utils import (
     ReadMe,
+    copy_and_run_command,
     gen_cmd_fail_message,
     requires_gpu,
     requires_torch,
@@ -37,10 +38,8 @@ class TestQuantization24SparseW4A16:
         command = readme.get_code_block_content(position=2, lang="shell")
         assert command.startswith("python")
 
-        shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
-
         command = shlex.split(command)
-        result = run_cli_command(command, cwd=tmp_path / example_dir)
+        result = copy_and_run_command(tmp_path, example_dir, command)
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
 

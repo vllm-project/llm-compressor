@@ -1,15 +1,17 @@
 import itertools
 import re
 import shlex
+import shutil
+import sys
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import Generator, Iterable, List, Optional, TypeVar, Union
+from typing import Generator, Iterable, List, Optional, Tuple, TypeVar, Union
 
 import pytest
 from bs4 import BeautifulSoup, ResultSet, Tag
 from cmarkgfm import github_flavored_markdown_to_html as gfm_to_html
 
-from tests.testing_utils import is_gpu_available, is_torch_available
+from tests.testing_utils import is_gpu_available, is_torch_available, run_cli_command
 
 _T = TypeVar("_T")
 
@@ -73,6 +75,39 @@ def get_gpu_batches(gpu_count: int, worker_count: int) -> List[str]:
     group_size = gpu_count / worker_count
     groups = batched(range(gpu_count), int(group_size))
     return [",".join(map(str, group)) for group in groups]
+
+
+def copy_and_run_command(
+    tmp_path: Path, example_dir: str, command: List[str]
+) -> CompletedProcess[str]:
+    """
+    Copies the contents of example_dir (relative to the current working directory) to
+    the given `tmp_path` and runs the command, returning the `CompletedProcess`.
+
+    :param tmp_path: Path of temporary directory to where file should be copied
+    :param example_dir: Name of examples folder to be copied
+    :param command: command to be executed
+    :return: subprocess.CompletedProcess object
+    """
+    shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
+    return run_cli_command(command, cwd=tmp_path / example_dir)
+
+
+def copy_and_run_script(
+    tmp_path: Path, example_dir: str, script_filename: str
+) -> Tuple[List[str], CompletedProcess[str]]:
+    """
+    Copies the contents of example_dir (relative to the current working directory) to
+    the given `tmp_path` and runs the specified script file, returning the
+    `CompletedProcess`.
+
+    :param tmp_path: Path of temporary directory to where file should be copied
+    :param example_dir: Name of examples folder to be copied
+    :param command: command to be executed
+    :return: subprocess.CompletedProcess object
+    """
+    command = [sys.executable, script_filename]
+    return command, copy_and_run_command(tmp_path, example_dir, command)
 
 
 def gen_cmd_fail_message(command: List[str], result: CompletedProcess[str]) -> str:
