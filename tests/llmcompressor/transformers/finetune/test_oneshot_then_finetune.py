@@ -92,7 +92,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 concatenate_data=concatenate_data,
                 splits=splits,
                 max_steps=max_steps,
-                resume_from_checkpoint=output_dir / f"checkpoint-{max_steps}",  # explicit
+                resume_from_checkpoint=True,  # use last checkpoint
             )
 
     def tearDown(self):
