@@ -363,6 +363,7 @@ class SessionManagerMixIn:
 
         # lifecycle
         self.finalize_session()
+        self.accelerator.wait_for_everyone()
 
         # log model sparsity
         self.maybe_log_model_sparsification()
