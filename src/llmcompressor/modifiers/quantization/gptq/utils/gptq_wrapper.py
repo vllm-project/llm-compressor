@@ -231,7 +231,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     # update quantization parameters
                     # note that since we're using W, it doesn't actually take into
                     # account column error updates (good)
-                    if column_idx % weight_quant_args.group_size == 0:
+                    if actorder != ActivationOrdering.WEIGHT and column_idx % weight_quant_args.group_size == 0:
                         updated_scale, updated_zero_point = observer.get_qparams_along_dim(W[:, g_idx == group_index], dim=0)
                         observer._scale[:, group_index] = updated_scale[:, 0]
                         observer._zero_point[:, group_index] = updated_zero_point[:, 0]
@@ -260,19 +260,19 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
                 # propagate column errors
                 # print("column")
-                if self.name == "model.layers.0.self_attn.k_proj" and i1 + i == 0:
-                    import pickle
-                    with open('lc.pkl', 'wb') as f:
-                        # Dump the tensors into the file
-                        pickle.dump((
-                            w,
-                            W[:, g_idx == group_index],
-                            observer._scale[:, group_index],
-                            q
-                        ), f)
-                        #pickle.dump(W[:, g_idx == group_index], f)
-                    print("dumped to file")
-                    breakpoint()
+                # if self.name == "model.layers.0.self_attn.k_proj" and i1 + i == 0:
+                #     import pickle
+                #     with open('lc.pkl', 'wb') as f:
+                #         # Dump the tensors into the file
+                #         pickle.dump((
+                #             w,
+                #             W[:, g_idx == group_index],
+                #             observer._scale[:, group_index],
+                #             q
+                #         ), f)
+                #         #pickle.dump(W[:, g_idx == group_index], f)
+                #     print("dumped to file")
+                #     breakpoint()
                     
                 Q1[:, i] = q
                 Losses1[:, i] = (w - q) ** 2 / d**2
