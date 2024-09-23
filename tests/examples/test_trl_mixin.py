@@ -2,11 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.examples.utils import (
-    copy_and_run_script,
-    gen_cmd_fail_message,
-    requires_gpu,
-)
+from tests.examples.utils import copy_and_run_script, gen_cmd_fail_message, requires_gpu
 
 
 @pytest.fixture
