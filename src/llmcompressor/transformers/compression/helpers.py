@@ -347,7 +347,7 @@ def _reduce_targets_and_ignores_into_lists(
             ignore.extend(curr_ignores)
         elif len(curr_targets) > 0:
             # only add ignore layers if
-            # there are targetted
+            # they are targetted
             targets.extend(curr_targets)
             ignore.extend(curr_ignores)
     return targets, ignore
