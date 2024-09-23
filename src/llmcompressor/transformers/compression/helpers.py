@@ -342,11 +342,12 @@ def _reduce_targets_and_ignores_into_lists(
         curr_targets = exhaustive_targets.get(submodule_type, [])
         curr_ignores = exhaustive_ignore.get(submodule_type, [])
 
-        if len(curr_targets) > len(curr_ignores):
+        if len(curr_targets) >= len(curr_ignores):
             targets.append(submodule_type)
             ignore.extend(curr_ignores)
-        else:
-            ignore.append(submodule_type)
+        elif len(curr_targets) > 0:
+            # only add ignore layers if
+            # there are targetted
             targets.extend(curr_targets)
-
+            ignore.extend(curr_ignores)
     return targets, ignore
