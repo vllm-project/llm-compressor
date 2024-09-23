@@ -24,13 +24,13 @@ def example_dir() -> str:
 
 
 @pytest.mark.example
-@pytest.mark.multi_gpu
-@requires_gpu_count(2)
 class TestQuantizingMOE:
     """
     Tests for examples in the "quantizing_moe" example folder.
     """
 
+    @pytest.mark.multi_gpu
+    @requires_gpu_count(2)
     def test_doc_example_command(self, example_dir: str, tmp_path: Path):
         """
         Test for the example command in the README.
@@ -51,10 +51,13 @@ class TestQuantizingMOE:
         [
             pytest.param(
                 "deepseek_moe_w4a16.py",
-                marks=pytest.mark.skip(reason="exceptionally long run time"),
+                marks=[
+                    pytest.mark.multi_gpu,
+                    pytest.mark.skip(reason="exceptionally long run time"),
+                ],
             ),
             pytest.param("deepseek_moe_w8a8_fp8.py"),
-            pytest.param("deepseek_moe_w8a8_int8.py"),
+            pytest.param("deepseek_moe_w8a8_int8.py", marks=pytest.mark.multi_gpu),
         ],
     )
     def test_deepseek_example_script(
