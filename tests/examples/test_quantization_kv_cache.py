@@ -8,7 +8,6 @@ from tests.examples.utils import (
     copy_and_run_command,
     gen_cmd_fail_message,
     requires_gpu,
-    requires_torch,
 )
 
 
@@ -19,7 +18,6 @@ def example_dir() -> str:
 
 @pytest.mark.example
 @requires_gpu
-@requires_torch
 class TestQuantizationKVCache:
     """
     Tests for examples in the "quantization_kv_cache" example folder.

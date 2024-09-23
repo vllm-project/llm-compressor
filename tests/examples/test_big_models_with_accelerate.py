@@ -9,7 +9,6 @@ from tests.examples.utils import (
     requires_gpu,
     requires_gpu_count,
     requires_gpu_mem,
-    requires_torch,
 )
 
 
@@ -59,7 +58,6 @@ class TestBigModelsWithAccelerate:
         ],
     )
     @requires_gpu
-    @requires_torch
     def test_example_scripts(
         self,
         example_dir: str,

@@ -6,7 +6,6 @@ from tests.examples.utils import (
     copy_and_run_script,
     gen_cmd_fail_message,
     requires_gpu,
-    requires_torch,
 )
 
 
@@ -17,7 +16,6 @@ def example_dir() -> str:
 
 @pytest.mark.example
 @requires_gpu
-@requires_torch
 class TestCompressedInference:
     """
     Tests for examples in the "compressed_inference" example folder.

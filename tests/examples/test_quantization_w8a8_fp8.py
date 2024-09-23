@@ -9,7 +9,6 @@ from tests.examples.utils import (
     copy_and_run_script,
     gen_cmd_fail_message,
     requires_gpu,
-    requires_torch,
 )
 
 
@@ -20,7 +19,6 @@ def example_dir() -> str:
 
 @pytest.mark.example
 @requires_gpu
-@requires_torch
 class TestQuantizationW8A8_FP8:
     """
     Tests for examples in the "quantization_w8a8_fp8" example folder.

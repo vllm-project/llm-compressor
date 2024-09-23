@@ -9,7 +9,6 @@ from tests.examples.utils import (
     copy_and_run_script,
     gen_cmd_fail_message,
     requires_gpu_count,
-    requires_torch,
 )
 
 # flash_attn module is required. It cannot safely be specified as a dependency because
@@ -27,7 +26,6 @@ def example_dir() -> str:
 @pytest.mark.example
 @pytest.mark.multi_gpu
 @requires_gpu_count(2)
-@requires_torch
 class TestQuantizingMOE:
     """
     Tests for examples in the "quantizing_moe" example folder.
