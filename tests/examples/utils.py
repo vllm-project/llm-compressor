@@ -1,11 +1,10 @@
-import itertools
 import re
 import shlex
 import shutil
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess
-from typing import Generator, Iterable, List, Optional, Tuple, TypeVar, Union
+from typing import List, Optional, Tuple, TypeVar, Union
 
 import pytest
 from bs4 import BeautifulSoup, ResultSet, Tag
@@ -52,26 +51,6 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
         f"{actual_vram:.1f} GiB GPU memory found"
     )
     return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
-
-
-def batched(iterable: Iterable[_T], n: int) -> Generator[tuple[_T, ...], None, None]:
-    # implementation from Python docs as this function is added to itertools in 3.12
-    # https://docs.python.org/3/library/itertools.html#itertools.batched
-    # batched('ABCDEFG', 3) → ABC DEF G
-    if n < 1:
-        raise ValueError("n must be at least one")
-    iterator = iter(iterable)
-    while batch := tuple(itertools.islice(iterator, n)):
-        yield batch
-
-
-def get_gpu_batches(gpu_count: int, worker_count: int) -> List[str]:
-    if gpu_count % worker_count != 0:
-        raise ValueError("GPU count must be evenly divisible by worker count")
-
-    group_size = gpu_count / worker_count
-    groups = batched(range(gpu_count), int(group_size))
-    return [",".join(map(str, group)) for group in groups]
 
 
 def copy_and_run_command(
