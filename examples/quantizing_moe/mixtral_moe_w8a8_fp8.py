@@ -2,7 +2,7 @@ from typing import List
 
 from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
@@ -34,9 +34,7 @@ layers_to_ignore: List[str] = [
     "re:.*block_sparse_moe.gate",  # does not quantize well
 ]
 
-recipe = GPTQModifier(
-    scheme="FP8", targets="Linear", ignore=layers_to_ignore, sequential_update=True
-)
+recipe = QuantizationModifier(scheme="FP8", targets="Linear", ignore=layers_to_ignore)
 
 
 oneshot(
