@@ -9,6 +9,14 @@ def get_output_error(
     unquantized: List[Tuple[Union[Iterable, torch.Tensor], Any]],
     quantized: List[Tuple[Union[Iterable, torch.Tensor], Any]],
 ) -> torch.Tensor:
+    """
+    Calculate mean l1 loss between weight-unquantized outputs and weight-quantized
+    outputs
+
+    :param unquantized: unquantized-weight outputs
+    :param quantized: quantized-weight outputs
+    :return: mean l1 loss between outputs
+    """
     unquantized_outputs = sum(
         [
             [output for output in outputs]
@@ -29,7 +37,12 @@ def get_output_error(
         start=[],
     )
 
-    assert len(unquantized_outputs) == len(quantized_outputs)
+    if len(unquantized_outputs) != len(quantized_outputs):
+        raise ValueError(
+            "Number of samples of weight-unquantized and weight-quantized "
+            "outputs differs"
+        )
+
     return sum(
         [
             torch.nn.functional.l1_loss(unq, q)
