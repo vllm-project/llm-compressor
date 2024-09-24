@@ -309,7 +309,8 @@ def main(
     if isinstance(tokenizer, str) or tokenizer is None:
         tokenizer = initialize_tokenizer_from_path(model_args, model, teacher)
 
-    pre_initialize_structure(model=model)
+    breakpoint()
+    pre_initialize_structure(model=model) # recipe passed not here, but to the stage runner? what is this doing/what's the purpose?
 
     # initialize session manager
     initialize_recipe(model, None)
@@ -330,7 +331,7 @@ def main(
         model_init=get_session_model,
         teacher=teacher,
         recipe=training_args.recipe,
-        recipe_args=training_args.recipe_args,
+        recipe_args=training_args.recipe_args, # Why do we have to have both?
         args=training_args,
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
@@ -361,6 +362,7 @@ def main(
 
     # One Shot
     if training_args.do_oneshot:
+        breakpoint()
         stage_runner.one_shot()
 
     # Evaluation

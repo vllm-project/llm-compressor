@@ -76,6 +76,7 @@ class QuantizationModifier(Modifier):
         pass
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        breakpoint()
         if self.end and self.end != -1:
             raise ValueError(
                 "end_epoch is disabled for QuantizationModifier and can only be set to"
@@ -89,14 +90,23 @@ class QuantizationModifier(Modifier):
         config = self._apply_modifier_to_model(module)
 
         if self.calculate_start() == -1:  # one-shot
-            self._check_calibration_data(config)
-            module.apply(set_module_for_calibration)
-            self._calibrate_if_possible(module)
+            breakpoint()
+            self._check_calibration_data(config) # AND HERE
+            breakpoint()
+            # This calls the observer to update the min aand max value using a moving average
+            # 1. When are the observers attached? [when _apply_modifier_to_model is called]
+            # Does the initialize attach or does the call below attach?
+            # 2. When are the moving averages updated? call set_module_for_calibration here and in apply_quantization_status? apply_quantization_status in compressed_tensors seems to not happen?
+            # Calls the observer just once for the weight zp and scales
+            module.apply(set_module_for_calibration) # Recusrively initialize the zp and scales for each layer? (each Linear Layer gets one)
+            breakpoint()
+            self._calibrate_if_possible(module) # Why do we have to calibrate once at the beginning for activation quantization?
             self._check_token_distribution(
                 module, threshold=kwargs.get("min_tokens_per_module")
             )
-            module.apply(freeze_module_quantization)
+            module.apply(freeze_module_quantization) # Removing the weight observer that was added - where/when was it added? Why do we have to delete?
 
+        breakpoint()
         return True
 
     def on_finalize(self, state: State, **kwargs) -> bool:
@@ -203,9 +213,15 @@ class QuantizationModifier(Modifier):
 
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
+        # Step when quantization scheems are attached to each layer
+        # Also when we initialize all observers: through initialize_module_for_quantization
+        # 
+        breakpoint()
         apply_quantization_config(model, modifier_as_config)
         return modifier_as_config
 
+    # W8A8 / activation specific 
+    # calibration: tuning something specific
     def _calibrate_if_possible(self, module: Module):
         if self.num_calibration_steps == 0 and self.calibration_dataloader_:
             logger.warning(

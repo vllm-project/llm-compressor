@@ -63,9 +63,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # define a llmcompressor recipe for W416 quantization
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
-recipe = "deepseek_recipe_w4a16.yaml"
+recipe = "deepseek_recipe_w8a16_group.yaml"
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A16-group"
 
 
 oneshot(

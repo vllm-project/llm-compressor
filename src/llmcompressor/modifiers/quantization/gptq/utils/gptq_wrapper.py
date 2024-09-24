@@ -60,6 +60,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
             "H", torch.zeros((self.columns, self.columns), device=self.dev)
         )
 
+    # update the metrics for the hessian for each wrapper layer
     def add_batch(self, inp: torch.Tensor, out: torch.Tensor):
         """
         Add a batch of layer input and output data to the Hessian calculation
@@ -94,7 +95,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param percdamp: Amount of dampening to apply to H, as a fraction of the
             diagonal norm
         """
-        args_loc = "quantization_scheme.weights"
+        args_loc = "quantization_scheme.weights" # when do we attach the quantization scheme to each layer?
         weight_quant_args = getattr_chain(self.layer, args_loc, None)
         if weight_quant_args is None:
             logger.debug(f"Skipping unquantized layer {self.name}...")
@@ -211,6 +212,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
                     # ends up being a channelwise application
                     altered_qargs = copy(weight_quant_args)
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
+                    # fake quantize by quantizing and dequantizing the input,
+                    # based on the specified arguments
+                    # has access to the hessians via self.H
+                    # Are the hessians only used in the losses after fake_quantize?
                     q = fake_quantize(
                         q,
                         scale[:, group_index],

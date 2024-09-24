@@ -404,7 +404,7 @@ class SessionManagerMixIn:
             recipe_args=self.recipe_args,
             model=self.model,
             calib_data=calibration_data,
-            start=-1,
+            start=-1, # why is this -1?
             copy_data=False,
             accelerator=self.accelerator,
             min_tokens_per_module=self.min_tokens_per_module,

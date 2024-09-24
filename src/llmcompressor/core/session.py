@@ -153,6 +153,7 @@ class CompressionSession:
         :return: the modified state of the session after initializing
         """
 
+        # Runs calibration + fake quantize
         mod_data = self._lifecycle.initialize(
             recipe=recipe,
             recipe_stage=recipe_stage,

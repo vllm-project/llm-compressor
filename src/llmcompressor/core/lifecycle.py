@@ -123,6 +123,7 @@ class CompressionLifecycle:
         self._set_model_layer_prefix()
         mod_data = []
         for mod in self.modifiers:
+            breakpoint()
             data = mod.initialize(state=self.state, **extras)
             logger.debug("Initialized modifier: {}", mod)
             if data is not None:

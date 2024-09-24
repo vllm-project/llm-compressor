@@ -82,7 +82,7 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         # instantiate compressor from model config
         compressor = ModelCompressor.from_pretrained(
             pretrained_model_name_or_path, **kwargs
-        )
+        ) # When does this return not None? When already compressed on disk?
 
         # temporarily set the log level to error, to ignore printing out long missing
         # and unexpected key error messages (these are EXPECTED for quantized models)
@@ -120,6 +120,8 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
             return model
 
         # override the PreTrainedModel instance with compression save function
+        # This is when we actually save the model to disk in compressed form/
+        # apply the compressor? Otherwise, just update zeropoints and scales?
         modify_save_pretrained(model)
 
         # If model is quantized or compressed on disk, initialize quantization
@@ -148,7 +150,7 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
                 )
         recipe = resolve_recipe(recipe=recipe, model_path=pretrained_model_name_or_path)
 
-        if recipe:
+        if recipe: # Why is this ever none?
             initialize_recipe(model=model, recipe_path=recipe)
 
         return model

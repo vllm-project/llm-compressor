@@ -26,6 +26,8 @@ def modify_save_pretrained(model: PreTrainedModel):
     supports compression
     """
 
+    # Why do we call this twice? Once in oneshot, once outside?
+    # First time to actually get a state dict of updated values?
     def save_pretrained_compressed(save_pretrained_method):
         if getattr(save_pretrained_method, "_overridden", False):
             # `model.save_pretrained` has already been replaced, return.
@@ -128,6 +130,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                     save_directory, **kwargs
                 )
                 compressor.update_config(save_directory)
+                breakpoint()
 
         save_pretrained_wrapper._overriden = True
         return save_pretrained_wrapper

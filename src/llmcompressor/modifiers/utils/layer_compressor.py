@@ -169,7 +169,7 @@ class LayerCompressor:
             if isinstance(module, self.module_compressor_class):
                 full_name = self._get_full_submodule_name(module.name)
                 logger.info(f"Compressing {full_name}...")
-                module.compress(**self.args)
+                module.compress(**self.args) ## module is of type GPTQWtapper
                 module.free()
                 print("done")
 

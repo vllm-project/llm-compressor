@@ -169,13 +169,17 @@ class GPTQModifier(Modifier):
         """
         if not self.initialized_structure_:
             self.on_initialize_structure(state, **kwargs)
+        # Checking if a GPTQ Modifier has set a Quantization Modifier - if yes, initialize it (similar to how the GPTQ Modifier was)
         if self.quantization_modifier_:
-            self.quantization_modifier_.initialize(state, **kwargs)
+            breakpoint()
+            self.quantization_modifier_.initialize(state, **kwargs) # Initialize the zero points and scales for each of the layers; remove the weight observers for W4A16 (why are they there?)
+            # Will run calibration of possible - not for W4A16 - what is this calibrating? [Look into this]
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
         modifiable_model = state.model
         calibration_dataloader = state.data.calib
+        breakpoint()
 
         if self.sequential_targets is None:
             # if no targets are provided, default to the modules that shouldn't be
@@ -183,9 +187,11 @@ class GPTQModifier(Modifier):
             # decoder layers (ie LlamaDecoderLayer)
             self.sequential_targets = get_no_split_params(modifiable_model)
 
-        self.initialize_compression(modifiable_model, calibration_dataloader)
+        self.initialize_compression(modifiable_model, calibration_dataloader) # Initialize compressors; wraps each layer with a GPTQModifier - adds hook for hessian calculation? add batch is added as a hook by the llm_compressor but actually implemented by the GPTQWrapper
+        breakpoint()
         self.apply_compression(calibration_dataloader)
         state.model.apply(freeze_module_quantization)
+        breakpoint()
 
         return True
 
@@ -234,6 +240,10 @@ class GPTQModifier(Modifier):
         self.compressible_layers_ = self.compressible_layers()
         self.layer_compressors_ = []
 
+        # Iterate through for every layer, add a LayerCompressor
+        # LayerCompressor gets the layer and the GPTQWrapper
+        # Will wrap each layer with the GPTQQWrapper + hook to calculate 
+        # hessians - is this what calculates the hessians?
         for idx, (name, layer) in enumerate(self.compressible_layers_.items()):
             name = fix_fsdp_module_name(name)
             logger.info(f"Preparing {name} for compression")
@@ -242,12 +252,13 @@ class GPTQModifier(Modifier):
             compressor = LayerCompressor(comp_cls, self.model, layer, idx, name, args)
             if not self.sequential_update:
                 # add all batch processing hooks before the forward pass
-                compressor.pre_compress()
+                compressor.pre_compress() # Why do we have to pre_compress now if not sequential update? - hessian memory
             self.layer_compressors_.append(compressor)
 
+        breakpoint()
         if self.sequential_update:
             first_layer_compressor = self.layer_compressors_[0]
-            first_layer_compressor.set_early_stop()
+            first_layer_compressor.set_early_stop() # artificially trigger an exception after the first layer
 
     @torch.no_grad()
     def apply_compression(
@@ -263,18 +274,30 @@ class GPTQModifier(Modifier):
             f"Running {class_name} calibration with " f"{len(dataloader)} samples..."
         )
 
+        # Zero-points and weights were added as part of `set_module_for_calibration` call in on_ititialize
+        # Where are the observers attached?
         # quantization scales and zp are already initialized but we do not
         # want to calibrate wrt to these
-        self.model.apply(disable_quantization)
+
+        # Why do we have to disabled if we already froze?
+        
+        self.model.apply(disable_quantization)  # prevents the forward pass for the inputs
 
         forward_pass_use_cache = self.model.config.use_cache
         self.model.config.use_cache = False
 
         # in non-sequential mode we run calibration through the full model
         # in sequential mode we run calibration up to the first transformer target
+
+        # This one is always called; otherwise called at the beginning only if possible
+        # data is passed forward, add batch is called to update hessian calculation?
+        # where are the intermediates saved?
+        # in non sequential: initialize hessians up front; uses more memory
+        # in sequential mode: will be stopped early/before the first transformer block; will go through the entire model 
         intermediates = run_calibration_forward(
             self.model, dataloader, mask_padding=True
         )
+        # needed to update the hessians
         self.layer_compressors_[0].clear_early_stop()
 
         num_layers = len(self.compressible_layers_)
@@ -285,10 +308,14 @@ class GPTQModifier(Modifier):
             if self.sequential_update:
                 # in sequential mode we run the forward pass for each transformer layer
                 # one at a time, caching the intermediate outputs between layers
-                layer_compressor.pre_compress()
+                layer_compressor.pre_compress() # Why do we have to do this here?
                 logger.info(f"Calibrating {layer_compressor.name}...")
                 intermediates = layer_compressor.calibrate_layer(intermediates)
 
+            # Compressor calls fake quantize - use the hessians + QDQ to update the weights - how are the scales or zeros ever updated?
+            # scales/zp are created by the observer and then attached to the module in `set_module_for_calibration` --> but when are they updated based on the updated calculation?
+            # still in dense form until saved to disk at which point, save_pretrained_compressed is called - creates the compressor which will use the updates zp/scales and compress the model on disk
+            # If this is the case, then when are the weights/scales updated? when is the moving average updated
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
@@ -330,12 +357,14 @@ class GPTQModifier(Modifier):
     def _build_quant_modifier_from_dict(self, quant_config):
         modifier_type = list(quant_config.keys())[0]
         modifier_args = quant_config[modifier_type]
+        # When GPTQ modifier is created, it will build a quant modifier as well
         self.quantization_modifier_ = ModifierFactory.create(
             modifier_type,
             allow_registered=True,
             allow_experimental=True,
             **modifier_args,
         )
+        breakpoint()
 
     def _pruning_arguments(self):
         """

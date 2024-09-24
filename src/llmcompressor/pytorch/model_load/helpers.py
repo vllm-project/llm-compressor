@@ -107,6 +107,7 @@ def save_model_and_recipe(
     :param save_compressed: whether to compress sparse weights on disk
     """
 
+    # Relies on the quantization scheme attached to each layer - when do they get added?
     model.save_pretrained(
         save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
     )
