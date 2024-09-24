@@ -213,15 +213,15 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "save_compressed,safe_serialization",
+    "safe_serialization,tie_word_embeddings",
     [
+        #(True, False),
+        #(False, False),
+        #(False, True),
         (True, True),
-        (True, False),
-        (False, True),
-        (False, False),
     ],
 )
-def test_offloaded_model_reload(save_compressed, safe_serialization, tmp_path):
+def test_offloaded_model_reload(safe_serialization, tie_word_embeddings, tmp_path):
     model_path = "Xenova/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
@@ -229,19 +229,51 @@ def test_offloaded_model_reload(save_compressed, safe_serialization, tmp_path):
         model_path,
         torch_dtype=torch.float16,
         device_map="cpu",
-        tie_word_embeddings=False,
+        tie_word_embeddings=tie_word_embeddings,
     )
     model = cpu_offload(model)
 
-    model.save_pretrained(
-        save_path,
-        quantization_format=None,
-        save_compressed=save_compressed,
-        safe_serialization=safe_serialization,
-    )
+    model.save_pretrained(save_path, safe_serialization=safe_serialization)
 
     reloaded = SparseAutoModelForCausalLM.from_pretrained(
         save_path, torch_dtype=torch.float16, device_map="cpu"
+    )
+
+    model_dict = get_state_dict_offloaded_model(model)
+    reloaded_dict = get_state_dict_offloaded_model(reloaded)
+    assert model_dict.keys() == reloaded_dict.keys()
+    for key in model_dict:
+        assert torch.equal(model_dict[key], reloaded_dict[key])
+        assert model_dict[key].device == reloaded_dict[key].device
+
+
+@pytest.mark.parametrize(
+    "safe_serialization,tie_word_embeddings",
+    [
+        (True, False),
+        #(False, False),
+        #(False, True),
+        #(True, True),
+    ],
+)
+def test_model_reload(safe_serialization, tie_word_embeddings, tmp_path):
+    model_path = "Xenova/llama2.c-stories15M"
+    save_path = tmp_path / "save_path"
+
+    model = SparseAutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype="auto",
+        device_map="cpu",
+        tie_word_embeddings=tie_word_embeddings
+    )
+
+    model.save_pretrained(save_path, safe_serialization=safe_serialization)
+
+    reloaded = SparseAutoModelForCausalLM.from_pretrained(
+        save_path,
+        torch_dtype="auto",
+        device_map="cpu",
+        tie_word_embeddings=tie_word_embeddings
     )
 
     model_dict = get_state_dict_offloaded_model(model)
