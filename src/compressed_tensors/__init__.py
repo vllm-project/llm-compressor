@@ -19,3 +19,4 @@ from .compressors import *
 from .config import *
 from .quantization import QuantizationConfig, QuantizationStatus
 from .utils import *
+from .version import *

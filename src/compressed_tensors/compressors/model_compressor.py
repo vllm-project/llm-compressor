@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional, Union
 
 import torch
 import transformers
+import compressed_tensors
 from compressed_tensors.base import (
     COMPRESSION_CONFIG_NAME,
     QUANTIZATION_CONFIG_NAME,
@@ -368,6 +369,7 @@ class ModelCompressor:
             config_data[COMPRESSION_CONFIG_NAME][
                 SPARSITY_CONFIG_NAME
             ] = sparsity_config_data
+        config_data[COMPRESSION_CONFIG_NAME]["version"] = compressed_tensors.__version__
 
         with open(config_file_path, "w") as config_file:
             json.dump(config_data, config_file, indent=2, sort_keys=True)
