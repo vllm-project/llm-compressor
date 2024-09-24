@@ -57,7 +57,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             if no config is provided it will be inferred from the model
             :param quantization_format: optional compression format for quantized
             models. If none is provided it will be inferred from the model
-            :param save_compresed: whether or not to compress the model on disk
+            :param save_compressed: whether or not to compress the model on disk
             :param skip_compression_stats: whether to skip the calculation of
             compression statistics (such as global sparsity and sparsity structure) when
             saving a model in dense format
@@ -72,10 +72,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             model = model_ref()
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.get("state_dict", None)
-
-            # find offloaded state dict
-            if state_dict is None:
-                state_dict = get_state_dict_offloaded_model(model)
 
             if sparsity_config is not None:
                 sparsity_config.global_sparsity = (
@@ -116,6 +112,12 @@ def modify_save_pretrained(model: PreTrainedModel):
                     save_directory, **kwargs
                 )
                 return
+
+            # if we've gotten to this point we have a config so we can run compression
+            # default safe serialization to True if not explicitly set
+            kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
+            if state_dict is None:
+                state_dict = get_state_dict_offloaded_model(model)
 
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
