@@ -3,6 +3,8 @@ import shutil
 
 import pytest
 import torch
+from accelerate import cpu_offload
+from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import COMPRESSION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
@@ -208,3 +210,43 @@ def test_quant_model_reload(format, dtype, tmp_path):
             assert torch.equal(dense_tensor, reconstructed_tensor)
 
     shutil.rmtree(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "save_compressed,safe_serialization",
+    [
+        (True, True),
+        (True, False),
+        (False, True),
+        (False, False),
+    ],
+)
+def test_offloaded_model_reload(save_compressed, safe_serialization, tmp_path):
+    model_path = "Xenova/llama2.c-stories15M"
+    save_path = tmp_path / "save_path"
+
+    model = SparseAutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=torch.float16,
+        device_map="cpu",
+        tie_word_embeddings=False,
+    )
+    model = cpu_offload(model)
+
+    model.save_pretrained(
+        save_path,
+        quantization_format=None,
+        save_compressed=save_compressed,
+        safe_serialization=safe_serialization,
+    )
+
+    reloaded = SparseAutoModelForCausalLM.from_pretrained(
+        save_path, torch_dtype=torch.float16, device_map="cpu"
+    )
+
+    model_dict = get_state_dict_offloaded_model(model)
+    reloaded_dict = get_state_dict_offloaded_model(reloaded)
+    assert model_dict.keys() == reloaded_dict.keys()
+    for key in model_dict:
+        assert torch.equal(model_dict[key], reloaded_dict[key])
+        assert model_dict[key].device == reloaded_dict[key].device

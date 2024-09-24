@@ -71,7 +71,11 @@ def modify_save_pretrained(model: PreTrainedModel):
 
             model = model_ref()
             # state_dict gets passed in as a kwarg for FSDP models
-            state_dict = kwargs.get("state_dict", None)
+            state_dict = kwargs.pop("state_dict", None)
+
+            # if not passed, load (potentially offloaded) model
+            if state_dict is None:
+                state_dict = get_state_dict_offloaded_model(model)
 
             # find offloaded state dict
             if state_dict is None:
@@ -113,17 +117,16 @@ def modify_save_pretrained(model: PreTrainedModel):
             if compressor is None:
                 # model is not compressed or quantized, save as normal
                 original_save_pretrained.__get__(model, model_class)(
-                    save_directory, **kwargs
+                    save_directory, state_dict=state_dict, **kwargs
                 )
                 return
 
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
-                compressed_state_dict = compressor.compress(model, state_dict)
-                kwargs["state_dict"] = compressed_state_dict
+                state_dict = compressor.compress(model, state_dict)
 
                 original_save_pretrained.__get__(model, model_class)(
-                    save_directory, **kwargs
+                    save_directory, state_dict=state_dict, **kwargs
                 )
                 compressor.update_config(save_directory)
 
