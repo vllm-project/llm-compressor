@@ -73,10 +73,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.pop("state_dict", None)
 
-            # if not passed, load (potentially offloaded) model
-            if state_dict is None:
-                state_dict = get_state_dict_offloaded_model(model)
-
             # find offloaded state dict
             if state_dict is None:
                 state_dict = get_state_dict_offloaded_model(model)
