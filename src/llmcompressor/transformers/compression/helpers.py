@@ -40,6 +40,10 @@ def tensor_follows_mask_structure(tensor: torch.Tensor, mask: str = "2:4") -> bo
         return True
 
     n, m = tuple(map(int, mask.split(":")))
+
+    # If n or m is 0, then the tensor follows the mask structure
+    if n == 0 or m == 0:
+        return True
     # Reshape the tensor into chunks of size m
     tensor = tensor.view(-1, m)
 
