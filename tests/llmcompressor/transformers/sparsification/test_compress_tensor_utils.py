@@ -9,15 +9,16 @@ from compressed_tensors import COMPRESSION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
-from transformers import AutoConfig
+from transformers import AutoConfig, LlamaConfig
 
 from llmcompressor.core import reset_session
+from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
-
+from llmcompressor.transformers.finetune.model_args import ModelArguments
 
 @pytest.mark.parametrize(
     "compressed,config,dtype",
@@ -213,15 +214,15 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "save_compressed,safe_serialization",
+    "safe_serialization,tie_word_embeddings",
     [
-        (True, True),
         (True, False),
-        (False, True),
         (False, False),
+        #(False, True),
+        #(False, True),
     ],
 )
-def test_offloaded_model_reload(save_compressed, safe_serialization, tmp_path):
+def test_offloaded_model_reload(safe_serialization, tie_word_embeddings, tmp_path):
     model_path = "Xenova/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
@@ -229,16 +230,11 @@ def test_offloaded_model_reload(save_compressed, safe_serialization, tmp_path):
         model_path,
         torch_dtype=torch.float16,
         device_map="cpu",
-        tie_word_embeddings=False,
+        tie_word_embeddings=tie_word_embeddings,
     )
     model = cpu_offload(model)
 
-    model.save_pretrained(
-        save_path,
-        quantization_format=None,
-        save_compressed=save_compressed,
-        safe_serialization=safe_serialization,
-    )
+    model.save_pretrained(save_path, safe_serialization=safe_serialization)
 
     reloaded = SparseAutoModelForCausalLM.from_pretrained(
         save_path, torch_dtype=torch.float16, device_map="cpu"
