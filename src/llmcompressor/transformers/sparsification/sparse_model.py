@@ -105,6 +105,7 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         )
 
         # patch a shared tensor bug in HF transformers
+        # https://github.com/huggingface/transformers/issues/33689
         model = patch_tied_tensors_bug(model)
 
         if model.dtype != model.config.torch_dtype:
