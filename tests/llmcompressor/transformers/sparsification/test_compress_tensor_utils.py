@@ -219,16 +219,16 @@ def test_quant_model_reload(format, dtype, tmp_path):
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
         # dtype
-        # (False, torch.float16, False, "cpu"),     # passes
-        # (False, torch.float16, True, "cpu"),      # passes    (discouraged)
-        # (False, torch.float32, False, "cpu"),     # fails, https://github.com/huggingface/transformers/issues/33688
-        # (False, torch.float32, True, "cpu"),      # passes    (discouraged)
+        (False, torch.float16, False, "cpu"),     # passes
+        (False, torch.float16, True, "cpu"),      # passes    (discouraged)
+        # (False, torch.float32, False, "cpu"),   # fails, to be fixed in #659
+        (False, torch.float32, True, "cpu"),      # passes    (discouraged)
 
         # offloading
         (True, torch.float16, False, "cpu"),      # passes
-        (True, torch.float32, False, "cpu"),      # fails
-        (True, torch.float16, True, "cpu"),       # fails     (discouraged)
-        (True, torch.float32, True, "cpu"),       # fails     (discouraged)
+        # (True, torch.float32, False, "cpu"),      # fails, to be fixed in #659
+        # (True, torch.float16, True, "cpu"),       # fails     (discouraged), to be fixed in #659
+        # (True, torch.float32, True, "cpu"),       # fails     (discouraged), to be fixed in #659
 
         # gpu
         (False, torch.float32, False, "cuda:0"),    # passes
