@@ -3,6 +3,8 @@ import shutil
 
 import pytest
 import torch
+from accelerate import cpu_offload
+from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import COMPRESSION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
@@ -208,3 +210,51 @@ def test_quant_model_reload(format, dtype, tmp_path):
             assert torch.equal(dense_tensor, reconstructed_tensor)
 
     shutil.rmtree(tmp_path)
+
+
+# technically only tie_word_embeddings=False is supported right now
+# setting to True is discouraged
+@pytest.mark.parametrize(
+    "offload,torch_dtype,tie_word_embeddings,device_map",
+    [
+        # dtype
+        (False, torch.float16, False, "cpu"),
+        (False, torch.float16, True, "cpu"),
+        # (False, torch.float32, False, "cpu"),  # fails, to be fixed in #659
+        (False, torch.float32, True, "cpu"),
+        # offloading
+        (True, torch.float16, False, "cpu"),
+        # (True, torch.float32, False, "cpu"),  # fails, to be fixed in #659
+        # (True, torch.float16, True, "cpu"),   # fails, to be fixed in #659
+        # (True, torch.float32, True, "cpu"),  # fails, to be fixed in #659
+        # gpu
+        (False, torch.float32, False, "cuda:0"),
+        (True, torch.float32, False, "cuda:0"),
+        (True, torch.float16, True, "cuda:0"),
+        (True, torch.float32, True, "cuda:0"),
+    ],
+)
+def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
+    model_path = "Xenova/llama2.c-stories15M"
+    save_path = tmp_path / "save_path"
+
+    model = SparseAutoModelForCausalLM.from_pretrained(
+        model_path,
+        tie_word_embeddings=tie_word_embeddings,
+        torch_dtype=torch_dtype,
+        device_map=device_map,
+    )
+    if offload:
+        model = cpu_offload(model)
+
+    model.save_pretrained(save_path, safe_serialization=True)
+
+    reloaded = SparseAutoModelForCausalLM.from_pretrained(
+        save_path, torch_dtype="auto", device_map="cpu"
+    )
+
+    model_dict = get_state_dict_offloaded_model(model)
+    reloaded_dict = get_state_dict_offloaded_model(reloaded)
+    assert model_dict.keys() == reloaded_dict.keys()
+    for key in model_dict:
+        assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
