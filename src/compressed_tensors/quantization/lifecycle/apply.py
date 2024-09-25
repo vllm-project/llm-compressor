@@ -43,6 +43,7 @@ from compressed_tensors.quantization.utils import (
     infer_quantization_status,
     is_kv_cache_quant_scheme,
     iter_named_leaf_modules,
+    iter_named_quantizable_modules,
 )
 from compressed_tensors.utils.helpers import fix_fsdp_module_name, replace_module
 from compressed_tensors.utils.offload import update_parameter_data
@@ -135,15 +136,23 @@ def apply_quantization_config(
     # list of submodules to ignore
     ignored_submodules = defaultdict(list)
     # mark appropriate layers for quantization by setting their quantization schemes
-    for name, submodule in iter_named_leaf_modules(model):
+    for name, submodule in iter_named_quantizable_modules(
+        model,
+        include_children=True,
+        include_attn=True,
+    ):  # child modules and attention modules
         # potentially fix module name to remove FSDP wrapper prefix
         name = fix_fsdp_module_name(name)
         if matches := find_name_or_class_matches(name, submodule, config.ignore):
             for match in matches:
                 ignored_submodules[match].append(name)
             continue  # layer matches ignore list, continue
+
         targets = find_name_or_class_matches(name, submodule, target_to_scheme)
+
         if targets:
+            # mark modules to be quantized by adding
+            # quant scheme to the matching layers
             scheme = _scheme_from_targets(target_to_scheme, targets, name)
             if run_compressed:
                 format = config.format
@@ -200,6 +209,9 @@ def process_kv_cache_config(
     :param config: the QuantizationConfig
     :return: the QuantizationConfig with additional "kv_cache" group
     """
+    if targets == KV_CACHE_TARGETS:
+        _LOGGER.info(f"KV cache targets set to default value of: {KV_CACHE_TARGETS}")
+
     kv_cache_dict = config.kv_cache_scheme.model_dump()
     kv_cache_scheme = QuantizationScheme(
         output_activations=QuantizationArgs(**kv_cache_dict),

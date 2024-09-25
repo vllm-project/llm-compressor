@@ -13,8 +13,7 @@
 # limitations under the License.
 
 import logging
-import re
-from typing import List, Optional, Tuple
+from typing import Generator, List, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.observers.base import Observer
@@ -28,7 +27,6 @@ __all__ = [
     "infer_quantization_status",
     "is_module_quantized",
     "is_model_quantized",
-    "iter_named_leaf_modules",
     "module_type",
     "calculate_compression_ratio",
     "get_torch_bit_depth",
@@ -36,9 +34,14 @@ __all__ = [
     "parse_out_kv_cache_args",
     "KV_CACHE_TARGETS",
     "is_kv_cache_quant_scheme",
+    "iter_named_leaf_modules",
+    "iter_named_quantizable_modules",
 ]
 
-KV_CACHE_TARGETS = ["re:.*k_proj", "re:.*v_proj"]
+# target the self_attn layer
+# QuantizedKVParameterCache is responsible for obtaining the k_scale and v_scale
+KV_CACHE_TARGETS = ["re:.*self_attn$"]
+
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
@@ -106,11 +109,10 @@ def module_type(module: Module) -> str:
     return type(module).__name__
 
 
-def iter_named_leaf_modules(model: Module) -> Tuple[str, Module]:
+def iter_named_leaf_modules(model: Module) -> Generator[Tuple[str, Module], None, None]:
     """
     Yields modules that do not have any submodules except observers. The observers
     themselves are not yielded
-
     :param model: model to get leaf modules of
     :returns: generator tuple of (name, leaf_submodule)
     """
@@ -125,6 +127,37 @@ def iter_named_leaf_modules(model: Module) -> Tuple[str, Module]:
                     has_non_observer_children = True
 
             if not has_non_observer_children:
+                yield name, submodule
+
+
+def iter_named_quantizable_modules(
+    model: Module, include_children: bool = True, include_attn: bool = False
+) -> Generator[Tuple[str, Module], None, None]:
+    """
+    Yield name and submodule of
+    - leaf modules, set by include_children
+    - attention modyles, set by include_attn
+
+    :param model: model to get leaf modules of
+    :param include_children: flag to get the leaf modules
+    :param inlcude_attn: flag to get the attention modules
+    :returns: generator tuple of (name, submodule)
+    """
+    for name, submodule in model.named_modules():
+        if include_children:
+            children = list(submodule.children())
+            if len(children) == 0 and not isinstance(submodule, Observer):
+                yield name, submodule
+            else:
+                has_non_observer_children = False
+                for child in children:
+                    if not isinstance(child, Observer):
+                        has_non_observer_children = True
+
+                if not has_non_observer_children:
+                    yield name, submodule
+        if include_attn:
+            if name.endswith("self_attn"):
                 yield name, submodule
 
 
@@ -204,19 +237,11 @@ def is_kv_cache_quant_scheme(scheme: QuantizationScheme) -> bool:
     :param scheme: The QuantizationScheme to investigate
     :return: boolean flag
     """
-    if len(scheme.targets) == 1:
-        # match on the KV_CACHE_TARGETS regex pattern
-        # if there is only one target
-        is_match_targets = any(
-            [re.match(pattern[3:], scheme.targets[0]) for pattern in KV_CACHE_TARGETS]
-        )
-    else:
-        # match on the exact KV_CACHE_TARGETS
-        # if there are multiple targets
-        is_match_targets = set(KV_CACHE_TARGETS) == set(scheme.targets)
+    for target in scheme.targets:
+        if target in KV_CACHE_TARGETS:
+            return True
 
-    is_match_output_activations = scheme.output_activations is not None
-    return is_match_targets and is_match_output_activations
+    return False
 
 
 def parse_out_kv_cache_args(

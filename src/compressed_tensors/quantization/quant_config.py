@@ -24,7 +24,7 @@ from compressed_tensors.quantization.quant_scheme import (
 from compressed_tensors.quantization.utils import (
     calculate_compression_ratio,
     is_module_quantized,
-    iter_named_leaf_modules,
+    iter_named_quantizable_modules,
     module_type,
     parse_out_kv_cache_args,
 )
@@ -177,7 +177,9 @@ class QuantizationConfig(BaseModel):
         quantization_status = None
         ignore = {}
         quantization_type_names = set()
-        for name, submodule in iter_named_leaf_modules(model):
+        for name, submodule in iter_named_quantizable_modules(
+            model, include_children=True, include_attn=True
+        ):
             layer_type = module_type(submodule)
             if not is_module_quantized(submodule):
                 if layer_type not in ignore:
@@ -241,6 +243,9 @@ class QuantizationConfig(BaseModel):
         )
 
     def requires_calibration_data(self):
+        if self.kv_cache_scheme is not None:
+            return True
+
         for _, scheme in self.config_groups.items():
             if scheme.input_activations is not None:
                 if not scheme.input_activations.dynamic:

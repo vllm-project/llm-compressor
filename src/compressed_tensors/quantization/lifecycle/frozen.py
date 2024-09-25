@@ -14,6 +14,7 @@
 
 
 from compressed_tensors.quantization.quant_config import QuantizationStatus
+from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from torch.nn import Module
 
 
@@ -44,7 +45,11 @@ def freeze_module_quantization(module: Module):
         delattr(module, "input_observer")
     if scheme.weights and not scheme.weights.dynamic:
         delattr(module, "weight_observer")
-    if scheme.output_activations and not scheme.output_activations.dynamic:
+    if (
+        scheme.output_activations
+        and not is_kv_cache_quant_scheme(scheme)
+        and not scheme.output_activations.dynamic
+    ):
         delattr(module, "output_observer")
 
     module.quantization_status = QuantizationStatus.FROZEN

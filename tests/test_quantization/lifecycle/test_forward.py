@@ -20,6 +20,7 @@ from compressed_tensors.quantization.lifecycle.forward import (
     maybe_calibrate_or_quantize,
     quantize,
     wrap_module_forward_quantized,
+    wrap_module_forward_quantized_attn,
 )
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
@@ -205,3 +206,21 @@ def test_dequantize(num_bits, type, strategy, group_size, scale, zero_point, g_i
         dtype=None,
         g_idx=g_idx,
     )
+
+
+def test_wrap_module_forward_quantized_attn(create_quantization_scheme):
+    num_bits = 8
+    quantization_scheme = create_quantization_scheme(
+        targets=["self_attn"],
+        weights=QuantizationArgs(num_bits=num_bits, symmetric=True),
+        input_activations=QuantizationArgs(num_bits=num_bits, symmetric=False),
+    )
+
+    mock_attn_layer = Linear(4, 4)
+
+    attn_forward = mock_attn_layer.forward.__func__
+
+    # check that the forward call is overwritten
+    wrap_module_forward_quantized_attn(mock_attn_layer, quantization_scheme)
+
+    assert not attn_forward == mock_attn_layer.forward.__func__

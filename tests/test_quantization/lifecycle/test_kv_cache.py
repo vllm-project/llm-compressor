@@ -76,29 +76,3 @@ def test_kv_cache_quantization(config):
     assert list(config.kv_cache_scheme.model_dump().values()) == list(
         reloaded_config.kv_cache_scheme.model_dump().values()
     )
-
-
-@pytest.mark.parametrize("config", [config])
-def test_kv_cache_quantization_clashing_configs(config):
-    config["config_groups"]["group_1"]["output_activations"] = {
-        "num_bits": 8,
-        "type": "int",
-        "symmetric": True,
-        "strategy": "tensor",
-    }
-
-    model = AutoModelForCausalLM.from_pretrained(
-        "HuggingFaceM4/tiny-random-LlamaForCausalLM",
-        torch_dtype="auto",
-    )
-    model.eval()
-
-    config = QuantizationConfig(**config)
-    config.quantization_status = QuantizationStatus.CALIBRATION
-    with pytest.raises(ValueError):
-        # raise ValueError, because there is a clash between the
-        # kv cache quantization arguments and the ordinary
-        # quantization arguments
-        # (they are both adding output activations to the
-        # re:.*k_proj and re:.*q_proj)
-        apply_quantization_config(model, config)
