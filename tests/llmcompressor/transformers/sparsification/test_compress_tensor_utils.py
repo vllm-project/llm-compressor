@@ -18,6 +18,12 @@ from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
 
+from compressed_tensors.utils import (
+    get_offloaded_device,
+    is_module_offloaded,
+    update_prefix_dict,
+)
+
 
 @pytest.mark.parametrize(
     "compressed,config,dtype",
@@ -263,13 +269,13 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
 @pytest.mark.parametrize(
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
-        (False, torch.float16, False, "cpu"),  # passes
-        (False, torch.float32, False, "cpu"),  # passes, workaround
-        (False, torch.float32, False, "cuda:0"),  # passes
-        # (True, torch.float32, False, "cpu"),    # fails
-        (False, torch.float16, True, "cpu"),  # passes
-        (False, torch.float32, True, "cpu"),  # passes
-        (False, torch.float32, True, "cuda:0"),  # passes
+        (False, torch.float16, False, "cpu"),       # passes
+        (False, torch.float32, False, "cpu"),       # passes, workaround
+        (False, torch.float32, False, "cuda:0"),    # passes
+        (True, torch.float32, False, "cpu"),        # passes, workaround
+        (False, torch.float16, True, "cpu"),        # passes
+        (False, torch.float32, True, "cpu"),        # passes
+        (False, torch.float32, True, "cuda:0"),     # passes
         # (True, torch.float32, True, "cpu"),    # fails
     ],
 )
@@ -288,7 +294,15 @@ def test_model_shared_tensors(
 
     # modify lm head
     with torch.no_grad():
+        if offload:
+            model.lm_head._hf_hook.pre_forward(model.lm_head)
+
         model.lm_head.weight += 1
+
+        if offload:
+            device = get_offloaded_device(model.lm_head)
+            update_prefix_dict(model.lm_head, "weight", model.lm_head.weight.to(device))
+            model.lm_head._hf_hook.post_forward(model.lm_head, None)
 
     # check that embed_tokens is not modified
     model_dict = get_state_dict_offloaded_model(model)
