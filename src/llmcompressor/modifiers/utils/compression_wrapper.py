@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Optional, Set
 
 import torch
@@ -72,12 +72,14 @@ class ModuleCompressionWrapper(Module, ABC):
         """
         delattr(self, "nsamples")
 
+    @abstractmethod
     def add_batch(self, *args, **kwargs):
         """
         Add a batch of layer input and output data to the layer statistics calculation
         """
         raise NotImplementedError("Child class must implement `add_batch`")
 
+    @abstractmethod
     def compress(self, *args, **kwargs):
         """
         Run pruning on the layer up to the target sparsity

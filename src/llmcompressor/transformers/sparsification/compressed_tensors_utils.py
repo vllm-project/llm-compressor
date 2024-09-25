@@ -58,7 +58,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             if no config is provided it will be inferred from the model
             :param quantization_format: optional compression format for quantized
             models. If none is provided it will be inferred from the model
-            :param save_compresed: whether or not to compress the model on disk
+            :param save_compressed: whether or not to compress the model on disk
             :param skip_compression_stats: whether to skip the calculation of
             compression statistics (such as global sparsity and sparsity structure) when
             saving a model in dense format
