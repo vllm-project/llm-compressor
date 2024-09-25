@@ -18,12 +18,6 @@ from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
 
-from compressed_tensors.utils import (
-    get_offloaded_device,
-    is_module_offloaded,
-    update_prefix_dict,
-)
-
 __all__ = ["modify_save_pretrained"]
 
 
@@ -152,38 +146,17 @@ def new_dtype_byte_size(dtype):
     return bit_size // 8
 
 
-def patch_shared_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
+def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
     """
-    Patches two separate bugs in HF transformers and accelerate
+    Patches bug where HF transformers will fail to untie weights under specific
+    circumstances (https://github.com/huggingface/transformers/issues/33689).
 
-    1. HF transformers will only recognize tied weights if their modules are
-       exactly the same
-       https://github.com/huggingface/transformers/issues/33689
-    2. HF transformers will sometimes tie weights despite `tie_word_embeddings=False`
+    This function detects those cases and unties the tensors if applicable
 
+    :param model: model to fix
+    :return: model with fixed parameters
     """
-    if model.config.tie_word_embeddings:
-        # _tied_weights_keys
-        pass
-        # TODO
-        # accelerate and HF bug. parameters literally need to be the same
-        # module._parameters.items()
-
-
-        # output_embeddings = model.get_output_embeddings()
-        # input_embeddings = model.get_input_embeddings()
-        # breakpoint()
-        # output_embeddings._parameters["weight"] = input_embeddings._parameters["weight"]
-        # # for input_param, output_param in zip(input_embeddings.parameters(), output_embeddings.parameters()):
-
-
-
-        #     output_param = input_param
-        #model.lm_head.weight = model.model.embed_tokens.weight
-        # model.tie_weights()
-        #assert model.get_input_embeddings()
-    else:
-        # bug #2
+    if not model.config.tie_word_embeddings:
         tensor_groups = _find_shared_tensors(get_state_dict_offloaded_model(model))
         for tensor_group in tensor_groups:
             if len(tensor_group) > 1:
