@@ -226,8 +226,8 @@ def test_quant_model_reload(format, dtype, tmp_path):
         # offloading
         (True, torch.float16, False, "cpu"),
         (True, torch.float32, False, "cpu"),
-        # (True, torch.float16, True, "cpu"),  # fails, to be fixed in
-        # (True, torch.float32, True, "cpu"),  # fails, to be fixed in
+        # (True, torch.float16, True, "cpu"),  # TODO: fails
+        # (True, torch.float32, True, "cpu"),  # TODO: fails
         # gpu
         (False, torch.float32, False, "cuda:0"),
         (True, torch.float32, False, "cuda:0"),
