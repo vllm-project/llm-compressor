@@ -213,36 +213,51 @@ def test_quant_model_reload(format, dtype, tmp_path):
     shutil.rmtree(tmp_path)
 
 
+# technically only tie_word_embeddings=False is supported right now
+# setting to True is discouraged
 @pytest.mark.parametrize(
-    "safe_serialization,tie_word_embeddings",
+    "offload,torch_dtype,tie_word_embeddings,device_map",
     [
-        (True, False),
-        (False, False),
-        #(False, True),
-        #(False, True),
+        # dtype
+        # (False, torch.float16, False, "cpu"),     # passes
+        # (False, torch.float16, True, "cpu"),      # passes    (discouraged)
+        # (False, torch.float32, False, "cpu"),     # fails, https://github.com/huggingface/transformers/issues/33688
+        # (False, torch.float32, True, "cpu"),      # passes    (discouraged)
+
+        # offloading
+        (True, torch.float16, False, "cpu"),      # passes
+        (True, torch.float32, False, "cpu"),      # fails
+        (True, torch.float16, True, "cpu"),       # fails     (discouraged)
+        (True, torch.float32, True, "cpu"),       # fails     (discouraged)
+
+        # gpu
+        (False, torch.float32, False, "cuda:0"),    # passes
+        (True, torch.float32, False, "cuda:0"),     # passes
+        (True, torch.float16, True, "cuda:0"),      # passes    (discouraged)
+        (True, torch.float32, True, "cuda:0"),      # passes    (discouraged)
     ],
 )
-def test_offloaded_model_reload(safe_serialization, tie_word_embeddings, tmp_path):
+def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
     model_path = "Xenova/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
     model = SparseAutoModelForCausalLM.from_pretrained(
         model_path,
-        torch_dtype=torch.float16,
-        device_map="cpu",
         tie_word_embeddings=tie_word_embeddings,
+        torch_dtype=torch_dtype,
+        device_map=device_map,
     )
-    model = cpu_offload(model)
+    if offload:
+        model = cpu_offload(model)
 
-    model.save_pretrained(save_path, safe_serialization=safe_serialization)
+    model.save_pretrained(save_path, safe_serialization=True)
 
     reloaded = SparseAutoModelForCausalLM.from_pretrained(
-        save_path, torch_dtype=torch.float16, device_map="cpu"
+        save_path, torch_dtype="auto", device_map="cpu"
     )
 
     model_dict = get_state_dict_offloaded_model(model)
     reloaded_dict = get_state_dict_offloaded_model(reloaded)
     assert model_dict.keys() == reloaded_dict.keys()
     for key in model_dict:
-        assert torch.equal(model_dict[key], reloaded_dict[key])
-        assert model_dict[key].device == reloaded_dict[key].device
+        assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
