@@ -23,13 +23,18 @@ from llmcompressor.transformers.utils.helpers import (
     resolve_recipe,
 )
 
-__all__ = ["wrap_hf_model_class", "SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
+__all__ = [
+    "wrap_hf_model_class",
+    "SparseAutoModel",
+    "SparseAutoModelForCausalLM",
+    "get_shared_tokenizer_src"
+]
 
 
-def wrap_hf_model_class(hf_model_class: PreTrainedModel):    
+def wrap_hf_model_class(hf_model_class: PreTrainedModel):
     # Define the new class
     new_class = type(hf_model_class.__name__, (hf_model_class,), {})
-    
+
     # Add the from_pretrained class method
     @classmethod
     def from_pretrained(
@@ -135,7 +140,7 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel):
 
     # Add the from_pretrained method to the new class
     setattr(new_class, 'from_pretrained', from_pretrained)
-    
+
     return new_class
 
 
