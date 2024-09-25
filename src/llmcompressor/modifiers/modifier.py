@@ -246,7 +246,7 @@ class Modifier(BaseModel, ModifierInterface, ABC):
         :return: True if the modifier was initialized successfully,
             False otherwise
         """
-        raise NotImplementedError()
+        raise NotImplementedError() 
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
