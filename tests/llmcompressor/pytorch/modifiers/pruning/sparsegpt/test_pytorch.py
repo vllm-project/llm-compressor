@@ -86,12 +86,8 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         should_be_default_quant_scheme = modifier.quantization_modifier_.config_groups[
             default_config_group_name
         ]
-        self.assertEqual(should_be_default_quant_scheme.input_activations.num_bits, 8)
-        # input activations are symmetric by default in QuantizationModifier
-        assert should_be_default_quant_scheme.input_activations.symmetric
-
-        self.assertEqual(should_be_default_quant_scheme.weights.num_bits, 8)
-        assert should_be_default_quant_scheme.weights.symmetric
+        assert should_be_default_quant_scheme.input_activations is None
+        assert should_be_default_quant_scheme.weights is None
 
 
 @pytest.mark.unit
