@@ -9,16 +9,15 @@ from compressed_tensors import COMPRESSION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
-from transformers import AutoConfig, LlamaConfig
+from transformers import AutoConfig
 
 from llmcompressor.core import reset_session
-from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
-from llmcompressor.transformers.finetune.model_args import ModelArguments
+
 
 @pytest.mark.parametrize(
     "compressed,config,dtype",
@@ -219,22 +218,20 @@ def test_quant_model_reload(format, dtype, tmp_path):
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
         # dtype
-        (False, torch.float16, False, "cpu"),     # passes
-        (False, torch.float16, True, "cpu"),      # passes    (discouraged)
-        # (False, torch.float32, False, "cpu"),   # fails, to be fixed in #659
-        (False, torch.float32, True, "cpu"),      # passes    (discouraged)
-
+        (False, torch.float16, False, "cpu"),
+        (False, torch.float16, True, "cpu"),
+        # (False, torch.float32, False, "cpu"),  # fails, to be fixed in #659
+        (False, torch.float32, True, "cpu"),
         # offloading
-        (True, torch.float16, False, "cpu"),      # passes
-        # (True, torch.float32, False, "cpu"),      # fails, to be fixed in #659
-        # (True, torch.float16, True, "cpu"),       # fails     (discouraged), to be fixed in #659
-        # (True, torch.float32, True, "cpu"),       # fails     (discouraged), to be fixed in #659
-
+        (True, torch.float16, False, "cpu"),
+        # (True, torch.float32, False, "cpu"),  # fails, to be fixed in #659
+        # (True, torch.float16, True, "cpu"),   # fails, to be fixed in #659
+        # (True, torch.float32, True, "cpu"),  # fails, to be fixed in #659
         # gpu
-        (False, torch.float32, False, "cuda:0"),    # passes
-        (True, torch.float32, False, "cuda:0"),     # passes
-        (True, torch.float16, True, "cuda:0"),      # passes    (discouraged)
-        (True, torch.float32, True, "cuda:0"),      # passes    (discouraged)
+        (False, torch.float32, False, "cuda:0"),
+        (True, torch.float32, False, "cuda:0"),
+        (True, torch.float16, True, "cuda:0"),
+        (True, torch.float32, True, "cuda:0"),
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
