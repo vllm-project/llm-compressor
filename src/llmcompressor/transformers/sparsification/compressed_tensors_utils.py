@@ -168,11 +168,16 @@ def patch_shared_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
         # TODO
         # accelerate and HF bug. parameters literally need to be the same
         # module._parameters.items()
-        output_embeddings = model.get_output_embeddings()
-        input_embeddings = model.get_input_embeddings()
-        breakpoint()
-        output_embeddings._parameters["weight"] = input_embeddings._parameters["weight"]
-        # for input_param, output_param in zip(input_embeddings.parameters(), output_embeddings.parameters()):
+
+
+        # output_embeddings = model.get_output_embeddings()
+        # input_embeddings = model.get_input_embeddings()
+        # breakpoint()
+        # output_embeddings._parameters["weight"] = input_embeddings._parameters["weight"]
+        # # for input_param, output_param in zip(input_embeddings.parameters(), output_embeddings.parameters()):
+
+
+
         #     output_param = input_param
         #model.lm_head.weight = model.model.embed_tokens.weight
         # model.tie_weights()
