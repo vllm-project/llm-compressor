@@ -17,6 +17,7 @@ from transformers import AutoModelForCausalLM, PreTrainedModel
 from llmcompressor.pytorch.model_load.helpers import initialize_recipe
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
+    patch_shared_tensors_bug,
 )
 from llmcompressor.transformers.utils.helpers import (
     download_model_directory,
@@ -102,6 +103,9 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         model = super(AutoModelForCausalLM, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
+
+        # patch a shared tensor bug in HF transformers
+        model = patch_shared_tensors_bug(model)
 
         if model.dtype != model.config.torch_dtype:
             logger.warning(

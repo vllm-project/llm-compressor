@@ -1,6 +1,6 @@
 import re
 import weakref
-from functools import wraps
+from functools import reduce, wraps
 from typing import Optional
 
 import torch
@@ -8,6 +8,7 @@ import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
+from safetensors.torch import _find_shared_tensors
 from transformers import PreTrainedModel
 
 from llmcompressor.transformers.compression.quantization_format import (
@@ -143,3 +144,30 @@ def new_dtype_byte_size(dtype):
         raise ValueError(f"`dtype` is not a valid dtype: {dtype}.")
     bit_size = int(bit_search.groups()[0])
     return bit_size // 8
+
+
+def patch_shared_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
+    """
+    Patches two separate bugs in HF transformers and accelerate
+
+    1. HF transformers will only recognize tied weights if their modules are
+       exactly the same
+    2. HF transformers will sometimes tie weights despite `tie_word_embeddings=False`
+
+    """
+    if model.config.tie_word_embeddings:
+        # TODO
+        # accelerate and HF bug. Modules literally need to be the same
+        model.model.lm_head = model.model.embed_tokens
+        # model.tie_weights()
+    else:
+        # bug #2
+        tensor_groups = _find_shared_tensors(get_state_dict_offloaded_model(model))
+        for tensor_group in tensor_groups:
+            if len(tensor_group) > 1:
+                for tensor_path in tensor_group:
+                    tensor_parts = tensor_path.split(".")
+                    parameter = reduce(getattr, tensor_parts, model)
+                    parameter.data = parameter.data.clone()
+
+    return model

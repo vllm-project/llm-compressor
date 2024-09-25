@@ -9,16 +9,15 @@ from compressed_tensors import COMPRESSION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
-from transformers import AutoConfig, LlamaConfig
+from transformers import AutoConfig
 
 from llmcompressor.core import reset_session
-from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
-from llmcompressor.transformers.finetune.model_args import ModelArguments
+
 
 @pytest.mark.parametrize(
     "compressed,config,dtype",
@@ -219,22 +218,20 @@ def test_quant_model_reload(format, dtype, tmp_path):
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
         # dtype
-        # (False, torch.float16, False, "cpu"),     # passes
-        # (False, torch.float16, True, "cpu"),      # passes    (discouraged)
-        # (False, torch.float32, False, "cpu"),     # fails, https://github.com/huggingface/transformers/issues/33688
-        # (False, torch.float32, True, "cpu"),      # passes    (discouraged)
-
+        (False, torch.float16, False, "cpu"),  # passes
+        (False, torch.float16, True, "cpu"),  # passes    (discouraged)
+        (False, torch.float32, False, "cpu"),  # passes, workaround
+        (False, torch.float32, True, "cpu"),  # passes    (discouraged)
         # offloading
-        (True, torch.float16, False, "cpu"),      # passes
-        (True, torch.float32, False, "cpu"),      # fails
-        (True, torch.float16, True, "cpu"),       # fails     (discouraged)
-        (True, torch.float32, True, "cpu"),       # fails     (discouraged)
-
+        (True, torch.float16, False, "cpu"),  # passes
+        (True, torch.float32, False, "cpu"),  # fails     (dtype failure)
+        # (True, torch.float16, True, "cpu"),     # fails     (discouraged)
+        # (True, torch.float32, True, "cpu"),     # fails     (discouraged)
         # gpu
-        (False, torch.float32, False, "cuda:0"),    # passes
-        (True, torch.float32, False, "cuda:0"),     # passes
-        (True, torch.float16, True, "cuda:0"),      # passes    (discouraged)
-        (True, torch.float32, True, "cuda:0"),      # passes    (discouraged)
+        (False, torch.float32, False, "cuda:0"),  # passes
+        (True, torch.float32, False, "cuda:0"),  # passes
+        # (True, torch.float16, True, "cuda:0"),  # fails    (discouraged)
+        # (True, torch.float32, True, "cuda:0"),  # fails    (discouraged)
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
@@ -261,3 +258,43 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     assert model_dict.keys() == reloaded_dict.keys()
     for key in model_dict:
         assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
+
+
+@pytest.mark.parametrize(
+    "offload,torch_dtype,tie_word_embeddings,device_map",
+    [
+        (False, torch.float16, False, "cpu"),  # passes
+        (False, torch.float32, False, "cpu"),  # passes, workaround
+        (False, torch.float32, False, "cuda:0"),  # passes
+        # (True, torch.float32, False, "cpu"),    # fails
+        (False, torch.float16, True, "cpu"),  # passes
+        (False, torch.float32, True, "cpu"),  # passes
+        (False, torch.float32, True, "cuda:0"),  # passes
+        # (True, torch.float32, True, "cpu"),    # fails
+    ],
+)
+def test_model_shared_tensors(
+    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+):
+    # load model
+    model = SparseAutoModelForCausalLM.from_pretrained(
+        "Xenova/llama2.c-stories15M",
+        torch_dtype=torch_dtype,
+        tie_word_embeddings=tie_word_embeddings,
+        device_map=device_map,
+    )
+    if offload:
+        model = cpu_offload(model)
+
+    # modify lm head
+    with torch.no_grad():
+        model.lm_head.weight += 1
+
+    # check that embed_tokens is not modified
+    model_dict = get_state_dict_offloaded_model(model)
+    lm_head = model_dict["lm_head.weight"]
+    embed_tokens = model_dict["model.embed_tokens.weight"]
+    if tie_word_embeddings:
+        assert torch.equal(lm_head, embed_tokens)
+    else:
+        assert not torch.equal(lm_head, embed_tokens)
