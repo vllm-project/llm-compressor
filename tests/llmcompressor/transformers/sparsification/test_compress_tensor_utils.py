@@ -269,14 +269,14 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
 @pytest.mark.parametrize(
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
-        (False, torch.float16, False, "cpu"),       # passes
-        (False, torch.float32, False, "cpu"),       # passes, workaround
-        (False, torch.float32, False, "cuda:0"),    # passes
-        (True, torch.float32, False, "cpu"),        # passes, workaround
-        (False, torch.float16, True, "cpu"),        # passes
-        (False, torch.float32, True, "cpu"),        # passes
-        (False, torch.float32, True, "cuda:0"),     # passes
-        # (True, torch.float32, True, "cpu"),    # fails
+        (False, torch.float16, False, "cpu"),
+        (False, torch.float32, False, "cpu"),
+        (False, torch.float32, False, "cuda:0"),
+        (True, torch.float32, False, "cpu"),
+        (False, torch.float16, True, "cpu"),
+        (False, torch.float32, True, "cpu"),
+        (False, torch.float32, True, "cuda:0"),
+        (True, torch.float32, True, "cpu"),
     ],
 )
 def test_model_shared_tensors(
