@@ -57,7 +57,7 @@ class LayerCompressor:
         self.layer_index = layer_index
         self.name = name
         self.args = args
-        self.handles = None
+        self.handles = []
         self.early_stop_handle = None
         self.modules = {}
 
@@ -118,7 +118,6 @@ class LayerCompressor:
 
             return tmp
 
-        self.handles = []
         for name in self.modules:
             self.handles.append(subset[name].register_forward_hook(add_batch(name)))
 
@@ -129,14 +128,15 @@ class LayerCompressor:
         :param intermediates: inputs to run through the layer
         :return: outputs of the layer
         """
+        outputs = [None for _ in range(len(intermediates))]
         for idx in tqdm(range(len(intermediates))):
             args, kwargs = intermediates[idx]
             device = get_execution_device(self.layer)
             output = self.layer(*tensors_to_device(args, device), **kwargs)
-            intermediates[idx] = (tensors_to_device(output, "cpu"), kwargs)
+            outputs[idx] = (tensors_to_device(output, "cpu"), kwargs)
             torch.cuda.empty_cache()
 
-        return intermediates
+        return outputs
 
     def post_compress(self):
         """
@@ -144,6 +144,8 @@ class LayerCompressor:
         """
         for handle in self.handles:
             handle.remove()
+
+        self.handles = []
 
     def revert_layer_wrappers(self):
         """
@@ -171,7 +173,6 @@ class LayerCompressor:
                 logger.info(f"Compressing {full_name}...")
                 module.compress(**self.args)
                 module.free()
-                print("done")
 
         self.layer.apply(compress_module)
         torch.cuda.empty_cache()
