@@ -1,4 +1,4 @@
-# LLM Compressor
+# <img width="40" alt="tool icon" src="https://github.com/user-attachments/assets/f9b86465-aefa-4625-a09b-54e158efcf96" />  LLM Compressor
 `llmcompressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
 
 * Comprehensive set of quantization algorithms for weight-only and activation quantization
