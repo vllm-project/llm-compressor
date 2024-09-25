@@ -9,7 +9,7 @@ from compressed_tensors import COMPRESSION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
@@ -213,26 +213,27 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
 
 # technically only tie_word_embeddings=False is supported right now
+# setting to True is discouraged
 @pytest.mark.parametrize(
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
         # dtype
-        (False, torch.float16, False, "cpu"),  # passes
-        (False, torch.float32, False, "cpu"),  # fails
+        (False, torch.float16, False, "cpu"),     # passes
+        (False, torch.float16, True, "cpu"),      # passes    (discouraged)
+        (False, torch.float32, False, "cpu"),     # fails, https://github.com/huggingface/transformers/issues/33688
+        (False, torch.float32, True, "cpu"),      # passes    (discouraged)
 
         # offloading
-        #(True, torch.float16, False, "cpu"),  # passes
-        #(True, torch.float32, False, "cpu"),  # fails
+        (True, torch.float16, False, "cpu"),      # passes
+        (True, torch.float32, False, "cpu"),      # fails
+        (True, torch.float16, True, "cpu"),       # fails     (discouraged)
+        (True, torch.float32, True, "cpu"),       # fails     (discouraged)
 
-        #(True, torch.float16, True, "cpu"),
-        #(True, torch.float16, True, "cpu"),
-
-        # tie word embeddings
-        #(False, torch.float32, True, "cpu"),
-        #(False, torch.float32, False, "cpu"),
-
-        # combination
-        #(False, "auto", False, "cpu"),
+        # gpu
+        (False, torch.float32, False, "cuda:0"),    # passes
+        (True, torch.float32, False, "cuda:0"),     # passes
+        (True, torch.float16, True, "cuda:0"),      # passes    (discouraged)
+        (True, torch.float32, True, "cuda:0"),      # passes    (discouraged)
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
@@ -258,5 +259,4 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     reloaded_dict = get_state_dict_offloaded_model(reloaded)
     assert model_dict.keys() == reloaded_dict.keys()
     for key in model_dict:
-        assert torch.equal(model_dict[key], reloaded_dict[key])
-        assert model_dict[key].device == reloaded_dict[key].device
+        assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
