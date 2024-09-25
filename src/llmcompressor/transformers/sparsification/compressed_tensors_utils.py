@@ -18,6 +18,12 @@ from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
 
+from compressed_tensors.utils import (
+    get_offloaded_device,
+    is_module_offloaded,
+    update_prefix_dict,
+)
+
 __all__ = ["modify_save_pretrained"]
 
 
@@ -157,10 +163,20 @@ def patch_shared_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
 
     """
     if model.config.tie_word_embeddings:
+        # _tied_weights_keys
+        pass
         # TODO
-        # accelerate and HF bug. Modules literally need to be the same
-        model.model.lm_head = model.model.embed_tokens
+        # accelerate and HF bug. parameters literally need to be the same
+        # module._parameters.items()
+        output_embeddings = model.get_output_embeddings()
+        input_embeddings = model.get_input_embeddings()
+        breakpoint()
+        output_embeddings._parameters["weight"] = input_embeddings._parameters["weight"]
+        # for input_param, output_param in zip(input_embeddings.parameters(), output_embeddings.parameters()):
+        #     output_param = input_param
+        #model.lm_head.weight = model.model.embed_tokens.weight
         # model.tie_weights()
+        #assert model.get_input_embeddings()
     else:
         # bug #2
         tensor_groups = _find_shared_tensors(get_state_dict_offloaded_model(model))

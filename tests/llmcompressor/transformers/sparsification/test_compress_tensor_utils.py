@@ -224,20 +224,24 @@ def test_quant_model_reload(format, dtype, tmp_path):
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
         # dtype
-        (False, torch.float16, False, "cpu"),  # passes
-        (False, torch.float16, True, "cpu"),  # passes    (discouraged)
-        (False, torch.float32, False, "cpu"),  # passes, workaround
-        (False, torch.float32, True, "cpu"),  # passes    (discouraged)
-        # offloading
-        (True, torch.float16, False, "cpu"),  # passes
-        (True, torch.float32, False, "cpu"),  # fails     (dtype failure)
-        # (True, torch.float16, True, "cpu"),     # fails     (discouraged)
-        # (True, torch.float32, True, "cpu"),     # fails     (discouraged)
-        # gpu
-        (False, torch.float32, False, "cuda:0"),  # passes
-        (True, torch.float32, False, "cuda:0"),  # passes
-        # (True, torch.float16, True, "cuda:0"),  # fails    (discouraged)
-        # (True, torch.float32, True, "cuda:0"),  # fails    (discouraged)
+        # (False, torch.float16, False, "cpu"),  # passes
+        # (False, torch.float16, True, "cpu"),  # passes    (discouraged)
+        # (False, torch.float32, False, "cpu"),  # passes, workaround
+        # (False, torch.float32, True, "cpu"),  # passes    (discouraged)
+        # # offloading
+        # (True, torch.float16, False, "cpu"),  # passes
+        # (True, torch.float32, False, "cpu"),  # fails     (dtype failure)
+        
+        
+        (True, torch.float16, True, "cpu"),     # fails     (discouraged)
+        
+        
+        # # (True, torch.float32, True, "cpu"),     # fails     (discouraged)
+        # # gpu
+        # (False, torch.float32, False, "cuda:0"),  # passes
+        # (True, torch.float32, False, "cuda:0"),  # passes
+        # # (True, torch.float16, True, "cuda:0"),  # fails    (discouraged)
+        # # (True, torch.float32, True, "cuda:0"),  # fails    (discouraged)
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
@@ -261,6 +265,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
 
     model_dict = get_state_dict_offloaded_model(model)
     reloaded_dict = get_state_dict_offloaded_model(reloaded)
+    breakpoint()
     assert model_dict.keys() == reloaded_dict.keys()
     for key in model_dict:
         assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
