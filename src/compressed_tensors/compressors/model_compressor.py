@@ -25,6 +25,7 @@ import transformers
 import compressed_tensors
 from compressed_tensors.base import (
     COMPRESSION_CONFIG_NAME,
+    COMPRESSION_VERSION_NAME,
     QUANTIZATION_CONFIG_NAME,
     SPARSITY_CONFIG_NAME,
 )
@@ -200,6 +201,7 @@ class ModelCompressor:
         # SparseAutoModel format
         quantization_config = deepcopy(compression_config)
         quantization_config.pop(SPARSITY_CONFIG_NAME, None)
+        quantization_config.pop(COMPRESSION_VERSION_NAME, None)
         if len(quantization_config) == 0:
             quantization_config = None
         return quantization_config
@@ -313,7 +315,9 @@ class ModelCompressor:
             config_data[COMPRESSION_CONFIG_NAME][
                 SPARSITY_CONFIG_NAME
             ] = sparsity_config_data
-        config_data[COMPRESSION_CONFIG_NAME]["version"] = compressed_tensors.__version__
+        config_data[COMPRESSION_CONFIG_NAME][
+            COMPRESSION_VERSION_NAME
+        ] = compressed_tensors.__version__
 
         with open(config_file_path, "w") as config_file:
             json.dump(config_data, config_file, indent=2, sort_keys=True)
