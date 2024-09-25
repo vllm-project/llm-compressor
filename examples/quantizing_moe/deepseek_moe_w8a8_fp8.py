@@ -1,26 +1,14 @@
-import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 
-# adjust based off number of desired GPUs
-# if not enough memory is available, some layers will automatically be offlaoded to cpu
-device_map = calculate_offload_device_map(
-    MODEL_ID,
-    reserve_for_hessians=True,
-    num_gpus=2,
-    torch_dtype=torch.bfloat16,
-    trust_remote_code=True,
-)
-
 model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16, trust_remote_code=True
+    MODEL_ID, device_map="auto", torch_dtype="auto", trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -62,19 +50,18 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# define a llmcompressor recipe for W416 quantization
+# define a llmcompressor recipe for FP8 W8A8 quantization
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
 recipe = [
-    GPTQModifier(
+    QuantizationModifier(
         targets="Linear",
-        scheme="W8A8",
+        scheme="FP8",
         ignore=["lm_head", "re:.*mlp.gate$"],
-        sequential_update=True,
     ),
 ]
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8"
 
 oneshot(
     model=model,
