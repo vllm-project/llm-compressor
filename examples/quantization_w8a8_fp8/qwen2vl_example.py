@@ -1,13 +1,12 @@
-from transformers import AutoProcessor
+from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.sparsification import create_sparse_auto_model_class
+from llmcompressor.transformers import oneshot, wrap_hf_model_class
 
 MODEL_ID = "Qwen/Qwen2-VL-7B-Instruct"
 
 # Load model.
-model_class = create_sparse_auto_model_class("Qwen2VLForConditionalGeneration")
+model_class = wrap_hf_model_class(Qwen2VLForConditionalGeneration)
 model = model_class.from_pretrained(MODEL_ID, device_map="auto", torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
@@ -24,6 +23,7 @@ recipe = QuantizationModifier(
 # Apply quantization and save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
 oneshot(model=model, recipe=recipe, output_dir=SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

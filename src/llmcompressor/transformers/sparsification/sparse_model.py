@@ -23,16 +23,12 @@ from llmcompressor.transformers.utils.helpers import (
     resolve_recipe,
 )
 
-__all__ = ["create_sparse_auto_model_class", "SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
+__all__ = ["wrap_hf_model_class", "SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
 
 
-def create_sparse_auto_model_class(auto_model_class_name):
-    # Dynamically import the AutoModelForX class
-    exec(f"from transformers import {auto_model_class_name}")
-    auto_model_class = eval(auto_model_class_name)
-    
+def wrap_hf_model_class(hf_model_class: PreTrainedModel):    
     # Define the new class
-    new_class = type(auto_model_class_name, (auto_model_class,), {})
+    new_class = type(hf_model_class.__name__, (hf_model_class,), {})
     
     # Add the from_pretrained class method
     @classmethod
@@ -81,9 +77,9 @@ def create_sparse_auto_model_class(auto_model_class_name):
             # `from_pretrained` method into properly
             # resolving the logic when
             # (has_remote_code and trust_remote_code) == True
-            cls.__name__ = auto_model_class.__name__
+            cls.__name__ = hf_model_class.__name__
 
-        model = super(auto_model_class, cls).from_pretrained(
+        model = super(hf_model_class, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
 
@@ -143,7 +139,7 @@ def create_sparse_auto_model_class(auto_model_class_name):
     return new_class
 
 
-SparseAutoModelForCausalLM = create_sparse_auto_model_class("AutoModelForCausalLM")
+SparseAutoModelForCausalLM = wrap_hf_model_class(AutoModelForCausalLM)
 
 
 class SparseAutoModel:
