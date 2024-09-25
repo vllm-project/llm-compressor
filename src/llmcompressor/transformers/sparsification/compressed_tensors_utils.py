@@ -152,6 +152,7 @@ def patch_shared_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
 
     1. HF transformers will only recognize tied weights if their modules are
        exactly the same
+       https://github.com/huggingface/transformers/issues/33689
     2. HF transformers will sometimes tie weights despite `tie_word_embeddings=False`
 
     """
