@@ -278,6 +278,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         (False, torch.float16, True, "cpu"),
         (False, torch.float32, True, "cpu"),
         (False, torch.float32, True, "cuda:0"),
+        (True, torch.float16, True, "cpu"),
         (True, torch.float32, True, "cpu"),
     ],
 )
