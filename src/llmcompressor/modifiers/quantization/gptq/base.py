@@ -1,3 +1,4 @@
+import gc
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
@@ -8,12 +9,15 @@ from compressed_tensors.quantization import (
     freeze_module_quantization,
 )
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.modifiers.quantization.gptq.utils.gptq_wrapper import GPTQWrapper
+from llmcompressor.modifiers.quantization.gptq.utils import (
+    GPTQWrapper,
+    get_output_error,
+)
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
@@ -44,7 +48,7 @@ class GPTQModifier(Modifier):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
-    |          sequential_update: True
+    |          sequential_update: true
     |          dampening_frac: 0.001
     |          block_size: 128
     |          config_groups:
@@ -63,7 +67,7 @@ class GPTQModifier(Modifier):
 
 
     :param sequential_update: Whether or not to update weights sequentially by layer,
-        True saves on GPU memory
+        True saves on GPU memory, default is True
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
@@ -93,7 +97,7 @@ class GPTQModifier(Modifier):
         and activation 8 bit quantization on the Linear layers.
     """
 
-    sequential_update: Optional[bool] = False
+    sequential_update: bool = True
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -109,6 +113,17 @@ class GPTQModifier(Modifier):
     layer_compressors_: Optional[List[Any]] = None
     compressible_layers_: Optional[List] = None
     quantization_modifier_: Any = None
+
+    @field_validator("sequential_update", mode="before")
+    def validate_sequential_update(cls, value: bool) -> bool:
+        if not value:
+            logger.warning(
+                "Not using sequential_update requires allocating all hessians in "
+                "GPU memory. If you are running into GPU memory issues, consider "
+                "using sequential_update=True"
+            )
+
+        return value
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
@@ -242,9 +257,11 @@ class GPTQModifier(Modifier):
             args = self._pruning_arguments()
             comp_cls = self._compression_class()
             compressor = LayerCompressor(comp_cls, self.model, layer, idx, name, args)
+
+            # if running sequentially, allocate all hessians now
             if not self.sequential_update:
-                # add all batch processing hooks before the forward pass
                 compressor.pre_compress()
+
             self.layer_compressors_.append(compressor)
 
         if self.sequential_update:
@@ -279,21 +296,35 @@ class GPTQModifier(Modifier):
         )
         self.layer_compressors_[0].clear_early_stop()
 
+        # empty cache if not using sequential update
+        if not self.sequential_update:
+            del intermediates
+            gc.collect()
+            torch.cuda.empty_cache()
+
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):
             logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
-            # Prune/quantize using GPTQ
             if self.sequential_update:
                 # in sequential mode we run the forward pass for each transformer layer
                 # one at a time, caching the intermediate outputs between layers
-                layer_compressor.pre_compress()
                 logger.info(f"Calibrating {layer_compressor.name}...")
-                intermediates = layer_compressor.calibrate_layer(intermediates)
+                layer_compressor.pre_compress()
+                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
 
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
+
+            if self.sequential_update:
+                quantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                error = get_output_error(unquantized_outputs, quantized_outputs)
+                logger.info(f"Mean output error from quantization: {error:.3f}")
+                intermediates = quantized_outputs
+                del unquantized_outputs
+
+            gc.collect()
             torch.cuda.empty_cache()
 
         self.model.config.use_cache = forward_pass_use_cache
