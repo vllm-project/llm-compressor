@@ -182,6 +182,12 @@ def patch_shared_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
         tensor_groups = _find_shared_tensors(get_state_dict_offloaded_model(model))
         for tensor_group in tensor_groups:
             if len(tensor_group) > 1:
+                if not set(model._tied_weights_keys).intersection(tensor_group):
+                    raise ValueError(
+                        "Model contains unexpected shared tensors. Expected "
+                        f"{model._tied_weights_keys}, found {tensor_group}"
+                    )
+
                 for tensor_path in tensor_group:
                     tensor_parts = tensor_path.split(".")
                     parameter = reduce(getattr, tensor_parts, model)
