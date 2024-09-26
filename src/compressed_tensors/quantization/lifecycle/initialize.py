@@ -75,7 +75,10 @@ def initialize_module_for_quantization(
 
         if scheme.input_activations is not None:
             _initialize_scale_zero_point_observer(
-                module, "input", scheme.input_activations
+                module,
+                "input",
+                scheme.input_activations,
+                force_zero_point=force_zero_point,
             )
         if scheme.weights is not None:
             if hasattr(module, "weight"):
@@ -83,7 +86,11 @@ def initialize_module_for_quantization(
                 if isinstance(module, torch.nn.Linear):
                     weight_shape = module.weight.shape
                 _initialize_scale_zero_point_observer(
-                    module, "weight", scheme.weights, weight_shape=weight_shape
+                    module,
+                    "weight",
+                    scheme.weights,
+                    weight_shape=weight_shape,
+                    force_zero_point=force_zero_point,
                 )
             else:
                 _LOGGER.warning(
