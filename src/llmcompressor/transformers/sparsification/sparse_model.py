@@ -31,7 +31,16 @@ __all__ = [
 ]
 
 
-def wrap_hf_model_class(hf_model_class: PreTrainedModel):
+def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
+    """
+    Wrap a HF PreTrainedModel class to
+    1. Decompress a compressed model
+    2. Initialize any saved recipes
+    3. Wrap the `save_pretrained` method to allow saving as a compressed model
+    
+    :param hf_model_class: Model class to wrap
+    :return: Wrapped model class
+    """
     # Define the new class
     new_class = type(hf_model_class.__name__, (hf_model_class,), {})
 
