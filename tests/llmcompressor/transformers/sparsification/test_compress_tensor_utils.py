@@ -220,13 +220,9 @@ def test_quant_model_reload(format, dtype, tmp_path):
         # dtype
         (False, torch.float16, False, "cpu"),
         (False, torch.float16, True, "cpu"),
-        # (False, torch.float32, False, "cpu"),  # fails, to be fixed in #659
         (False, torch.float32, True, "cpu"),
         # offloading
         (True, torch.float16, False, "cpu"),
-        # (True, torch.float32, False, "cpu"),  # fails, to be fixed in #659
-        # (True, torch.float16, True, "cpu"),   # fails, to be fixed in #659
-        # (True, torch.float32, True, "cpu"),  # fails, to be fixed in #659
         # gpu
         (False, torch.float32, False, "cuda:0"),
         (True, torch.float32, False, "cuda:0"),
