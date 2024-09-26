@@ -37,12 +37,10 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
     1. Decompress a compressed model
     2. Initialize any saved recipes
     3. Wrap the `save_pretrained` method to allow saving as a compressed model
-    
+
     :param hf_model_class: Model class to wrap
     :return: Wrapped model class
     """
-    # Define the new class
-    new_class = type(hf_model_class.__name__, (hf_model_class,), {})
 
     # Add the from_pretrained class method
     @classmethod
@@ -54,6 +52,15 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
         *model_args,
         **kwargs,
     ) -> PreTrainedModel:
+        """
+        A wrapper around the PreTrainedModel.from_pretrained method
+
+        :param pretrained_model_name_or_path: the name of or path to the model to load
+        :param recipe: the path to the recipe file to apply to the model. Can be a
+            string or Path object. If None, a recipe will be searched for in the
+            pretrained_model_name_or_path directory and applied if found
+        :return the created model for causal language modeling
+        """
         def skip(*args, **kwargs):
             pass
 
@@ -85,9 +92,9 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
         transformers_logger.setLevel(level=logging.ERROR)
 
         if kwargs.get("trust_remote_code"):
-            # By artifically aliasing
-            # class name SparseCLASSNAME to
-            # CLASSNAME we can "trick" the
+            # By artifically aliasing the
+            # class name to the
+            # hf_model_class we can "trick" the
             # `from_pretrained` method into properly
             # resolving the logic when
             # (has_remote_code and trust_remote_code) == True
@@ -147,10 +154,16 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
 
         return model
 
-    # Add the from_pretrained method to the new class
-    setattr(new_class, 'from_pretrained', from_pretrained)
+    # Add the wrapped methods to the new class
+    wrapped_model_class = type(
+        hf_model_class.__name__,
+        (hf_model_class,),
+        {
+            "from_pretrained": from_pretrained
+        }
+    )
 
-    return new_class
+    return wrapped_model_class
 
 
 SparseAutoModelForCausalLM = wrap_hf_model_class(AutoModelForCausalLM)
