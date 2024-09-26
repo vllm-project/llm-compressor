@@ -216,6 +216,11 @@ class ModelCompressor:
         self.sparsity_compressor = None
         self.quantization_compressor = None
 
+
+        if sparsity_config and sparsity_config.format == CompressionFormat.dense.value:
+            # ignore dense sparsity config
+            self.sparsity_config = None
+
         if sparsity_config is not None:
             self.sparsity_compressor = Compressor.load_from_registry(
                 sparsity_config.format, config=sparsity_config
