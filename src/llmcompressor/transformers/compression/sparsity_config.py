@@ -84,6 +84,9 @@ class SparsityConfigMetadata:
         :param compress: whether or not to compress the model on disk
         :return: compression config inferred from the model
         """
+        if is_model_quantized(model):
+            # compressing a sparse quantized model is not supported yet
+            return None
 
         global_sparsity = SparsityConfigMetadata.infer_global_sparsity(
             model, state_dict=state_dict
@@ -95,10 +98,8 @@ class SparsityConfigMetadata:
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
             model=model
         )
-        if is_model_quantized(model):
-            # compressing a sparse quantized model is not supported yet
-            format = CompressionFormat.dense.value
-        elif compress:
+
+        if compress:
             format = CompressionFormat.sparse_bitmask.value
         else:
             format = CompressionFormat.dense.value
