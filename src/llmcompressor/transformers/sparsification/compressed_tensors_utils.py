@@ -94,11 +94,16 @@ def modify_save_pretrained(model: PreTrainedModel):
                     model, state_dict=state_dict, compress=False
                 )
 
+            sparsity_structure = (
+                sparsity_config.sparsity_structure
+                if sparsity_config is not None
+                else SparsityConfigMetadata.infer_sparsity_structure(model)
+            )
             quantization_format = infer_quantization_format(
                 model=model,
                 quantization_format=quantization_format,
                 save_compressed=save_compressed,
-                sparsity_config=sparsity_config,
+                sparsity_structure=sparsity_structure,
             )
             compressor = ModelCompressor.from_pretrained_model(
                 model,
