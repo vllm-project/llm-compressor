@@ -490,3 +490,25 @@ def download_model_directory(pretrained_model_name_or_path: str, **kwargs):
         return download_repo_from_huggingface_hub(
             repo_id=pretrained_model_name_or_path, **kwargs
         )
+
+
+class FastModelInitialization():
+    kaiming_uniform_ = torch.nn.init.kaiming_uniform_
+    uniform_ = torch.nn.init.uniform_
+    normal_ = torch.nn.init.normal_
+
+    def __enter__(self):
+        # Skip the initializer step. This accelerates the loading
+        # of the models, especially for the quantized models
+        torch.nn.init.kaiming_uniform_ = self.skip
+        torch.nn.init.uniform_ = self.skip
+        torch.nn.init.normal_ = self.skip
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        # restore original functions
+        torch.nn.init.kaiming_uniform_ = self.kaiming_uniform_
+        torch.nn.init.uniform_ = self.uniform_
+        torch.nn.init.normal_ = self.normal_
+
+    def skip(self, *args, **kwargs):
+        pass
