@@ -120,10 +120,11 @@ def modify_save_pretrained(model: PreTrainedModel):
 
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
-                state_dict = compressor.compress(model, state_dict)
+                compressed_state_dict = compressor.compress(model, state_dict)
 
+                kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
                 original_save_pretrained.__get__(model, model_class)(
-                    save_directory, state_dict=state_dict, **kwargs
+                    save_directory, state_dict=compressed_state_dict, **kwargs
                 )
                 compressor.update_config(save_directory)
 
