@@ -3,6 +3,7 @@ import enum
 import logging
 import os
 import unittest
+from pathlib import Path
 from subprocess import PIPE, STDOUT, run
 from typing import List, Optional, Union
 
@@ -113,7 +114,7 @@ def parse_params(
     return config_dicts
 
 
-def run_cli_command(cmd: List[str]):
+def run_cli_command(cmd: List[str], cwd: Optional[Union[str, Path]] = None):
     """
     Run a cli command and return the response. The cli command is launched through a new
     subprocess.
@@ -121,7 +122,7 @@ def run_cli_command(cmd: List[str]):
     :param cmd: cli command provided as a list of arguments where each argument
         should be a string
     """
-    return run(cmd, stdout=PIPE, stderr=STDOUT, check=False, encoding="utf-8")
+    return run(cmd, stdout=PIPE, stderr=STDOUT, check=False, encoding="utf-8", cwd=cwd)
 
 
 def preprocess_tokenize_dataset(
