@@ -13,7 +13,7 @@ from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.pytorch.model_load.helpers import initialize_recipe
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+from llmcompressor.transformers.utils.compressed_tensors_utils import (
     modify_save_pretrained,
 )
 from llmcompressor.transformers.utils.helpers import (
