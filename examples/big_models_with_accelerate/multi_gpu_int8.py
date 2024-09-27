@@ -58,8 +58,11 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # 3) Configure algorithms. In this case, we:
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
+#   * run non-sequentially (for seq update, see multi_gpu_int8_sequential_update.py)
 recipe = [
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+    GPTQModifier(
+        targets="Linear", scheme="W8A8", ignore=["lm_head"], sequential_update=False
+    ),
 ]
 
 # 4) Apply algorithms and save in `compressed-tensors` format.
