@@ -6,7 +6,6 @@ from tests.examples.utils import (
     ReadMe,
     copy_and_run_script,
     gen_cmd_fail_message,
-    requires_gpu,
     requires_gpu_count,
     requires_gpu_mem,
 )
@@ -57,7 +56,7 @@ class TestBigModelsWithAccelerate:
             ),
         ],
     )
-    @requires_gpu
+    @requires_gpu_count(1)
     def test_example_scripts(
         self,
         example_dir: str,

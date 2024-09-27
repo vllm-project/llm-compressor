@@ -8,7 +8,7 @@ from tests.examples.utils import (
     copy_and_run_command,
     copy_and_run_script,
     gen_cmd_fail_message,
-    requires_gpu,
+    requires_gpu_count,
 )
 
 
@@ -18,7 +18,7 @@ def example_dir() -> str:
 
 
 @pytest.mark.example
-@requires_gpu
+@requires_gpu_count(1)
 class TestQuantizationW8A8_Int8:
     """
     Tests for examples in the "quantization_w8a8_int8" example folder.

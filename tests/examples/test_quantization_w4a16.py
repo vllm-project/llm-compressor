@@ -7,7 +7,7 @@ from tests.examples.utils import (
     ReadMe,
     copy_and_run_command,
     gen_cmd_fail_message,
-    requires_gpu,
+    requires_gpu_count,
 )
 
 
@@ -17,7 +17,7 @@ def example_dir() -> str:
 
 
 @pytest.mark.example
-@requires_gpu
+@requires_gpu_count(1)
 class TestQuantizationW4A16:
     """
     Tests for examples in the "quantization_w4a16" example folder.

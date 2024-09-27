@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.examples.utils import copy_and_run_script, gen_cmd_fail_message, requires_gpu
+from tests.examples.utils import (
+    copy_and_run_script,
+    gen_cmd_fail_message,
+    requires_gpu_count,
+)
 
 
 @pytest.fixture
@@ -11,7 +15,7 @@ def example_dir() -> str:
 
 
 @pytest.mark.example
-@requires_gpu
+@requires_gpu_count(1)
 class TestTRLMixin:
     """
     Tests for examples in the "trl_mixin" example folder.

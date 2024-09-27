@@ -9,7 +9,7 @@ from tests.examples.utils import (
     ReadMe,
     copy_and_run_command,
     gen_cmd_fail_message,
-    requires_gpu,
+    requires_gpu_count,
 )
 from tests.testing_utils import run_cli_command
 
@@ -20,7 +20,7 @@ def example_dir() -> str:
 
 
 @pytest.mark.example
-@requires_gpu
+@requires_gpu_count(1)
 class TestQuantization24SparseW4A16:
     """
     Tests for examples in the "quantization_24_sparse_w4a16" example folder.

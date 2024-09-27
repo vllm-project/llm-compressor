@@ -10,11 +10,9 @@ import pytest
 from bs4 import BeautifulSoup, ResultSet, Tag
 from cmarkgfm import github_flavored_markdown_to_html as gfm_to_html
 
-from tests.testing_utils import is_gpu_available, run_cli_command
+from tests.testing_utils import run_cli_command
 
 _T = TypeVar("_T")
-
-requires_gpu = pytest.mark.skipif(not is_gpu_available(), reason="GPU is required")
 
 
 def requires_gpu_count(num_required_gpus: int) -> pytest.MarkDecorator:
