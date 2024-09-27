@@ -4,6 +4,7 @@ huggingface/transformers flows
 """
 
 import inspect
+import logging
 import os
 from collections import OrderedDict
 from contextlib import suppress
@@ -34,6 +35,7 @@ __all__ = [
     "POSSIBLE_TOKENIZER_FILES",
     "download_repo_from_huggingface_hub",
     "download_model_directory",
+    "FastInitialization",
 ]
 
 
@@ -492,10 +494,13 @@ def download_model_directory(pretrained_model_name_or_path: str, **kwargs):
         )
 
 
-class FastModelInitialization():
+class FastInitialization:
     kaiming_uniform_ = torch.nn.init.kaiming_uniform_
     uniform_ = torch.nn.init.uniform_
     normal_ = torch.nn.init.normal_
+
+    transformers_logger = logging.getLogger("transformers.modeling_utils")
+    restore_log_level = transformers_logger.getEffectiveLevel()
 
     def __enter__(self):
         # Skip the initializer step. This accelerates the loading
@@ -504,11 +509,18 @@ class FastModelInitialization():
         torch.nn.init.uniform_ = self.skip
         torch.nn.init.normal_ = self.skip
 
+        # temporarily set the log level to error, to ignore printing out long missing
+        # and unexpected key error messages (these are EXPECTED for quantized models)
+        self.transformers_logger.setLevel(level=logging.ERROR)
+
     def __exit__(self, _exc_type, _exc_val, _exc_tb):
         # restore original functions
         torch.nn.init.kaiming_uniform_ = self.kaiming_uniform_
         torch.nn.init.uniform_ = self.uniform_
         torch.nn.init.normal_ = self.normal_
+
+        # restore transformers logging level now that model shell is loaded
+        self.transformers_logger.setLevel(level=self.restore_log_level)
 
     def skip(self, *args, **kwargs):
         pass

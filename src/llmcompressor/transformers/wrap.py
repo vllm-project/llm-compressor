@@ -1,8 +1,6 @@
-import logging
 from pathlib import Path
 from typing import Optional, Union
 
-import torch
 from accelerate import load_checkpoint_and_dispatch
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.quantization import (
@@ -17,6 +15,7 @@ from llmcompressor.transformers.utils.compressed_tensors_utils import (
     modify_save_pretrained,
 )
 from llmcompressor.transformers.utils.helpers import (
+    FastInitialization,
     download_model_directory,
     resolve_recipe,
 )
@@ -54,16 +53,6 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
             pretrained_model_name_or_path directory and applied if found
         :return the created model for causal language modeling
         """
-
-        def skip(*args, **kwargs):
-            pass
-
-        # Skip the initializer step. This accelerates the loading
-        # of the models, especially for the quantized models
-        torch.nn.init.kaiming_uniform_ = skip
-        torch.nn.init.uniform_ = skip
-        torch.nn.init.normal_ = skip
-
         pretrained_model_name_or_path = (
             pretrained_model_name_or_path.as_posix()
             if isinstance(pretrained_model_name_or_path, Path)
@@ -79,12 +68,6 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
             pretrained_model_name_or_path, **kwargs
         )
 
-        # temporarily set the log level to error, to ignore printing out long missing
-        # and unexpected key error messages (these are EXPECTED for quantized models)
-        transformers_logger = logging.getLogger("transformers.modeling_utils")
-        restore_log_level = transformers_logger.getEffectiveLevel()
-        transformers_logger.setLevel(level=logging.ERROR)
-
         if kwargs.get("trust_remote_code"):
             # By artifically aliasing the
             # class name to the
@@ -94,9 +77,10 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
             # (has_remote_code and trust_remote_code) == True
             cls.__name__ = hf_model_class.__name__
 
-        model = super(hf_model_class, cls).from_pretrained(
-            pretrained_model_name_or_path, *model_args, **kwargs
-        )
+        with FastInitialization():
+            model = super(hf_model_class, cls).from_pretrained(
+                pretrained_model_name_or_path, *model_args, **kwargs
+            )
 
         if model.dtype != model.config.torch_dtype:
             logger.warning(
@@ -106,9 +90,6 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
                 "To load the model in the format that it was previously saved in, "
                 "set torch_dtype=`auto` in the SparseAutoModel creation call."
             )
-
-        # restore transformers logging level now that model shell is loaded
-        transformers_logger.setLevel(level=restore_log_level)
 
         # HfQuantizer Quantization
         if hasattr(model.config, "quantization_config"):
