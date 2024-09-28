@@ -66,11 +66,15 @@ setup(
     ],
     extras_require={
         "dev": [
-            # testing
+            # testing framework
             "pytest>=6.0.0",
             "pytest-mock>=3.6.0",
             "pytest-rerunfailures>=13.0",
             "parameterized",
+            # example test dependencies
+            "beautifulsoup4~=4.12.3",
+            "cmarkgfm~=2024.1.14",
+            "trl>=0.10.1",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
