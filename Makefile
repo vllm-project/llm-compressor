@@ -12,6 +12,9 @@ endif
 ifneq ($(findstring pytorch,$(TARGETS)),pytorch)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/llmcompressor/pytorch
 endif
+ifneq ($(findstring examples,$(TARGETS)),examples)
+    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/examples
+endif
 
 # run checks on all files for the repo
 # leaving out mypy src for now
