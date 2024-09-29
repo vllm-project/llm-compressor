@@ -27,7 +27,7 @@ __all__ = [
     "wrap_hf_model_class",
     "SparseAutoModel",
     "SparseAutoModelForCausalLM",
-    "get_shared_tokenizer_src",
+    "get_shared_tokenizer_src"
 ]
 
 
@@ -61,7 +61,6 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
             pretrained_model_name_or_path directory and applied if found
         :return the created model for causal language modeling
         """
-
         def skip(*args, **kwargs):
             pass
 
@@ -157,7 +156,11 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
 
     # Add the wrapped methods to the new class
     wrapped_model_class = type(
-        hf_model_class.__name__, (hf_model_class,), {"from_pretrained": from_pretrained}
+        hf_model_class.__name__,
+        (hf_model_class,),
+        {
+            "from_pretrained": from_pretrained
+        }
     )
 
     return wrapped_model_class
