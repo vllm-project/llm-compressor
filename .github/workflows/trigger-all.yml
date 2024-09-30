@@ -8,16 +8,16 @@ on:
     workflow_dispatch:
         inputs:
             wf_category:
-                description: "workflow category, default is NIGHTLY"
+                description: "workflow category, default is RELEASE"
                 type: choice
                 options:
                     - NIGHTLY
                     - RELEASE
-                default: NIGHTLY
+                default: RELEASE
             push_to_pypi:
                 description: "when set and tests pass, then '.whl' & '.tar.gz' will be pushed to public pypi"
                 type: boolean
-                default: true
+                default: false
             gitref:
                 description: "git commit hash or tag name" 
                 type: string
@@ -27,11 +27,11 @@ jobs:
 
     BUILD-TEST:
         uses: ./.github/workflows/build-test.yml
-        name: ${{ inputs.wf_category || 'NIGHTLY' }}
+        name: ${{ inputs.wf_category || 'RELEASE' }}
         with:
-            wf_category: ${{ inputs.wf_category || 'NIGHTLY' }}
+            wf_category: ${{ inputs.wf_category || 'RELEASE' }}
             gitref: ${{ inputs.gitref || 'main' }}
-            push_to_pypi: ${{ inputs.push_to_pypi || true }}
+            push_to_pypi: ${{ inputs.push_to_pypi || false }}
             test_configs: '[{"python":"3.11.4","label":"ubuntu-22.04","timeout":"40"},
                             {"python":"3.10.12","label":"ubuntu-20.04","timeout":"40"},
                             {"python":"3.9.17","label":"k8s-a100-solo","timeout":"40"},

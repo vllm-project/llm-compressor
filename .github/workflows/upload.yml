@@ -117,6 +117,7 @@ jobs:
                 asset_identifier: 'compressed*.whl'
 
             - name: upload whl to "nm-pypi"
+              if: ${{ inputs.push_to_pypi }}
               uses: neuralmagic/nm-actions/actions/gcp-upload-asset@v1.1.0
               with:
                 bucket_target: ${{ secrets.GCP_NM_PYPI_DIST }}
@@ -130,6 +131,7 @@ jobs:
                 asset_identifier: 'compressed*.tar.gz'
 
             - name: upload tar.gz to "nm-pypi"
+              if: ${{ inputs.push_to_pypi }}
               uses: neuralmagic/nm-actions/actions/gcp-upload-asset@v1.1.0
               with:
                 bucket_target: ${{ secrets.GCP_NM_PYPI_DIST }}
