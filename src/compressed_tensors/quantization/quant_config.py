@@ -201,6 +201,13 @@ class QuantizationConfig(BaseModel):
         if len(quant_scheme_to_layers) == 0:  # No quantized layers
             return None
 
+        # kv-cache only, no weight/activation quantization
+        if (
+            len(quantization_type_names) == 1
+            and "attention" in list(quantization_type_names)[0].lower()
+        ):
+            quantization_type_names.add("Linear")
+
         # clean up ignore list, we can leave out layers types if none of the
         # instances are quantized
         consolidated_ignore = []
