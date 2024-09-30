@@ -72,9 +72,6 @@ class QuantizationModifier(Modifier):
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
 
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.end and self.end != -1:
             raise ValueError(
@@ -99,9 +96,6 @@ class QuantizationModifier(Modifier):
 
         return True
 
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        return True
-
     def on_start(self, state: State, event: Event, **kwargs):
         module = state.model
         module.apply(set_module_for_calibration)
@@ -115,9 +109,6 @@ class QuantizationModifier(Modifier):
     def on_end(self, state: State, event: Event, **kwargs):
         module = state.model
         module.apply(freeze_module_quantization)
-
-    def on_event(self, state: State, event: Event, **kwargs):
-        pass
 
     def create_init_config(self) -> QuantizationConfig:
         if self.targets is not None and isinstance(self.targets, str):
