@@ -28,7 +28,8 @@ WNA16 = "tests/e2e/vLLM/configs/WNA16"
 FP8 = "tests/e2e/vLLM/configs/FP8"
 INT8 = "tests/e2e/vLLM/configs/INT8"
 ACTORDER = "tests/e2e/vLLM/configs/actorder"
-CONFIGS = [WNA16, FP8, INT8, ACTORDER]
+KV_CACHE = "tests/e2e/vLLM/configs/kv_cache"
+CONFIGS = [WNA16, FP8, INT8, ACTORDER, KV_CACHE]
 
 
 @requires_gpu
