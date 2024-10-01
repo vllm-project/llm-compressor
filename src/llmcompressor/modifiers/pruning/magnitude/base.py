@@ -35,9 +35,6 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
     mask_creator_function_: MaskCreatorType = None
     current_sparsity_: float = None
 
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass  # nothing needed for this modifier
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.apply_globally:
             raise NotImplementedError("global pruning not implemented yet for PyTorch")

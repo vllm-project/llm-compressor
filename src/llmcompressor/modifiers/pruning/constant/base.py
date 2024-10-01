@@ -20,9 +20,6 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
     _save_masks: bool = False
     _use_hooks: bool = False
 
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass  # nothing needed for this modifier
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         if "save_masks" in kwargs:
             self._save_masks = kwargs["save_masks"]

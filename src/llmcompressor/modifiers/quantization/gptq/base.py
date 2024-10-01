@@ -12,7 +12,7 @@ from loguru import logger
 from pydantic import Field, field_validator
 from torch.nn import Module
 
-from llmcompressor.core.state import State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils import (
     GPTQWrapper,
@@ -129,6 +129,8 @@ class GPTQModifier(Modifier):
         """
         Check the model's quantization state matches that expected by this modifier,
         adding a default quantization scheme if needed
+
+        TODO: Depreciate and fold into `on_initialize`
 
         :param state: session state storing input model and calibration data
         """
