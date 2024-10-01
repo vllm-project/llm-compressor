@@ -223,11 +223,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
         (False, torch.float32, True, "cpu"),
         # offloading
         (True, torch.float16, False, "cpu"),
-        # gpu
-        (False, torch.float32, False, "cuda:0"),
-        (True, torch.float32, False, "cuda:0"),
-        (True, torch.float16, True, "cuda:0"),
-        (True, torch.float32, True, "cuda:0"),
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
@@ -254,3 +249,19 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     assert model_dict.keys() == reloaded_dict.keys()
     for key in model_dict:
         assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires gpu")
+@pytest.mark.parametrize(
+    "offload,torch_dtype,tie_word_embeddings,device_map",
+    [
+        (False, torch.float32, False, "cuda:0"),
+        (True, torch.float32, False, "cuda:0"),
+        (True, torch.float16, True, "cuda:0"),
+        (True, torch.float32, True, "cuda:0"),
+    ],
+)
+def test_model_reload_gpu(
+    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+):
+    test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path)
