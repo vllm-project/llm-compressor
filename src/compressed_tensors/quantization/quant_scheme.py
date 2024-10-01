@@ -211,7 +211,7 @@ PRESET_SCHEMES = {
     "W4A16": W4A16,
     # Integer weight and activation schemes
     "W8A8": INT8_W8A8,
-    "INT8": INT8_W8A8, # alias for W8A8
+    "INT8": INT8_W8A8,  # alias for W8A8
     "W4A8": INT8_W4A8,
     # Float weight and activation schemes
     "FP8": FP8,
