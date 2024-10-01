@@ -228,11 +228,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
         (True, torch.float32, False, "cpu"),
         # (True, torch.float16, True, "cpu"),  # TODO: fails
         # (True, torch.float32, True, "cpu"),  # TODO: fails
-        # gpu
-        (False, torch.float32, False, "cuda:0"),
-        (True, torch.float32, False, "cuda:0"),
-        (True, torch.float16, True, "cuda:0"),
-        (True, torch.float32, True, "cuda:0"),
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
@@ -261,16 +256,30 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires gpu")
+@pytest.mark.parametrize(
+    "offload,torch_dtype,tie_word_embeddings,device_map",
+    [
+        (False, torch.float32, False, "cuda:0"),
+        (True, torch.float32, False, "cuda:0"),
+        (True, torch.float16, True, "cuda:0"),
+        (True, torch.float32, True, "cuda:0"),
+    ],
+)
+def test_model_reload_gpu(
+    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+):
+    test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path)
+
+
 @pytest.mark.parametrize(
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
         (False, torch.float16, False, "cpu"),
         (False, torch.float32, False, "cpu"),
-        (False, torch.float32, False, "cuda:0"),
         (True, torch.float32, False, "cpu"),
         (False, torch.float16, True, "cpu"),
         (False, torch.float32, True, "cpu"),
-        (False, torch.float32, True, "cuda:0"),
         (True, torch.float16, True, "cpu"),
         (True, torch.float32, True, "cpu"),
     ],
@@ -308,3 +317,19 @@ def test_model_shared_tensors(
         assert torch.equal(lm_head, embed_tokens)
     else:
         assert not torch.equal(lm_head, embed_tokens)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires gpu")
+@pytest.mark.parametrize(
+    "offload,torch_dtype,tie_word_embeddings,device_map",
+    [
+        (False, torch.float32, False, "cuda:0"),
+        (False, torch.float32, True, "cuda:0"),
+    ],
+)
+def test_model_shared_tensors_gpu(
+    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+):
+    test_model_shared_tensors(
+        offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+    )
