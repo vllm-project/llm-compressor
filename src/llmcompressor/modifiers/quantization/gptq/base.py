@@ -48,7 +48,6 @@ class GPTQModifier(Modifier):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
-    |          sequential_update: true
     |          dampening_frac: 0.001
     |          block_size: 128
     |          config_groups:
@@ -66,8 +65,8 @@ class GPTQModifier(Modifier):
     |                    actorder: False
 
 
-    :param sequential_update: Whether or not to update weights sequentially by layer,
-        setting to False is no longer supported.
+    :param sequential_update: Whether or not to update weights sequentially by layer.
+        This option is depreciated and setting to False is no longer supported
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
