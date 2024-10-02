@@ -6,7 +6,6 @@ from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.quantization.cache import KVCacheScaleType
 from compressed_tensors.quantization.utils.helpers import iter_named_quantizable_modules
 from datasets import load_dataset
-from safetensors import safe_open
 from transformers import AutoTokenizer
 
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
