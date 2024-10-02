@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 from transformers import AutoConfig
@@ -23,6 +23,7 @@ __all__ = [
     "fix_fsdp_module_name",
     "tensor_follows_mask_structure",
     "replace_module",
+    "is_compressed_tensors_config",
 ]
 
 FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
@@ -103,3 +104,18 @@ def replace_module(model: torch.nn.Module, name: str, new_module: torch.nn.Modul
         parent = model
         child_name = name
     setattr(parent, child_name, new_module)
+
+
+def is_compressed_tensors_config(compression_config: Any) -> bool:
+    """
+    Returns True if CompressedTensorsConfig is available from transformers and
+    compression_config is an instance of CompressedTensorsConfig
+
+    See: https://github.com/huggingface/transformers/pull/31704
+    """
+    try:
+        from transformers.utils.quantization_config import CompressedTensorsConfig
+
+        return isinstance(compression_config, CompressedTensorsConfig)
+    except ImportError:
+        return False
