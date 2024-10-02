@@ -206,6 +206,7 @@ def calculate_offload_device_map(
     model_stub: str,
     reserve_for_hessians=False,
     num_gpus: Optional[int] = None,
+    gpu_ids: Optional[List[int]] = None,
     torch_dtype: torch.dtype = torch.float16,
     **model_kwargs,
 ) -> Dict[Union[int, str], Union[int, str]]:
@@ -214,21 +215,31 @@ def calculate_offload_device_map(
     into account extra memory required for quantization and (optionally) GPTQ hessians
 
     :param model_stub: local path or HF stub to calculate mapping for
-    :param reserve_for_hessians: whether to reserve memory for GPTQ
+    :param reserve_for_hessians: whether to reserve memory for GPTQ/OBCQ
     :param num_gpus: number of gpus to utilize, defaults to max available
+    :param gpu_ids: list of gpu device ids to utilize, overrides num_gpus if provided
+    :param torch_dtype: datatype in which model weights are to be loaded with
     :param model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
     max_cpu_memory = psutil.virtual_memory().available
-    max_gpu_memory = torch.cuda.mem_get_info(0)[0]
     available_gpus = torch.cuda.device_count()
-    if num_gpus is None:
-        num_gpus = available_gpus
-    elif num_gpus >= available_gpus:
+    if gpu_ids is None:
+        if num_gpus is None:
+            num_gpus = available_gpus
+        gpu_ids = range(num_gpus)
+    else:
+        num_gpus = len(gpu_ids)
+
+    if num_gpus > available_gpus:
         raise ValueError(
             f"Requested {num_gpus} GPUs but only {available_gpus} are available."
         )
-    max_gpu_memory = [max_gpu_memory] * num_gpus
+
+    max_gpu_memory = {
+        device_id: torch.cuda.mem_get_info(device_id)[0]
+        for device_id in gpu_ids
+    }
 
     device_map = {}
     with init_empty_weights():
@@ -243,7 +254,7 @@ def calculate_offload_device_map(
 
         memory_limits = {
             idx: (max_memory - reserved_memory)
-            for idx, max_memory in enumerate(max_gpu_memory)
+            for idx, max_memory in max_gpu_memory.items()
         }
         memory_limits["cpu"] = max_cpu_memory
 
