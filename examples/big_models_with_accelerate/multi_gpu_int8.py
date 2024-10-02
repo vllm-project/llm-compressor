@@ -1,17 +1,20 @@
+import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
 
 # 1) Load model (device_map="auto" with shard the model over multiple GPUs!).
+# adjust based off number of desired GPUs
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
-    torch_dtype="auto",
+    torch_dtype=torch.bfloat16,
     trust_remote_code=True,
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -58,14 +61,15 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # 3) Configure algorithms. In this case, we:
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
-#   * run non-sequentially (for seq update, see multi_gpu_int8_sequential_update.py)
 recipe = [
     GPTQModifier(
-        targets="Linear", scheme="W8A8", ignore=["lm_head"], sequential_update=False
+        targets="Linear", scheme="W8A8", ignore=["lm_head"]
     ),
 ]
 
 # 4) Apply algorithms and save in `compressed-tensors` format.
+# if you encounter GPU out-of-memory issues, consider using an explicit
+# device map (see multi_gpus_int8_device_map.py)
 oneshot(
     model=model,
     tokenizer=tokenizer,
