@@ -14,7 +14,6 @@ recipe_str = """
 quant_stage:
     quant_modifiers:
         GPTQModifier:
-            sequential_update: false
             ignore: ["lm_head"]
             config_groups:
                 group_0:
@@ -28,7 +27,6 @@ quant_stage:
 
 recipe_modifier_full = GPTQModifier(
     ignore=["lm_head"],
-    sequential_update=False,
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"], weights=QuantizationArgs(num_bits=4, strategy="channel")
@@ -37,11 +35,11 @@ recipe_modifier_full = GPTQModifier(
 )
 
 recipe_modifier_shorthand_a = GPTQModifier(
-    ignore=["lm_head"], sequential_update=False, targets="Linear", scheme="W4A16"
+    ignore=["lm_head"], targets="Linear", scheme="W4A16"
 )
 
 recipe_modifier_shorthand_b = GPTQModifier(
-    ignore=["lm_head"], sequential_update=False, scheme={"W4A16": ["Linear"]}
+    ignore=["lm_head"], scheme={"W4A16": ["Linear"]}
 )
 
 
