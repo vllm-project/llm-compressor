@@ -62,7 +62,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(
-        targets="Linear", scheme="W8A8", ignore=["lm_head"],
+        targets="Linear",
+        scheme="W8A8",
+        ignore=["lm_head"],
     ),
 ]
 

@@ -4,7 +4,6 @@ from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
@@ -62,9 +61,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
 recipe = [
-    GPTQModifier(
-        targets="Linear", scheme="W8A8", ignore=["lm_head"]
-    ),
+    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
 ]
 
 # 4) Apply algorithms and save in `compressed-tensors` format.
