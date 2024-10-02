@@ -113,7 +113,7 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
 def hessian_memory_requirements(model: torch.nn.Module) -> int:
     """
     Determines the number of bytes needed to store Hessian data for a single
-    transformer layer in model. This is used for reserving memory for GPTQ
+    transformer layer in model. This is used for reserving memory for GPTQ/OBCQ
     quantization
 
     :param model: model to calculate requirements for
