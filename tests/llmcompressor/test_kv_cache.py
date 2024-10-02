@@ -8,6 +8,7 @@ from compressed_tensors.quantization.utils.helpers import iter_named_quantizable
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
+from llmcompressor.core import reset_session
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 MODEL_IDS = [
@@ -51,55 +52,55 @@ def oneshot_fixture():
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        model_args = dict()
         for model_id in MODEL_IDS:
-            oneshot_args["output_dir"] = os.path.join(tmpdir, model_id)
-            used_args["output_dir"] = oneshot_args["output_dir"]
-            yield oneshot(model=model_id, **oneshot_args), used_args
+            output_path = os.path.join(tmpdir, model_id.split(os.path.sep)[-1])
+            oneshot_args["output_dir"] = output_path
+            model_args[output_path] = used_args
+            oneshot(model=model_id, **oneshot_args)
+            reset_session()
+
+        yield model_args
 
 
 def test_kv_cache_config_format(oneshot_fixture):
-    _, used_args = oneshot_fixture
+    for output_dir, used_args in oneshot_fixture.items():
+        compressor = ModelCompressor.from_pretrained(output_dir)
+        # check config is properly populated
+        quant_config = compressor.quantization_config
+        assert quant_config is not None
+        assert quant_config.kv_cache_scheme is not None
 
-    output_dir = used_args["output_dir"]
-
-    compressor = ModelCompressor.from_pretrained(output_dir)
-    # check config is properly populated
-    quant_config = compressor.quantization_config
-    assert quant_config is not None
-    assert quant_config.kv_cache_scheme is not None
-
-    # check the values match
-    scheme = quant_config.kv_cache_scheme
-    assert scheme.num_bits == used_args["num_bits"]
-    assert scheme.type == used_args["_type"]
-    assert scheme.strategy == used_args["strategy"]
-    assert scheme.dynamic == used_args["dynamic"]
-    assert scheme.symmetric == used_args["symmetric"]
+        # check the values match
+        scheme = quant_config.kv_cache_scheme
+        assert scheme.num_bits == used_args["num_bits"]
+        assert scheme.type == used_args["_type"]
+        assert scheme.strategy == used_args["strategy"]
+        assert scheme.dynamic == used_args["dynamic"]
+        assert scheme.symmetric == used_args["symmetric"]
 
 
 def test_kv_cache_model_state_dict_attr(oneshot_fixture):
-    model, used_args = oneshot_fixture
+    for output_dir, _ in oneshot_fixture.items():
+        model = SparseAutoModelForCausalLM.from_pretrained(output_dir)
 
-    output_dir = used_args["output_dir"]
-    model = SparseAutoModelForCausalLM.from_pretrained(output_dir)
+        counts = 0
+        for name, submodule in iter_named_quantizable_modules(
+            model, include_children=False, include_attn=True
+        ):
+            counts += 1
+            assert "self_attn" in name
+            assert hasattr(submodule, KVCacheScaleType.VALUE.value)
+            assert hasattr(submodule, KVCacheScaleType.KEY.value)
 
-    counts = 0
-    for name, submodule in iter_named_quantizable_modules(
-        model, include_children=False, include_attn=True
-    ):
-        counts += 1
-        assert "self_attn" in name
-        assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-        assert hasattr(submodule, KVCacheScaleType.KEY.value)
-
-    assert counts > 0
+        assert counts > 0
 
 
 def test_kv_cache_model_populate_kv_scales_only(tmp_path):
     MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     model = SparseAutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        device_map="auto",
+        device_map="cuda:0",
         torch_dtype="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -203,7 +204,7 @@ def test_kv_cache_with_gptq(tmp_path):
     MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     model = SparseAutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        device_map="auto",
+        device_map="cuda:0",
         torch_dtype="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
