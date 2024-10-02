@@ -107,5 +107,5 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         not_targetted = model_loaded.lm_head
         assert not hasattr(not_targetted, "quantization_scheme")
 
-    # def tearDown(self):
-    #    shutil.rmtree(self.output)
+    def tearDown(self):
+        shutil.rmtree(self.output)
