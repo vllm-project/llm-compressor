@@ -6,7 +6,7 @@ from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.core.state import State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.wanda.utils.wanda_wrapper import WandaWrapper
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
@@ -61,15 +61,6 @@ class WandaPruningModifier(Modifier):
     prunen_: Optional[int] = None
     prunem_: Optional[int] = None
 
-    def on_initialize_structure(self, state: State, **kwargs):
-        """
-        This modifier does not alter the model structure.
-        This method is a no-op.
-
-        :param state: Unused, kept to conform to the parent method signature
-        :param kwargs: Unused, kept to conform to the parent method signature
-        """
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run the WANDA algorithm on the current state
@@ -88,16 +79,6 @@ class WandaPruningModifier(Modifier):
 
         self.initialize_compression(modifiable_model, calibration_dataloader)
         self.apply_compression(calibration_dataloader)
-
-        return True
-
-    def on_finalize(self, state: State, **kwargs):
-        """
-        Nothing to clean up for this module
-
-        :param state: Unused, kept to conform to the parent method signature
-        :param kwargs: Unused, kept to conform to the parent method signature
-        """
 
         return True
 

@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from typing import Optional
 
 from pydantic import BaseModel
@@ -9,7 +10,7 @@ from llmcompressor.modifiers.interface import ModifierInterface
 __all__ = ["Modifier"]
 
 
-class Modifier(BaseModel, ModifierInterface):
+class Modifier(BaseModel, ModifierInterface, ABC):
     """
     A base class for all modifiers to inherit from.
     Modifiers are used to modify the training process for a model.
@@ -224,15 +225,17 @@ class Modifier(BaseModel, ModifierInterface):
     def on_initialize_structure(self, state: State, **kwargs):
         """
         on_initialize_structure is called before the model is initialized
-        with the modifier structure. Must be implemented by the inheriting
-        modifier.
+        with the modifier structure.
+
+        TODO: Depreciate this function as part of the lifecycle
 
         :param state: The current state of the model
         :param kwargs: Additional arguments for initializing the structure
             of the model in question
         """
-        raise NotImplementedError()
+        pass
 
+    @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         on_initialize is called on modifier initialization and
@@ -255,7 +258,7 @@ class Modifier(BaseModel, ModifierInterface):
         :return: True if the modifier was finalized successfully,
             False otherwise
         """
-        raise NotImplementedError()
+        return True
 
     def on_start(self, state: State, event: Event, **kwargs):
         """
@@ -266,7 +269,7 @@ class Modifier(BaseModel, ModifierInterface):
         :param event: The event that triggered the start
         :param kwargs: Additional arguments for starting the modifier
         """
-        raise NotImplementedError()
+        pass
 
     def on_update(self, state: State, event: Event, **kwargs):
         """
@@ -278,7 +281,7 @@ class Modifier(BaseModel, ModifierInterface):
         :param event: The event that triggered the update
         :param kwargs: Additional arguments for updating the model
         """
-        raise NotImplementedError()
+        pass
 
     def on_end(self, state: State, event: Event, **kwargs):
         """
@@ -289,7 +292,7 @@ class Modifier(BaseModel, ModifierInterface):
         :param event: The event that triggered the end
         :param kwargs: Additional arguments for ending the modifier
         """
-        raise NotImplementedError()
+        pass
 
     def on_event(self, state: State, event: Event, **kwargs):
         """

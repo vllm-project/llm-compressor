@@ -101,11 +101,13 @@ def test_recipe_can_be_created_from_modifier_instances():
 
 
 class A_FirstDummyModifier(Modifier):
-    pass
+    def on_initialize(self, *args, **kwargs) -> bool:
+        return True
 
 
 class B_SecondDummyModifier(Modifier):
-    pass
+    def on_initialize(self, *args, **kwargs) -> bool:
+        return True
 
 
 def test_create_recipe_string_from_modifiers_with_default_group_name():

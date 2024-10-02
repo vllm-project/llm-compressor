@@ -69,7 +69,7 @@ class ModelArguments:
             "model has a output word embedding layer."
         },
     )
-    trust_remote_code: bool = field(
+    trust_remote_code_model: bool = field(
         default=False,
         metadata={
             "help": "Whether or not to allow for custom models to execute their "

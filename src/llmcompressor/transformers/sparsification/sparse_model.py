@@ -14,29 +14,35 @@ from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM, PreTrainedModel
 
+from llmcompressor.pytorch.model_load.helpers import initialize_recipe
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
 )
-from llmcompressor.transformers.utils.helpers import download_model_directory
+from llmcompressor.transformers.utils.helpers import (
+    download_model_directory,
+    resolve_recipe,
+)
 
-__all__ = ["SparseAutoModel", "SparseAutoModelForCausalLM", "get_shared_tokenizer_src"]
+__all__ = [
+    "wrap_hf_model_class",
+    "SparseAutoModel",
+    "SparseAutoModelForCausalLM",
+    "get_shared_tokenizer_src"
+]
 
 
-class SparseAutoModelForCausalLM(AutoModelForCausalLM):
+def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
     """
-    LLM Compressor wrapper for the AutoModelForCausalLM class
-    Its lifecycle is defined as follows:
-    1. If pretrained_model_name_or_path is a HuggingFace stub
-       the appropriate HuggingFace model will be downloaded
-       (if required) and the path to the deployment directory
-       of the model will be retrieved
-    2. The original model definition will be loaded, without
-        the model weights
-    3. The appropriate recipe will be applied to the model
-       if requested or required
-    4. The appropriate set of weights will be loaded into the model
+    Wrap a HF PreTrainedModel class to
+    1. Decompress a compressed model
+    2. Initialize any saved recipes
+    3. Wrap the `save_pretrained` method to allow saving as a compressed model
+
+    :param hf_model_class: Model class to wrap
+    :return: Wrapped model class
     """
 
+    # Add the from_pretrained class method
     @classmethod
     def from_pretrained(
         cls,
@@ -47,7 +53,7 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         **kwargs,
     ) -> PreTrainedModel:
         """
-         A wrapper around the AutoModelForCausalLM.from_pretrained method
+        A wrapper around the PreTrainedModel.from_pretrained method
 
         :param pretrained_model_name_or_path: the name of or path to the model to load
         :param recipe: the path to the recipe file to apply to the model. Can be a
@@ -55,7 +61,6 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
             pretrained_model_name_or_path directory and applied if found
         :return the created model for causal language modeling
         """
-
         def skip(*args, **kwargs):
             pass
 
@@ -87,15 +92,15 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
         transformers_logger.setLevel(level=logging.ERROR)
 
         if kwargs.get("trust_remote_code"):
-            # By artifically aliasing
-            # class name SparseAutoModelForCausallLM to
-            # AutoModelForCausalLM we can "trick" the
+            # By artifically aliasing the
+            # class name to the
+            # hf_model_class we can "trick" the
             # `from_pretrained` method into properly
             # resolving the logic when
             # (has_remote_code and trust_remote_code) == True
-            cls.__name__ = AutoModelForCausalLM.__name__
+            cls.__name__ = hf_model_class.__name__
 
-        model = super(AutoModelForCausalLM, cls).from_pretrained(
+        model = super(hf_model_class, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
 
@@ -142,8 +147,26 @@ class SparseAutoModelForCausalLM(AutoModelForCausalLM):
                 compressor.decompress(
                     model_path=pretrained_model_name_or_path, model=model
                 )
+        recipe = resolve_recipe(recipe=recipe, model_path=pretrained_model_name_or_path)
+
+        if recipe:
+            initialize_recipe(model=model, recipe_path=recipe)
 
         return model
+
+    # Add the wrapped methods to the new class
+    wrapped_model_class = type(
+        hf_model_class.__name__,
+        (hf_model_class,),
+        {
+            "from_pretrained": from_pretrained
+        }
+    )
+
+    return wrapped_model_class
+
+
+SparseAutoModelForCausalLM = wrap_hf_model_class(AutoModelForCausalLM)
 
 
 class SparseAutoModel:

@@ -8,6 +8,7 @@ from torch.nn import Module
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.compression.helpers import (
+    infer_sparse_targets_and_ignores,
     infer_sparsity_structure_from_model,
     infer_sparsity_structure_from_stage_modifiers,
 )
@@ -18,6 +19,8 @@ class SparsityConfigMetadata:
     Class of helper functions for filling out a SparsityCompressionConfig with readable
     metadata from the model
     """
+
+    SPARSITY_THRESHOLD: float = 0.4
 
     @staticmethod
     def infer_global_sparsity(
@@ -100,10 +103,18 @@ class SparsityConfigMetadata:
         else:
             format = CompressionFormat.dense.value
 
+        targets, ignores = infer_sparse_targets_and_ignores(
+            model,
+            sparsity_structure=sparsity_structure,
+            sparsity_threshold=SparsityConfigMetadata.SPARSITY_THRESHOLD,
+        )
+
         return SparsityCompressionConfig.load_from_registry(
             format,
             global_sparsity=global_sparsity,
             sparsity_structure=sparsity_structure,
+            targets=targets,
+            ignore=ignores,
         )
 
     @staticmethod
