@@ -79,15 +79,23 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         model_loaded = SparseAutoModelForCausalLM.from_pretrained(self.output)
 
         # Check that the model is quantized
-        assert model_loaded.quantization_config is not None
+        # for compression_config - decompress() will attach a quantization_config
+        # to the model as we decompress right away
+        # for quantization_config - we have CompressedLinear which will only
+        # decompress on the forward pass and does not call decompress(). Results
+        # in a slightly different parameter tree to access the quant config
+        quantization_config = (
+            model_loaded.config.quantization_config.quantization_config
+        )
+        assert quantization_config is not None
 
         # check config is set properly
-        assert model_loaded.quantization_config.ignore == ["lm_head"]
-        assert len(model_loaded.quantization_config.config_groups) == 1
-        quant_scheme = model_loaded.quantization_config.config_groups["group_0"]
+        assert quantization_config.ignore == ["lm_head"]
+        assert len(quantization_config.config_groups) == 1
+        quant_scheme = quantization_config.config_groups["group_0"]
         assert isinstance(quant_scheme, QuantizationScheme)
         assert quant_scheme.targets == ["Linear"]
-        weight_args = model_loaded.quantization_config.config_groups["group_0"].weights
+        weight_args = quantization_config.config_groups["group_0"].weights
         assert isinstance(weight_args, QuantizationArgs)
         assert weight_args.num_bits == 4
 
@@ -99,5 +107,5 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         not_targetted = model_loaded.lm_head
         assert not hasattr(not_targetted, "quantization_scheme")
 
-    def tearDown(self):
-        shutil.rmtree(self.output)
+    # def tearDown(self):
+    #    shutil.rmtree(self.output)
