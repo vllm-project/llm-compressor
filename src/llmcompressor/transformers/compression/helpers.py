@@ -205,7 +205,7 @@ def custom_offload_device_map(
 def calculate_offload_device_map(
     model_stub: str,
     reserve_for_hessians=False,
-    num_gpus: int = 1,
+    num_gpus: Optional[int] = None,
     torch_dtype: torch.dtype = torch.float16,
     **model_kwargs,
 ) -> Dict[Union[int, str], Union[int, str]]:
@@ -215,14 +215,16 @@ def calculate_offload_device_map(
 
     :param model_stub: local path or HF stub to calculate mapping for
     :param reserve_for_hessians: whether to reserve memory for GPTQ
-    :param num_gpus: number of gpus to utilize
+    :param num_gpus: number of gpus to utilize, defaults to max available
     :param model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
     max_cpu_memory = psutil.virtual_memory().available
     max_gpu_memory = torch.cuda.mem_get_info(0)[0]
     available_gpus = torch.cuda.device_count()
-    if available_gpus < num_gpus:
+    if num_gpus is None:
+        num_gpus = available_gpus
+    elif num_gpus >= available_gpus:
         raise ValueError(
             f"Requested {num_gpus} GPUs but only {available_gpus} are available."
         )
