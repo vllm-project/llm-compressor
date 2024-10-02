@@ -14,13 +14,13 @@
 
 from typing import Dict, Generator, Tuple
 
-from compressed_tensors.compressors import Compressor
+from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.config import CompressionFormat
 from torch import Tensor
 
 
-@Compressor.register(name=CompressionFormat.dense.value)
-class DenseCompressor(Compressor):
+@BaseCompressor.register(name=CompressionFormat.dense.value)
+class DenseCompressor(BaseCompressor):
     """
     Identity compressor for dense models, returns the original state_dict
     """

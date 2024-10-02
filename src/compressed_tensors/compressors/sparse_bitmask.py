@@ -12,17 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-from typing import Dict, Generator, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy
 import torch
-from compressed_tensors.compressors import Compressor
+from compressed_tensors.compressors.base import BaseCompressor
+from compressed_tensors.compressors.base_sparsity_compressor import BaseSparseCompressor
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.utils import get_nested_weight_mappings, merge_names
-from safetensors import safe_open
+from compressed_tensors.utils import merge_names
 from torch import Tensor
-from tqdm import tqdm
 
 
 __all__ = [
@@ -34,11 +32,9 @@ __all__ = [
     "unpack_bitmasks",
 ]
 
-_LOGGER: logging.Logger = logging.getLogger(__name__)
 
-
-@Compressor.register(name=CompressionFormat.sparse_bitmask.value)
-class BitmaskCompressor(Compressor):
+@BaseCompressor.register(name=CompressionFormat.sparse_bitmask.value)
+class BitmaskCompressor(BaseSparseCompressor):
     """
     Compression for sparse models using bitmasks. Non-zero weights are stored in a 1d
     values tensor, with their locations stored in a 2d bitmask
@@ -46,56 +42,15 @@ class BitmaskCompressor(Compressor):
 
     COMPRESSION_PARAM_NAMES = ["shape", "compressed", "bitmask", "row_offsets"]
 
-    def compress(self, model_state: Dict[str, Tensor]) -> Dict[str, Tensor]:
-        """
-        Compresses a dense state dict using bitmask compression
+    def compress_weight(self, name, value):
+        bitmask_tensor = BitmaskTensor.from_dense(value)
+        bitmask_dict = bitmask_tensor.dict(name_prefix=name, device="cpu")
+        return bitmask_dict
 
-        :param model_state: state dict of uncompressed model
-        :return: compressed state dict
-        """
-        compressed_dict = {}
-        _LOGGER.debug(
-            f"Compressing model with {len(model_state)} parameterized layers..."
-        )
-        for name, value in tqdm(model_state.items(), desc="Compressing model"):
-            bitmask_tensor = BitmaskTensor.from_dense(value)
-            bitmask_dict = bitmask_tensor.dict(name_prefix=name, device="cpu")
-            for key in bitmask_dict.keys():
-                if key in compressed_dict:
-                    _LOGGER.warn(
-                        f"Expected all compressed state_dict keys to be unique, but "
-                        f"found an existing entry for {key}. The existing entry will "
-                        "be replaced."
-                    )
-            compressed_dict.update(bitmask_dict)
-
-        return compressed_dict
-
-    def decompress(
-        self, path_to_model_or_tensors: str, device: str = "cpu", **kwargs
-    ) -> Generator[Tuple[str, Tensor], None, None]:
-        """
-        Reads a bitmask compressed state dict located
-        at path_to_model_or_tensors and returns a generator
-        for sequentially decompressing back to a dense state dict
-
-        :param model_path: path to compressed safetensors model (directory with
-            one or more safetensors files) or compressed tensors file
-        :param device: device to load decompressed weights onto
-        :return: iterator for generating decompressed weights
-        """
-        weight_mappings = get_nested_weight_mappings(
-            path_to_model_or_tensors, self.COMPRESSION_PARAM_NAMES
-        )
-        for weight_name in weight_mappings.keys():
-            weight_data = {}
-            for param_name, safe_path in weight_mappings[weight_name].items():
-                full_name = merge_names(weight_name, param_name)
-                with safe_open(safe_path, framework="pt", device=device) as f:
-                    weight_data[param_name] = f.get_tensor(full_name)
-            data = BitmaskTensor(**weight_data)
-            decompressed = data.decompress()
-            yield weight_name, decompressed
+    def decompress_weight(self, weight_data):
+        data = BitmaskTensor(**weight_data)
+        decompressed = data.decompress()
+        return decompressed
 
 
 class BitmaskTensor:

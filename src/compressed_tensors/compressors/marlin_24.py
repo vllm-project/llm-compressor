@@ -17,7 +17,7 @@ from typing import Dict, Generator, Tuple
 
 import numpy as np
 import torch
-from compressed_tensors.compressors import Compressor
+from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.lifecycle.forward import quantize
@@ -35,8 +35,8 @@ from tqdm import tqdm
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
-@Compressor.register(name=CompressionFormat.marlin_24.value)
-class Marlin24Compressor(Compressor):
+@BaseCompressor.register(name=CompressionFormat.marlin_24.value)
+class Marlin24Compressor(BaseCompressor):
     """
     Compresses a quantized model with 2:4 sparsity structure for inference with the
     Marlin24 kernel. Decompression is not implemented for this compressor.

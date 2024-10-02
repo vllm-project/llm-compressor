@@ -16,7 +16,10 @@ from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch
-from compressed_tensors.compressors import Compressor
+from compressed_tensors.compressors.base import BaseCompressor
+from compressed_tensors.compressors.base_quantization_compressor import (
+    BaseQuantizationCompressor,
+)
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import QuantizationArgs
 from compressed_tensors.quantization.lifecycle.forward import dequantize, quantize
@@ -27,8 +30,8 @@ from torch import Tensor
 __all__ = ["PackedQuantizationCompressor", "pack_to_int32", "unpack_from_int32"]
 
 
-@Compressor.register(name=CompressionFormat.pack_quantized.value)
-class PackedQuantizationCompressor(Compressor):
+@BaseCompressor.register(name=CompressionFormat.pack_quantized.value)
+class PackedQuantizationCompressor(BaseQuantizationCompressor):
     """
     Compresses a quantized model by packing every eight 4-bit weights into an int32
     """

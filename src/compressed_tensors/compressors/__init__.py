@@ -14,7 +14,7 @@
 
 # flake8: noqa
 
-from .base import Compressor
+from .base import BaseCompressor
 from .dense import DenseCompressor
 from .helpers import load_compressed, save_compressed, save_compressed_model
 from .marlin_24 import Marlin24Compressor

@@ -15,7 +15,7 @@
 from copy import deepcopy
 
 import pytest
-from compressed_tensors.compressors.model_compressor import ModelCompressor
+from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config.base import SparsityCompressionConfig
 from compressed_tensors.quantization.quant_config import QuantizationConfig
 from tests.testing_utils import requires_hf_quantizer

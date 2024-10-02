@@ -17,7 +17,7 @@ from collections import OrderedDict
 import pytest
 import torch
 from compressed_tensors.compressors import (
-    Compressor,
+    BaseCompressor,
     Marlin24Compressor,
     map_modules_to_quant_args,
 )
@@ -45,7 +45,7 @@ def get_2_4_quant_config(num_bits, strategy, ignore):
 
 def test_marlin_registered():
     config_name = CompressionFormat.marlin_24.value
-    compressor = Compressor.load_from_registry(config_name)
+    compressor = BaseCompressor.load_from_registry(config_name)
     assert isinstance(compressor, Marlin24Compressor)
 
 

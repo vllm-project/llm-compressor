@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import torch
-from compressed_tensors.compressors.base import Compressor
+from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
@@ -44,7 +44,7 @@ class CompressedLinear(Linear):
         quantization_format: str,
     ):
         module.__class__ = CompressedLinear
-        module.compressor = Compressor.load_from_registry(quantization_format)
+        module.compressor = BaseCompressor.load_from_registry(quantization_format)
         device = next(module.parameters()).device
 
         # this will initialize all the scales and zero points

@@ -14,10 +14,10 @@
 
 import pytest
 from compressed_tensors import (
+    BaseCompressor,
     BitmaskCompressor,
     BitmaskConfig,
     CompressionFormat,
-    Compressor,
     DenseCompressor,
     DenseSparsityConfig,
     SparsityCompressionConfig,
@@ -45,7 +45,7 @@ def test_configs(name, type):
     ],
 )
 def test_compressors(name, type):
-    compressor = Compressor.load_from_registry(
+    compressor = BaseCompressor.load_from_registry(
         name, config=SparsityCompressionConfig(format="none")
     )
     assert isinstance(compressor, type)
