@@ -92,7 +92,7 @@ jobs:
 
             - name: build
               id: build
-              uses: neuralmagic/nm-actions/actions/build-ml-whl@v1.2.0
+              uses: neuralmagic/nm-actions/actions/build-ml-whl@v1.6.0
               with:
                   dev: false
                   release: ${{ inputs.wf_category == 'RELEASE' }}

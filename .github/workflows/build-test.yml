@@ -7,7 +7,7 @@ on:
       wf_category:
         description: "workflow category: NIGHTLY, RELEASE"
         type: string
-        default: RELEASE
+        default: NIGHTLY
       push_to_pypi:
         description: "When set to true, built whl and tar.gz will be pushed to public pypi if all tests pass"
         type: boolean
