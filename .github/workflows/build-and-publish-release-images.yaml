@@ -36,7 +36,7 @@ jobs:
 
       - name: Get Tag
         id: extract_tag
-        run: echo "##[set-output name=tag;]$(echo ${GITHUB_REF_NAME#*/})"
+        run: echo "tag=${GITHUB_REF_NAME#*/}" >> $GITHUB_OUTPUT
 
       - name: Current Version Name
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
