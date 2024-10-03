@@ -79,4 +79,4 @@ This ensures that SmoothQuant modifies the correct activations, improving quanti
 
 By understanding the structure of your model and specifying precise mappings, you can apply the SmoothQuant Modifier effectively. Use the diagram on page 5 of the [SmoothQuant paper](https://arxiv.org/pdf/2211.10438) and inspect your model's code to identify the correct layers and leaf modules to target for smoothing.
 
-Now that you know how to create these mappings experiment with different model architectures and observe how SmoothQuant impacts performance and quantization accuracy.
+Now that you know how to create these mappings, you can experiment with different model architectures and observe how SmoothQuant impacts performance and quantization accuracy.
