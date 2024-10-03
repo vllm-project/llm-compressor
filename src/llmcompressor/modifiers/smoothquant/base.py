@@ -123,7 +123,7 @@ class SmoothQuantModifier(Modifier):
             )
 
         self.ignore = [] if not self.ignore else self.ignore
-        self.mappings = self._infer_mappings_from_model(state.model, self.mappings)
+        self.mappings = self._infer_mappings_from_model(state.model)
         self.resolved_mappings_ = self._resolve_mappings(state.model)
         self.scales_ = {}
 
@@ -163,10 +163,11 @@ class SmoothQuantModifier(Modifier):
         return True
 
     def _infer_mappings_from_model(
-        self, model: Module, mappings: Optional[List[Tuple]] = None
+        self,
+        model: Module,
     ) -> List[Tuple]:
-        if mappings is not None:
-            return mappings
+        if self.mappings is not None:
+            return self.mappings
 
         logger.info("No SmoothQuantModifier.mappings provided, inferring from model...")
         return get_layer_mappings_from_architecture(

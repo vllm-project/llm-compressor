@@ -12,7 +12,7 @@ __all__ = [
 LayerMapType = Tuple[Union[List[str], str], Union[List[str], str]]
 LayerMap: LayerMapType = namedtuple("LayerMap", ["balance_layers", "smooth_layers"])
 
-LLAMA_MAPPINGS: List[LayerMap] = [
+DEFAULT_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
         smooth_layers="re:.*input_layernorm",
@@ -32,15 +32,15 @@ MIXTRAL_MAPPINGS: List[LayerMap] = [
     ),
 ]
 
+
 # Registry of layer mappings for different architectures
 #   Add more mappings here
 MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
-    "LlamaForCausalLM": LLAMA_MAPPINGS,
+    "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "MixtralForCausalLM": MIXTRAL_MAPPINGS,
+    "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
 }
-
-# Default mappings to use if architecture is not found in the registry
-DEFAULT_SMOOTHQUANT_MAPPINGS: List[LayerMap] = LLAMA_MAPPINGS
 
 
 def get_layer_mappings_from_architecture(architecture: str) -> List[LayerMap]:
