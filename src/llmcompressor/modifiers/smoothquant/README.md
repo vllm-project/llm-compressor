@@ -16,12 +16,12 @@ We can derive this by examining the diagram on page 5 of the SmoothQuant paper. 
 ### Layer Selection
 
 To get the correct input for smoothing:
-1. For **q/k/v blocks**, we need to target the outputs of `input_layernorm`, as these provide the inputs for the self-attention mechanism.
-2. For the **fc1 block**, we need to target the outputs of `post_attention_layernorm`.
+1. For **q/k/v blocks**, based on the SmoothQuant paper, we need to target the outputs of `input_layernorm`, as these provide the inputs for the self-attention mechanism.
+2. For the **fc1 block**, based on the SmoothQuant paper, we need to target the outputs of `post_attention_layernorm`.
 
 ### Why Target Leaf Modules?
 
-One of the quirks of working with LLM architectures is that we need to apply smoothing at the leaf nodes of the computational graph. This is why we see mappings such as:
+Based on the SmoothQuant paper smoothing needs to be applied at the leaf nodes of the computational graph. This is why we see mappings such as:
 
 ```python
 [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
