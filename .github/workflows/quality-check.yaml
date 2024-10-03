@@ -16,9 +16,6 @@ jobs:
         with:
           python-version: '3.9'
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🧹 Running quality checks"
