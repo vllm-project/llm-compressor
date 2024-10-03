@@ -14,7 +14,6 @@ recipe_str = """
 quant_stage:
     quant_modifiers:
         GPTQModifier:
-            sequential_update: false
             ignore: ["lm_head"]
             config_groups:
                 group_0:
@@ -28,7 +27,6 @@ quant_stage:
 
 recipe_modifier_full = GPTQModifier(
     ignore=["lm_head"],
-    sequential_update=False,
     config_groups={
         "group_0": QuantizationScheme(
             targets=["Linear"], weights=QuantizationArgs(num_bits=4, strategy="channel")
@@ -38,20 +36,20 @@ recipe_modifier_full = GPTQModifier(
 
 recipe_modifier_full_group = GPTQModifier(
     ignore=["lm_head"],
-    sequential_update=False,
     config_groups={
         "group_0": QuantizationScheme(
-            targets=["Linear"], weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128)
+            targets=["Linear"],
+            weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
         )
     },
 )
 
 recipe_modifier_shorthand_a = GPTQModifier(
-    ignore=["lm_head"], sequential_update=False, targets="Linear", scheme="W4A16"
+    ignore=["lm_head"], targets="Linear", scheme="W4A16"
 )
 
 recipe_modifier_shorthand_b = GPTQModifier(
-    ignore=["lm_head"], sequential_update=False, scheme={"W4A16": ["Linear"]}
+    ignore=["lm_head"], scheme={"W4A16": ["Linear"]}
 )
 
 
@@ -87,8 +85,9 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
             num_calibration_samples=9,
         )
 
-        
-        model_loaded = SparseAutoModelForCausalLM.from_pretrained(self.output, device_map=self.device)
+        model_loaded = SparseAutoModelForCausalLM.from_pretrained(
+            self.output, device_map=self.device
+        )
 
         # Check that the model is quantized
         # for compression_config - decompress() will attach a quantization_config
@@ -118,7 +117,6 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         # Check lm-head is not quantized
         not_targetted = model_loaded.lm_head
         assert not hasattr(not_targetted, "quantization_scheme")
-       
 
     def tearDown(self):
-         shutil.rmtree(self.output)
+        shutil.rmtree(self.output)
