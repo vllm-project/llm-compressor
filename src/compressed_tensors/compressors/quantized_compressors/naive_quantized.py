@@ -16,7 +16,7 @@ from typing import Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
-from compressed_tensors.compressors.base_quantization_compressor import (
+from compressed_tensors.compressors.quantized_compressors.base import (
     BaseQuantizationCompressor,
 )
 from compressed_tensors.config import CompressionFormat
@@ -27,14 +27,14 @@ from torch import Tensor
 
 
 __all__ = [
-    "QuantizationCompressor",
+    "NaiveQuantizationCompressor",
     "IntQuantizationCompressor",
     "FloatQuantizationCompressor",
 ]
 
 
 @BaseCompressor.register(name=CompressionFormat.naive_quantized.value)
-class QuantizationCompressor(BaseQuantizationCompressor):
+class NaiveQuantizationCompressor(BaseQuantizationCompressor):
     """
     Implements naive compression for quantized models. Weight of each
     quantized layer is converted from its original float type to the closest Pytorch
@@ -123,7 +123,7 @@ class QuantizationCompressor(BaseQuantizationCompressor):
 
 
 @BaseCompressor.register(name=CompressionFormat.int_quantized.value)
-class IntQuantizationCompressor(QuantizationCompressor):
+class IntQuantizationCompressor(NaiveQuantizationCompressor):
     """
     Alias for integer quantized models
     """
@@ -132,7 +132,7 @@ class IntQuantizationCompressor(QuantizationCompressor):
 
 
 @BaseCompressor.register(name=CompressionFormat.float_quantized.value)
-class FloatQuantizationCompressor(QuantizationCompressor):
+class FloatQuantizationCompressor(NaiveQuantizationCompressor):
     """
     Alias for fp quantized models
     """

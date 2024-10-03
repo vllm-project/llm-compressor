@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, Generator, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.compressors.base import BaseCompressor
+from compressed_tensors.compressors import BaseCompressor
 from compressed_tensors.config import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from safetensors import safe_open

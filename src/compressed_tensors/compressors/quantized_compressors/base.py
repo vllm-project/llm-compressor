@@ -24,9 +24,9 @@ from torch import Tensor
 from tqdm import tqdm
 
 
-__all__ = ["BaseQuantizationCompressor"]
-
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+
+__all__ = ["BaseQuantizationCompressor"]
 
 
 class BaseQuantizationCompressor(BaseCompressor):
@@ -40,19 +40,19 @@ class BaseQuantizationCompressor(BaseCompressor):
     Model Load Lifecycle (run_compressed=False):
         - ModelCompressor.decompress()
             - apply_quantization_config()
-            - Compressor.decompress()
-                - Compressor.decompress_weight()
+            - BaseQuantizationCompressor.decompress()
+                - BaseQuantizationCompressor.decompress_weight()
 
     Model Save Lifecycle:
         - ModelCompressor.compress()
-            - Compressor.compress()
-                - Compressor.compress_weight()
+            - BaseQuantizationCompressor.compress()
+                - BaseQuantizationCompressor.compress_weight()
 
     Module Lifecycle (run_compressed=True):
         - apply_quantization_config()
         - compressed_module = CompressedLinear(module)
             - initialize_module_for_quantization()
-            - Compressor.compression_param_info()
+            - BaseQuantizationCompressor.compression_param_info()
             - register_parameters()
         - compressed_module.forward()
             - compressed_module.decompress()

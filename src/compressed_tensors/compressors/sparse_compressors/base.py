@@ -38,19 +38,19 @@ class BaseSparseCompressor(BaseCompressor):
     Model Load Lifecycle (run_compressed=False):
         - ModelCompressor.decompress()
             - apply_quantization_config()
-            - Compressor.decompress()
-                - Compressor.decompress_weight()
+            - BaseSparseCompressor.decompress()
+                - BaseSparseCompressor.decompress_weight()
 
     Model Save Lifecycle:
         - ModelCompressor.compress()
-            - Compressor.compress()
-                - Compressor.compress_weight()
+            - BaseSparseCompressor.compress()
+                - BaseSparseCompressor.compress_weight()
 
     Module Lifecycle (run_compressed=True):
         - apply_quantization_config()
         - compressed_module = CompressedLinear(module)
             - initialize_module_for_quantization()
-            - Compressor.compression_param_info()
+            - BaseSparseCompressor.compression_param_info()
             - register_parameters()
         - compressed_module.forward()
             - compressed_module.decompress()

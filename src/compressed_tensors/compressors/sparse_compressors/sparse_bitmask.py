@@ -17,7 +17,7 @@ from typing import Dict, List, Tuple, Union
 import numpy
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
-from compressed_tensors.compressors.base_sparsity_compressor import BaseSparseCompressor
+from compressed_tensors.compressors.sparse_compressors.base import BaseSparseCompressor
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.utils import merge_names
 from torch import Tensor

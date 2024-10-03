@@ -37,18 +37,18 @@ class BaseCompressor(RegistryMixin, ABC):
     Model Load Lifecycle (run_compressed=False):
         - ModelCompressor.decompress()
             - apply_quantization_config()
-            - Compressor.decompress()
+            - BaseCompressor.decompress()
 
     Model Save Lifecycle:
         - ModelCompressor.compress()
-            - Compressor.compress()
+            - BaseCompressor.compress()
 
 
     Module Lifecycle (run_compressed=True):
         - apply_quantization_config()
         - compressed_module = CompressedLinear(module)
             - initialize_module_for_quantization()
-            - Compressor.compression_param_info()
+            - BaseCompressor.compression_param_info()
             - register_parameters()
         - compressed_module.forward()
             -compressed_module.decompress()

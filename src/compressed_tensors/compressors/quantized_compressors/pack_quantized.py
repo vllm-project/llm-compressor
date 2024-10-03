@@ -17,7 +17,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
-from compressed_tensors.compressors.base_quantization_compressor import (
+from compressed_tensors.compressors.quantized_compressors.base import (
     BaseQuantizationCompressor,
 )
 from compressed_tensors.config import CompressionFormat

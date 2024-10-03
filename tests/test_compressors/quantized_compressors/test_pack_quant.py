@@ -20,7 +20,7 @@ from collections import OrderedDict
 import pytest
 import torch
 from compressed_tensors import PackedQuantizationCompressor
-from compressed_tensors.compressors.pack_quantized import (
+from compressed_tensors.compressors.quantized_compressors.pack_quantized import (
     pack_to_int32,
     unpack_from_int32,
 )
