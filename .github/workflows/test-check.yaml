@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: test-setup
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - uses: actions/checkout@v4
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: test-setup
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - uses: actions/checkout@v4
@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: test-setup
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
       - uses: actions/checkout@v4
@@ -108,7 +108,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: test-setup
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - uses: actions/checkout@v4
