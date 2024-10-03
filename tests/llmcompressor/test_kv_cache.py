@@ -2,6 +2,7 @@ import os
 import tempfile
 
 import pytest
+import torch
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.quantization.cache import KVCacheScaleType
 from compressed_tensors.quantization.utils.helpers import iter_named_quantizable_modules
@@ -100,7 +101,7 @@ def test_kv_cache_model_populate_kv_scales_only(tmp_path):
     MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     model = SparseAutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        device_map="cuda:0",
+        device_map="cuda:0" if torch.cuda.is_available() else "cpu",
         torch_dtype="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -204,7 +205,7 @@ def test_kv_cache_with_gptq(tmp_path):
     MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     model = SparseAutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        device_map="cuda:0",
+        device_map="cuda:0" if torch.cuda.is_available() else "cpu",
         torch_dtype="auto",
     )
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
