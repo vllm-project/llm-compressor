@@ -5,17 +5,18 @@ This module provides functionality for creating semantic version strings based o
 version base and build type. It supports `release`, `nightly`, and `dev` build types.
 """
 
-from datetime import datetime
 from typing import Optional, Tuple
 
 # Define the base version and build type
-version_base = "0.1.0"
+version_base = "0.2.0"
 build_type = "dev"  # can be 'release', 'nightly', 'dev', or 'dev' with a dev number
 
 
 def _generate_version_attributes(
     base, type_
 ) -> Tuple[str, int, int, int, Optional[str]]:
+    from datetime import datetime
+
     parts = base.split(".")
     major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
 

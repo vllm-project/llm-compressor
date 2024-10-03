@@ -24,5 +24,10 @@ extend-ignore = 'E203'
 markers = [
     "smoke: quick tests to check basic functionality",
     "sanity: tests to ensure that new changes do not break existing functionality",
-    "regression: detailed tests to ensure major functions work correctly"
+    "regression: detailed tests to ensure major functions work correctly",
+    "integration: tests which integrate with a third party service such as HF",
+    "unit: tests to ensure code correctness and regression test functionality",
+    "example: tests for content in the 'examples' folder",
+    "multi_gpu: tests that require multiple GPUs",
 ]
+tmp_path_retention_policy = "failed"

@@ -45,9 +45,8 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
         default=None,
         metadata={
             "help": (
-                "The preprocessing function to apply ",
-                "or the preprocessing func name in "
-                "src/llmcompressor/transformers/utils/preprocessing_functions.py",
+                "The preprocessing function to apply or the preprocessing func name in "
+                "src/llmcompressor/transformers/utils/preprocessing_functions.py"
             )
         },
     )
@@ -154,13 +153,23 @@ class DataTrainingArguments(CustomDataTrainingArguments):
         },
     )
     min_tokens_per_module: Optional[float] = field(
-        default=0.2,
+        default=None,
         metadata={
             "help": (
                 "The minimum percentage of tokens (out of the total number) "
                 "that the module should 'receive' throughout the forward "
                 "pass of the calibration. If a module receives fewer tokens, "
-                "a warning will be logged."
+                "a warning will be logged. Defaults to 1/num_of_experts."
+                "note: this argument is only relevant for MoE models"
             ),
+        },
+    )
+    trust_remote_code_data: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether or not to allow for datasets defined on the Hub using "
+            "a dataset script. This option should only be set to True for "
+            "repositories you trust and in which you have read the code, as it "
+            "will execute code present on the Hub on your local machine."
         },
     )

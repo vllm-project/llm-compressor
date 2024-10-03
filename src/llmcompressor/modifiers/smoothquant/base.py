@@ -5,7 +5,7 @@ import torch
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.smoothquant.utils import (
     get_layer_mappings_from_architecture,
@@ -101,9 +101,6 @@ class SmoothQuantModifier(Modifier):
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
 
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass  # nothing needed for this modifier
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run SmoothQuant on the given state
@@ -135,18 +132,6 @@ class SmoothQuantModifier(Modifier):
         self._apply_smoothing(state.model)
 
         return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_event(self, state: State, event: Event, **kwargs):
-        pass
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """

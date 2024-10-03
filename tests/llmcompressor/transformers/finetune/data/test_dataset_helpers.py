@@ -7,6 +7,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 
 
+@pytest.mark.unit
 def test_combined_datasets():
     data_args = DataTrainingArguments(
         dataset="wikitext", dataset_config_name="wikitext-2-raw-v1"
@@ -29,6 +30,7 @@ def test_combined_datasets():
     assert split_datasets.get("test") is not None
 
 
+@pytest.mark.unit
 def test_separate_datasets():
     splits = {"train": "train[:10%]", "validation": "train[10%:20%]"}
     data_args = DataTrainingArguments(
