@@ -1,5 +1,5 @@
 name: Test Checks
-on: 
+on:
   push:
     branches:
       - main
@@ -27,7 +27,7 @@ jobs:
       pytorch: ${{ steps.pytorch-check.outputs.output }}
       transformers: ${{ steps.transformers-check.outputs.output }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       # TODO: for @DanH what is this supposed to be doing?
@@ -46,8 +46,8 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
@@ -67,8 +67,8 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
@@ -89,8 +89,8 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
@@ -111,8 +111,8 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
@@ -129,7 +129,7 @@ jobs:
         run: |
           pytest tests/llmcompressor/transformers/compression -v
       - name: Run Finetune Tests
-        if: always() && steps.install.outcome == 'success'       
+        if: always() && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/finetune -m unit
       - name: Running GPTQ Tests
