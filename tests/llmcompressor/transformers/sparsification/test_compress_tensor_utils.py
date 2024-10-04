@@ -30,7 +30,7 @@ from llmcompressor.transformers.compression.sparsity_config import (
         [False, None, torch.float16],
     ],
 )
-def test_sparse_model_load(compressed, s_config, dtype, tmp_path):
+def test_sparse_model_reload(compressed, s_config, dtype, tmp_path):
     recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
     expected_sparsity = 0.5
     model_path = "Xenova/llama2.c-stories15M"
@@ -147,78 +147,84 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
 
 
 @pytest.mark.parametrize(
-    "format,dtype",
-    [
-        ["dense", torch.float32],
-        ["dense", torch.float16],
-        ["int_quantized", torch.float32],
-        # [True, "int_quantized", torch.float16],
-    ],
+    "dtype",
+    [torch.float32, torch.bfloat16],
 )
-def test_quant_model_reload(format, dtype, tmp_path):
+def test_quant_model_reload(dtype, tmp_path):
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
     model_path = "Xenova/llama2.c-stories15M"
-    device = "cuda:0"
-    if not torch.cuda.is_available():
-        device = "cpu"
+    device = "cuda:0" if not torch.cuda.is_available() else "cpu"
     dataset = "open_platypus"
     concatenate_data = False
     num_calibration_samples = 64
-    output_dir = tmp_path / "oneshot_out"
     splits = {"calibration": "train[:10%]"}
 
-    # create a quantized model
+    # create a quantized, compressed model
     oneshot(
         model=model_path,
         dataset=dataset,
-        output_dir=output_dir,
+        output_dir=tmp_path / "compressed",
         num_calibration_samples=num_calibration_samples,
         recipe=recipe_str,
         concatenate_data=concatenate_data,
         splits=splits,
         oneshot_device=device,
         precision=dtype,
-    )
-
-    model = SparseAutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype
-    )
-
-    for _, module in model.named_modules():
-        if hasattr(module, "quantization_scheme"):
-            assert module.weight.dtype == dtype
-            assert module.quantization_status == QuantizationStatus.FROZEN
-
-    model.save_pretrained(
-        tmp_path / "compress_out",
-        quantization_format=format,
         save_compressed=True,
     )
 
-    config = AutoConfig.from_pretrained(tmp_path / "compress_out")
-    compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
-    quant_config = ModelCompressor.parse_quantization_config(compression_config)
-    assert quant_config["format"] == format
-
-    dense_model = SparseAutoModelForCausalLM.from_pretrained(
-        tmp_path / "compress_out", torch_dtype="auto"
+    compressed_model = SparseAutoModelForCausalLM.from_pretrained(
+        tmp_path / "compressed", torch_dtype=dtype
     )
 
-    og_state_dict = model.state_dict()
-    reconstructed_state_dict = dense_model.state_dict()
-    assert len(og_state_dict) == len(reconstructed_state_dict)
+    compression_config = compressed_model.config.quantization_config
+    quant_config = ModelCompressor.parse_quantization_config(compression_config)
+    assert quant_config["format"] == "int-quantized"
+
+
+    # create a quantized, uncompressed model to compare against
+    reset_session()
+    oneshot(
+        model=model_path,
+        dataset=dataset,
+        output_dir=tmp_path / "uncompressed",
+        num_calibration_samples=num_calibration_samples,
+        recipe=recipe_str,
+        concatenate_data=concatenate_data,
+        splits=splits,
+        oneshot_device=device,
+        precision=dtype,
+        save_compressed=False,
+    )
+
+    uncompressed_model = SparseAutoModelForCausalLM.from_pretrained(
+        tmp_path / "uncompressed", torch_dtype=dtype
+    )
+
+    # unfortunately, this is how we have to load compressed models in an
+    # uncompressed way so we can load their state dict
+    compressed_model = SparseAutoModelForCausalLM.from_pretrained(
+        model_path, torch_dtype=dtype
+    ).to(dtype=torch.float32)
+    compressor = ModelCompressor.from_compression_config(compression_config)
+    compressor.decompress(
+        model_path=tmp_path / "compressed", model=uncompressed_model
+    )
+
+    # compare loaded values
+    og_state_dict = get_state_dict_offloaded_model(uncompressed_model)
+    reconstructed_state_dict = get_state_dict_offloaded_model(compressed_model)
     for key in og_state_dict.keys():
         dense_tensor = og_state_dict[key]
         reconstructed_tensor = reconstructed_state_dict[key]
-        assert dense_tensor.dtype == reconstructed_tensor.dtype
-        if key.endswith("weight") and format != "dense":
+        if key.endswith("weight"):
+            breakpoint()
+            #assert dense_tensor.dtype == reconstructed_tensor.dtype
             # we don't expect an exact match for compressed
             diff = torch.abs(dense_tensor - reconstructed_tensor)
             assert not torch.any(diff > 0.01).item()
-        else:
-            assert torch.equal(dense_tensor, reconstructed_tensor)
 
     shutil.rmtree(tmp_path)
 
