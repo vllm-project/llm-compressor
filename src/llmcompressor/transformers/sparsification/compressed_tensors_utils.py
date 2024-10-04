@@ -1,7 +1,7 @@
 import re
 import weakref
 from functools import reduce, wraps
-from typing import Optional
+from typing import Dict, Optional
 
 import torch
 import transformers
@@ -46,6 +46,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
             skip_compression_stats: bool = False,
+            state_dict: Optional[Dict[str, torch.Tensor]] = None,
             **kwargs,
         ):
             """
@@ -61,7 +62,9 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param save_compressed: whether or not to compress the model on disk
             :param skip_compression_stats: whether to skip the calculation of
             compression statistics (such as global sparsity and sparsity structure) when
-            saving a model in dense format
+            saving a model in dense format. This also means that sparsity config
+            cannot be inferred
+            :param state_dict: TODO state_dict gets passed in as a kwarg for FSDP models
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
@@ -71,13 +74,16 @@ def modify_save_pretrained(model: PreTrainedModel):
             transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
 
             model = model_ref()
-            # state_dict gets passed in as a kwarg for FSDP models
-            state_dict = kwargs.pop("state_dict", None)
-
-            # find offloaded state dict if none is provided
             if state_dict is None:
                 state_dict = get_state_dict_offloaded_model(model)
 
+            if not save_compressed:
+                original_save_pretrained.__get__(model, model_class)(
+                    save_directory, state_dict=state_dict, **kwargs
+                )
+                return
+
+            # use given sparsity config
             if sparsity_config is not None:
                 sparsity_config.global_sparsity = (
                     SparsityConfigMetadata.infer_global_sparsity(
@@ -87,6 +93,8 @@ def modify_save_pretrained(model: PreTrainedModel):
                 sparsity_config.sparsity_structure = (
                     SparsityConfigMetadata.infer_sparsity_structure()
                 )
+
+            # attempt to infer sparsity config
             elif not skip_compression_stats:
                 # try to infer a sparsity config from the model if none is provided
                 logger.info(
@@ -96,15 +104,20 @@ def modify_save_pretrained(model: PreTrainedModel):
                     "skip_compression_stats=True"
                 )
                 sparsity_config = SparsityConfigMetadata.from_pretrained(
-                    model, state_dict=state_dict, compress=False
+                    model, state_dict=state_dict, compress=True
+                )
+            else:
+                logger.warning(
+                    "Sparsity configuration cannot be inferred if skip_compression_stats=True"
                 )
 
-            quantization_format = infer_quantization_format(
-                model=model,
-                quantization_format=quantization_format,
-                save_compressed=save_compressed,
-                sparsity_config=sparsity_config,
-            )
+            # use given quantization format or infer
+            if quantization_format is None:
+                quantization_format = infer_quantization_format(
+                    model=model,
+                    sparsity_config=sparsity_config,
+                )
+
             compressor = ModelCompressor.from_pretrained_model(
                 model,
                 sparsity_config=sparsity_config,
