@@ -61,7 +61,7 @@ jobs:
         run: rm -r compressed-tensors/
       - name: "🔬 Running pytorch tests"
         run: |
-          pytest tests/llmcompressor/pytorch -v
+          pytest -v tests/llmcompressor/pytorch
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
     steps:
@@ -83,7 +83,7 @@ jobs:
         run: rm -r compressed-tensors/
       - name: "🔬 Running pytorch tests"
         run: |
-          pytest tests/llmcompressor/pytorch -v
+          pytest -v tests/llmcompressor/pytorch
   transformers-tests:
     runs-on: ubuntu-22.04
     steps:
@@ -107,7 +107,7 @@ jobs:
       - name: "🔬 Running transformers tests"
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/compression -v
+          pytest -v tests/llmcompressor/transformers/compression
       - name: Run Finetune Tests
         if: always() && steps.install.outcome == 'success'
         run: |
@@ -115,17 +115,17 @@ jobs:
       - name: Running GPTQ Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/gptq -v
+          pytest -v tests/llmcompressor/transformers/gptq
       - name: Running ONESHOT Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/oneshot -v
+          pytest -v tests/llmcompressor/transformers/oneshot
       - name: Running Sparsification Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/sparsification -v
-          ptyest tests/llmcompressor/transformers/test_clear_ml.py -v
+          pytest -v tests/llmcompressor/transformers/sparsification
+          ptyest -v tests/llmcompressor/transformers/test_clear_ml.py
       - name: Running OBCQ Tests
         if: always() && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/obcq -v
+          pytest -v tests/llmcompressor/transformers/obcq
