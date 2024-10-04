@@ -24,10 +24,10 @@ from llmcompressor.transformers.compression.sparsity_config import (
     "compressed,s_config,dtype",
     [
         [True, None, torch.float32],
-        #[False, DenseSparsityConfig(), torch.float16],
-        #[True, BitmaskConfig(), torch.bfloat16],
-        #[False, BitmaskConfig(), torch.float32],
-        #[False, None, torch.float16],
+        [False, DenseSparsityConfig(), torch.float16],
+        [True, BitmaskConfig(), torch.bfloat16],
+        [False, BitmaskConfig(), torch.float32],
+        [False, None, torch.float16],
     ],
 )
 def test_sparse_model_load(compressed, s_config, dtype, tmp_path):
@@ -44,7 +44,6 @@ def test_sparse_model_load(compressed, s_config, dtype, tmp_path):
     one_of_sparse_weights = "model.layers.1.mlp.up_proj.weight"
 
     # create a sparse model
-    # TODO: move to globally scoped fixture
     oneshot(
         model=model_path,
         dataset=dataset,
@@ -83,9 +82,10 @@ def test_sparse_model_load(compressed, s_config, dtype, tmp_path):
         tmp_path / "compress_out", torch_dtype="auto"
     )
 
-    # check (compressed) config
-    if s_config is not None and not isinstance(s_config, DenseSparsityConfig):
-        sparsity_config = reloaded_model.quantization_config["sparsity_config"]
+    if compressed and s_config is not None and not isinstance(s_config, DenseSparsityConfig):
+        # check (compressed) config
+        compression_config = reloaded_model.config.quantization_config
+        sparsity_config = compression_config.sparsity_config.dict()
         assert sparsity_config is not None
 
         _format = sparsity_config["format"]
@@ -95,18 +95,23 @@ def test_sparse_model_load(compressed, s_config, dtype, tmp_path):
         assert _format == "sparse-bitmask"
         assert sparsity == SparsityConfigMetadata.infer_global_sparsity(model)
         assert structure == inferred_structure
+
+        # check (compressed) state dict values
+        compressor = ModelCompressor.from_compression_config(compression_config)
+        compressor.decompress(
+            model_path=tmp_path / "compress_out", model=reloaded_model
+        )
+        og_state_dict = model.state_dict()
+        reloaded_state_dict = reloaded_model.state_dict()
+        assert len(og_state_dict) == len(reloaded_state_dict)
+        for key in og_state_dict.keys():
+            og_tensor = og_state_dict[key]
+            reloaded_tensor = reloaded_state_dict[key]
+            assert og_tensor.dtype == reloaded_tensor.dtype == dtype
+            assert torch.equal(og_tensor, reloaded_tensor)
+
     else:
         assert not hasattr(reloaded_model, "quantization_config")
-
-    # check (compressed) values
-    og_state_dict = model.state_dict()
-    reloaded_state_dict = reloaded_model.state_dict()
-    assert len(og_state_dict) == len(reloaded_state_dict)
-    for key in og_state_dict.keys():
-        og_tensor = og_state_dict[key]
-        reloaded_tensor = reloaded_state_dict[key]
-        assert og_tensor.dtype == reloaded_tensor.dtype == dtype
-        assert torch.allclose(og_tensor, reloaded_tensor)  # TODO: investigate why not exactly equal
 
     shutil.rmtree(tmp_path)
 
