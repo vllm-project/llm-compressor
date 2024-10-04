@@ -1,3 +1,5 @@
+import functools
+import pathlib
 from collections import namedtuple
 from typing import Dict, List, Tuple, Union
 
@@ -56,3 +58,23 @@ def get_layer_mappings_from_architecture(architecture: str) -> List[LayerMap]:
         )
 
     return MAPPINGS_REGISTRY.get(architecture, DEFAULT_SMOOTHQUANT_MAPPINGS)
+
+
+def handle_mapping_resolution_errors(func):
+    """
+    Decorator to catch any errors that occur when resolving mappings and provide a
+    helpful error message to the user pointing them to the README
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as original_exception:
+            readme_location = pathlib.Path(__file__).parent / "README.md"
+            raise RuntimeError(
+                f"Error resolving mappings for given architecture."
+                f"Please refer to the README at {readme_location} for more information."
+            ) from original_exception
+
+    return wrapper

@@ -9,6 +9,7 @@ from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.smoothquant.utils import (
     get_layer_mappings_from_architecture,
+    handle_mapping_resolution_errors,
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
@@ -80,8 +81,9 @@ class SmoothQuantModifier(Modifier):
         Each entry of the mapping list should be a list itself, in which the first
         entry is a list of layers who share the same input activation (the one to be
         to smoothed) and the second entry is the layer whose output is scaled to
-        achieve the smoothing.
-        If regex is used, it matches layers with the largest overlap in module name.
+        achieve the smoothing. If regex is used, it matches layers with the largest
+        overlap in module name.  If not supplied the argument will be inferred from the
+        model architecture.
      :param ignore: list of layers to ignore, even if they match a regex in mappings.
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
@@ -159,6 +161,7 @@ class SmoothQuantModifier(Modifier):
             architecture=model.__class__.__name__
         )
 
+    @handle_mapping_resolution_errors
     def _resolve_mappings(self, model: Module) -> List:
         """
         Transforms the list of activations to smooth and their corresponding weights
