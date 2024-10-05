@@ -286,6 +286,7 @@ def test_model_reload_gpu(
     offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
 ):
     test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path)
+<<<<<<< HEAD
 
 
 @pytest.mark.parametrize(
@@ -349,3 +350,5 @@ def test_model_shared_tensors_gpu(
     test_model_shared_tensors(
         offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
     )
+=======
+>>>>>>> origin
