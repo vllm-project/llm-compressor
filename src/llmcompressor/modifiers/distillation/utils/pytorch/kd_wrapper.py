@@ -24,6 +24,7 @@ class KDModuleWrapper(Module):
         super(KDModuleWrapper, self).__init__()
 
         self.layer = layer
+        self._save_active = False
         self._fsdp_active = fsdp_active
         self.offload_output = offload_output
         self.kd_transforms = transforms
@@ -88,16 +89,28 @@ class KDModuleWrapper(Module):
         prefix: str = "",
         remove_duplicate: bool = True,
     ):
-        # we want the full names of modules in two cases
+        # outside of saving, we want the full names of modules in two cases:
         # 1. trainer initialization, so teacher is moved to the correct device. This is
         # caught by the kd_enabled flag, which is set when the modifier is started
         # 2. running in DataParallel (non-FSDP) mode so the replicate function can pick
         # up the teacher.
-        if not self.kd_enabled or not self._fsdp_active:
-            return super().named_modules(
+        if self._save_active or (self.kd_enabled and self._fsdp_active):
+            return self.layer.named_modules(
                 memo=memo, prefix=prefix, remove_duplicate=remove_duplicate
             )
 
-        return self.layer.named_modules(
+        return super().named_modules(
             memo=memo, prefix=prefix, remove_duplicate=remove_duplicate
         )
+
+    def prepare_for_save(self):
+        """
+        Prepare model structure to be saved, specifically `self.named_modules`
+        """
+        self._save_active = True
+
+    def finish_save(self):
+        """
+        Finish saving model
+        """
+        self._save_active = False
