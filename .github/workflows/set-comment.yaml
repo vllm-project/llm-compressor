@@ -1,5 +1,5 @@
 name: PR Reminder Comment Bot
-on: 
+on:
   pull_request:
     branches:
       - main
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Remind to add ready label
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             github.rest.issues.createComment({
