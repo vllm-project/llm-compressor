@@ -574,7 +574,7 @@ class Recipe(RecipeBase):
 @dataclass
 class RecipeTuple:
     """
-    A simple dataclass to hold a recipe, it's target_stages, and override_args
+    A simple dataclass to hold a recipe, its target_stages, and override_args
 
     :param recipe: The Recipe instance to hold
     :param target_stages: The stages to target when simplifying the recipe
