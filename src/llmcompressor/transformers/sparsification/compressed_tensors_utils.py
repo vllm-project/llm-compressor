@@ -104,11 +104,12 @@ def modify_save_pretrained(model: PreTrainedModel):
                     "skip_compression_stats=True"
                 )
                 sparsity_config = SparsityConfigMetadata.from_pretrained(
-                    model, state_dict=state_dict, compress=True
+                    model, state_dict=state_dict, compress=save_compressed
                 )
             else:
                 logger.warning(
-                    "Sparsity configuration cannot be inferred if skip_compression_stats=True"
+                    "Sparsity configuration cannot be inferred if "
+                    "skip_compression_stats=True"
                 )
 
             # use given quantization format or infer

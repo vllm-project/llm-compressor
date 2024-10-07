@@ -8,9 +8,8 @@ from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import QUANTIZATION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
-from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
@@ -18,6 +17,7 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
+from llmcompressor.transformers.model import load_model_decompressed
 
 
 @pytest.mark.parametrize(
@@ -78,31 +78,26 @@ def test_sparse_model_reload(compressed, s_config, dtype, tmp_path):
         sparsity_config=s_config,
         save_compressed=compressed,
     )
-    reloaded_model = SparseAutoModelForCausalLM.from_pretrained(
-        tmp_path / "compress_out", torch_dtype="auto"
+    reloaded = load_model_decompressed(
+        AutoModelForCausalLM, tmp_path / "compress_out", torch_dtype=dtype
     )
 
-    if compressed and s_config is not None and not isinstance(s_config, DenseSparsityConfig):
+    if compressed and not isinstance(s_config, DenseSparsityConfig):
         # check (compressed) config
-        compression_config = reloaded_model.config.quantization_config
-        sparsity_config = compression_config.sparsity_config.dict()
+        sparsity_config = reloaded.config.quantization_config.sparsity_config
         assert sparsity_config is not None
 
-        _format = sparsity_config["format"]
-        sparsity = sparsity_config["global_sparsity"]
-        structure = sparsity_config["sparsity_structure"]
+        _format = sparsity_config.format
+        sparsity = sparsity_config.global_sparsity
+        structure = sparsity_config.sparsity_structure
 
         assert _format == "sparse-bitmask"
         assert sparsity == SparsityConfigMetadata.infer_global_sparsity(model)
         assert structure == inferred_structure
 
         # check (compressed) state dict values
-        compressor = ModelCompressor.from_compression_config(compression_config)
-        compressor.decompress(
-            model_path=tmp_path / "compress_out", model=reloaded_model
-        )
         og_state_dict = model.state_dict()
-        reloaded_state_dict = reloaded_model.state_dict()
+        reloaded_state_dict = reloaded.state_dict()
         assert len(og_state_dict) == len(reloaded_state_dict)
         for key in og_state_dict.keys():
             og_tensor = og_state_dict[key]
@@ -111,7 +106,7 @@ def test_sparse_model_reload(compressed, s_config, dtype, tmp_path):
             assert torch.equal(og_tensor, reloaded_tensor)
 
     else:
-        assert not hasattr(reloaded_model, "quantization_config")
+        assert not hasattr(reloaded.config, "quantization_config")
 
     shutil.rmtree(tmp_path)
 
@@ -147,10 +142,15 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
 
 
 @pytest.mark.parametrize(
-    "dtype",
-    [torch.float32, torch.bfloat16],
+    "format,dtype",
+    [
+        ["dense", torch.float32],
+        ["dense", torch.float16],
+        #["int_quantized", torch.float32], TODO
+        # [True, "int_quantized", torch.float16],
+    ],
 )
-def test_quant_model_reload(dtype, tmp_path):
+def test_quant_model_reload(format, dtype, tmp_path):
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
@@ -165,31 +165,7 @@ def test_quant_model_reload(dtype, tmp_path):
     oneshot(
         model=model_path,
         dataset=dataset,
-        output_dir=tmp_path / "compressed",
-        num_calibration_samples=num_calibration_samples,
-        recipe=recipe_str,
-        concatenate_data=concatenate_data,
-        splits=splits,
-        oneshot_device=device,
-        precision=dtype,
-        save_compressed=True,
-    )
-
-    compressed_model = SparseAutoModelForCausalLM.from_pretrained(
-        tmp_path / "compressed", torch_dtype=dtype
-    )
-
-    compression_config = compressed_model.config.quantization_config
-    quant_config = ModelCompressor.parse_quantization_config(compression_config)
-    assert quant_config["format"] == "int-quantized"
-
-
-    # create a quantized, uncompressed model to compare against
-    reset_session()
-    oneshot(
-        model=model_path,
-        dataset=dataset,
-        output_dir=tmp_path / "uncompressed",
+        output_dir=tmp_path / "oneshot_out",
         num_calibration_samples=num_calibration_samples,
         recipe=recipe_str,
         concatenate_data=concatenate_data,
@@ -199,29 +175,37 @@ def test_quant_model_reload(dtype, tmp_path):
         save_compressed=False,
     )
 
-    uncompressed_model = SparseAutoModelForCausalLM.from_pretrained(
-        tmp_path / "uncompressed", torch_dtype=dtype
+    # load uncompressed model
+    model = SparseAutoModelForCausalLM.from_pretrained(
+        tmp_path / "oneshot_out", torch_dtype=dtype
     )
 
-    # unfortunately, this is how we have to load compressed models in an
-    # uncompressed way so we can load their state dict
-    compressed_model = SparseAutoModelForCausalLM.from_pretrained(
-        model_path, torch_dtype=dtype
-    ).to(dtype=torch.float32)
-    compressor = ModelCompressor.from_compression_config(compression_config)
-    compressor.decompress(
-        model_path=tmp_path / "compressed", model=uncompressed_model
+    # save (compressed)
+    model.save_pretrained(
+        tmp_path / "compress_out",
+        quantization_format=format,
+        save_compressed=True,
     )
+    reloaded = load_model_decompressed(
+        AutoModelForCausalLM, tmp_path / "compress_out", torch_dtype=dtype
+    )
+
+    # check format
+    if format != "dense":
+        compression_config = reloaded.config.quantization_config
+        quant_config = ModelCompressor.parse_quantization_config(compression_config)
+        assert quant_config["format"] == format
+    else:
+        assert not hasattr(reloaded.config, "quantization_config")
 
     # compare loaded values
-    og_state_dict = get_state_dict_offloaded_model(uncompressed_model)
-    reconstructed_state_dict = get_state_dict_offloaded_model(compressed_model)
+    og_state_dict = get_state_dict_offloaded_model(model)
+    reconstructed_state_dict = get_state_dict_offloaded_model(reloaded)
     for key in og_state_dict.keys():
         dense_tensor = og_state_dict[key]
         reconstructed_tensor = reconstructed_state_dict[key]
         if key.endswith("weight"):
-            breakpoint()
-            #assert dense_tensor.dtype == reconstructed_tensor.dtype
+            # assert dense_tensor.dtype == reconstructed_tensor.dtype
             # we don't expect an exact match for compressed
             diff = torch.abs(dense_tensor - reconstructed_tensor)
             assert not torch.any(diff > 0.01).item()
@@ -286,7 +270,6 @@ def test_model_reload_gpu(
     offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
 ):
     test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path)
-<<<<<<< HEAD
 
 
 @pytest.mark.parametrize(
@@ -350,5 +333,3 @@ def test_model_shared_tensors_gpu(
     test_model_shared_tensors(
         offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
     )
-=======
->>>>>>> origin

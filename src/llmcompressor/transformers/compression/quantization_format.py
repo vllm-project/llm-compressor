@@ -28,9 +28,7 @@ def infer_quantization_format(
         return None
 
     weight_args, input_args = _get_unique_quant_args(model)
-    is_24_structure = (
-        sparsity_config and sparsity_config.sparsity_structure == "2:4"
-    )
+    is_24_structure = sparsity_config and sparsity_config.sparsity_structure == "2:4"
     is_weight_only = len(input_args) == 0 and len(weight_args) > 0
 
     if is_weight_only:  # w4a16 and w8a16
