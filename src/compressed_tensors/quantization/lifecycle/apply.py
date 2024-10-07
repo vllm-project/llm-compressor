@@ -107,8 +107,8 @@ def load_pretrained_quantization(model: Module, model_name_or_path: str):
 
 
 def apply_quantization_config(
-    model: Module, config: QuantizationConfig, run_compressed: bool = False
-) -> Dict:
+    model: Module, config: Union[QuantizationConfig, None], run_compressed: bool = False
+) -> OrderedDict:
     """
     Initializes the model for quantization in-place based on the given config
 
@@ -117,6 +117,10 @@ def apply_quantization_config(
     :param run_compressed: Whether the model will be run in compressed mode or
         decompressed fully on load
     """
+    # Workaround for when HF Quantizer passes None, see PR #180
+    if config is None:
+        return OrderedDict()
+
     # remove reference to the original `config`
     # argument. This function can mutate it, and we'd
     # like to keep the original `config` as it is.
