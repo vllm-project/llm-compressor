@@ -3,7 +3,7 @@ import shutil
 import unittest
 
 import pytest
-from compressed_tensors.compressors.model_compressor import ModelCompressor
+from compressed_tensors.compressors import ModelCompressor
 from parameterized import parameterized_class
 from transformers import AutoConfig
 

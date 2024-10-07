@@ -34,6 +34,16 @@ recipe_modifier_full = GPTQModifier(
     },
 )
 
+recipe_modifier_full_group = GPTQModifier(
+    ignore=["lm_head"],
+    config_groups={
+        "group_0": QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
+        )
+    },
+)
+
 recipe_modifier_shorthand_a = GPTQModifier(
     ignore=["lm_head"], targets="Linear", scheme="W4A16"
 )
@@ -48,6 +58,7 @@ recipe_modifier_shorthand_b = GPTQModifier(
     [
         {"recipe": recipe_str},
         {"recipe": recipe_modifier_full},
+        {"recipe": recipe_modifier_full_group},
         {"recipe": recipe_modifier_shorthand_a},
         {"recipe": recipe_modifier_shorthand_b},
     ]
@@ -74,7 +85,9 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
             num_calibration_samples=9,
         )
 
-        model_loaded = SparseAutoModelForCausalLM.from_pretrained(self.output)
+        model_loaded = SparseAutoModelForCausalLM.from_pretrained(
+            self.output, device_map=self.device
+        )
 
         # Check that the model is quantized
         # for compression_config - decompress() will attach a quantization_config

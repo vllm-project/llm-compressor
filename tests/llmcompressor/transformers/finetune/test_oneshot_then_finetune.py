@@ -62,7 +62,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
         concatenate_data = False
         output_dir = self.output / "finetune_out"
         splits = "train[:50%]"
-        max_steps = 50
+        max_steps = 25
 
         with create_session():
             train(
@@ -75,6 +75,24 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 concatenate_data=concatenate_data,
                 splits=splits,
                 max_steps=max_steps,
+            )
+
+        # test reloading checkpoint and final model
+        model = SparseAutoModelForCausalLM.from_pretrained(
+            output_dir, device_map="auto"
+        )
+        with create_session():
+            train(
+                model=model,
+                distill_teacher=distill_teacher,
+                dataset=dataset,
+                output_dir=output_dir,
+                num_calibration_samples=num_calibration_samples,
+                recipe=recipe_str,
+                concatenate_data=concatenate_data,
+                splits=splits,
+                max_steps=max_steps,
+                resume_from_checkpoint=True,  # use last checkpoint
             )
 
     def tearDown(self):
