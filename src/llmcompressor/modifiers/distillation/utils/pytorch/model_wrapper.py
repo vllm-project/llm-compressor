@@ -23,6 +23,7 @@ class KDModelWrapper(Module):
         self.teacher_model = teacher_model
         self.wrappers = wrappers
         self.kd_comparison = comparison
+        self._save_active = False
         self._fsdp_active = fsdp_active
         self.kd_enabled = False
         self.register_buffer(self.KD_LAST_COMPARISON, torch.zeros(1, device="cpu"))
@@ -88,17 +89,17 @@ class KDModelWrapper(Module):
         prefix: str = "",
         remove_duplicate: bool = True,
     ):
-        # we want the full names of modules in two cases
+        # outside of saving, we want the full names of modules in two cases:
         # 1. trainer initialization, so teacher is moved to the correct device. This is
         # caught by the kd_enabled flag, which is set when the modifier is started
         # 2. running in DataParallel (non-FSDP) mode so the replicate function can pick
         # up the teacher.
-        if not self.kd_enabled or not self._fsdp_active:
-            return super().named_modules(
+        if self._save_active or (self.kd_enabled and self._fsdp_active):
+            return self.student_model.named_modules(
                 memo=memo, prefix=prefix, remove_duplicate=remove_duplicate
             )
 
-        return self.student_model.named_modules(
+        return super().named_modules(
             memo=memo, prefix=prefix, remove_duplicate=remove_duplicate
         )
 
@@ -108,6 +109,24 @@ class KDModelWrapper(Module):
     def train(self, mode: bool = True):
         self.student_model.train(mode)
         return self
+
+    def prepare_for_save(self):
+        """
+        Prepare model structure to be saved, specifically `self.named_modules`
+        """
+        self._save_active = True
+        for student_wrapper, teacher_wrapper in self.wrappers.values():
+            student_wrapper.prepare_for_save()
+            teacher_wrapper.prepare_for_save()
+
+    def finish_save(self):
+        """
+        Finish saving model
+        """
+        self._save_active = False
+        for student_wrapper, teacher_wrapper in self.wrappers.values():
+            student_wrapper.finish_save()
+            teacher_wrapper.finish_save()
 
     def __getattr__(self, name: str) -> Any:
         try:
