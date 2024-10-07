@@ -73,7 +73,7 @@ class Recipe(RecipeBase):
     @classmethod
     def create_instance(
         cls,
-        path_or_modifiers: Union[str, Modifier, List[Modifier]],
+        path_or_modifiers: Union[str, Modifier, List[Modifier], "Recipe"],
         modifier_group_name: Optional[str] = None,
     ) -> "Recipe":
         """
