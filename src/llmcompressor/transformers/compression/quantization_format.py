@@ -1,7 +1,6 @@
 from typing import Optional
 
 from compressed_tensors import CompressionFormat
-from compressed_tensors.config import SparsityCompressionConfig
 from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
 from compressed_tensors.quantization.utils import (
     is_model_quantized,
@@ -16,7 +15,7 @@ def infer_quantization_format(
     model,
     quantization_format: Optional[str] = None,
     save_compressed: bool = False,
-    sparsity_config: Optional[SparsityCompressionConfig] = None,
+    sparsity_structure: Optional[str] = None,
 ) -> str:
     """
     Infers a quantization format based on model state and compression args
@@ -36,9 +35,7 @@ def infer_quantization_format(
 
     if save_compressed:
         weight_args, input_args = _get_unique_quant_args(model)
-        is_24_structure = (
-            sparsity_config and sparsity_config.sparsity_structure == "2:4"
-        )
+        is_24_structure = sparsity_structure is not None and sparsity_structure == "2:4"
         is_weight_only = len(input_args) == 0 and len(weight_args) > 0
 
         if is_weight_only:  # w4a16 and w8a16
