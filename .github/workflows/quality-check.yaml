@@ -1,5 +1,5 @@
 name: Quality Checks
-on: 
+on:
   push:
     branches:
       - main
@@ -12,13 +12,10 @@ jobs:
   quality-check:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
-        with:
-          ref: ${{needs.test-setup.outputs.branch}}
+      - uses: actions/checkout@v4
       - name: "⚙️ Install dependencies"
         run: pip3 install .[dev]
       - name: "🧹 Running quality checks"

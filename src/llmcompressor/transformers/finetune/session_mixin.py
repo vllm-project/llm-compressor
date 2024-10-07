@@ -21,6 +21,9 @@ from llmcompressor.core import (
     pre_initialize_structure,
 )
 from llmcompressor.metrics import LoggerManager
+from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
+    KDModelWrapper,
+)
 from llmcompressor.pytorch.model_load.helpers import RECIPE_FILE_NAME, get_session_model
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.finetune.callbacks import (
@@ -341,13 +344,25 @@ class SessionManagerMixIn:
         :param kwargs: keyword args to pass to super().train()
         :return: the output from super.train()
         """
+
+        # lifecycle
         checkpoint, epoch = self._calculate_checkpoint_info(kwargs)
         self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
+
+        # do not save checkpoints as compressed
+        original_save_compressed = self.args.save_compressed
+        self.args.save_compressed = False
+
+        # train with accelerator
         self.accelerator.wait_for_everyone()
         output = super().train(*args, **kwargs)
         self.accelerator.wait_for_everyone()
-        self.finalize_session()
 
+        # restore original setting for saving final model
+        self.args.save_compressed = original_save_compressed
+
+        # lifecycle
+        self.finalize_session()
         self.accelerator.wait_for_everyone()
 
         # log model sparsity
@@ -430,6 +445,10 @@ class SessionManagerMixIn:
         if output_dir is None:
             output_dir = self.args.output_dir
 
+        # knowledge distillation requires making wrappers transparent during
+        if isinstance(self.model, KDModelWrapper):
+            self.model.prepare_for_save()
+
         if not is_fsdp_model(self.model):
             self.model.save_pretrained(
                 output_dir,
@@ -466,6 +485,9 @@ class SessionManagerMixIn:
             )
 
         self.accelerator.wait_for_everyone()
+
+        if isinstance(self.model, KDModelWrapper):
+            self.model.finish_save()
 
     def maybe_log_model_sparsification(self):
         """
