@@ -67,7 +67,7 @@ class SessionManagerMixIn:
         self,
         recipe: Optional[str] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional[DataTrainingArguments] = None,
+        data_args: Optional["DataTrainingArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):
