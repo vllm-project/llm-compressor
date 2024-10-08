@@ -123,8 +123,8 @@ jobs:
       - name: Running Sparsification Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/sparsification
-          ptyest -v tests/llmcompressor/transformers/test_clear_ml.py
+          pytest tests/llmcompressor/transformers/sparsification -v
+          pytest tests/llmcompressor/transformers/test_clear_ml.py -v
       - name: Running OBCQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
