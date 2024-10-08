@@ -96,7 +96,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                     "skip_compression_stats=True"
                 )
                 sparsity_config = SparsityConfigMetadata.from_pretrained(
-                    model, state_dict=state_dict, compress=False
+                    model, state_dict=state_dict, compress=save_compressed
                 )
 
             quantization_format = infer_quantization_format(
