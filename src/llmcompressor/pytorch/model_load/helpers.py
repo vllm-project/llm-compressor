@@ -3,6 +3,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 import torch
+from compressed_tensors.quantization.utils import is_model_quantized
 from loguru import logger
 from safetensors import safe_open
 from torch.nn import Module
@@ -106,6 +107,12 @@ def save_model_and_recipe(
     :param save_safetensors: whether to save as safetensors or pickle (bin)
     :param save_compressed: whether to compress sparse weights on disk
     """
+    if is_model_quantized(model):
+        from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+            modify_save_pretrained,
+        )
+
+        modify_save_pretrained(model)
 
     model.save_pretrained(
         save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
