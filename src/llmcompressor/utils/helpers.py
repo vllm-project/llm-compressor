@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
+import torch
 from loguru import logger
 
 __all__ = [
@@ -59,6 +60,7 @@ __all__ = [
     "is_package_available",
     "import_from_path",
     "getattr_chain",
+    "ModelNoKVCache",
 ]
 
 
@@ -1041,3 +1043,18 @@ def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
         res = getattr(res, attr_name)
 
     return res
+
+
+class ModelNoKVCache:
+    def __init__(self, model: torch.nn.Module):
+        self.model = model
+        self.restore_value = None
+
+    def __enter__(self):
+        if hasattr(self.model.config, "use_cache"):
+            self.restore_value = self.model.config.use_cache
+            self.model.config.use_cache = False
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        if hasattr(self.model.config, "use_cache"):
+            self.model.config.use_cache = self.restore_value

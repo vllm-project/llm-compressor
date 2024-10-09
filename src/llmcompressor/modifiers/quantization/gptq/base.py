@@ -21,6 +21,7 @@ from llmcompressor.modifiers.quantization.gptq.utils import (
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
+from llmcompressor.utils.helpers import ModelNoKVCache
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -286,48 +287,46 @@ class GPTQModifier(Modifier):
         # want to calibrate wrt to these
         self.model.apply(disable_quantization)
 
-        forward_pass_use_cache = self.model.config.use_cache
-        self.model.config.use_cache = False
+        with ModelNoKVCache(self.model):
+            # in non-sequential mode we run calibration through the full model
+            # in sequential mode we run calibration up to the first transformer target
+            intermediates = run_calibration_forward(
+                self.model, dataloader, mask_padding=True
+            )
+            self.layer_compressors_[0].clear_early_stop()
 
-        # in non-sequential mode we run calibration through the full model
-        # in sequential mode we run calibration up to the first transformer target
-        intermediates = run_calibration_forward(
-            self.model, dataloader, mask_padding=True
-        )
-        self.layer_compressors_[0].clear_early_stop()
+            # empty cache if not using sequential update
+            if not self.sequential_update:
+                del intermediates
+                gc.collect()
+                torch.cuda.empty_cache()
 
-        # empty cache if not using sequential update
-        if not self.sequential_update:
-            del intermediates
-            gc.collect()
-            torch.cuda.empty_cache()
+            num_layers = len(self.compressible_layers_)
+            for idx, layer_compressor in enumerate(self.layer_compressors_):
+                logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
-        num_layers = len(self.compressible_layers_)
-        for idx, layer_compressor in enumerate(self.layer_compressors_):
-            logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
+                if self.sequential_update:
+                    # in sequential mode we run the forward pass for each layer
+                    # one at a time, caching the intermediate outputs between layers
+                    logger.info(f"Calibrating {layer_compressor.name}...")
+                    layer_compressor.pre_compress()
+                    unquantized_outputs = layer_compressor.calibrate_layer(
+                        intermediates
+                    )
 
-            if self.sequential_update:
-                # in sequential mode we run the forward pass for each transformer layer
-                # one at a time, caching the intermediate outputs between layers
-                logger.info(f"Calibrating {layer_compressor.name}...")
-                layer_compressor.pre_compress()
-                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                layer_compressor.compress()
+                layer_compressor.post_compress()
+                layer_compressor.revert_layer_wrappers()
 
-            layer_compressor.compress()
-            layer_compressor.post_compress()
-            layer_compressor.revert_layer_wrappers()
+                if self.sequential_update:
+                    quantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                    error = get_output_error(unquantized_outputs, quantized_outputs)
+                    logger.info(f"Mean output error from quantization: {error:.3f}")
+                    intermediates = quantized_outputs
+                    del unquantized_outputs
 
-            if self.sequential_update:
-                quantized_outputs = layer_compressor.calibrate_layer(intermediates)
-                error = get_output_error(unquantized_outputs, quantized_outputs)
-                logger.info(f"Mean output error from quantization: {error:.3f}")
-                intermediates = quantized_outputs
-                del unquantized_outputs
-
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        self.model.config.use_cache = forward_pass_use_cache
+                gc.collect()
+                torch.cuda.empty_cache()
 
         # re-enable quantization
         self.model.apply(enable_quantization)
