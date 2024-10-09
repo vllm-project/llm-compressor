@@ -1,6 +1,6 @@
 import re
 import weakref
-from functools import wraps
+from functools import reduce, wraps
 from typing import Optional
 
 import torch
