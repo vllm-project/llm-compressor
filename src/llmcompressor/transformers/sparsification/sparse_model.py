@@ -17,6 +17,7 @@ from transformers import AutoModelForCausalLM, PreTrainedModel
 from llmcompressor.pytorch.model_load.helpers import initialize_recipe
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
+    patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.utils.helpers import (
     download_model_directory,
@@ -104,6 +105,10 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
         model = super(hf_model_class, cls).from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
+
+        # patch a shared tensor bug in HF transformers
+        # https://github.com/huggingface/transformers/issues/33689
+        model = patch_tied_tensors_bug(model)
 
         if model.dtype != model.config.torch_dtype:
             logger.warning(
