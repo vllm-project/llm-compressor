@@ -1,6 +1,6 @@
 import re
 import weakref
-from functools import wraps
+from functools import reduce, wraps
 from typing import Optional
 
 import torch
@@ -8,6 +8,7 @@ import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
+from safetensors.torch import _find_shared_tensors
 from transformers import PreTrainedModel
 
 from llmcompressor.transformers.compression.quantization_format import (
@@ -144,3 +145,31 @@ def new_dtype_byte_size(dtype):
         raise ValueError(f"`dtype` is not a valid dtype: {dtype}.")
     bit_size = int(bit_search.groups()[0])
     return bit_size // 8
+
+
+def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
+    """
+    Patches bug where HF transformers will fail to untie weights under specific
+    circumstances (https://github.com/huggingface/transformers/issues/33689).
+
+    This function detects those cases and unties the tensors if applicable
+
+    :param model: model to fix
+    :return: model with fixed parameters
+    """
+    if not model.config.tie_word_embeddings:
+        tensor_groups = _find_shared_tensors(get_state_dict_offloaded_model(model))
+        for tensor_group in tensor_groups:
+            if len(tensor_group) > 1:
+                if not set(model._tied_weights_keys).intersection(tensor_group):
+                    raise ValueError(
+                        "Model contains unexpected shared tensors. Expected "
+                        f"{model._tied_weights_keys}, found {tensor_group}"
+                    )
+
+                for tensor_path in tensor_group:
+                    tensor_parts = tensor_path.split(".")
+                    parameter = reduce(getattr, tensor_parts, model)
+                    parameter.data = parameter.data.clone()
+
+    return model
