@@ -21,7 +21,7 @@ from llmcompressor.modifiers.quantization.gptq.utils import (
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
-from llmcompressor.utils.helpers import ModelNoKVCache
+from llmcompressor.utils.helpers import DisableKVCache
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -287,7 +287,7 @@ class GPTQModifier(Modifier):
         # want to calibrate wrt to these
         self.model.apply(disable_quantization)
 
-        with ModelNoKVCache(self.model):
+        with DisableKVCache(self.model):
             # in non-sequential mode we run calibration through the full model
             # in sequential mode we run calibration up to the first transformer target
             intermediates = run_calibration_forward(

@@ -60,7 +60,7 @@ __all__ = [
     "is_package_available",
     "import_from_path",
     "getattr_chain",
-    "ModelNoKVCache",
+    "DisableKVCache",
 ]
 
 
@@ -1045,16 +1045,28 @@ def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
     return res
 
 
-class ModelNoKVCache:
+class DisableKVCache:
     def __init__(self, model: torch.nn.Module):
-        self.model = model
-        self.restore_value = None
+        if hasattr(self.model.config, "use_cache"):
+            self.config = self.model.config
+
+        # MllamaConfig
+        elif hasattr(self.model.config, "text_config") and hasattr(
+            self.model.config.text_config, "use_cache"
+        ):
+            self.config = self.model.config.text_config
+
+        # unknown config structure
+        else:
+            raise NotImplementedError(
+                f"Cannot find `use_cache` for config of type {type(self.model.config)}"
+            )
+
+        self.restore_value = self.config.use_cache
 
     def __enter__(self):
-        if hasattr(self.model.config, "use_cache"):
-            self.restore_value = self.model.config.use_cache
-            self.model.config.use_cache = False
+        self.restore_value = self.config.use_cache
+        self.config.use_cache = False
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb):
-        if hasattr(self.model.config, "use_cache"):
-            self.model.config.use_cache = self.restore_value
+        self.config.use_cache = self.restore_value
