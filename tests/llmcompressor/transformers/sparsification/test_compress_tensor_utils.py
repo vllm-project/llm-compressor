@@ -9,6 +9,7 @@ from compressed_tensors import QUANTIZATION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
+from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
 from transformers import AutoConfig
 
 from llmcompressor.core import reset_session
@@ -220,9 +221,13 @@ def test_quant_model_reload(format, dtype, tmp_path):
         # dtype
         (False, torch.float16, False, "cpu"),
         (False, torch.float16, True, "cpu"),
+        (False, torch.float32, False, "cpu"),
         (False, torch.float32, True, "cpu"),
         # offloading
         (True, torch.float16, False, "cpu"),
+        (True, torch.float32, False, "cpu"),
+        # (True, torch.float16, True, "cpu"),  # TODO: fails
+        # (True, torch.float32, True, "cpu"),  # TODO: fails
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
@@ -265,3 +270,66 @@ def test_model_reload_gpu(
     offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
 ):
     test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "offload,torch_dtype,tie_word_embeddings,device_map",
+    [
+        (False, torch.float16, False, "cpu"),
+        (False, torch.float32, False, "cpu"),
+        (True, torch.float32, False, "cpu"),
+        (False, torch.float16, True, "cpu"),
+        (False, torch.float32, True, "cpu"),
+        (True, torch.float16, True, "cpu"),
+        (True, torch.float32, True, "cpu"),
+    ],
+)
+def test_model_shared_tensors(
+    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+):
+    # load model
+    model = SparseAutoModelForCausalLM.from_pretrained(
+        "Xenova/llama2.c-stories15M",
+        torch_dtype=torch_dtype,
+        tie_word_embeddings=tie_word_embeddings,
+        device_map=device_map,
+    )
+    if offload:
+        model = cpu_offload(model)
+
+    # modify lm head
+    with torch.no_grad():
+        if offload:
+            model.lm_head._hf_hook.pre_forward(model.lm_head)
+
+        model.lm_head.weight += 1
+
+        if offload:
+            device = get_offloaded_device(model.lm_head)
+            update_prefix_dict(model.lm_head, "weight", model.lm_head.weight.to(device))
+            model.lm_head._hf_hook.post_forward(model.lm_head, None)
+
+    # check that embed_tokens is not modified
+    model_dict = get_state_dict_offloaded_model(model)
+    lm_head = model_dict["lm_head.weight"]
+    embed_tokens = model_dict["model.embed_tokens.weight"]
+    if tie_word_embeddings:
+        assert torch.equal(lm_head, embed_tokens)
+    else:
+        assert not torch.equal(lm_head, embed_tokens)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires gpu")
+@pytest.mark.parametrize(
+    "offload,torch_dtype,tie_word_embeddings,device_map",
+    [
+        (False, torch.float32, False, "cuda:0"),
+        (False, torch.float32, True, "cuda:0"),
+    ],
+)
+def test_model_shared_tensors_gpu(
+    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+):
+    test_model_shared_tensors(
+        offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+    )
