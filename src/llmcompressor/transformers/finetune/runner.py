@@ -169,35 +169,40 @@ class StageRunner:
         self.trainer.accelerator.wait_for_everyone()
 
         self.trainer.one_shot(calibration_data=calib_data, stage=stage)
+        
+        from llmcompressor.transformers.sparsification.compressed_tensors_utils import modify_save_pretrained
+        
+        breakpoint()
+        modify_save_pretrained(self.trainer, self.tokenizer)
 
-        if is_fsdp_model(self.trainer.model):
-            try:
-                self.trainer.save_model(output_dir=self._output_dir, _is_oneshot=True)
-            except AssertionError:
-                # fallback to this in the case of quantization
-                unwrap_and_export_model(
-                    model=self.trainer.model,
-                    accelerator=self.trainer.accelerator,
-                    output_dir=self._output_dir,
-                    tokenizer=self.tokenizer,
-                )
-                # only allow the main process move the state
-                # dicts to cpu
-                if self.trainer.accelerator.is_main_process:
-                    # assuming quantization is the last step
-                    # we no longer need the original model
-                    # and can safely delete it to save memory
-                    del self.trainer.model
-                    find_and_move_state_dicts_to_cpu(self._output_dir)
+        # if is_fsdp_model(self.trainer.model):
+        #     try:
+        #         self.trainer.save_model(output_dir=self._output_dir, _is_oneshot=True)
+        #     except AssertionError:
+        #         # fallback to this in the case of quantization
+        #         unwrap_and_export_model(
+        #             model=self.trainer.model,
+        #             accelerator=self.trainer.accelerator,
+        #             output_dir=self._output_dir,
+        #             tokenizer=self.tokenizer,
+        #         )
+        #         # only allow the main process move the state
+        #         # dicts to cpu
+        #         if self.trainer.accelerator.is_main_process:
+        #             # assuming quantization is the last step
+        #             # we no longer need the original model
+        #             # and can safely delete it to save memory
+        #             del self.trainer.model
+        #             find_and_move_state_dicts_to_cpu(self._output_dir)
 
-        else:
-            save_model_and_recipe(
-                model=self.trainer.model,
-                save_path=self._output_dir,
-                tokenizer=self.tokenizer,
-                save_safetensors=self._training_args.save_safetensors,
-                save_compressed=self._training_args.save_compressed,
-            )
+        # else:
+        #     save_model_and_recipe(
+        #         model=self.trainer.model,
+        #         save_path=self._output_dir,
+        #         tokenizer=self.tokenizer,
+        #         save_safetensors=self._training_args.save_safetensors,
+        #         save_compressed=self._training_args.save_compressed,
+        #     )
 
     def train(self, checkpoint: str, stage: Optional[str] = None):
         """
