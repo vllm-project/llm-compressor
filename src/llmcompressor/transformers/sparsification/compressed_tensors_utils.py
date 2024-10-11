@@ -1,3 +1,4 @@
+import os
 import re
 import weakref
 from functools import reduce, wraps
@@ -9,23 +10,21 @@ from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
 from safetensors.torch import _find_shared_tensors
-from transformers import PreTrainedModel
 
+from llmcompressor.core import active_session
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
+
 # from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.utils.fsdp.helpers import (
     find_and_move_state_dicts_to_cpu,
     is_fsdp_model,
     unwrap_and_export_model,
 )
-import os
-from llmcompressor.core import active_session
-
 
 __all__ = ["modify_save_pretrained"]
 
@@ -47,7 +46,6 @@ def modify_save_pretrained(trainer, tokenizer):
         original_save_pretrained = save_pretrained_method.__func__
         model_class = model_ref().__class__
         del save_pretrained_method
-        
 
         @wraps(original_save_pretrained)
         def save_pretrained_wrapper(
@@ -100,9 +98,7 @@ def modify_save_pretrained(trainer, tokenizer):
                 # https://github.com/huggingface/transformers/pull/30488
                 transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
 
-                model_ = model_ref()
                 model = trainer.model
-                breakpoint()
                 # state_dict gets passed in as a kwarg for FSDP models
                 state_dict = kwargs.pop("state_dict", None)
 
@@ -154,7 +150,9 @@ def modify_save_pretrained(trainer, tokenizer):
                 if state_dict is not None and len(state_dict) > 0:
                     compressed_state_dict = compressor.compress(model, state_dict)
 
-                    kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
+                    kwargs["safe_serialization"] = kwargs.get(
+                        "safe_serialization", True
+                    )
                     original_save_pretrained.__get__(model, model_class)(
                         save_directory, state_dict=compressed_state_dict, **kwargs
                     )
@@ -173,7 +171,9 @@ def modify_save_pretrained(trainer, tokenizer):
         return save_pretrained_wrapper
 
     # wrap save_pretrained
-    trainer.model.save_pretrained = save_pretrained_compressed(trainer.model.save_pretrained)
+    trainer.model.save_pretrained = save_pretrained_compressed(
+        trainer.model.save_pretrained
+    )
 
 
 # HACK: Override the dtype_byte_size function in transformers to support float8 types
@@ -214,7 +214,6 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
                     parameter.data = parameter.data.clone()
 
     return model
-
 
 
 def _copy_python_files_from_model_cache(model, save_path: str):

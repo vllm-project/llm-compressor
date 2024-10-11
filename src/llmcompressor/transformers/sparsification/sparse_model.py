@@ -127,6 +127,7 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
             return model
 
         # override the PreTrainedModel instance with compression save function
+        breakpoint()
         modify_save_pretrained(model)
 
         # If model is quantized or compressed on disk, initialize quantization

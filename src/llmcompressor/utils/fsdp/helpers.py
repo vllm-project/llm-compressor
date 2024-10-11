@@ -17,7 +17,6 @@ import torch
 from torch.nn import Module
 
 from llmcompressor.core.state import State
-from llmcompressor.pytorch.model_load.helpers import save_model_and_recipe
 from llmcompressor.utils.pytorch import set_layer
 
 __all__ = [

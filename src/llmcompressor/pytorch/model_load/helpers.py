@@ -3,7 +3,6 @@ import os
 from typing import Any, Dict, List, Optional
 
 import torch
-from compressed_tensors.quantization.utils import is_model_quantized
 from loguru import logger
 from safetensors import safe_open
 from torch.nn import Module
@@ -16,7 +15,6 @@ COMPLETED_STAGES_FILENAME = "completed_stages.json"
 __all__ = [
     "log_model_load",
     "initialize_recipe",
-    "save_model_and_recipe",
     "fallback_to_cpu",
     "parse_dtype",
     "get_session_model",
@@ -89,48 +87,6 @@ def initialize_recipe(model: Module, recipe_path: str):
         else f"a staged recipe with {num_stages} stages"
     )
     logger.info(f"Applied {msg} to the model")
-
-
-def save_model_and_recipe(
-    model: Module,
-    save_path: str,
-    tokenizer: Optional[Any] = None,
-    save_safetensors: bool = False,
-    save_compressed: bool = False,
-):
-    """
-    Save a model, tokenizer and the currently loaded recipe to file
-
-    :param model: pytorch model to save
-    :param save_path: path to save output to
-    :param tokenizer: model tokenizer to save
-    :param save_safetensors: whether to save as safetensors or pickle (bin)
-    :param save_compressed: whether to compress sparse weights on disk
-    """
-    if is_model_quantized(model):
-        from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-            modify_save_pretrained,
-        )
-
-        modify_save_pretrained(model)
-
-    model.save_pretrained(
-        save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
-    )
-
-    if tokenizer is not None:
-        tokenizer.save_pretrained(save_path)
-
-    logger.info("Saving output to {}".format(os.path.abspath(save_path)))
-
-    recipe_path = os.path.join(save_path, RECIPE_FILE_NAME)
-    session = active_session()
-    recipe_yaml_str = session.get_serialized_recipe()
-    with open(recipe_path, "w") as fp:
-        fp.write(recipe_yaml_str)
-
-    # copy python files from cache dir to save_path if any
-    _copy_python_files_from_model_cache(model, save_path)
 
 
 def fallback_to_cpu(device: str) -> str:
@@ -217,18 +173,3 @@ def load_safetensors_state_dict(file_path: str) -> Dict[str, torch.Tensor]:
     """
     with safe_open(file_path, framework="pt", device="cpu") as f:
         return {key: f.get_tensor(key) for key in f.keys()}
-
-
-def _copy_python_files_from_model_cache(model: Module, save_path: str):
-    config = model.config
-    cache_dir = None
-    if hasattr(config, "_name_or_path"):
-        import os
-        import shutil
-
-        cache_dir = config._name_or_path
-        for file in os.listdir(cache_dir):
-            full_file_name = os.path.join(cache_dir, file)
-            if file.endswith(".py") and os.path.isfile(full_file_name):
-                logger.debug(f"Transferring {full_file_name} to {save_path}")
-                shutil.copy(full_file_name, save_path)
