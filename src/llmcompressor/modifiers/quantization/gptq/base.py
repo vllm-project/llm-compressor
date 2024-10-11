@@ -101,10 +101,10 @@ class GPTQModifier(Modifier):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    config_groups: Optional[Dict[str, QuantizationScheme]] = None
     quantize: Union[bool, Dict] = True
 
     # arguments used for quant modifier
+    config_groups: Optional[Dict[str, QuantizationScheme]] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     targets: Union[str, List[str], None] = None
     ignore: List[str] = Field(default_factory=list)
