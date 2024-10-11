@@ -1,6 +1,6 @@
 import re
 import weakref
-from functools import reduce, wraps
+from functools import wraps
 from typing import Optional
 
 import torch
@@ -8,7 +8,7 @@ import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
-from safetensors.torch import _find_shared_tensors
+from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
 
 from llmcompressor.transformers.compression.quantization_format import (
@@ -157,19 +157,14 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
     :param model: model to fix
     :return: model with fixed parameters
     """
-    if not model.config.tie_word_embeddings:
-        tensor_groups = _find_shared_tensors(get_state_dict_offloaded_model(model))
-        for tensor_group in tensor_groups:
-            if len(tensor_group) > 1:
-                if not set(model._tied_weights_keys).intersection(tensor_group):
-                    raise ValueError(
-                        "Model contains unexpected shared tensors. Expected "
-                        f"{model._tied_weights_keys}, found {tensor_group}"
-                    )
-
-                for tensor_path in tensor_group:
-                    tensor_parts = tensor_path.split(".")
-                    parameter = reduce(getattr, tensor_parts, model)
-                    parameter.data = parameter.data.clone()
+    if (
+        hasattr(model.config, "tie_word_embeddings")
+        and not model.config.tie_word_embeddings
+    ):
+        input_embed = model.get_input_embeddings()
+        output_embed = model.get_output_embeddings()
+        if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
+            input_embed.weight.data = input_embed.weight.data.clone()
+            output_embed.weight.data = output_embed.weight.data.clone()
 
     return model
