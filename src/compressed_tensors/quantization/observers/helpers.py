@@ -13,18 +13,56 @@
 # limitations under the License.
 
 from collections import Counter
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.quant_args import (
     FP8_DTYPE,
     QuantizationArgs,
+    QuantizationStrategy,
     QuantizationType,
 )
 from torch import FloatTensor, IntTensor, Tensor
 
 
-__all__ = ["calculate_qparams", "get_observer_token_count", "calculate_range"]
+__all__ = [
+    "calculate_qparams",
+    "get_observer_token_count",
+    "calculate_range",
+    "compute_dynamic_scales_and_zp",
+]
+
+
+def compute_dynamic_scales_and_zp(value: Tensor, args: QuantizationArgs):
+    """
+    Returns the computed scales and zero points for dynamic activation
+    qunatization.
+
+    :param value: tensor to calculate quantization parameters for
+    :param args: quantization args
+    :param reduce_dims: optional tuple of dimensions to reduce along,
+        returned scale and zero point will be shaped (1,) along the
+        reduced dimensions
+    :return: tuple of scale and zero point derived from the observed tensor
+    """
+    if args.strategy == QuantizationStrategy.TOKEN:
+        dim = {1, 2}
+        reduce_dims = tuple(idx for idx in range(value.ndim) if idx not in dim)
+    elif args.strategy == QuantizationStrategy.TENSOR:
+        reduce_dims = None
+    else:
+        raise ValueError(
+            f"One of {QuantizationStrategy.TOKEN} or {QuantizationStrategy.TENSOR} ",
+            "must be used for dynamic quantization",
+        )
+
+    if not reduce_dims:
+        min_val, max_val = torch.aminmax(value)
+    else:
+        min_val = torch.amin(value, dim=reduce_dims, keepdims=True)
+        max_val = torch.amax(value, dim=reduce_dims, keepdims=True)
+
+    return calculate_qparams(min_val, max_val, args)
 
 
 def get_observer_token_count(module: torch.nn.Module) -> Counter:

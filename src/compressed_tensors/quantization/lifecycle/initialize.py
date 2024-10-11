@@ -153,12 +153,16 @@ def _initialize_scale_zero_point_observer(
     weight_shape: Optional[torch.Size] = None,
     force_zero_point: bool = True,
 ):
+
     # initialize observer module and attach as submodule
     observer = quantization_args.get_observer()
-    module.register_module(f"{base_name}_observer", observer)
+    # no need to register an observer for dynamic quantization
+    if observer:
+        module.register_module(f"{base_name}_observer", observer)
 
+    # no need to register a scale and zero point for a dynamic quantization
     if quantization_args.dynamic:
-        return  # no need to register a scale and zero point for a dynamic observer
+        return
 
     device = next(module.parameters()).device
     if is_module_offloaded(module):
@@ -173,10 +177,7 @@ def _initialize_scale_zero_point_observer(
             expected_shape = (weight_shape[0], 1)
         elif quantization_args.strategy == QuantizationStrategy.GROUP:
             num_groups = weight_shape[1] // quantization_args.group_size
-            expected_shape = (
-                weight_shape[0],
-                max(num_groups, 1)
-            )
+            expected_shape = (weight_shape[0], max(num_groups, 1))
 
     scale_dtype = module.weight.dtype
     if scale_dtype not in [torch.float16, torch.bfloat16, torch.float32]:

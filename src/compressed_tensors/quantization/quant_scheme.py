@@ -122,6 +122,7 @@ INT8_W8A8 = dict(
         strategy=QuantizationStrategy.TOKEN,
         symmetric=True,
         dynamic=True,
+        observer=None,
     ),
 )
 
@@ -164,6 +165,7 @@ INT8_W4A8 = dict(
         strategy=QuantizationStrategy.TOKEN,
         symmetric=True,
         dynamic=True,
+        observer=None,
     ),
 )
 
@@ -200,6 +202,7 @@ FP8_DYNAMIC = dict(
         strategy=QuantizationStrategy.TOKEN,
         symmetric=True,
         dynamic=True,
+        observer=None,
     ),
 )
 

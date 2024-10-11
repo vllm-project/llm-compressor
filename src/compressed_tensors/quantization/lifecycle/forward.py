@@ -18,7 +18,10 @@ from typing import Callable, Optional
 
 import torch
 from compressed_tensors.quantization.cache import QuantizedKVParameterCache
-from compressed_tensors.quantization.observers.helpers import calculate_range
+from compressed_tensors.quantization.observers.helpers import (
+    calculate_range,
+    compute_dynamic_scales_and_zp,
+)
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
@@ -376,9 +379,8 @@ def maybe_calibrate_or_quantize(
     g_idx = getattr(module, "weight_g_idx", None)
 
     if args.dynamic:
-        # dynamic quantization - get scale and zero point directly from observer
-        observer = getattr(module, f"{base_name}_observer")
-        scale, zero_point = observer(value, g_idx=g_idx)
+        # dynamic quantization - no need to invoke observer
+        scale, zero_point = compute_dynamic_scales_and_zp(value=value, args=args)
     else:
         # static quantization - get previous scale and zero point from layer
         scale = getattr(module, f"{base_name}_scale")

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from enum import Enum
 from typing import Any, Dict, Optional, Union
 
@@ -94,7 +95,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     block_structure: Optional[str] = None
     dynamic: bool = False
     actorder: Union[ActivationOrdering, bool, None] = None
-    observer: str = Field(
+    observer: Optional[str] = Field(
         default="minmax",
         description=(
             "The class to use to compute the quantization param - "
@@ -115,10 +116,10 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         """
         from compressed_tensors.quantization.observers.base import Observer
 
+        # No observer required for the dynamic case
         if self.dynamic:
-            # override defualt observer for dynamic, you never want minmax which
-            # keeps state across samples for dynamic
-            self.observer = "memoryless"
+            self.observer = None
+            return self.observer
 
         return Observer.load_from_registry(self.observer, quantization_args=self)
 
@@ -171,6 +172,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         strategy = model.strategy
         group_size = model.group_size
         actorder = model.actorder
+        dynamic = model.dynamic
+        observer = model.observer
 
         # infer strategy
         if strategy is None:
@@ -206,6 +209,27 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                 "Must use group quantization strategy in order to apply "
                 "activation ordering"
             )
+
+        if dynamic:
+            if strategy not in (
+                QuantizationStrategy.TOKEN,
+                QuantizationStrategy.TENSOR,
+            ):
+                raise ValueError(
+                    f"One of {QuantizationStrategy.TOKEN} or "
+                    f"{QuantizationStrategy.TENSOR} must be used for dynamic ",
+                    "quantization",
+                )
+            if observer is not None:
+                warnings.warn(
+                    "No observer is used for dynamic quantization, setting to None"
+                )
+                model.observer = None
+
+        # if we have not set an observer and we
+        # are running static quantization, use minmax
+        if not observer and not dynamic:
+            model.observer = "minmax"
 
         # write back modified values
         model.strategy = strategy
