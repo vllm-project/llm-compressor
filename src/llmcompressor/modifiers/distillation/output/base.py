@@ -40,6 +40,12 @@ class OutputDistillationModifier(Modifier):
         if kwargs.get("fsdp_active"):
             self.fsdp_active_ = True
 
+        if not hasattr(state.model.config, "hidden_size"):
+            raise ValueError(
+                "Model config must specify hidden_size in order to use "
+                "OutputDistillationModifier"
+            )
+
         # needed to initialize intermediate output buffers for student and teacher
         hidden_size = (
             kwargs.get("metadata").get("per_device_train_batch_size", 1),
