@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
-from compressed_tensors.quantization import (
+from compressed_tensors.quantization import (  # set_module_for_calibration,
     QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
@@ -9,7 +9,6 @@ from compressed_tensors.quantization import (
     freeze_module_quantization,
     is_preset_scheme,
     preset_name_to_scheme,
-    set_module_for_calibration,
 )
 from compressed_tensors.quantization.observers.helpers import get_observer_token_count
 from loguru import logger
@@ -18,6 +17,7 @@ from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.calibration import initialize_observer
 from llmcompressor.modifiers.utils.pytorch_helpers import (
     is_moe_model,
     run_calibration_forward,
@@ -84,10 +84,13 @@ class QuantizationModifier(Modifier):
 
         # initialize quantization in appropriate modules
         config = self._apply_modifier_to_model(module)
+        module.apply(lambda module: initialize_observer(module, base_name="weight"))
 
         if self.calculate_start() == -1:  # one-shot
             self._check_calibration_data(config)
-            module.apply(set_module_for_calibration)
+            module.apply(update_weight_zp_scale)
+            # module.apply(set_module_for_calibration)
+            self.hooks = []
             self._calibrate_if_possible(module)
             self._check_token_distribution(
                 module, threshold=kwargs.get("min_tokens_per_module")
@@ -98,7 +101,8 @@ class QuantizationModifier(Modifier):
 
     def on_start(self, state: State, event: Event, **kwargs):
         module = state.model
-        module.apply(set_module_for_calibration)
+        # module.apply(set_module_for_calibration)
+        module.apply(update_weight_zp_scale)
 
     def on_update(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.BATCH_START:
@@ -213,7 +217,23 @@ class QuantizationModifier(Modifier):
         elif not self.calibration_dataloader_:
             return
 
+        module.apply(lambda module: initialize_observer(module, base_name="input"))
+
+        module.apply(lambda module: initialize_observer(module, base_name="output"))
+
+        module.apply(register_calibration_hooks)
         self._calibrate(module)
+        for h in self.hooks:
+            h.remove()
+        
+    
+    def register_calibration_hooks(module: Module):
+        pre_hook_handle = module.register_forward_pre_hook(_calibrate_input_hook())
+        post_hook_handle = module.register_forward_hook(_calibrate_output_hook())
+        if pre_hook_handle:
+            self.hooks.append(pre_hook_handle)
+        if post_hook_handle:
+            self.hooks.append(post_hook_handle)
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")
