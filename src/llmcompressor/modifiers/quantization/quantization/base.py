@@ -17,7 +17,12 @@ from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.calibration import initialize_observer
+from llmcompressor.modifiers.calibration import (
+    calibrate_input_hook,
+    calibrate_output_hook,
+    initialize_observer,
+    update_weight_zp_scale,
+)
 from llmcompressor.modifiers.utils.pytorch_helpers import (
     is_moe_model,
     run_calibration_forward,
@@ -221,15 +226,14 @@ class QuantizationModifier(Modifier):
 
         module.apply(lambda module: initialize_observer(module, base_name="output"))
 
-        module.apply(register_calibration_hooks)
+        module.apply(self.register_calibration_hooks)
         self._calibrate(module)
         for h in self.hooks:
             h.remove()
-        
-    
-    def register_calibration_hooks(module: Module):
-        pre_hook_handle = module.register_forward_pre_hook(_calibrate_input_hook())
-        post_hook_handle = module.register_forward_hook(_calibrate_output_hook())
+
+    def register_calibration_hooks(self, module: Module):
+        pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
+        post_hook_handle = module.register_forward_hook(calibrate_output_hook())
         if pre_hook_handle:
             self.hooks.append(pre_hook_handle)
         if post_hook_handle:

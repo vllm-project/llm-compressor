@@ -1,8 +1,21 @@
+import logging
+
 import torch
-from compressed_tensors.quantization import QuantizationArgs
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStatus
+from compressed_tensors.quantization.lifecycle.forward import forward_quantize
+from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from torch.nn import Module
 
-__all__ = ["initialize_observer" "update_weight_zp_scale"]
+from llmcompressor.observers import Observer
+
+__all__ = [
+    "initialize_observer",
+    "update_weight_zp_scale",
+    "calibrate_input_hook",
+    "calibrate_output_hook",
+]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def initialize_observer(
@@ -30,7 +43,7 @@ def call_observer(self, module: Module, base_name: str, value: torch.Tensor):
     update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
-def update_weight_zp_scale(moudle: Module):
+def update_weight_zp_scale(module: Module):
     """
     marks a layer as ready for calibration which activates observers
     to update scales and zero points on each forward pass
@@ -53,7 +66,7 @@ def update_weight_zp_scale(moudle: Module):
             "to re-calibrate a frozen module"
         )
 
-    if quantize_weights_upfront and module.quantization_scheme.weights is not None:
+    if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
         offloaded = is_module_offloaded(module)
         if offloaded:
@@ -70,50 +83,46 @@ def update_weight_zp_scale(moudle: Module):
 def calibrate_activations(
     module: Module,
     value: torch.Tensor,
-    base_name: str,
-    quantization_args: QuantizationArgs,
+    base_name: str
 ):
     # If empty tensor, can't update zp/scale
     # Case for MoEs
     if value.numel() == 0:
         return
-    # calibration mode - get new quant params from observer
-    if not hasattr(module, f"{base_name}_observer"):
-        from compressed_tensors.quantization.lifecycle import initialize_observers
-
-        initialize_observers(
-            module=module, base_name=base_name, quantization_args=quantization_args
-        )
 
     call_observer(
         module=module,
         base_name=base_name,
         value=value,
-        quantization_args=quantization_args,
     )
 
 
-def _calibrate_input_hook():
+def calibrate_input_hook():
     def hook_fn(module, inp):
         if module.input_activations:
             calibrate_activations(
                 module,
                 value=inp,
-                base_name="input",
-                quantization_args=module.input_activations,
+                base_name="input"
             )
+
     return hook_fn
 
 
-def _calibrate_output_hook():
+def calibrate_output_hook():
     def hook_fn(module, inp, output):
         if module.output_activations:
             calibrate_activations(
                 module,
                 value=output,
                 base_name="output",
-                quantization_args=module.output_activations,
             )
-            output = forward_quantize(module, output)
+            output = forward_quantize(
+                module=module,
+                value=output,
+                base_name="output",
+                args=module.quantization_scheme.output_activations,
+            )
             return output
+
     return hook_fn
