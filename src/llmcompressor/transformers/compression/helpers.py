@@ -241,7 +241,6 @@ def calculate_offload_device_map(
         for device_id in gpu_ids
     }
 
-    device_map = {}
     with init_empty_weights():
         dummy_model = AutoModelForCausalLM.from_pretrained(
             model_stub, torch_dtype=torch_dtype, **model_kwargs
@@ -263,7 +262,6 @@ def calculate_offload_device_map(
             max_memory=memory_limits,
             no_split_module_classes=dummy_model._no_split_modules,
         )
-        del dummy_model
 
     return device_map
 
