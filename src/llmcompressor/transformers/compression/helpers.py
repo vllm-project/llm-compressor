@@ -189,7 +189,6 @@ def custom_offload_device_map(
     memory_limits = {device: max_memory_per_gpu for device in range(num_gpus)}
     memory_limits["cpu"] = max_cpu_memory
 
-    device_map = {}
     with init_empty_weights():
         dummy_model = AutoModelForCausalLM.from_pretrained(model_stub, **model_kwargs)
         device_map = infer_auto_device_map(
@@ -197,7 +196,6 @@ def custom_offload_device_map(
             max_memory=memory_limits,
             no_split_module_classes=dummy_model._no_split_modules,
         )
-        del dummy_model
 
     return device_map
 
