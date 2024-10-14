@@ -16,14 +16,11 @@ from collections import Counter
 from typing import Tuple
 
 import torch
-from compressed_tensors.quantization.quant_args import (
-    FP8_DTYPE,
-    QuantizationArgs,
-    QuantizationType,
-)
+from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.utils.helpers import calculate_range
 from torch import FloatTensor, IntTensor, Tensor
 
-__all__ = ["calculate_qparams", "get_observer_token_count", "calculate_range"]
+__all__ = ["calculate_qparams", "get_observer_token_count"]
 
 
 def get_observer_token_count(module: torch.nn.Module) -> Counter:
@@ -81,30 +78,3 @@ def calculate_qparams(
         zero_points = zero_points.reshape(1)
 
     return scales, zero_points
-
-
-def calculate_range(quantization_args: QuantizationArgs, device: str) -> Tuple:
-    """
-    Calculated the effective quantization range for the given Quantization Args
-
-    :param quantization_args: quantization args to get range of
-    :param device: device to store the range to
-    :return: tuple endpoints for the given quantization range
-    """
-    if quantization_args.type == QuantizationType.INT:
-        bit_range = 2**quantization_args.num_bits
-        q_max = torch.tensor(bit_range / 2 - 1, device=device)
-        q_min = torch.tensor(-bit_range / 2, device=device)
-    elif quantization_args.type == QuantizationType.FLOAT:
-        if quantization_args.num_bits != 8:
-            raise ValueError(
-                "Floating point quantization is only supported for 8 bits,"
-                f"got {quantization_args.num_bits}"
-            )
-        fp_range_info = torch.finfo(FP8_DTYPE)
-        q_max = torch.tensor(fp_range_info.max, device=device)
-        q_min = torch.tensor(fp_range_info.min, device=device)
-    else:
-        raise ValueError(f"Invalid quantization type {quantization_args.type}")
-
-    return q_min, q_max

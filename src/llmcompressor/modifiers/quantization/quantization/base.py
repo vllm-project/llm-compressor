@@ -10,7 +10,6 @@ from compressed_tensors.quantization import (  # set_module_for_calibration,
     is_preset_scheme,
     preset_name_to_scheme,
 )
-from compressed_tensors.quantization.observers.helpers import get_observer_token_count
 from loguru import logger
 from pydantic import Field
 from torch.nn import Module
@@ -27,6 +26,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import (
     is_moe_model,
     run_calibration_forward,
 )
+from llmcompressor.observers.helpers import get_observer_token_count
 
 __all__ = ["QuantizationModifier"]
 
@@ -76,6 +76,7 @@ class QuantizationModifier(Modifier):
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
+    hooks_: List = None
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.end and self.end != -1:
@@ -95,7 +96,7 @@ class QuantizationModifier(Modifier):
             self._check_calibration_data(config)
             module.apply(update_weight_zp_scale)
             # module.apply(set_module_for_calibration)
-            self.hooks = []
+            self.hooks_ = []
             self._calibrate_if_possible(module)
             self._check_token_distribution(
                 module, threshold=kwargs.get("min_tokens_per_module")
@@ -222,22 +223,24 @@ class QuantizationModifier(Modifier):
         elif not self.calibration_dataloader_:
             return
 
+        print("CAN CALIBRATE")
+        breakpoint()
         module.apply(lambda module: initialize_observer(module, base_name="input"))
 
         module.apply(lambda module: initialize_observer(module, base_name="output"))
 
         module.apply(self.register_calibration_hooks)
         self._calibrate(module)
-        for h in self.hooks:
+        for h in self.hooks_:
             h.remove()
 
     def register_calibration_hooks(self, module: Module):
         pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
         post_hook_handle = module.register_forward_hook(calibrate_output_hook())
         if pre_hook_handle:
-            self.hooks.append(pre_hook_handle)
+            self.hooks_.append(pre_hook_handle)
         if post_hook_handle:
-            self.hooks.append(post_hook_handle)
+            self.hooks_.append(post_hook_handle)
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")

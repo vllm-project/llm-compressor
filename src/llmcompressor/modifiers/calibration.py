@@ -1,7 +1,7 @@
 import logging
 
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStatus
+from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from torch.nn import Module
@@ -24,7 +24,12 @@ def initialize_observer(
 ):
     # initialize observer module and attach as submodule
     arg_name = "weights" if base_name == "weight" else base_name
-    quantization_args = getattr(module.quantization_scheme, arg_name)
+    quantization_scheme = getattr(module, "quantization_scheme", None)
+    if not quantization_scheme:
+        # no quantization scheme nothing to do
+        return
+
+    quantization_args = getattr(quantization_scheme, arg_name, None)
     observer = quantization_args.get_observer()
     observer = Observer.load_from_registry(
         observer, quantization_args=quantization_args
@@ -32,8 +37,9 @@ def initialize_observer(
     module.register_module(f"{base_name}_observer", observer)
 
 
-def call_observer(self, module: Module, base_name: str, value: torch.Tensor):
+def call_observer(module: Module, base_name: str, value: torch.Tensor):
     observer = getattr(module, f"{base_name}_observer")
+    # TODO: what cases require the g_idx?
     g_idx = getattr(module, "weight_g_idx", None)
 
     updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
@@ -54,9 +60,11 @@ def update_weight_zp_scale(module: Module):
     :param quantize_weights_upfront: whether to automatically
        run weight quantization at the start of calibration
     """
+    print(module)
     if not getattr(module, "quantization_scheme", None):
         # no quantization scheme nothing to do
         return
+
     status = getattr(module, "quantization_status", None)
     if not status or status != QuantizationStatus.INITIALIZED:
         _LOGGER.warning(
@@ -80,11 +88,7 @@ def update_weight_zp_scale(module: Module):
     module.quantization_status = QuantizationStatus.CALIBRATION
 
 
-def calibrate_activations(
-    module: Module,
-    value: torch.Tensor,
-    base_name: str
-):
+def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     # If empty tensor, can't update zp/scale
     # Case for MoEs
     if value.numel() == 0:
@@ -100,11 +104,7 @@ def calibrate_activations(
 def calibrate_input_hook():
     def hook_fn(module, inp):
         if module.input_activations:
-            calibrate_activations(
-                module,
-                value=inp,
-                base_name="input"
-            )
+            calibrate_activations(module, value=inp, base_name="input")
 
     return hook_fn
 

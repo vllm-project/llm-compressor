@@ -15,10 +15,11 @@
 from typing import Any, Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.observers.base import Observer
-from compressed_tensors.quantization.observers.helpers import calculate_qparams
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from torch import FloatTensor, IntTensor, Tensor
+
+from llmcompressor.observers.base import Observer
+from llmcompressor.observers.helpers import calculate_qparams
 
 __all__ = ["MovingAverageMinMaxObserver"]
 
