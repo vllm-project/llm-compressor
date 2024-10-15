@@ -66,7 +66,7 @@ We will show working examples for each use case:
 Install `llmcompressor`:
 
 ```bash
-pip install llmcompressor==0.1.0
+pip install llmcompressor
 ```
 
 ### CPU Offloading: `FP8` Quantization with `PTQ`
