@@ -15,7 +15,6 @@ test_stage:
           targets: ["Linear"]
     GPTQModifier:
       block_size: 128
-      sequential_update: True
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
