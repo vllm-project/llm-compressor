@@ -76,7 +76,7 @@ class QuantizationModifier(Modifier):
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
-    hooks_: List = None
+    calibration_hooks_: List = None
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.end and self.end != -1:
@@ -96,7 +96,7 @@ class QuantizationModifier(Modifier):
             self._check_calibration_data(config)
             module.apply(update_weight_zp_scale)
             # module.apply(set_module_for_calibration)
-            self.hooks_ = []
+            self.calibration_hooks_ = []
             self._calibrate_if_possible(module)
             self._check_token_distribution(
                 module, threshold=kwargs.get("min_tokens_per_module")
@@ -224,23 +224,27 @@ class QuantizationModifier(Modifier):
             return
 
         print("CAN CALIBRATE")
-        breakpoint()
-        module.apply(lambda module: initialize_observer(module, base_name="input"))
+        module.apply(lambda model: initialize_observer(model, base_name="input"))
 
-        module.apply(lambda module: initialize_observer(module, base_name="output"))
+        module.apply(lambda model: initialize_observer(model, base_name="output"))
 
         module.apply(self.register_calibration_hooks)
         self._calibrate(module)
-        for h in self.hooks_:
+        for h in self.calibration_hooks_:
             h.remove()
 
     def register_calibration_hooks(self, module: Module):
-        pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
-        post_hook_handle = module.register_forward_hook(calibrate_output_hook())
-        if pre_hook_handle:
-            self.hooks_.append(pre_hook_handle)
-        if post_hook_handle:
-            self.hooks_.append(post_hook_handle)
+        quantization_scheme = getattr(module, "quantization_scheme", None)
+        if not quantization_scheme:
+            return
+
+        if quantization_scheme.input_activations:
+            pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
+            self.calibration_hooks_.append(pre_hook_handle)
+
+        if quantization_scheme.output_activations:
+            post_hook_handle = module.register_forward_hook(calibrate_output_hook())
+            self.calibration_hooks_.append(post_hook_handle)
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")

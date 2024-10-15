@@ -23,18 +23,19 @@ def initialize_observer(
     base_name: str,
 ):
     # initialize observer module and attach as submodule
-    arg_name = "weights" if base_name == "weight" else base_name
+    arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
     quantization_scheme = getattr(module, "quantization_scheme", None)
     if not quantization_scheme:
         # no quantization scheme nothing to do
         return
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
-    observer = quantization_args.get_observer()
-    observer = Observer.load_from_registry(
-        observer, quantization_args=quantization_args
-    )
-    module.register_module(f"{base_name}_observer", observer)
+    if quantization_args:
+        observer = quantization_args.get_observer()
+        observer = Observer.load_from_registry(
+            observer, quantization_args=quantization_args
+        )
+        module.register_module(f"{base_name}_observer", observer)
 
 
 def call_observer(module: Module, base_name: str, value: torch.Tensor):
@@ -60,7 +61,6 @@ def update_weight_zp_scale(module: Module):
     :param quantize_weights_upfront: whether to automatically
        run weight quantization at the start of calibration
     """
-    print(module)
     if not getattr(module, "quantization_scheme", None):
         # no quantization scheme nothing to do
         return
@@ -102,27 +102,27 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
 
 
 def calibrate_input_hook():
-    def hook_fn(module, inp):
-        if module.input_activations:
-            calibrate_activations(module, value=inp, base_name="input")
+    def hook_fn(module: Module, inp):
+        # Why does the hook wrap the input as a tuple?
+        inp = inp[0] if isinstance(inp, tuple) else inp
+        calibrate_activations(module, value=inp, base_name="input")
 
     return hook_fn
 
 
 def calibrate_output_hook():
-    def hook_fn(module, inp, output):
-        if module.output_activations:
-            calibrate_activations(
-                module,
-                value=output,
-                base_name="output",
-            )
-            output = forward_quantize(
-                module=module,
-                value=output,
-                base_name="output",
-                args=module.quantization_scheme.output_activations,
-            )
-            return output
+    def hook_fn(module: Module, inp, output: torch.Tensor):
+        calibrate_activations(
+            module,
+            value=output,
+            base_name="output",
+        )
+        output = forward_quantize(
+            module=module,
+            value=output,
+            base_name="output",
+            args=module.quantization_scheme.output_activations,
+        )
+        return output
 
     return hook_fn
