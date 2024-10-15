@@ -57,7 +57,10 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         # for Hessian calculation
         self.register_buffer(
-            "H", torch.zeros((self.columns, self.columns), device=self.dev)
+            "H",
+            torch.zeros(
+                (self.columns, self.columns), device=self.dev, dtype=torch.float32
+            ),
         )
 
     def add_batch(self, inp: torch.Tensor, out: torch.Tensor):
@@ -78,7 +81,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
             inp = inp.t()
         self.H *= self.nsamples / (self.nsamples + tmp)
         self.nsamples += tmp
-        inp = math.sqrt(2 / self.nsamples) * inp.float()
+        inp = inp.to(dtype=self.H.dtype)
+        inp = math.sqrt(2 / self.nsamples) * inp
         self.H += inp.matmul(inp.t())
 
     def compress(
