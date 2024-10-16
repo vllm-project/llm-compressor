@@ -293,7 +293,7 @@ class StageRunner:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
-            # save stage stage to checkpoint dir
+            # save stage to checkpoint dir
             if self.trainer.accelerator.is_main_process:
                 completed_stages.append(stage_name)
                 save_completed_stages(self._output_dir, completed_stages)
