@@ -42,6 +42,13 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
     :param hf_model_class: Model class to wrap
     :return: Wrapped model class
     """
+    logger.info(
+        (
+            "`wrap_hf_model_class` is now deprecated. ",
+            "Please load the model from its appropriate parent class. `",
+            "Ex. AutoModelForCausalLM.",
+        )
+    )
 
     # Add the from_pretrained class method
     @classmethod
@@ -127,7 +134,6 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
             return model
 
         # override the PreTrainedModel instance with compression save function
-        breakpoint()
         modify_save_pretrained(model)
 
         # If model is quantized or compressed on disk, initialize quantization
