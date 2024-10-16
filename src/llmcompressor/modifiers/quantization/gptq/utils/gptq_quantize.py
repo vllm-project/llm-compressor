@@ -47,7 +47,7 @@ def quantize_weight(
     blocksize: int = 128,
     percdamp: float = 0.01,
     module_class = torch.nn.Linear,
-) -> Tuple[torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
     strategy = quant_args.strategy
     actorder = quant_args.actorder
     final_shape = weight.shape
@@ -102,7 +102,7 @@ def quantize_weight(
             else None
         )
 
-        Losses = torch.zeros(num_columns, device=weight.device)
+        losses = torch.zeros(num_columns, device=weight.device)
 
         # mask dead hessian values
         dead = torch.diag(H) == 0
@@ -121,7 +121,7 @@ def quantize_weight(
             W1 = W[:, i1:i2].clone()
             Q1 = torch.zeros_like(W1)
             Err1 = torch.zeros_like(W1)
-            Losses1 = torch.zeros_like(W1)
+            losses1 = torch.zeros_like(W1)
             Hinv1 = Hinv[i1:i2, i1:i2]
 
             if preserve_zeros:
@@ -170,7 +170,7 @@ def quantize_weight(
 
                 # propagate column error
                 Q1[:, i] = q
-                Losses1[:, i] = (w - q) ** 2 / d**2
+                losses1[:, i] = (w - q) ** 2 / d**2
 
                 err1 = (w - q) / d
                 w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
@@ -182,16 +182,13 @@ def quantize_weight(
 
             # propagate block error
             W[:, i1:i2] = Q1
-            Losses += torch.sum(Losses1, 1) / 2
+            losses += torch.sum(losses1, 1) / 2
 
             w_err = Err1.matmul(Hinv[i1:i2, i2:])
             if preserve_zeros:
                 W[:, i2:] -= w_err * W_nz_mask[:, i2:]
             else:
                 W[:, i2:] -= w_err
-
-        if "METRIC" in logger._core.levels.keys():
-            _log_metrics(tick, Losses)
 
         has_gidx = False
         if strategy == QuantizationStrategy.GROUP:
@@ -216,39 +213,20 @@ def quantize_weight(
             W.transpose_(0, 1)
         W = W.reshape(final_shape).to(final_dtype)
 
-        return W, scale, zero_point, g_idx
+        return losses, W, scale, zero_point, g_idx
 
-    def free(self):
-        """
-        Free the Hessian memory after the layer is complete
-        """
-        delattr(self, "H")
-        super().free()
+def _apply_activation_ordering(
+    W: torch.Tensor, H: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Permute weight and hessian in order of greatest outupt activations
 
-    def _update_quantization_parameters(self, args: QuantizationArgs, W: torch.Tensor):
-        """
-        Update layer quantization parameters with potentially permuted weight
+    :param W: weight to permute
+    """
+    perm = torch.argsort(torch.diag(H), descending=True)
+    return W[:, perm], H[perm][:, perm], perm
 
-        :param args: quantization arguments
-        :param W: weight to calculate quantization parameters from
-        """
-        observer = args.get_observer()
-        _scale, _zero_point = observer(W, g_idx=None)
-        update_parameter_data(self.layer, _scale, "weight_scale")
-        update_parameter_data(self.layer, _zero_point, "weight_zero_point")
-
-    def _apply_activation_ordering(
-        self, W: torch.Tensor, H: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Permute weight and hessian in order of greatest outupt activations
-
-        :param W: weight to permute
-        """
-        perm = torch.argsort(torch.diag(H), descending=True)
-        return W[:, perm], H[perm][:, perm], perm
-
-def _log_metrics(self, start_tick: float, losses: torch.Tensor):
+def _log_metrics(start_tick: float, losses: torch.Tensor):
     """
     Log metrics related to compression algorithm
 

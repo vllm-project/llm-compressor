@@ -29,6 +29,7 @@ from compressed_tensors.quantization import (
     disable_quantization,
     enable_quantization,
 )
+from compressed_tensors import is_module_offloaded
 
 __all__ = [
     "ALL_TOKEN",
@@ -1086,3 +1087,17 @@ class DisableQuantization:
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb):
         self.model.apply(enable_quantization)
+
+
+class OnloadModule:
+    def __init__(self, module: torch.nn.Module):
+        self.module = module
+        self.is_module_offloaded = is_module_offloaded(self.module)
+
+    def __enter__(self):
+        if self.is_module_offloaded:
+            self.module._hf_hook.pre_forward(self.module)
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        if self.is_module_offloaded:
+            self.module._hf_hook.post_forward(self.module, None)

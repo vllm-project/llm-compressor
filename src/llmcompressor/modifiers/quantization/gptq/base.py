@@ -21,10 +21,13 @@ from llmcompressor.modifiers.quantization.gptq.utils import (
     get_output_error,
     gptq_hook
 )
+from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quantize_weight
+from llmcompressor.modifiers.quantization.gptq.utils.helpers import LogMetrics
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
-from llmcompressor.utils.helpers import DisableKVCache, DisableQuantization, getattr_chain
+from llmcompressor.utils.helpers import DisableKVCache, DisableQuantization, OnloadModule, getattr_chain
+from llmcompressor.utils.metric_logging import get_GPU_memory_usage, get_layer_size_bytes
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -203,8 +206,6 @@ class GPTQModifier(Modifier):
             self.quantization_modifier_.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
-        
-        # after lifecycle refactor, all of this moves to pre_batch
 
         # find layers (used for printing even if true_sequential=True)
         # if no targets are provided, default to the modules that shouldn't be
@@ -216,12 +217,14 @@ class GPTQModifier(Modifier):
         self.num_layers = len(layers)
 
         # add hooks to targets and layers
+        # after lifecycle refactor, move this to pre_batch
         self.register_hooks(state.model, layers)
 
         # apply calibration and trigger hooks (hooks are self removing)
         self.calibration_forward(state.model, state.data.calib)
 
         # freeze quantization
+        # after lifecycle refactor, move this to post_batch
         state.model.apply(freeze_module_quantization)
 
         return True
@@ -291,7 +294,8 @@ class GPTQModifier(Modifier):
 
         quant_args = getattr_chain(module, "quantization_scheme.weights")
         # with onloaded weight
-            quantized_weight, scale, zero_point, g_idx = quantize_weight(
+        with OnloadModule(module), LogMetrics(module) as logger:
+            losses, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                 module.weight.data,
                 inp,
                 quant_args,
@@ -302,10 +306,13 @@ class GPTQModifier(Modifier):
         
             weight = torch.lerp(module.weight.data, quantized_weight, self.alpha)
         
-            update_prefix_dict(self.layer, "weight", weight)
+            if is_module_offloaded(module):
+                update_prefix_dict(self.layer, "weight", weight)
             update_parameter_data(module, scale, "weight_scale")
             update_parameter_data(module, zero_point, "weight_zero_point")
             update_parameter_data(module, g_idx, "weight_g_idx")
+
+            logger.set_losses(losses)
         
     @contextlib.contextmanager
     def disable_hooks(self):
@@ -327,6 +334,37 @@ class GPTQModifier(Modifier):
         if recurse:
             for child_module in module.children():
                 self.remove_hooks(child_module)
+
+
+    def _log_metrics(start_tick: float, losses: torch.Tensor):
+        """
+        Log metrics related to compression algorithm
+
+        :param start_tick: time when algorithm started"
+        :param losses: loss as result of algorithm
+        """
+        patch = logger.patch(lambda r: r.update(function="compress"))
+        patch.log("METRIC", "time %.2f" % (time.time() - start_tick))
+        patch.log("METRIC", "error %.2f" % torch.sum(losses).item())
+
+        gpu_usage = get_GPU_memory_usage()
+        if len(gpu_usage) > 0:
+            for i in range(len(gpu_usage)):
+                perc = gpu_usage[i][0] * 100
+                total_memory = int(gpu_usage[i][1])  # GB
+                patch.log(
+                    "METRIC",
+                    (
+                        f"GPU {i} | usage: {perc:.2f}%"
+                        f" | total memory: {total_memory} GB"
+                    ),
+                )
+
+        patch.log(
+            "METRIC",
+            f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB",
+        )
+
 
 
     def _build_quant_modifier(self):
