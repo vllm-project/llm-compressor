@@ -1,4 +1,4 @@
 # flake8: noqa
 
-from .gptq_wrapper import *
+from .gptq_quantize import *
 from .helpers import *

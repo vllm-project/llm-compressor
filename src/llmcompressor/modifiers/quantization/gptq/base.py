@@ -6,28 +6,22 @@ import contextlib
 from functools import partial
 from compressed_tensors.quantization import (
     QuantizationScheme,
-    disable_quantization,
-    enable_quantization,
     freeze_module_quantization,
 )
 from loguru import logger
 from pydantic import Field, field_validator
-from torch.nn import Module
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils import (
-    GPTQWrapper,
     get_output_error,
     gptq_hook
 )
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quantize_weight
 from llmcompressor.modifiers.quantization.gptq.utils.helpers import LogMetrics
-from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
-from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
+from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
 from llmcompressor.utils.helpers import DisableKVCache, DisableQuantization, OnloadModule, getattr_chain
-from llmcompressor.utils.metric_logging import get_GPU_memory_usage, get_layer_size_bytes
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -123,6 +117,11 @@ class GPTQModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
 
+    _layer_index: int = 0
+    _num_layers: int = 0
+    _hooks_disabled: bool = False
+    quantization_modifier_: Optional[QuantizationModifier] = None
+
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
         if not value:
@@ -137,8 +136,8 @@ class GPTQModifier(Modifier):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.current_layer_index = 0
-        self.num_layers = 0
+        self._layer_index = 0
+        self._num_layers = 0
         self.quantization_modifier_ = None
 
     def on_initialize_structure(self, state: State, **kwargs):
@@ -214,7 +213,7 @@ class GPTQModifier(Modifier):
         if self.sequential_targets is None:
             self.sequential_targets = get_no_split_params(state.model)
         layers = get_layers(self.sequential_targets, state.model)
-        self.num_layers = len(layers)
+        self._num_layers = len(layers)
 
         # add hooks to targets and layers
         # after lifecycle refactor, move this to pre_batch
@@ -243,8 +242,6 @@ class GPTQModifier(Modifier):
         return True
     
     def register_hooks(self, model: torch.nn.Module, layers: Dict[str, torch.nn.Module]):
-        layers = layers.values()
-
         for name, module in model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 pre_hook = partial(self.target_pre_forward, name)
@@ -256,37 +253,63 @@ class GPTQModifier(Modifier):
                 pre_hook = partial(self.layer_pre_forward, name)
                 post_hook = partial(self.layer_post_forward, name)
                 module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
-                module._gptq_post_hook = module.register_forward_hook(post_hook)
+                module._gptq_post_hook = module.register_forward_hook(post_hook, with_kwargs=True)
 
-    def calibration_forward(self, model: torch.nn.Module, data: torch.utils.data.Dataloader):
-        all_data = torch.cat([batch for batch in data], dim=0)
+    def calibration_forward(self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader):
+        import torch.nn.functional as F
+        
+        accumulated_data = {}  # Dictionary to accumulate samples per key
+
+        def pad_tensor(tensor, max_len):
+            """Pads a tensor to the specified max_len along the second dimension (sequence length)."""
+            pad_size = max_len - tensor.size(1)  # Calculate the padding size
+            return F.pad(tensor, (0, pad_size), value=0)  # Pad on the right with zeros
+    
+        for batch in dataloader:
+            for key, value in batch.items():
+                if key not in accumulated_data:
+                    accumulated_data[key] = []
+                accumulated_data[key].append(value)  # Accumulate values for each key
+
+        # Find maximum length for each key across all samples to ensure matching shapes
+        max_lengths = {}
+        for key, tensors in accumulated_data.items():
+            max_lengths[key] = max([tensor.size(1) for tensor in tensors])  # Assuming the second dimension is the sequence length
+        
+        # Pad and concatenate for each key
+        concatenated_batch = {
+            key: torch.cat([pad_tensor(tensor, max_lengths[key]) for tensor in accumulated_data[key]], dim=0)
+            for key in accumulated_data
+        }
+        
         with DisableKVCache(model), DisableQuantization(model):
-            model(all_data)
+            model(**concatenated_batch)
 
     @gptq_hook
-    def target_pre_forward(self, name: str, module: torch.nn.Module, args, kwargs):
+    def target_pre_forward(self, name: str, module: torch.nn.Module, args):
         if self.true_sequential:
             # compress first so output is from quantized weights
             self.quantize_module(name, module, args)
         
     @gptq_hook
-    def target_post_forward(self, name: str, module: torch.nn.Module, args, kwargs, output):
+    def target_post_forward(self, name: str, module: torch.nn.Module, args: torch.Tensor, _output: Any):
         if not self.true_sequential:
             # compress after so output is from unquantized weights
             self.quantize_module(name, module, args)
         
     @gptq_hook
-    def layer_pre_forward(self, name: str, module: torch.nn.Module, args, kwargs):
-        logger.info(f"\n===== Compressing layer {self.layer_index}/{self.num_layers} =====")
+    def layer_pre_forward(self, name: str, module: torch.nn.Module, args: Any):
+        logger.info(f"\n===== Compressing layer {self._layer_index}/{self._num_layers} =====")
+        breakpoint()
         
     @gptq_hook
-    def layer_post_forward(self, name: str, module: torch.nn.Module, args, kwargs, output):
+    def layer_post_forward(self, name: str, module: torch.nn.Module, args: torch.Tensor, kwargs: Dict[str, Any], output: Any):
         if not self.true_sequential:
             # rerun with (now) quantized weights
             with self.disable_hooks():
-                output = module(*args, **kwargs)
+                output = module(args, **kwargs)
 
-        self.layer_index += 1
+        self._layer_index += 1
         return output
 
     def quantize_module(self, name, module, inp):
@@ -317,10 +340,10 @@ class GPTQModifier(Modifier):
     @contextlib.contextmanager
     def disable_hooks(self):
         try:
-            self.hooks_disabled = True
+            self._hooks_disabled = True
             yield
         finally:
-            self.hooks_disabled = False
+            self._hooks_disabled = False
 
     def remove_gptq_hooks(self, module: torch.nn.Module, recurse: bool = True):
         if hasattr(module, "_gptq_pre_hook"):

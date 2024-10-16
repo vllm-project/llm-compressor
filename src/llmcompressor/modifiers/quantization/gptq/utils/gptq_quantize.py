@@ -225,32 +225,3 @@ def _apply_activation_ordering(
     """
     perm = torch.argsort(torch.diag(H), descending=True)
     return W[:, perm], H[perm][:, perm], perm
-
-def _log_metrics(start_tick: float, losses: torch.Tensor):
-    """
-    Log metrics related to compression algorithm
-
-    :param start_tick: time when algorithm started"
-    :param losses: loss as result of algorithm
-    """
-    patch = logger.patch(lambda r: r.update(function="compress"))
-    patch.log("METRIC", "time %.2f" % (time.time() - start_tick))
-    patch.log("METRIC", "error %.2f" % torch.sum(losses).item())
-
-    gpu_usage = get_GPU_memory_usage()
-    if len(gpu_usage) > 0:
-        for i in range(len(gpu_usage)):
-            perc = gpu_usage[i][0] * 100
-            total_memory = int(gpu_usage[i][1])  # GB
-            patch.log(
-                "METRIC",
-                (
-                    f"GPU {i} | usage: {perc:.2f}%"
-                    f" | total memory: {total_memory} GB"
-                ),
-            )
-
-    patch.log(
-        "METRIC",
-        f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB",
-    )

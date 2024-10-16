@@ -57,7 +57,7 @@ def get_output_error(
 
 def gptq_hook(func):
     def wrapped(self, *args, **kwargs):
-        if self.hooks_disabled:
+        if self._hooks_disabled:
             return
         
         func(self, *args, **kwargs)
