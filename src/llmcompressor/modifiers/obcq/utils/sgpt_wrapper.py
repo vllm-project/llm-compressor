@@ -64,7 +64,8 @@ class SparseGptWrapper(ModuleCompressionWrapper):
             inp = inp.t()
         self.H *= self.nsamples / (self.nsamples + tmp)
         self.nsamples += tmp
-        inp = math.sqrt(2 / self.nsamples) * inp.float()
+        inp = inp.to(dtype=self.H.dtype)
+        inp = math.sqrt(2 / self.nsamples) * inp
         self.H += inp.matmul(inp.t()).to(self.dev)
 
     def compress(

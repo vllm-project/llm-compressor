@@ -81,7 +81,8 @@ class GPTQWrapper(ModuleCompressionWrapper):
             inp = inp.t()
         self.H *= self.nsamples / (self.nsamples + tmp)
         self.nsamples += tmp
-        inp = math.sqrt(2 / self.nsamples) * inp.float()
+        inp = inp.to(dtype=self.H.dtype)
+        inp = math.sqrt(2 / self.nsamples) * inp
         self.H += inp.matmul(inp.t())
 
     def compress(
