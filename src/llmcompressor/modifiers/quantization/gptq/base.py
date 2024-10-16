@@ -31,6 +31,13 @@ from llmcompressor.utils.pytorch.module import (
     qat_active,
 )
 
+from compressed_tensors.utils import (
+    get_offloaded_device,
+    is_module_offloaded,
+    update_parameter_data,
+    update_prefix_dict,
+)
+
 __all__ = ["GPTQModifier"]
 
 
@@ -293,7 +300,7 @@ class GPTQModifier(Modifier):
                 module_class=type(module),
             )
         
-            weight = lerp(module.weight.data, quantized_weight, self.alpha)
+            weight = torch.lerp(module.weight.data, quantized_weight, self.alpha)
         
             update_prefix_dict(self.layer, "weight", weight)
             update_parameter_data(module, scale, "weight_scale")

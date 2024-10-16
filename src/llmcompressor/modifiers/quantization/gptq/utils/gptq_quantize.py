@@ -1,10 +1,16 @@
-from typing import Any
+from typing import Tuple, Union
 
 import time
 import math
 import torch
 import transformers
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy, ActivationOrdering
+from copy import copy
+from loguru import logger
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy, ActivationOrdering, fake_quantize
+from llmcompressor.utils.metric_logging import (
+    get_GPU_memory_usage,
+    get_layer_size_bytes,
+)
 
 
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
@@ -41,7 +47,7 @@ def quantize_weight(
     blocksize: int = 128,
     percdamp: float = 0.01,
     module_class = torch.nn.Linear,
-) -> Tuple[torch.nn.Parameter, ]:
+) -> Tuple[torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
     strategy = quant_args.strategy
     actorder = quant_args.actorder
     final_shape = weight.shape
@@ -49,7 +55,7 @@ def quantize_weight(
     num_columns = weight.shape[1]
     W = weight.data.clone()
     
-    H = compute_hessian(inp, module_class, device=device)
+    H = compute_hessian(inp, module_class, device=weight.device)
 
     # standardize shape and dtype
     if module_class == torch.nn.Conv2d:
@@ -59,8 +65,6 @@ def quantize_weight(
     W = W.to(dtype=torch.float32)
 
     tick = time.time()
-
-    scale, zero_point = compute_scale_zeropoint(W)
 
     if strategy == QuantizationStrategy.GROUP:
         # mapping from column index to group index
@@ -72,17 +76,22 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            scale, zero_point = _update_quantization_parameters(quant_args, W)
+            scale, zero_point = compute_scale_zeropoint(W, quant_args)
 
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            scale, zero_point = _update_quantization_parameters(quant_args, W)
+            scale, zero_point = compute_scale_zeropoint(W, quant_args)
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
+
+        else:
+            scale, zero_point = compute_scale_zeropoint(W, quant_args)
+    else:
+        scale, zero_point = compute_scale_zeropoint(W, quant_args)
 
         # sparsity mask
         sparsity = tensor_sparsity(W)
@@ -184,6 +193,7 @@ def quantize_weight(
         if "METRIC" in logger._core.levels.keys():
             _log_metrics(tick, Losses)
 
+        has_gidx = False
         if strategy == QuantizationStrategy.GROUP:
             if actorder == ActivationOrdering.WEIGHT:
                 # restore original permutation
@@ -197,21 +207,14 @@ def quantize_weight(
                 g_idx = g_idx[invperm]
 
                 # only save g_idx if mapping is not identity
-                update_parameter_data(self.layer, g_idx, "weight_g_idx")
+                has_gidx = True
 
-        if isinstance(self.layer, transformers.Conv1D):
+        if not has_gidx:
+            g_idx = None
+
+        if module_class == transformers.Conv1D:
             W.transpose_(0, 1)
         W = W.reshape(final_shape).to(final_dtype)
-
-        # This is a bit hacky, but FSDP updates only work if we change
-        # the weight in place, clone() or direct assignment won't work
-        self.layer.weight -= self.layer.weight
-        self.layer.weight += W
-
-        if is_module_offloaded(self.layer):
-            device = get_offloaded_device(self.layer)
-            update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
-            self.layer._hf_hook.post_forward(self.layer, None)
 
         return W, scale, zero_point, g_idx
 
