@@ -6,7 +6,7 @@ from loguru import logger
 
 from llmcompressor.utils.metric_logging import get_GPU_memory_usage, get_layer_size_bytes
 
-__all__ = ["get_output_error", "gptq_hook"]
+__all__ = ["get_output_error", "gptq_hook", "MetricsLogger"]
 
 
 def get_output_error(
@@ -65,7 +65,7 @@ def gptq_hook(func):
     return wrapped
 
 
-class LogMetrics:
+class MetricsLogger:
     def __init__(self, module: torch.nn.Module):
         self.module = module
         self.start_tick = None
@@ -74,8 +74,9 @@ class LogMetrics:
     def set_losses(self, losses: torch.Tensor):
         self.losses = losses
 
-    def __enter__(self):
+    def __enter__(self) -> "MetricsLogger":
         self.start_tick = time.time()
+        return self
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb):
         """

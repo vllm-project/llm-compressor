@@ -18,7 +18,7 @@ from llmcompressor.modifiers.quantization.gptq.utils import (
     gptq_hook
 )
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quantize_weight
-from llmcompressor.modifiers.quantization.gptq.utils.helpers import LogMetrics
+from llmcompressor.modifiers.quantization.gptq.utils.helpers import MetricsLogger
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
 from llmcompressor.utils.helpers import DisableKVCache, DisableQuantization, OnloadModule, getattr_chain
@@ -106,6 +106,7 @@ class GPTQModifier(Modifier):
     """
 
     sequential_update: bool = True
+    true_sequential: bool = False
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -256,12 +257,12 @@ class GPTQModifier(Modifier):
                 module._gptq_post_hook = module.register_forward_hook(post_hook, with_kwargs=True)
 
     def calibration_forward(self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader):
+        """
         import torch.nn.functional as F
         
         accumulated_data = {}  # Dictionary to accumulate samples per key
 
         def pad_tensor(tensor, max_len):
-            """Pads a tensor to the specified max_len along the second dimension (sequence length)."""
             pad_size = max_len - tensor.size(1)  # Calculate the padding size
             return F.pad(tensor, (0, pad_size), value=0)  # Pad on the right with zeros
     
@@ -281,9 +282,12 @@ class GPTQModifier(Modifier):
             key: torch.cat([pad_tensor(tensor, max_lengths[key]) for tensor in accumulated_data[key]], dim=0)
             for key in accumulated_data
         }
+        """
+
+        batch = next(iter(dataloader))
         
         with DisableKVCache(model), DisableQuantization(model):
-            model(**concatenated_batch)
+            model(**batch)
 
     @gptq_hook
     def target_pre_forward(self, name: str, module: torch.nn.Module, args):
@@ -300,7 +304,6 @@ class GPTQModifier(Modifier):
     @gptq_hook
     def layer_pre_forward(self, name: str, module: torch.nn.Module, args: Any):
         logger.info(f"\n===== Compressing layer {self._layer_index}/{self._num_layers} =====")
-        breakpoint()
         
     @gptq_hook
     def layer_post_forward(self, name: str, module: torch.nn.Module, args: torch.Tensor, kwargs: Dict[str, Any], output: Any):
@@ -312,22 +315,25 @@ class GPTQModifier(Modifier):
         self._layer_index += 1
         return output
 
-    def quantize_module(self, name, module, inp):
+    def quantize_module(self, name, module, args):
         logger.info(f"Compressing {name}...")
 
+        inp = args[0]  # Assume that first argument is input (true for most Module types)
         quant_args = getattr_chain(module, "quantization_scheme.weights")
+
         # with onloaded weight
-        with OnloadModule(module), LogMetrics(module) as logger:
+        with OnloadModule(module), MetricsLogger(module) as metrics_logger:
             losses, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                 module.weight.data,
                 inp,
                 quant_args,
-                block_size=self.block_size,
+                blocksize=self.block_size,
                 percdamp=self.dampening_frac,
                 module_class=type(module),
             )
         
-            weight = torch.lerp(module.weight.data, quantized_weight, self.alpha)
+            #weight = torch.lerp(module.weight.data, quantized_weight, self.alpha)
+            weight = quantized_weight
         
             if is_module_offloaded(module):
                 update_prefix_dict(self.layer, "weight", weight)
@@ -335,7 +341,7 @@ class GPTQModifier(Modifier):
             update_parameter_data(module, zero_point, "weight_zero_point")
             update_parameter_data(module, g_idx, "weight_g_idx")
 
-            logger.set_losses(losses)
+            metrics_logger.set_losses(losses)
         
     @contextlib.contextmanager
     def disable_hooks(self):

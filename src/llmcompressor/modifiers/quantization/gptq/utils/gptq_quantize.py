@@ -7,10 +7,9 @@ import transformers
 from copy import copy
 from loguru import logger
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy, ActivationOrdering, fake_quantize
-from llmcompressor.utils.metric_logging import (
-    get_GPU_memory_usage,
-    get_layer_size_bytes,
-)
+from compressed_tensors.quantization.observers import MovingAverageMinMaxObserver
+from llmcompressor.pytorch.utils.helpers import tensor_sparsity
+from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 
 
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
@@ -40,6 +39,10 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
     return H
 
 
+def compute_scale_zeropoint(W: torch.Tensor, quant_args: QuantizationArgs) -> Tuple[torch.Tensor, torch.Tensor]:
+    return MovingAverageMinMaxObserver(quant_args)(W)
+
+
 def quantize_weight(
     weight: torch.Tensor,
     inp: torch.Tensor,
@@ -52,7 +55,6 @@ def quantize_weight(
     actorder = quant_args.actorder
     final_shape = weight.shape
     final_dtype = weight.dtype
-    num_columns = weight.shape[1]
     W = weight.data.clone()
     
     H = compute_hessian(inp, module_class, device=weight.device)
@@ -63,8 +65,7 @@ def quantize_weight(
     elif module_class == transformers.Conv1D:
         W.transpose_(0, 1)
     W = W.to(dtype=torch.float32)
-
-    tick = time.time()
+    num_columns = W.shape[0]
 
     if strategy == QuantizationStrategy.GROUP:
         # mapping from column index to group index
@@ -93,127 +94,128 @@ def quantize_weight(
     else:
         scale, zero_point = compute_scale_zeropoint(W, quant_args)
 
-        # sparsity mask
-        sparsity = tensor_sparsity(W)
-        preserve_zeros = sparsity >= SPARSITY_THRESHOLD
-        W_nz_mask = (
-            (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
-            if preserve_zeros
-            else None
-        )
+    # sparsity mask
+    sparsity = tensor_sparsity(W)
+    preserve_zeros = sparsity >= SPARSITY_THRESHOLD
+    W_nz_mask = (
+        (~torch.isclose(W, torch.zeros(1, device=W.device).float())).float()
+        if preserve_zeros
+        else None
+    )
 
-        losses = torch.zeros(num_columns, device=weight.device)
+    losses = torch.zeros(num_columns, device=weight.device)
 
-        # mask dead hessian values
-        dead = torch.diag(H) == 0
-        H[dead, dead] = 1
-        W[:, dead] = 0
+    # mask dead hessian values
+    dead = torch.diag(H) == 0
+    H[dead, dead] = 1
+    W[:, dead] = 0
 
-        # compute inverse hessian in place to save memory
-        # TODO: check in place
-        Hinv = invert_hessian(H, percdamp)
+    # compute inverse hessian in place to save memory
+    # TODO: check in place
+    Hinv = invert_hessian(H, percdamp)
 
-        # See section 3.4 of https://arxiv.org/abs/2203.07259
-        for i1 in range(0, num_columns, blocksize):
-            i2 = min(i1 + blocksize, num_columns)
-            count = i2 - i1
+    # See section 3.4 of https://arxiv.org/abs/2203.07259
+    for i1 in range(0, num_columns, blocksize):
+        i2 = min(i1 + blocksize, num_columns)
+        count = i2 - i1
+        print((i1, i2, num_columns))
 
-            W1 = W[:, i1:i2].clone()
-            Q1 = torch.zeros_like(W1)
-            Err1 = torch.zeros_like(W1)
-            losses1 = torch.zeros_like(W1)
-            Hinv1 = Hinv[i1:i2, i1:i2]
+        W1 = W[:, i1:i2].clone()
+        Q1 = torch.zeros_like(W1)
+        Err1 = torch.zeros_like(W1)
+        losses1 = torch.zeros_like(W1)
+        Hinv1 = Hinv[i1:i2, i1:i2]
 
-            if preserve_zeros:
-                W1_nz_mask = W_nz_mask[:, i1:i2]
+        if preserve_zeros:
+            W1_nz_mask = W_nz_mask[:, i1:i2]
 
-            for i in range(count):
-                w = W1[:, i]
-                d = Hinv1[i, i]
-                q = w.clone()
+        for i in range(count):
+            w = W1[:, i]
+            d = Hinv1[i, i]
+            q = w.clone()
 
-                # quantize column
-                if strategy == QuantizationStrategy.TENSOR:
-                    q = fake_quantize(
-                        q,
-                        scale,
-                        zero_point,
-                        quant_args,
-                    )
-                elif strategy == QuantizationStrategy.CHANNEL:
-                    q = fake_quantize(
-                        q,
-                        scale[:, 0],
-                        zero_point[:, 0],
-                        quant_args,
-                    )
-                elif strategy == QuantizationStrategy.GROUP:
-                    # get the group index for the current column
-                    column_idx = i1 + i
-                    group_index = g_idx[column_idx]
+            # quantize column
+            if strategy == QuantizationStrategy.TENSOR:
+                q = fake_quantize(
+                    q,
+                    scale,
+                    zero_point,
+                    quant_args,
+                )
+            elif strategy == QuantizationStrategy.CHANNEL:
+                q = fake_quantize(
+                    q,
+                    scale[:, 0],
+                    zero_point[:, 0],
+                    quant_args,
+                )
+            elif strategy == QuantizationStrategy.GROUP:
+                # get the group index for the current column
+                column_idx = i1 + i
+                group_index = g_idx[column_idx]
 
-                    # Since we're only applying quantization to a slice, this
-                    # ends up being a channelwise application
-                    altered_qargs = copy(quant_args)
-                    altered_qargs.strategy = QuantizationStrategy.CHANNEL
-                    q = fake_quantize(
-                        q,
-                        scale[:, group_index],
-                        zero_point[:, group_index],
-                        altered_qargs,
-                    )
-                else:
-                    raise ValueError(
-                        "Quantization strategy is not supported for GPTQ: "
-                        f"{strategy}"
-                    )
-
-                # propagate column error
-                Q1[:, i] = q
-                losses1[:, i] = (w - q) ** 2 / d**2
-
-                err1 = (w - q) / d
-                w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
-                if preserve_zeros:
-                    W1[:, i:] -= w1_err * W1_nz_mask[:, i:]
-                else:
-                    W1[:, i:] -= w1_err
-                Err1[:, i] = err1
-
-            # propagate block error
-            W[:, i1:i2] = Q1
-            losses += torch.sum(losses1, 1) / 2
-
-            w_err = Err1.matmul(Hinv[i1:i2, i2:])
-            if preserve_zeros:
-                W[:, i2:] -= w_err * W_nz_mask[:, i2:]
+                # Since we're only applying quantization to a slice, this
+                # ends up being a channelwise application
+                altered_qargs = copy(quant_args)
+                altered_qargs.strategy = QuantizationStrategy.CHANNEL
+                q = fake_quantize(
+                    q,
+                    scale[:, group_index],
+                    zero_point[:, group_index],
+                    altered_qargs,
+                )
             else:
-                W[:, i2:] -= w_err
+                raise ValueError(
+                    "Quantization strategy is not supported for GPTQ: "
+                    f"{strategy}"
+                )
 
-        has_gidx = False
-        if strategy == QuantizationStrategy.GROUP:
-            if actorder == ActivationOrdering.WEIGHT:
-                # restore original permutation
-                invperm = torch.argsort(perm)
-                W = W[:, invperm]
+            # propagate column error
+            Q1[:, i] = q
+            losses1[:, i] = (w - q) ** 2 / d**2
 
-            elif actorder == ActivationOrdering.GROUP:
-                # restore original permutation
-                invperm = torch.argsort(perm)
-                W = W[:, invperm]
-                g_idx = g_idx[invperm]
+            err1 = (w - q) / d
+            w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
+            if preserve_zeros:
+                W1[:, i:] -= w1_err * W1_nz_mask[:, i:]
+            else:
+                W1[:, i:] -= w1_err
+            Err1[:, i] = err1
 
-                # only save g_idx if mapping is not identity
-                has_gidx = True
+        # propagate block error
+        W[:, i1:i2] = Q1
+        losses += torch.sum(losses1, 1) / 2
 
-        if not has_gidx:
-            g_idx = None
+        w_err = Err1.matmul(Hinv[i1:i2, i2:])
+        if preserve_zeros:
+            W[:, i2:] -= w_err * W_nz_mask[:, i2:]
+        else:
+            W[:, i2:] -= w_err
 
-        if module_class == transformers.Conv1D:
-            W.transpose_(0, 1)
-        W = W.reshape(final_shape).to(final_dtype)
+    has_gidx = False
+    if strategy == QuantizationStrategy.GROUP:
+        if actorder == ActivationOrdering.WEIGHT:
+            # restore original permutation
+            invperm = torch.argsort(perm)
+            W = W[:, invperm]
 
-        return losses, W, scale, zero_point, g_idx
+        elif actorder == ActivationOrdering.GROUP:
+            # restore original permutation
+            invperm = torch.argsort(perm)
+            W = W[:, invperm]
+            g_idx = g_idx[invperm]
+
+            # only save g_idx if mapping is not identity
+            has_gidx = True
+
+    if not has_gidx:
+        g_idx = None
+
+    if module_class == transformers.Conv1D:
+        W.transpose_(0, 1)
+    W = W.reshape(final_shape).to(final_dtype)
+
+    return losses, W, scale, zero_point, g_idx
 
 def _apply_activation_ordering(
     W: torch.Tensor, H: torch.Tensor
