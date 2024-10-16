@@ -65,7 +65,8 @@ def quantize_weight(
     elif module_class == transformers.Conv1D:
         W.transpose_(0, 1)
     W = W.to(dtype=torch.float32)
-    num_columns = W.shape[0]
+    num_rows = W.shape[0]
+    num_columns = W.shape[1]
 
     if strategy == QuantizationStrategy.GROUP:
         # mapping from column index to group index
@@ -103,7 +104,7 @@ def quantize_weight(
         else None
     )
 
-    losses = torch.zeros(num_columns, device=weight.device)
+    losses = torch.zeros(num_rows, device=weight.device)
 
     # mask dead hessian values
     dead = torch.diag(H) == 0
@@ -118,7 +119,6 @@ def quantize_weight(
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
         count = i2 - i1
-        print((i1, i2, num_columns))
 
         W1 = W[:, i1:i2].clone()
         Q1 = torch.zeros_like(W1)
@@ -166,8 +166,7 @@ def quantize_weight(
                 )
             else:
                 raise ValueError(
-                    "Quantization strategy is not supported for GPTQ: "
-                    f"{strategy}"
+                    f"Quantization strategy is not supported for GPTQ: {strategy}"
                 )
 
             # propagate column error

@@ -310,7 +310,7 @@ class GPTQModifier(Modifier):
         if not self.true_sequential:
             # rerun with (now) quantized weights
             with self.disable_hooks():
-                output = module(args, **kwargs)
+                output = module(*args, **kwargs)
 
         self._layer_index += 1
         return output
