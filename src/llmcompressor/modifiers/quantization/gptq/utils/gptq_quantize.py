@@ -1,85 +1,82 @@
+from typing import Any
+
+import time
+import math
 import torch
+from compressed_tensors.quantization import QuantizationArguments
 
-    def add_batch(self, inp: torch.Tensor, out: torch.Tensor):
-        """
-        Add a batch of layer input and output data to the Hessian calculation
 
-        :param inp: tensor containing layer input
-        :param out: tensor containing layer output
-        """
-        if len(inp.shape) == 2:
-            inp = inp.unsqueeze(0)
-        tmp = inp.shape[0]
-        if isinstance(self.layer, nn.Linear) or isinstance(
-            self.layer, transformers.Conv1D
-        ):
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()
-        self.H *= self.nsamples / (self.nsamples + tmp)
-        self.nsamples += tmp
-        inp = inp.to(dtype=self.H.dtype)
-        inp = math.sqrt(2 / self.nsamples) * inp
-        self.H += inp.matmul(inp.t())
+def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
+    inp = inp.to(device=device)
+    if len(inp.shape) == 2:
+        inp = inp.unsqueeze(0)
 
-    def compress(
-        self,
-        blocksize: int = 128,
-        percdamp: float = 0.01,
-    ):
-        """
-        Run pruning and quantization(if applicable) on the layer up to the target
-        sparsity value.
+    if module_class in (torch.nn.Linear, transformers.Conv1D):
+        if len(inp.shape) == 3:
+            inp = inp.reshape((-1, inp.shape[-1]))
+        inp = inp.t()
 
-        :param blocksize: Number of columns to compress in one pass
-        :param percdamp: Amount of dampening to apply to H, as a fraction of the
-            diagonal norm
-        """
-        args_loc = "quantization_scheme.weights"
-        weight_quant_args = getattr_chain(self.layer, args_loc, None)
-        if weight_quant_args is None:
-            logger.debug(f"Skipping unquantized layer {self.name}...")
-            return
+    nsamples = inp.shape[0]
 
-        if is_module_offloaded(self.layer):
-            self.layer._hf_hook.pre_forward(self.layer)
+    inp = inp.to(dtype=torch.float32)
+    inp = math.sqrt(2 / nsamples) * inp
+    return inp.matmul(inp.t())
 
-        strategy = weight_quant_args.strategy
-        actorder = weight_quant_args.actorder
-        final_shape = self.layer.weight.shape
-        final_dtype = self.layer.weight.dtype
-        W = self.layer.weight.data.clone()
 
-        # standardize shape and dtype
-        if isinstance(self.layer, nn.Conv2d):
-            W = W.flatten(1)
-        elif isinstance(self.layer, transformers.Conv1D):
-            W.transpose_(0, 1)
-        W = W.float()
+def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
+    damp = percdamp * torch.mean(torch.diag(H))
+    diag = torch.arange(H.shape[0], device=H.device)
+    H[diag, diag] += damp
+    H = torch.linalg.cholesky(H)
+    H = torch.cholesky_inverse(H)
+    H = torch.linalg.cholesky(H, upper=True)
+    return H
 
-        tick = time.time()
 
-        if strategy == QuantizationStrategy.GROUP:
-            # mapping from column index to group index
-            g_idx = (
-                torch.arange(self.columns, device=W.device, dtype=torch.int)
-                // weight_quant_args.group_size
-            )
+def quantize_weight(
+    weight: torch.Tensor,
+    inp: torch.Tensor,
+    quant_args: QuantizationArguments,
+    block_size: int = 128,
+    percdamp: float = 0.01,
+    module_class = torch.nn.Linear,
+) -> Tuple[torch.nn.Parameter, ]:
+    strategy = quant_args.strategy
+    actorder = quant_args.actorder
+    final_shape = weight.shape
+    final_dtype = weight.dtype
+    W = weight.data.clone()
 
-            if actorder == ActivationOrdering.GROUP:
-                # permute by activation order first, then update groups
-                W, self.H, perm = self._apply_activation_ordering(W, self.H)
-                self._update_quantization_parameters(weight_quant_args, W)
+    # standardize shape and dtype
+    if module_class == torch.nn.Conv2d:
+        W = W.flatten(1)
+    elif module_class == transformers.Conv1D:
+        W.transpose_(0, 1)
+    W = W.to(dtype=torch.float32)
 
-                # use identity g_idx (invert permutation later)
+    tick = time.time()
 
-            elif actorder == ActivationOrdering.WEIGHT:
-                # update groups first, then permute by activation order
-                self._update_quantization_parameters(weight_quant_args, W)
-                W, self.H, perm = self._apply_activation_ordering(W, self.H)
+    if strategy == QuantizationStrategy.GROUP:
+        # mapping from column index to group index
+        g_idx = (
+            torch.arange(self.columns, device=W.device, dtype=torch.int)
+            // weight_quant_args.group_size
+        )
 
-                # permute g_idx to maintain identity mapping after unpermutation
-                g_idx = g_idx[perm]
+        if actorder == ActivationOrdering.GROUP:
+            # permute by activation order first, then update groups
+            W, self.H, perm = self._apply_activation_ordering(W, self.H)
+            self._update_quantization_parameters(weight_quant_args, W)
+
+            # use identity g_idx (invert permutation later)
+
+        elif actorder == ActivationOrdering.WEIGHT:
+            # update groups first, then permute by activation order
+            self._update_quantization_parameters(weight_quant_args, W)
+            W, self.H, perm = self._apply_activation_ordering(W, self.H)
+
+            # permute g_idx to maintain identity mapping after unpermutation
+            g_idx = g_idx[perm]
 
         scale = self.layer.weight_scale
         zero_point = self.layer.weight_zero_point
@@ -93,21 +90,18 @@ import torch
             else None
         )
 
-        # mask dead hessian values
-        dead = torch.diag(self.H) == 0
-        self.H[dead, dead] = 1
-        W[:, dead] = 0
-
         Losses = torch.zeros(self.rows, device=self.dev)
 
         # compute inverse hessian in place to save memory
-        damp = percdamp * torch.mean(torch.diag(self.H))
-        diag = torch.arange(self.columns, device=self.dev)
-        self.H[diag, diag] += damp
-        self.H = torch.linalg.cholesky(self.H)
-        self.H = torch.cholesky_inverse(self.H)
-        self.H = torch.linalg.cholesky(self.H, upper=True)
-        Hinv = self.H
+        H = compute_hessian(inp, module_class, device=device)
+
+        # mask dead hessian values
+        dead = torch.diag(H) == 0
+        H[dead, dead] = 1
+        W[:, dead] = 0
+
+        # TODO: check in place
+        Hinv = invert_hessian(H, percdamp)
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
         for i1 in range(0, self.columns, blocksize):

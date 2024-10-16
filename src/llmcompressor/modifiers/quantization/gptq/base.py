@@ -215,10 +215,6 @@ class GPTQModifier(Modifier):
 
         return True
     
-    def on_end(self):
-        self.register_hooks(state.model, layers)
-        self.dummy_forward() ???
-
     def on_finalize(self, state: "State", **kwargs) -> bool:
         """
         disable the quantization observers used by the OBCQ algorithm
@@ -234,49 +230,32 @@ class GPTQModifier(Modifier):
         layers = layers.values()
 
         for name, module in model.named_modules():
-            quant_args = getattr_chain(module, "quantization_scheme.weights", None)
-            if quant_args is not None:
-                module._gptq_pre_hook = module.register_forward_pre_hook(
-                    partial(self.target_pre_forward, name, quant_args))
-                module._gptq_post_hook = module.register_forward_hook(
-                    partial(self.target_post_forward, name, quant_args))
+            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
+                pre_hook = partial(self.target_pre_forward, name)
+                post_hook = partial(self.target_post_forward, name)
+                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
+                module._gptq_post_hook = module.register_forward_hook(post_hook)
 
             if module in layers.values():
-                module._gptq_pre_hook = module.register_forward_pre_hook(
-                    partial(self.layer_pre_forward, name))
-                module._gptq_post_hook = module.register_forward_hook(
-                    partial(self.layer_post_forward, name))
+                pre_hook = partial(self.layer_pre_forward, name)
+                post_hook = partial(self.layer_post_forward, name)
+                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
+                module._gptq_post_hook = module.register_forward_hook(post_hook)
 
     def calibration_forward(self, model: torch.nn.Module, data: torch.utils.data.Dataloader):
         all_data = torch.cat([batch for batch in data], dim=0)
         with DisableKVCache(model), DisableQuantization(model):
             model(all_data)
 
-    def target_pre_forward(self, name: str, quant_args: QuantizationScheme, module: torch.nn.Module, args, kwargs):
+    def target_pre_forward(self, name: str, module: torch.nn.Module, args, kwargs):
         if self.true_sequential:
             # compress first so output is from quantized weights
-            logger.info(f"Compressing {name}...")
-            gptq_compress(
-                module,
-                args,
-                kwargs,
-                quant_args,
-                block_size=self.block_size,
-                percdamp=self.dampening_frac,
-            )
+            self.quantize_module(name, module, args)
         
-    def target_post_forward(self, name: str, quant_args: QuantizationScheme, module: torch.nn.Module, args, kwargs, output):
+    def target_post_forward(self, name: str, module: torch.nn.Module, args, kwargs, output):
         if not self.true_sequential:
             # compress after so output is from unquantized weights
-            logger.info(f"Compressing {name}...")
-            gptq_compress(
-                module,
-                args,
-                kwargs,
-                quant_args,
-                block_size=self.block_size,
-                percdamp=self.dampening_frac,
-            )
+            self.quantize_module(name, module, args)
         
     def layer_pre_forward(self, name: str, module: torch.nn.Module, args, kwargs):
         logger.info(f"\n===== Compressing layer {self.layer_index}/{self.num_layers} =====")
@@ -290,6 +269,28 @@ class GPTQModifier(Modifier):
 
         self.layer_index += 1
         return output
+
+    def quantize_module(self, name, module, inp):
+        logger.info(f"Compressing {name}...")
+
+        quant_args = getattr_chain(module, "quantization_scheme.weights")
+        # with onloaded weight
+            quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                module.weight.data,
+                inp,
+                quant_args,
+                block_size=self.block_size,
+                percdamp=self.dampening_frac,
+                module_class=type(module),
+            )
+
+        # This is a bit hacky, but FSDP updates only work if we change
+        # the weight in place, clone() or direct assignment won't work
+        self.layer.weight -= self.layer.weight
+        self.layer.weight += lerp(module.weight.data, quantized_weight, self.alpha)
+        update_parameter_data(module, scale, "weight_scale")
+        update_parameter_data(module, zero_point, "weight_zero_point")
+        update_parameter_data(module, g_idx, "weight_g_idx")
 
     def remove_hooks(self, module: torch.nn.Module, recurse: bool = True):
         if hasattr(module, "_gptq_pre_hook"):
