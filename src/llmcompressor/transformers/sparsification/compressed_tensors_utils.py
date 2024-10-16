@@ -12,6 +12,7 @@ from loguru import logger
 from safetensors.torch import _find_shared_tensors
 
 from llmcompressor.core import active_session
+from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
@@ -165,7 +166,7 @@ def modify_save_pretrained(trainer, tokenizer):
                     fp.write(recipe_yaml_str)
 
                 # copy python files from cache dir to save_path if any
-                _copy_python_files_from_model_cache(model, save_directory)
+                copy_python_files_from_model_cache(model, save_directory)
 
         save_pretrained_wrapper._overriden = True
         return save_pretrained_wrapper
@@ -214,33 +215,3 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
                     parameter.data = parameter.data.clone()
 
     return model
-
-
-def _copy_python_files_from_model_cache(model, save_path: str):
-    config = model.config
-    cache_path = None
-    if hasattr(config, "_name_or_path"):
-        import os
-        import shutil
-
-        from huggingface_hub import hf_hub_download
-        from transformers import TRANSFORMERS_CACHE
-        from transformers.utils import http_user_agent
-
-        cache_path = config._name_or_path
-        if not os.path.exists(cache_path):
-            user_agent = http_user_agent()
-            config_file_path = hf_hub_download(
-                repo_id=cache_path,
-                filename="config.json",
-                cache_dir=TRANSFORMERS_CACHE,
-                force_download=False,
-                user_agent=user_agent,
-            )
-            cache_path = os.path.sep.join(config_file_path.split(os.path.sep)[:-1])
-
-        for file in os.listdir(cache_path):
-            full_file_name = os.path.join(cache_path, file)
-            if file.endswith(".py") and os.path.isfile(full_file_name):
-                logger.debug(f"Transferring {full_file_name} to {save_path}")
-                shutil.copy(full_file_name, save_path)

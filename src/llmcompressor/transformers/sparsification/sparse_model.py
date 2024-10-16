@@ -42,13 +42,6 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
     :param hf_model_class: Model class to wrap
     :return: Wrapped model class
     """
-    logger.info(
-        (
-            "`wrap_hf_model_class` is now deprecated. ",
-            "Please load the model from its appropriate parent class. `",
-            "Ex. AutoModelForCausalLM.",
-        )
-    )
 
     # Add the from_pretrained class method
     @classmethod
@@ -69,6 +62,13 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
             pretrained_model_name_or_path directory and applied if found
         :return the created model for causal language modeling
         """
+        logger.info(
+            (
+                "`wrap_hf_model_class` is now deprecated. ",
+                "Please load the model from its appropriate parent class. `",
+                "Ex. AutoModelForCausalLM.",
+            )
+        )
 
         def skip(*args, **kwargs):
             pass
