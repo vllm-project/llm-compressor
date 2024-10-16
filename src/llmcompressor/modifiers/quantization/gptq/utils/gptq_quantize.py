@@ -3,7 +3,8 @@ from typing import Any
 import time
 import math
 import torch
-from compressed_tensors.quantization import QuantizationArguments
+import transformers
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy, ActivationOrdering
 
 
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
@@ -36,8 +37,8 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
 def quantize_weight(
     weight: torch.Tensor,
     inp: torch.Tensor,
-    quant_args: QuantizationArguments,
-    block_size: int = 128,
+    quant_args: QuantizationArgs,
+    blocksize: int = 128,
     percdamp: float = 0.01,
     module_class = torch.nn.Linear,
 ) -> Tuple[torch.nn.Parameter, ]:
@@ -45,7 +46,10 @@ def quantize_weight(
     actorder = quant_args.actorder
     final_shape = weight.shape
     final_dtype = weight.dtype
+    num_columns = weight.shape[1]
     W = weight.data.clone()
+    
+    H = compute_hessian(inp, module_class, device=device)
 
     # standardize shape and dtype
     if module_class == torch.nn.Conv2d:
@@ -56,30 +60,29 @@ def quantize_weight(
 
     tick = time.time()
 
+    scale, zero_point = compute_scale_zeropoint(W)
+
     if strategy == QuantizationStrategy.GROUP:
         # mapping from column index to group index
         g_idx = (
-            torch.arange(self.columns, device=W.device, dtype=torch.int)
-            // weight_quant_args.group_size
+            torch.arange(num_columns, device=W.device, dtype=torch.int)
+            // quant_args.group_size
         )
 
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
-            W, self.H, perm = self._apply_activation_ordering(W, self.H)
-            self._update_quantization_parameters(weight_quant_args, W)
+            W, H, perm = _apply_activation_ordering(W, H)
+            scale, zero_point = _update_quantization_parameters(quant_args, W)
 
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            self._update_quantization_parameters(weight_quant_args, W)
-            W, self.H, perm = self._apply_activation_ordering(W, self.H)
+            scale, zero_point = _update_quantization_parameters(quant_args, W)
+            W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
-
-        scale = self.layer.weight_scale
-        zero_point = self.layer.weight_zero_point
 
         # sparsity mask
         sparsity = tensor_sparsity(W)
@@ -90,22 +93,20 @@ def quantize_weight(
             else None
         )
 
-        Losses = torch.zeros(self.rows, device=self.dev)
-
-        # compute inverse hessian in place to save memory
-        H = compute_hessian(inp, module_class, device=device)
+        Losses = torch.zeros(num_columns, device=weight.device)
 
         # mask dead hessian values
         dead = torch.diag(H) == 0
         H[dead, dead] = 1
         W[:, dead] = 0
 
+        # compute inverse hessian in place to save memory
         # TODO: check in place
         Hinv = invert_hessian(H, percdamp)
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
-        for i1 in range(0, self.columns, blocksize):
-            i2 = min(i1 + blocksize, self.columns)
+        for i1 in range(0, num_columns, blocksize):
+            i2 = min(i1 + blocksize, num_columns)
             count = i2 - i1
 
             W1 = W[:, i1:i2].clone()
@@ -128,14 +129,14 @@ def quantize_weight(
                         q,
                         scale,
                         zero_point,
-                        self.layer.quantization_scheme.weights,
+                        quant_args,
                     )
                 elif strategy == QuantizationStrategy.CHANNEL:
                     q = fake_quantize(
                         q,
                         scale[:, 0],
                         zero_point[:, 0],
-                        weight_quant_args,
+                        quant_args,
                     )
                 elif strategy == QuantizationStrategy.GROUP:
                     # get the group index for the current column
@@ -144,7 +145,7 @@ def quantize_weight(
 
                     # Since we're only applying quantization to a slice, this
                     # ends up being a channelwise application
-                    altered_qargs = copy(weight_quant_args)
+                    altered_qargs = copy(quant_args)
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
                     q = fake_quantize(
                         q,
