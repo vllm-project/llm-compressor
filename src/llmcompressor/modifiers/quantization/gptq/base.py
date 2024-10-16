@@ -2,6 +2,7 @@ import gc
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
+from functools import partial
 from compressed_tensors.quantization import (
     QuantizationScheme,
     disable_quantization,
@@ -21,6 +22,7 @@ from llmcompressor.modifiers.quantization.gptq.utils import (
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
+from llmcompressor.utils.helpers import DisableKVCache, DisableQuantization, getattr_chain
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -109,11 +111,6 @@ class GPTQModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
 
-    model: Optional[Any] = None
-    layer_compressors_: Optional[List[Any]] = None
-    compressible_layers_: Optional[List] = None
-    quantization_modifier_: Any = None
-
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
         if not value:
@@ -124,6 +121,13 @@ class GPTQModifier(Modifier):
             )
 
         return value
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.current_layer_index = 0
+        self.num_layers = 0
+        self.quantization_modifier_ = None
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
@@ -191,20 +195,29 @@ class GPTQModifier(Modifier):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
-        modifiable_model = state.model
-        calibration_dataloader = state.data.calib
-
+        # find layers (used for printing even if true_sequential=True)
+        # if no targets are provided, default to the modules that shouldn't be
+        # split by FSDP. For Transformers models this is equivalent to the
+        # decoder layers (ie LlamaDecoderLayer)
         if self.sequential_targets is None:
-            # if no targets are provided, default to the modules that shouldn't be
-            # split by FSDP. For Transformers models this is equivalent to the
-            # decoder layers (ie LlamaDecoderLayer)
-            self.sequential_targets = get_no_split_params(modifiable_model)
+            self.sequential_targets = get_no_split_params(state.model)
+        layers = get_layers(self.sequential_targets, state.model)
+        self.num_layers = len(layers)
 
-        self.initialize_compression(modifiable_model, calibration_dataloader)
-        self.apply_compression(calibration_dataloader)
+        # add hooks to targets and layers
+        self.register_hooks(state.model, layers)
+
+        # apply calibration and trigger hooks (hooks are self removing)
+        self.calibration_forward(state.model, state.data.calib)
+
+        # freeze quantization
         state.model.apply(freeze_module_quantization)
 
         return True
+    
+    def on_end(self):
+        self.register_hooks(state.model, layers)
+        self.dummy_forward() ???
 
     def on_finalize(self, state: "State", **kwargs) -> bool:
         """
@@ -216,121 +229,80 @@ class GPTQModifier(Modifier):
             self.quantization_modifier_.finalize(state, **kwargs)
 
         return True
+    
+    def register_hooks(self, model: torch.nn.Module, layers: Dict[str, torch.nn.Module]):
+        layers = layers.values()
 
-    def compressible_layers(self) -> Dict:
-        """
-        Retrieves the modules corresponding to a list of
-        compressible layer names
+        for name, module in model.named_modules():
+            quant_args = getattr_chain(module, "quantization_scheme.weights", None)
+            if quant_args is not None:
+                module._gptq_pre_hook = module.register_forward_pre_hook(
+                    partial(self.target_pre_forward, name, quant_args))
+                module._gptq_post_hook = module.register_forward_hook(
+                    partial(self.target_post_forward, name, quant_args))
 
-        :precondition: self.model is set and is a torch.nn.Module
-        :return: dictionary of modules to compress
-        """
-        if not isinstance(self.model, Module):
-            raise ValueError(
-                "`self.model` must be a torch.nn.Module to use "
-                f"the {self.__class__.__qualname__} modifier but got "
-                f"{type(self.model)} instead"
+            if module in layers.values():
+                module._gptq_pre_hook = module.register_forward_pre_hook(
+                    partial(self.layer_pre_forward, name))
+                module._gptq_post_hook = module.register_forward_hook(
+                    partial(self.layer_post_forward, name))
+
+    def calibration_forward(self, model: torch.nn.Module, data: torch.utils.data.Dataloader):
+        all_data = torch.cat([batch for batch in data], dim=0)
+        with DisableKVCache(model), DisableQuantization(model):
+            model(all_data)
+
+    def target_pre_forward(self, name: str, quant_args: QuantizationScheme, module: torch.nn.Module, args, kwargs):
+        if self.true_sequential:
+            # compress first so output is from quantized weights
+            logger.info(f"Compressing {name}...")
+            gptq_compress(
+                module,
+                args,
+                kwargs,
+                quant_args,
+                block_size=self.block_size,
+                percdamp=self.dampening_frac,
             )
+        
+    def target_post_forward(self, name: str, quant_args: QuantizationScheme, module: torch.nn.Module, args, kwargs, output):
+        if not self.true_sequential:
+            # compress after so output is from unquantized weights
+            logger.info(f"Compressing {name}...")
+            gptq_compress(
+                module,
+                args,
+                kwargs,
+                quant_args,
+                block_size=self.block_size,
+                percdamp=self.dampening_frac,
+            )
+        
+    def layer_pre_forward(self, name: str, module: torch.nn.Module, args, kwargs):
+        logger.info(f"\n===== Compressing layer {self.layer_index}/{self.num_layers} =====")
+        
+    def layer_post_forward(self, name: str, module: torch.nn.Module, args, kwargs, output):
+        self.remove_hooks(module)
 
-        return get_layers(self.sequential_targets, self.model)
+        if not self.true_sequential:
+            # rerun with (now) quantized weights
+            output = module(*args, **kwargs)
 
-    def initialize_compression(
-        self,
-        model: Module,
-        dataloader: Optional[Iterable[Tuple[List, Dict[str, Any]]]] = None,
-    ):
-        """
-        Setup for GPTQ, initializes the model
-        and other parameters, also initilializes the
-        compressible layers of model, and sets the device
+        self.layer_index += 1
+        return output
 
-        :param model: model to initialize for compression
-        :param dataloader: calibration data for GPTQ
-        """
-        self.model = model
-        self.compressible_layers_ = self.compressible_layers()
-        self.layer_compressors_ = []
+    def remove_hooks(self, module: torch.nn.Module, recurse: bool = True):
+        if hasattr(module, "_gptq_pre_hook"):
+            module._gptq_pre_hook.remove()
+            delattr(module, "_gptq_pre_hook")
 
-        for idx, (name, layer) in enumerate(self.compressible_layers_.items()):
-            name = fix_fsdp_module_name(name)
-            logger.info(f"Preparing {name} for compression")
-            args = self._pruning_arguments()
-            comp_cls = self._compression_class()
-            compressor = LayerCompressor(comp_cls, self.model, layer, idx, name, args)
+        if hasattr(module, "_gptq_post_hook"):
+            module._gptq_post_hook.remove()
+            delattr(module, "_gptq_post_hook")
 
-            # if running sequentially, allocate all hessians now
-            if not self.sequential_update:
-                compressor.pre_compress()
-
-            self.layer_compressors_.append(compressor)
-
-        if self.sequential_update:
-            first_layer_compressor = self.layer_compressors_[0]
-            first_layer_compressor.set_early_stop()
-
-    @torch.no_grad()
-    def apply_compression(
-        self, dataloader: Optional[Iterable[Tuple[List, Dict[str, Any]]]] = None
-    ) -> Dict:
-        """
-        Run GPTQ on the loaded model, using dataloader as calibration data
-
-        :param dataloader: calibration data for GPTQ
-        """
-        class_name = self.__class__.__name__.replace("PyTorch", "")
-        logger.info(
-            f"Running {class_name} calibration with " f"{len(dataloader)} samples..."
-        )
-
-        # quantization scales and zp are already initialized but we do not
-        # want to calibrate wrt to these
-        self.model.apply(disable_quantization)
-
-        forward_pass_use_cache = self.model.config.use_cache
-        self.model.config.use_cache = False
-
-        # in non-sequential mode we run calibration through the full model
-        # in sequential mode we run calibration up to the first transformer target
-        intermediates = run_calibration_forward(
-            self.model, dataloader, mask_padding=True
-        )
-        self.layer_compressors_[0].clear_early_stop()
-
-        # empty cache if not using sequential update
-        if not self.sequential_update:
-            del intermediates
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        num_layers = len(self.compressible_layers_)
-        for idx, layer_compressor in enumerate(self.layer_compressors_):
-            logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
-
-            if self.sequential_update:
-                # in sequential mode we run the forward pass for each transformer layer
-                # one at a time, caching the intermediate outputs between layers
-                logger.info(f"Calibrating {layer_compressor.name}...")
-                layer_compressor.pre_compress()
-                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
-
-            layer_compressor.compress()
-            layer_compressor.post_compress()
-            layer_compressor.revert_layer_wrappers()
-
-            if self.sequential_update:
-                quantized_outputs = layer_compressor.calibrate_layer(intermediates)
-                error = get_output_error(unquantized_outputs, quantized_outputs)
-                logger.info(f"Mean output error from quantization: {error:.3f}")
-                intermediates = quantized_outputs
-                del unquantized_outputs
-
-            gc.collect()
-            torch.cuda.empty_cache()
-
-        self.model.config.use_cache = forward_pass_use_cache
-
-        # re-enable quantization
-        self.model.apply(enable_quantization)
+        if recurse:
+            for child_module in module.children():
+                self.remove_hooks(child_module)
 
     def _build_quant_modifier(self):
         """
@@ -369,20 +341,3 @@ class GPTQModifier(Modifier):
             allow_experimental=True,
             **modifier_args,
         )
-
-    def _pruning_arguments(self):
-        """
-        Gather the parameters needed for root module compression in a dict
-
-        :return: dict of params for pruning
-        """
-        return {
-            "blocksize": self.block_size,
-            "percdamp": self.dampening_frac,
-        }
-
-    def _compression_class(self):
-        """
-        :return: wrapper class used for root modules of this compression class
-        """
-        return GPTQWrapper

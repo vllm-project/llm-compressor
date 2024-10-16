@@ -22,7 +22,13 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
+import torch
 from loguru import logger
+
+from compressed_tensors.quantization import (
+    disable_quantization,
+    enable_quantization,
+)
 
 __all__ = [
     "ALL_TOKEN",
@@ -59,6 +65,7 @@ __all__ = [
     "is_package_available",
     "import_from_path",
     "getattr_chain",
+    "DisableKVCache",
 ]
 
 
@@ -1041,3 +1048,41 @@ def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
         res = getattr(res, attr_name)
 
     return res
+
+
+class DisableKVCache:
+    def __init__(self, model: torch.nn.Module):
+        if hasattr(model.config, "use_cache"):
+            self.config = model.config
+
+        # MllamaConfig
+        elif hasattr(model.config, "text_config") and hasattr(
+            model.config.text_config, "use_cache"
+        ):
+            self.config = model.config.text_config
+
+        # unknown config structure
+        else:
+            raise NotImplementedError(
+                f"Cannot find `use_cache` for config of type {type(model.config)}"
+            )
+
+        self.restore_value = self.config.use_cache
+
+    def __enter__(self):
+        self.restore_value = self.config.use_cache
+        self.config.use_cache = False
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        self.config.use_cache = self.restore_value
+
+
+class DisableQuantization:
+    def __init__(self, model: torch.nn.Module):
+        self.model = model
+
+    def __enter__(self):
+        self.model.apply(disable_quantization)
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        self.model.apply(enable_quantization)

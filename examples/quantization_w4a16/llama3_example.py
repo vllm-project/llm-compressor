@@ -6,6 +6,7 @@ from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+#MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
