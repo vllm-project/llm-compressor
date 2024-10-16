@@ -2,6 +2,7 @@ import gc
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
+import contextlib
 from functools import partial
 from compressed_tensors.quantization import (
     QuantizationScheme,
@@ -18,6 +19,7 @@ from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils import (
     GPTQWrapper,
     get_output_error,
+    gptq_hook
 )
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
@@ -194,6 +196,8 @@ class GPTQModifier(Modifier):
             self.quantization_modifier_.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
+        
+        # after lifecycle refactor, all of this moves to pre_batch
 
         # find layers (used for printing even if true_sequential=True)
         # if no targets are provided, default to the modules that shouldn't be
@@ -224,6 +228,8 @@ class GPTQModifier(Modifier):
         if self.quantization_modifier_:
             self.quantization_modifier_.finalize(state, **kwargs)
 
+        self.remove_gptq_hooks(state.model)
+
         return True
     
     def register_hooks(self, model: torch.nn.Module, layers: Dict[str, torch.nn.Module]):
@@ -247,25 +253,28 @@ class GPTQModifier(Modifier):
         with DisableKVCache(model), DisableQuantization(model):
             model(all_data)
 
+    @gptq_hook
     def target_pre_forward(self, name: str, module: torch.nn.Module, args, kwargs):
         if self.true_sequential:
             # compress first so output is from quantized weights
             self.quantize_module(name, module, args)
         
+    @gptq_hook
     def target_post_forward(self, name: str, module: torch.nn.Module, args, kwargs, output):
         if not self.true_sequential:
             # compress after so output is from unquantized weights
             self.quantize_module(name, module, args)
         
+    @gptq_hook
     def layer_pre_forward(self, name: str, module: torch.nn.Module, args, kwargs):
         logger.info(f"\n===== Compressing layer {self.layer_index}/{self.num_layers} =====")
         
+    @gptq_hook
     def layer_post_forward(self, name: str, module: torch.nn.Module, args, kwargs, output):
-        self.remove_hooks(module)
-
         if not self.true_sequential:
             # rerun with (now) quantized weights
-            output = module(*args, **kwargs)
+            with self.disable_hooks():
+                output = module(*args, **kwargs)
 
         self.layer_index += 1
         return output
@@ -283,16 +292,23 @@ class GPTQModifier(Modifier):
                 percdamp=self.dampening_frac,
                 module_class=type(module),
             )
+        
+            weight = lerp(module.weight.data, quantized_weight, self.alpha)
+        
+            update_prefix_dict(self.layer, "weight", weight)
+            update_parameter_data(module, scale, "weight_scale")
+            update_parameter_data(module, zero_point, "weight_zero_point")
+            update_parameter_data(module, g_idx, "weight_g_idx")
+        
+    @contextlib.contextmanager
+    def disable_hooks(self):
+        try:
+            self.hooks_disabled = True
+            yield
+        finally:
+            self.hooks_disabled = False
 
-        # This is a bit hacky, but FSDP updates only work if we change
-        # the weight in place, clone() or direct assignment won't work
-        self.layer.weight -= self.layer.weight
-        self.layer.weight += lerp(module.weight.data, quantized_weight, self.alpha)
-        update_parameter_data(module, scale, "weight_scale")
-        update_parameter_data(module, zero_point, "weight_zero_point")
-        update_parameter_data(module, g_idx, "weight_g_idx")
-
-    def remove_hooks(self, module: torch.nn.Module, recurse: bool = True):
+    def remove_gptq_hooks(self, module: torch.nn.Module, recurse: bool = True):
         if hasattr(module, "_gptq_pre_hook"):
             module._gptq_pre_hook.remove()
             delattr(module, "_gptq_pre_hook")
@@ -304,6 +320,7 @@ class GPTQModifier(Modifier):
         if recurse:
             for child_module in module.children():
                 self.remove_hooks(child_module)
+
 
     def _build_quant_modifier(self):
         """

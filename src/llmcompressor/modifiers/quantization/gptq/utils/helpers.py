@@ -2,7 +2,7 @@ from typing import Any, Iterable, List, Tuple, Union
 
 import torch
 
-__all__ = ["get_output_error"]
+__all__ = ["get_output_error", "gptq_hook"]
 
 
 def get_output_error(
@@ -49,3 +49,13 @@ def get_output_error(
             for unq, q in zip(unquantized_outputs, quantized_outputs)
         ]
     ) / len(unquantized_outputs)
+
+
+def gptq_hook(func):
+    def wrapped(self, *args, **kwargs):
+        if self.hooks_disabled:
+            return
+        
+        func(self, *args, **kwargs)
+
+    return wrapped
