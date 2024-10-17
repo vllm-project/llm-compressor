@@ -8,6 +8,8 @@ from compressed_tensors.quantization import (  # set_module_for_calibration,
     apply_quantization_config,
     freeze_module_quantization,
     is_preset_scheme,
+    is_attention_module,
+    is_kv_cache_quant_scheme,
     preset_name_to_scheme,
 )
 from loguru import logger
@@ -19,6 +21,8 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.calibration import (
     calibrate_input_hook,
     calibrate_output_hook,
+    calibrate_kv_cache_input_hook,
+    calibrate_kv_cache_output_hook,
     initialize_observer,
     update_weight_zp_scale,
 )
@@ -204,8 +208,19 @@ class QuantizationModifier(Modifier):
 
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
+        # Add step to attach kv_cache to the model, if present within the config
         apply_quantization_config(model, modifier_as_config)
+        model.apply(_apply_kv_cache)
         return modifier_as_config
+    
+    def _apply_kv_cache(module: Module):
+        if not hasattr(module, "quantization_scheme", None):
+            return 
+
+        if is_kv_cache_quant_scheme(module.quantization_scheme):
+            output_args = module.output_activations
+            kv_cache = QuantizedKVParameterCache(output_args)
+            setattr(module, "kv_cache", kv_cache)
 
     def _calibrate_if_possible(self, module: Module):
         if self.num_calibration_steps == 0 and self.calibration_dataloader_:
@@ -223,27 +238,33 @@ class QuantizationModifier(Modifier):
         elif not self.calibration_dataloader_:
             return
 
-        print("CAN CALIBRATE")
         module.apply(lambda model: initialize_observer(model, base_name="input"))
-
         module.apply(lambda model: initialize_observer(model, base_name="output"))
-
         module.apply(self.register_calibration_hooks)
         self._calibrate(module)
         for h in self.calibration_hooks_:
             h.remove()
+
 
     def register_calibration_hooks(self, module: Module):
         quantization_scheme = getattr(module, "quantization_scheme", None)
         if not quantization_scheme:
             return
 
-        if quantization_scheme.input_activations:
+        is_attention_module_ = is_attention_module(module)
+        
+        if quantization_scheme.input_activations and not is_attention_module_:
             pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
             self.calibration_hooks_.append(pre_hook_handle)
 
         if quantization_scheme.output_activations:
-            post_hook_handle = module.register_forward_hook(calibrate_output_hook())
+            if is_attention_module_:
+                self.calibration_hooks_.append(module.register_forward_pre_hook(calibrate_kv_cache_input_hook()))
+                callable_ = calibrate_kv_cache_output_hook
+            else:
+                callable_ = calibrate_output_hook
+
+            post_hook_handle = module.register_forward_hook(callable_())
             self.calibration_hooks_.append(post_hook_handle)
 
     def _calibrate(self, module: Module):

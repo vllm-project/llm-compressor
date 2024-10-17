@@ -1,7 +1,7 @@
 import logging
 
 import torch
-from compressed_tensors.quantization import QuantizationStatus
+from compressed_tensors.quantization import QuantizationStatus, is_attention_module
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from torch.nn import Module
@@ -13,6 +13,8 @@ __all__ = [
     "update_weight_zp_scale",
     "calibrate_input_hook",
     "calibrate_output_hook",
+    "calibrate_kv_cache_input_hook",
+    "calibrate_kv_cache_output_hook"
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -28,6 +30,10 @@ def initialize_observer(
     if not quantization_scheme:
         # no quantization scheme nothing to do
         return
+
+    # observers have a different lifecycle for kv_cache
+    if is_attention_module(module):
+        return 
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
     if quantization_args:
@@ -125,4 +131,26 @@ def calibrate_output_hook():
         )
         return output
 
+    return hook_fn
+
+def calibrate_kv_cache_input_hook():
+    def hook_fn(module: Module, inp):
+        kv_cache = module.getattr(module, "kv_cache")
+        # update inputs/args/kwargs
+        print("inp", inp)
+        breakpoint()
+        return inp
+    
+    return hook_fn
+
+
+def calibrate_kv_cache_output_hook():
+    def hook_fn(module: Module, inp, output: torch.Tensor):
+        kv_cache = module.getattr(module, "kv_cache")
+        update_parameter_data(
+            module, kv_cache.k_scales[module.layer_idx], "k_scale"
+        )
+        update_parameter_data(
+            module, kv_cache.v_scales[module.layer_idx], "v_scale"
+        )
     return hook_fn
