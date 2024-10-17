@@ -57,7 +57,6 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * apply SmoothQuant to make the activations easier to quantize
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
-# Note: set sequential_update: true in the recipe to reduce memory
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
