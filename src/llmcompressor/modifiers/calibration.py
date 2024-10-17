@@ -69,7 +69,6 @@ def call_observer(module: Module, base_name: str, value: torch.Tensor):
     :param value: torch.Tensor to be passed to the observer
     """
     observer = getattr(module, f"{base_name}_observer")
-    # TODO: what cases require the g_idx?
     g_idx = getattr(module, "weight_g_idx", None)
 
     updated_scale, updated_zero_point = observer(value, g_idx=g_idx)

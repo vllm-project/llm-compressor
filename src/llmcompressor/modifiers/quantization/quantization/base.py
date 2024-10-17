@@ -230,7 +230,7 @@ class QuantizationModifier(Modifier):
         register_calibration_hooks():
             if input activation (used to call observers before intput QDQ):
                 - pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
-            if output activation (used to call observers before output QDQ and fake_quantize):
+            if output activation (used to call observers before output QDQ):
                 - post_hook_handle = module.register_forward_hook(calibrate_kv_cache_output_hook())
             if kv_cache quantization (used to set kv_cache to QuantizedKVParameterCache and update k_scale/v_scale)
                 - pre_hook_handle = module.register_forward_pre_hook(calibrate_kv_cache_input_hook(), with_kwargs=True)
