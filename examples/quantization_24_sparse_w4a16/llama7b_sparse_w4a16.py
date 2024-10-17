@@ -3,7 +3,7 @@ import torch
 from llmcompressor.transformers import SparseAutoModelForCausalLM, apply
 
 # define a recipe to handle sparsity, finetuning and quantization
-recipe = "2:4_w4a16_recipe.yaml"
+recipe = "24_w4a16_recipe.yaml"
 
 # load the model in as bfloat16 to save on memory and compute
 model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
@@ -15,7 +15,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 dataset = "ultrachat-200k"
 
 # save location of quantized model
-output_dir = "output_llama7b_2:4_w4a16_channel"
+output_dir = "output_llama7b_24_w4a16_channel"
 
 # set dataset config parameters
 splits = {"calibration": "train_gen[:5%]", "train": "train_gen"}
