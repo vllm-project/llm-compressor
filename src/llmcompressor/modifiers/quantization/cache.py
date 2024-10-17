@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from torch import Tensor
 from transformers import DynamicCache as HFDyanmicCache
+
 from llmcompressor.observers import Observer
 
 
@@ -67,7 +68,6 @@ class QuantizedKVParameterCache(HFDyanmicCache):
         return cls._instance
 
     def __init__(self, quantization_args: QuantizationArgs):
-
         if not self._initialized:
             super().__init__()
 

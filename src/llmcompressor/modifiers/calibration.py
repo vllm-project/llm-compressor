@@ -3,9 +3,11 @@ import logging
 import torch
 from compressed_tensors.quantization import QuantizationStatus, is_attention_module
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
+from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from torch.nn import Module
 
+from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 
 __all__ = [
@@ -14,7 +16,8 @@ __all__ = [
     "calibrate_input_hook",
     "calibrate_output_hook",
     "calibrate_kv_cache_input_hook",
-    "calibrate_kv_cache_output_hook"
+    "calibrate_kv_cache_output_hook",
+    "set_unset_kv_cache",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,7 +36,7 @@ def initialize_observer(
 
     # observers have a different lifecycle for kv_cache
     if is_attention_module(module):
-        return 
+        return
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
     if quantization_args:
@@ -133,24 +136,34 @@ def calibrate_output_hook():
 
     return hook_fn
 
+
 def calibrate_kv_cache_input_hook():
-    def hook_fn(module: Module, inp):
-        kv_cache = module.getattr(module, "kv_cache")
-        # update inputs/args/kwargs
-        print("inp", inp)
-        breakpoint()
-        return inp
-    
+    def hook_fn(module: Module, args, kwargs):
+        kv_cache = getattr(module, "kv_cache")
+        kwargs["past_key_value"] = kv_cache
+        kwargs["use_cache"] = False
+        return args, kwargs
+
     return hook_fn
 
 
 def calibrate_kv_cache_output_hook():
-    def hook_fn(module: Module, inp, output: torch.Tensor):
-        kv_cache = module.getattr(module, "kv_cache")
-        update_parameter_data(
-            module, kv_cache.k_scales[module.layer_idx], "k_scale"
-        )
-        update_parameter_data(
-            module, kv_cache.v_scales[module.layer_idx], "v_scale"
-        )
+    def hook_fn(module: Module, inpt, output: torch.Tensor):
+        kv_cache = getattr(module, "kv_cache")
+        update_parameter_data(module, kv_cache.k_scales[module.layer_idx], "k_scale")
+        update_parameter_data(module, kv_cache.v_scales[module.layer_idx], "v_scale")
+
     return hook_fn
+
+
+def set_unset_kv_cache(module: Module):
+    if not hasattr(module, "quantization_scheme"):
+        return
+
+    if is_kv_cache_quant_scheme(module.quantization_scheme):
+        output_args = module.quantization_scheme.output_activations
+        kv_cache = QuantizedKVParameterCache(output_args)
+        if hasattr(module, "kv_cache"):
+            delattr(module, "kv_cache")
+        else:
+            setattr(module, "kv_cache", kv_cache)
