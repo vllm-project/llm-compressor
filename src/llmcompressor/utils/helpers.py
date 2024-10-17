@@ -1046,6 +1046,18 @@ def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
 
 
 class DisableKVCache:
+    """
+    Temporarily disable the key-value cache for transformer models. Used to prevent
+    excess memory use in one-shot cases where the model only performs the prefill
+    phase and not the generation phase.
+
+    Example:
+    >>> model = AutoModel.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    >>> input = torch.randint(0, 32, size=(1, 32))
+    >>> with DisableKVCache(model):
+    >>>     output = model(input)
+    """
+
     def __init__(self, model: torch.nn.Module):
         if hasattr(model.config, "use_cache"):
             self.config = model.config
