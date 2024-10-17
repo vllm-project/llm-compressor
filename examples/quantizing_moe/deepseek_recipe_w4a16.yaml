@@ -1,7 +1,6 @@
 quant_stage:
   quant_modifiers:
     GPTQModifier:
-      sequential_update: true
       ignore: [lm_head, "re:.*mlp.gate$"]
       config_groups:
         group_0:

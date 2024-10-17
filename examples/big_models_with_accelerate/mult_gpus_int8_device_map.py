@@ -10,8 +10,10 @@ from llmcompressor.transformers.compression.helpers import calculate_offload_dev
 MODEL_ID = "mistralai/Mistral-Nemo-Instruct-2407"
 
 # adjust based off number of desired GPUs
+# reserve_for_hessians=True reserves memory which is required by
+# GPTQModifier and SparseGPTModifier
 device_map = calculate_offload_device_map(
-    MODEL_ID, reserve_for_hessians=True, num_gpus=2, torch_dtype=torch.bfloat16
+    MODEL_ID, num_gpus=2, reserve_for_hessians=True, torch_dtype=torch.bfloat16
 )
 
 model = SparseAutoModelForCausalLM.from_pretrained(
@@ -60,7 +62,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(
-        targets="Linear", scheme="W8A8", ignore=["lm_head"], sequential_update=True
+        targets="Linear",
+        scheme="W8A8",
+        ignore=["lm_head"],
     ),
 ]
 
