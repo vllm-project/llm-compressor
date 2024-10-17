@@ -9,7 +9,7 @@
 To get started, install:
 
 ```bash
-pip install llmcompressor==0.1.0
+pip install llmcompressor
 ```
 
 ## Quickstart
