@@ -10,7 +10,6 @@ from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from loguru import logger
 from safetensors.torch import storage_ptr
-from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
