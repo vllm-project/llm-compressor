@@ -18,6 +18,7 @@ __all__ = [
     "calibrate_kv_cache_input_hook",
     "calibrate_kv_cache_output_hook",
     "set_unset_kv_cache",
+    "freeze_module_quantization",
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,7 +28,17 @@ def initialize_observer(
     module: Module,
     base_name: str,
 ):
-    # initialize observer module and attach as submodule
+    """
+    Initialize observer module and attach as submodule.
+    The name of the observer is fetched from the quantization_args.
+    The name is then used to load the observer from the registry and attached
+    to the module. The name of the observer uses the base_name provided.
+
+    :param module: torch.nn.Module that the observer is being attached to
+    :param base_name: str used to name the observer attribute
+
+    """
+
     arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
     quantization_scheme = getattr(module, "quantization_scheme", None)
     if not quantization_scheme:
@@ -48,6 +59,15 @@ def initialize_observer(
 
 
 def call_observer(module: Module, base_name: str, value: torch.Tensor):
+    """
+    Call a module's attached input/output observer using a provided value.
+    Update the module's scale and zp using the observer's return
+    values.
+
+    :param module: torch.nn.Module
+    :param base_name: substring used to fetch the observer, scales, and zp
+    :param value: torch.Tensor to be passed to the observer
+    """
     observer = getattr(module, f"{base_name}_observer")
     # TODO: what cases require the g_idx?
     g_idx = getattr(module, "weight_g_idx", None)
@@ -98,6 +118,15 @@ def update_weight_zp_scale(module: Module):
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
+    """
+    Calibrate input or output activations by calling the a module's attached
+    observer.
+
+    :param module: torch.nn.Module
+    :param base_name: substring used to fetch the observer, scales, and zp
+    :param value: torch.Tensor to be passed to the observer
+
+    """
     # If empty tensor, can't update zp/scale
     # Case for MoEs
     if value.numel() == 0:
@@ -111,8 +140,13 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
 
 
 def calibrate_input_hook():
+    """
+    Hook to calibrate input activations.
+    Will call the observers to update the scales/zp before applying
+    input QDQ in the module's forward pass.
+    """
+
     def hook_fn(module: Module, inp):
-        # Why does the hook wrap the input as a tuple?
         inp = inp[0] if isinstance(inp, tuple) else inp
         calibrate_activations(module, value=inp, base_name="input")
 
@@ -120,6 +154,12 @@ def calibrate_input_hook():
 
 
 def calibrate_output_hook():
+    """
+    Hook to calibrate output activations.
+    Will call the observers to update the scales/zp before applying
+    output QDQ.
+    """
+
     def hook_fn(module: Module, inp, output: torch.Tensor):
         calibrate_activations(
             module,
@@ -138,6 +178,12 @@ def calibrate_output_hook():
 
 
 def calibrate_kv_cache_input_hook():
+    """
+    Hook to update inputs to attention layers when running
+    kv_cache quantization. Will update the passed in
+    kv_cache to singleton QuantizedKVParameterCache.
+    """
+
     def hook_fn(module: Module, args, kwargs):
         kv_cache = getattr(module, "kv_cache")
         kwargs["past_key_value"] = kv_cache
@@ -148,6 +194,10 @@ def calibrate_kv_cache_input_hook():
 
 
 def calibrate_kv_cache_output_hook():
+    """
+    Hook to update k_scale and v_scale parameters when running kv_cache quantization.
+    """
+
     def hook_fn(module: Module, inpt, output: torch.Tensor):
         kv_cache = getattr(module, "kv_cache")
         update_parameter_data(module, kv_cache.k_scales[module.layer_idx], "k_scale")
@@ -157,6 +207,10 @@ def calibrate_kv_cache_output_hook():
 
 
 def set_unset_kv_cache(module: Module):
+    """
+    Set or Unset singleton QuantizedKVParameterCache for each
+    attn module when running kv_cache quantization.
+    """
     if not hasattr(module, "quantization_scheme"):
         return
 
@@ -167,3 +221,31 @@ def set_unset_kv_cache(module: Module):
             delattr(module, "kv_cache")
         else:
             setattr(module, "kv_cache", kv_cache)
+
+
+def freeze_module_quantization(module: Module):
+    """
+    deletes observers when calibration is complete.
+
+    apply to full model with `model.apply(freeze_module_quantization)`
+
+    :param module: module to freeze quantization for
+    """
+    scheme = getattr(module, "quantization_scheme", None)
+    if not scheme:
+        # no quantization scheme nothing to do
+        return
+
+    if module.quantization_status == QuantizationStatus.FROZEN:
+        # nothing to do, already frozen
+        return
+
+    # delete observers from module if not dynamic
+    if hasattr(module, "input_observer"):
+        delattr(module, "input_observer")
+    if hasattr(module, "weight_observer"):
+        delattr(module, "weight_observer")
+    if hasattr(module, "output_observer"):
+        delattr(module, "output_observer")
+
+    module.quantization_status = QuantizationStatus.FROZEN

@@ -6,7 +6,6 @@ from compressed_tensors.quantization import (  # set_module_for_calibration,
     QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
-    freeze_module_quantization,
     is_attention_module,
     is_preset_scheme,
     preset_name_to_scheme,
@@ -22,6 +21,7 @@ from llmcompressor.modifiers.calibration import (
     calibrate_kv_cache_input_hook,
     calibrate_kv_cache_output_hook,
     calibrate_output_hook,
+    freeze_module_quantization,
     initialize_observer,
     set_unset_kv_cache,
     update_weight_zp_scale,
@@ -214,6 +214,37 @@ class QuantizationModifier(Modifier):
         return modifier_as_config
 
     def _calibrate_if_possible(self, module: Module):
+        # TODO: @dsikka restructure such that all of calibration isn't happening
+        # on init
+        """# noqa: E501
+        Run calibration if running input/output activation quantization or kv_cache
+        quantization.
+
+        Calibration Lifecycle for a single torch.nn.Module:
+
+        initialize_observer():
+            if input/output activation:
+                - observer = Observer.load_from_registry(...)
+                - module.register_module(f"{base_name}_observer", observer)
+
+        register_calibration_hooks():
+            if input activation (used to call observers before intput QDQ):
+                - pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
+            if output activation (used to call observers before output QDQ and fake_quantize):
+                - post_hook_handle = module.register_forward_hook(calibrate_kv_cache_output_hook())
+            if kv_cache quantization (used to set kv_cache to QuantizedKVParameterCache and update k_scale/v_scale)
+                - pre_hook_handle = module.register_forward_pre_hook(calibrate_kv_cache_input_hook(), with_kwargs=True)
+                - post_hook_handle = module.register_forward_hook(calibrate_kv_cache_output_hook())
+
+            self.calibration_hooks.append(pre_hook_handle)
+            self.calibration_hooks.append(post_hook_handle)
+
+        self._calibrate(module) # run forward pass through model using calibration data
+        set_unset_kv_cache() # remove kv_cache objects attached to attention layers; initially set in _apply_modifier_to_model
+        remove calibration hooks in self.calibration_hooks_
+        remove observers
+
+        """
         if self.num_calibration_steps == 0 and self.calibration_dataloader_:
             logger.warning(
                 f"num_calibration_steps is {self.num_calibration_steps}."
@@ -238,6 +269,9 @@ class QuantizationModifier(Modifier):
             h.remove()
 
     def register_calibration_hooks(self, module: Module):
+        """
+        Register hooks for input/output activation or kv_cache quantization.
+        """
         quantization_scheme = getattr(module, "quantization_scheme", None)
         if not quantization_scheme:
             return
