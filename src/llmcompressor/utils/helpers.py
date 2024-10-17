@@ -1055,7 +1055,7 @@ class DisableKVCache:
     >>> model = AutoModel.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
     >>> input = torch.randint(0, 32, size=(1, 32))
     >>> with DisableKVCache(model):
-    >>>     output = model(input)
+    ...     output = model(input)
     """
 
     def __init__(self, model: torch.nn.Module):
