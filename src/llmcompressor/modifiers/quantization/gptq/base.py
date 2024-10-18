@@ -1,4 +1,4 @@
-import gc
+import warnings
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
@@ -48,7 +48,6 @@ class GPTQModifier(Modifier):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
-    |          sequential_update: true
     |          dampening_frac: 0.001
     |          block_size: 128
     |          config_groups:
@@ -66,8 +65,8 @@ class GPTQModifier(Modifier):
     |                    actorder: False
 
 
-    :param sequential_update: Whether or not to update weights sequentially by layer,
-        True saves on GPU memory, default is True
+    :param sequential_update: Whether or not to update weights sequentially by layer.
+        This option is depreciated and setting to False is no longer supported
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
@@ -97,7 +96,7 @@ class GPTQModifier(Modifier):
         and activation 8 bit quantization on the Linear layers.
     """
 
-    sequential_update: bool = True
+    sequential_update: bool = True  # DEPRECIATED
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -119,13 +118,13 @@ class GPTQModifier(Modifier):
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
         if not value:
-            logger.warning(
-                "Not using sequential_update requires allocating all hessians in "
-                "GPU memory. If you are running into GPU memory issues, consider "
-                "using sequential_update=True"
+            warnings.warn(
+                "`sequential_update=False` is no longer supported, setting "
+                "sequential_update=True",
+                DeprecationWarning,
             )
 
-        return value
+        return True
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
@@ -247,7 +246,7 @@ class GPTQModifier(Modifier):
         compressible layers of model, and sets the device
 
         :param model: model to initialize for compression
-        :param dataloader: calibration data for GPTQ
+        :param dataloader: calibration data, not used by GPTQ in this function
         """
         self.model = model
         self.compressible_layers_ = self.compressible_layers()
@@ -259,16 +258,12 @@ class GPTQModifier(Modifier):
             args = self._pruning_arguments()
             comp_cls = self._compression_class()
             compressor = LayerCompressor(comp_cls, self.model, layer, idx, name, args)
-
-            # if running sequentially, allocate all hessians now
-            if not self.sequential_update:
-                compressor.pre_compress()
-
             self.layer_compressors_.append(compressor)
 
-        if self.sequential_update:
-            first_layer_compressor = self.layer_compressors_[0]
-            first_layer_compressor.set_early_stop()
+        # for the initial forward data pass, add an early stop exception in order
+        # to capture inputs right before being compressed by first module
+        first_layer_compressor = self.layer_compressors_[0]
+        first_layer_compressor.set_early_stop()
 
     @torch.no_grad()
     def apply_compression(
@@ -291,43 +286,32 @@ class GPTQModifier(Modifier):
         forward_pass_use_cache = self.model.config.use_cache
         self.model.config.use_cache = False
 
-        # in non-sequential mode we run calibration through the full model
-        # in sequential mode we run calibration up to the first transformer target
+        # run_calibration_forward uses the early stop exception to capture values
+        # as intermediates right before the forward pass of the first module
         intermediates = run_calibration_forward(
             self.model, dataloader, mask_padding=True
         )
         self.layer_compressors_[0].clear_early_stop()
 
-        # empty cache if not using sequential update
-        if not self.sequential_update:
-            del intermediates
-            gc.collect()
-            torch.cuda.empty_cache()
-
         num_layers = len(self.compressible_layers_)
         for idx, layer_compressor in enumerate(self.layer_compressors_):
             logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
-            if self.sequential_update:
-                # in sequential mode we run the forward pass for each transformer layer
-                # one at a time, caching the intermediate outputs between layers
-                logger.info(f"Calibrating {layer_compressor.name}...")
-                layer_compressor.pre_compress()
-                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
+            # run the forward pass for each transformer layer (block) one at a time
+            logger.info(f"Calibrating {layer_compressor.name}...")
+            layer_compressor.pre_compress()
+            unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
 
             layer_compressor.compress()
             layer_compressor.post_compress()
             layer_compressor.revert_layer_wrappers()
 
-            if self.sequential_update:
-                quantized_outputs = layer_compressor.calibrate_layer(intermediates)
-                error = get_output_error(unquantized_outputs, quantized_outputs)
-                logger.info(f"Mean output error from quantization: {error:.3f}")
-                intermediates = quantized_outputs
-                del unquantized_outputs
-
-            gc.collect()
-            torch.cuda.empty_cache()
+            # perform a second forward pass of the module to calculate weight-quantized
+            # outputs for use as inputs to the next layer (block)
+            quantized_outputs = layer_compressor.calibrate_layer(intermediates)
+            error = get_output_error(unquantized_outputs, quantized_outputs)
+            logger.info(f"Mean output error from quantization: {error:.3f}")
+            intermediates = quantized_outputs
 
         self.model.config.use_cache = forward_pass_use_cache
 
