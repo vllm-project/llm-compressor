@@ -19,7 +19,6 @@ test_stage:
       ]
       preserve_sparsity_mask: True
     GPTQModifier:
-      sequential_update: False
       dampening_frac: 0.01
       targets: [
         "model.layers.0",

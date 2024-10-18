@@ -291,14 +291,13 @@ def main(
     # Detecting last checkpoint.
     last_checkpoint = None
     teacher = model_args.distill_teacher
-    model_path = None
     model = model_args.model
     # Load tokenizer
     # distill TODO: support for different tokenizer for teacher?
     tokenizer = model_args.tokenizer
 
     if isinstance(model, str) or isinstance(model, PosixPath):
-        (teacher, model_path, model) = initialize_model_from_path(
+        (teacher, _model_path, model) = initialize_model_from_path(
             model_args,
             training_args,
         )
