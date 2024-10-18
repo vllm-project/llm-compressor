@@ -1,0 +1,6 @@
+DEFAULT_stage:
+  DEFAULT_modifiers:
+    QuantizationModifier:
+      ignore: [lm_head]
+      targets: Linear
+      scheme: FP8
