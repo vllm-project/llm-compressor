@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 import psutil
 import torch
@@ -172,6 +172,7 @@ def custom_offload_device_map(
     model_stub: str,
     max_memory_per_gpu: Union[str, int],
     num_gpus: int = 1,
+    model_cls: Type = AutoModelForCausalLM,
     **model_kwargs,
 ) -> Dict[Union[int, str], Union[int, str]]:
     """
@@ -182,6 +183,8 @@ def custom_offload_device_map(
     :param max_memory_per_gpu: Max memory to allocate on each GPU, as either a string
         such as "10GB" or an integer number of bytes
     :param num_gpus: number of gpus to utilize
+    :param model_cls: model class to use when initializing model structure,
+        default is AutoModelForCausalLM
     :param model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
@@ -190,7 +193,7 @@ def custom_offload_device_map(
     memory_limits["cpu"] = max_cpu_memory
 
     with init_empty_weights():
-        dummy_model = AutoModelForCausalLM.from_pretrained(model_stub, **model_kwargs)
+        dummy_model = model_cls.from_pretrained(model_stub, **model_kwargs)
         device_map = infer_auto_device_map(
             dummy_model,
             max_memory=memory_limits,
@@ -206,6 +209,7 @@ def calculate_offload_device_map(
     num_gpus: Optional[int] = None,
     gpu_ids: Optional[List[int]] = None,
     torch_dtype: torch.dtype = torch.float16,
+    model_cls: Type = AutoModelForCausalLM,
     **model_kwargs,
 ) -> Dict[Union[int, str], Union[int, str]]:
     """
@@ -217,6 +221,8 @@ def calculate_offload_device_map(
     :param num_gpus: number of gpus to utilize, defaults to max available
     :param gpu_ids: list of gpu device ids to utilize, overrides num_gpus if provided
     :param torch_dtype: datatype in which model weights are to be loaded with
+    :param model_cls: model class to use when initializing model structure,
+        default is AutoModelForCausalLM
     :param model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
@@ -235,12 +241,11 @@ def calculate_offload_device_map(
         )
 
     max_gpu_memory = {
-        device_id: torch.cuda.mem_get_info(device_id)[0]
-        for device_id in gpu_ids
+        device_id: torch.cuda.mem_get_info(device_id)[0] for device_id in gpu_ids
     }
 
     with init_empty_weights():
-        dummy_model = AutoModelForCausalLM.from_pretrained(
+        dummy_model = model_cls.from_pretrained(
             model_stub, torch_dtype=torch_dtype, **model_kwargs
         )
 
