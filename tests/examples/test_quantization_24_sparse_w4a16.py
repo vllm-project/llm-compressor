@@ -52,7 +52,7 @@ class TestQuantization24SparseW4A16:
         script_path = tmp_path / example_dir / script_filename
         content = script_path.read_text(encoding="utf-8")
         content = content.replace(
-            "2:4_w4a16_recipe.yaml", "2:4_w4a16_group-128_recipe.yaml"
+            "24_w4a16_recipe.yaml", "24_w4a16_group-128_recipe.yaml"
         )
         script_path.write_text(content, encoding="utf-8")
 

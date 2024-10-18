@@ -40,7 +40,7 @@ Models can reference a local directory, or a model in the huggingface hub.
 Datasets can be from a local compatible directory or the huggingface hub.
 
 Recipes are YAML files that describe how a model should be optimized during or after training.
-The recipe used for this flow is located in [2:4_w4a16_recipe.yaml](./2:4_w4a16_recipe.yaml).
+The recipe used for this flow is located in [24_w4a16_recipe.yaml](./24_w4a16_recipe.yaml).
 It contains instructions to prune the model to 2:4 sparsity, run one epoch of recovery finetuning,
 and quantize to 4 bits in one show using GPTQ.
 
@@ -56,18 +56,18 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 dataset = "ultrachat-200k"
 splits = {"calibration": "train_gen[:5%]", "train": "train_gen"}
 
-recipe = "2:4_w4a16_recipe.yaml"
+recipe = "24_w4a16_recipe.yaml"
 ```
 
 ## Step 2: Run sparsification using `apply`
 The `apply` function applies the given recipe to our model and dataset.
 The hardcoded kwargs may be altered based on each model's needs.
-After running, the sparsified model will be saved to `output_llama7b_2:4_w4a16_channel`.
+After running, the sparsified model will be saved to `output_llama7b_24_w4a16_channel`.
 
 ```python
 from llmcompressor.transformers import apply
 
-output_dir = "output_llama7b_2:4_w4a16_channel"
+output_dir = "output_llama7b_24_w4a16_channel"
 
 apply(
     model=model,
@@ -98,12 +98,12 @@ run the following:
 import torch
 from llmcompressor.transformers import SparseAutoModelForCausalLM
 
-compressed_output_dir = "output_llama7b_2:4_w4a16_channel_compressed"
+compressed_output_dir = "output_llama7b_24_w4a16_channel_compressed"
 model = SparseAutoModelForCausalLM.from_pretrained(output_dir, torch_dtype=torch.bfloat16)
 model.save_pretrained(compressed_output_dir, save_compressed=True)
 ```
 
 ### Custom Quantization
 The current repo supports multiple quantization techniques configured using a recipe. Supported strategies are `tensor`, `group` and `channel`. 
-The above recipe (`2:4_w4a16_recipe.yaml`) uses channel-wise quantization specified by `strategy: "channel"` in its config group. 
-To use quantize per tensor, change strategy from `channel` to `tensor`. To use group size quantization, change from `channel` to `group` and specify its value, say 128, by including `group_size: 128`. A group size quantization example is shown in `2:4_w4a16_group-128_recipe.yaml`.
+The above recipe (`24_w4a16_recipe.yaml`) uses channel-wise quantization specified by `strategy: "channel"` in its config group. 
+To use quantize per tensor, change strategy from `channel` to `tensor`. To use group size quantization, change from `channel` to `group` and specify its value, say 128, by including `group_size: 128`. A group size quantization example is shown in `24_w4a16_group-128_recipe.yaml`.
