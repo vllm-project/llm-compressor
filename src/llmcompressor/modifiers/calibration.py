@@ -50,7 +50,8 @@ def initialize_observer(
         return
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
-    if quantization_args:
+    # dont need observers for dynamic
+    if quantization_args and not quantization_args.dynamic:
         observer = quantization_args.get_observer()
         observer = Observer.load_from_registry(
             observer, quantization_args=quantization_args

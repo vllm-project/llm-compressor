@@ -277,12 +277,21 @@ class QuantizationModifier(Modifier):
             return
 
         is_attention_module_ = is_attention_module(module)
+        input_quant = quantization_scheme.input_activations
+        output_quant = quantization_scheme.output_activations
 
-        if quantization_scheme.input_activations and not is_attention_module_:
+        calibrate_inputs = (
+            input_quant and not is_attention_module_ and not input_quant.dynamic
+        )
+
+        # Calibrate inputs if an input_quant is provided and not running dynamic quant
+        if calibrate_inputs:
             pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
             self.calibration_hooks_.append(pre_hook_handle)
 
-        if quantization_scheme.output_activations:
+        if output_quant:
+            callable_ = None
+            # hooks for attn modules if running kv_cache
             if is_attention_module_:
                 self.calibration_hooks_.append(
                     module.register_forward_pre_hook(
@@ -290,11 +299,13 @@ class QuantizationModifier(Modifier):
                     )
                 )
                 callable_ = calibrate_kv_cache_output_hook
-            else:
+            # hooks for output quant if not running dynamic quant
+            elif not output_quant.dynamic:
                 callable_ = calibrate_output_hook
 
-            post_hook_handle = module.register_forward_hook(callable_())
-            self.calibration_hooks_.append(post_hook_handle)
+            if callable_:
+                post_hook_handle = module.register_forward_hook(callable_())
+                self.calibration_hooks_.append(post_hook_handle)
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")
