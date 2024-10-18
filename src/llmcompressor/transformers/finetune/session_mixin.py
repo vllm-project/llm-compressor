@@ -2,7 +2,7 @@ import inspect
 import math
 import os
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from loguru import logger
@@ -34,6 +34,10 @@ from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
 
+if TYPE_CHECKING:
+    from llmcompressor.transformers import DataTrainingArguments
+
+
 __all__ = [
     "SessionManagerMixIn",
 ]
@@ -63,7 +67,7 @@ class SessionManagerMixIn:
         self,
         recipe: Optional[str] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional["DataTrainingArguments"] = None,  # noqa: F821
+        data_args: Optional["DataTrainingArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):

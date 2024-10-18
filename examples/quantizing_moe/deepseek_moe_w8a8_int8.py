@@ -70,7 +70,6 @@ recipe = [
         targets="Linear",
         scheme="W8A8",
         ignore=["lm_head", "re:.*mlp.gate$"],
-        sequential_update=True,
     ),
 ]
 

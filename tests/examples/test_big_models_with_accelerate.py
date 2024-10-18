@@ -49,9 +49,9 @@ class TestBigModelsWithAccelerate:
                 ],
             ),
             pytest.param(
-                "multi_gpu_int8_sequential_update.py",
+                "mult_gpus_int8_device_map.py",
                 "",
-                id="multi_gpu_int8_sequential_update",
+                id="mult_gpus_int8_device_map",
                 marks=[requires_gpu_count(2), pytest.mark.multi_gpu],
             ),
         ],

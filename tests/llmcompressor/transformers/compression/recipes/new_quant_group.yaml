@@ -15,4 +15,3 @@ test_stage:
                     targets: ["Linear"]
         GPTQModifier:
             block_size: 128
-            sequential_update: False
