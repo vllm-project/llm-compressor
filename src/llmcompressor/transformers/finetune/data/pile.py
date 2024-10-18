@@ -7,7 +7,7 @@ from llmcompressor.transformers.finetune.data import TextGenerationDataset
 @TextGenerationDataset.register(name="pile_eval")
 class PileEvalDataset(TextGenerationDataset):
     """
-    Child text generation class for the Open Platypus dataset
+    Child text generation class for the PileEval dataset
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
