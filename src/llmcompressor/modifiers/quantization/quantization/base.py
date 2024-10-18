@@ -228,9 +228,9 @@ class QuantizationModifier(Modifier):
                 - module.register_module(f"{base_name}_observer", observer)
 
         register_calibration_hooks():
-            if input activation (used to call observers before intput QDQ):
+            if input activation and not dynamic quant (used to call observers before intput QDQ):
                 - pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
-            if output activation (used to call observers before output QDQ):
+            if output activation and not dynamic quant (used to call observers before output QDQ):
                 - post_hook_handle = module.register_forward_hook(calibrate_kv_cache_output_hook())
             if kv_cache quantization (used to set kv_cache to QuantizedKVParameterCache and update k_scale/v_scale)
                 - pre_hook_handle = module.register_forward_pre_hook(calibrate_kv_cache_input_hook(), with_kwargs=True)
@@ -290,21 +290,20 @@ class QuantizationModifier(Modifier):
             self.calibration_hooks_.append(pre_hook_handle)
 
         if output_quant:
-            callable_ = None
+            output_callable_ = None
             # hooks for attn modules if running kv_cache
             if is_attention_module_:
-                self.calibration_hooks_.append(
-                    module.register_forward_pre_hook(
-                        calibrate_kv_cache_input_hook(), with_kwargs=True
-                    )
+                pre_hook_handle = module.register_forward_pre_hook(
+                    calibrate_kv_cache_input_hook(), with_kwargs=True
                 )
-                callable_ = calibrate_kv_cache_output_hook
+                self.calibration_hooks_.append(pre_hook_handle)
+                output_callable_ = calibrate_kv_cache_output_hook
             # hooks for output quant if not running dynamic quant
             elif not output_quant.dynamic:
-                callable_ = calibrate_output_hook
+                output_callable_ = calibrate_output_hook
 
-            if callable_:
-                post_hook_handle = module.register_forward_hook(callable_())
+            if output_callable_:
+                post_hook_handle = module.register_forward_hook(output_callable_())
                 self.calibration_hooks_.append(post_hook_handle)
 
     def _calibrate(self, module: Module):
