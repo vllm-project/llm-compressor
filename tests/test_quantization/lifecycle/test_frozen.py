@@ -13,6 +13,9 @@
 # limitations under the License.
 
 
+from compressed_tensors.quantization.lifecycle.calibration import (
+    set_module_for_calibration,
+)
 from compressed_tensors.quantization.lifecycle.frozen import freeze_module_quantization
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
@@ -34,9 +37,9 @@ def test_set_module_for_calibration(create_quantization_scheme):
 
     initialize_module_for_quantization(layer, quantization_scheme)
     layer.quantization_status = QuantizationStatus("calibration")
+    set_module_for_calibration(layer)
 
     # should have both input and weight observer after initalizing
-    assert hasattr(layer, "input_observer")
     assert hasattr(layer, "weight_observer")
 
     # observers should get deleted after freezing

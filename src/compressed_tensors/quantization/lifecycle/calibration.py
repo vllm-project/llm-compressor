@@ -53,7 +53,19 @@ def set_module_for_calibration(module: Module, quantize_weights_upfront: bool = 
 
     if quantize_weights_upfront and module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
+        if not hasattr(module, "weight_observer"):
+            from compressed_tensors.quantization.lifecycle.initialize import (
+                initialize_observers,
+            )
+
+            initialize_observers(
+                module=module,
+                base_name="weight",
+                quantization_args=module.quantization_scheme.weights,
+            )
+
         observer = module.weight_observer
+
         g_idx = getattr(module, "weight_g_idx", None)
 
         offloaded = is_module_offloaded(module)

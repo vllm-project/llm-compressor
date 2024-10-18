@@ -38,7 +38,8 @@ __all__ = [
     "dequantize",
     "fake_quantize",
     "wrap_module_forward_quantized",
-    "maybe_calibrate_or_quantize",
+    "forward_quantize",
+    "calibrate_activations",
 ]
 
 
@@ -276,14 +277,24 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
 
         if scheme.input_activations is not None:
             # calibrate and (fake) quantize input activations when applicable
-            input_ = maybe_calibrate_or_quantize(
-                module, input_, "input", scheme.input_activations
-            )
+            # NOTE: will be moved out of compressed-tensors
+            if (
+                module.quantization_status == QuantizationStatus.CALIBRATION
+                and not scheme.input_activations.dynamic
+            ):
+                calibrate_activations(
+                    module=module,
+                    value=input_,
+                    base_name="input",
+                    quantization_args=scheme.input_activations,
+                )
+
+            input_ = forward_quantize(module, input_, "input", scheme.input_activations)
 
         if scheme.weights is not None and not compressed:
             # calibrate and (fake) quantize weights when applicable
             unquantized_weight = self.weight.data.clone()
-            self.weight.data = maybe_calibrate_or_quantize(
+            self.weight.data = forward_quantize(
                 module, self.weight, "weight", scheme.weights
             )
 
@@ -296,7 +307,19 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
             # calibrate and (fake) quantize output activations when applicable
             # kv_cache scales updated on model self_attn forward call in
             # wrap_module_forward_quantized_attn
-            output = maybe_calibrate_or_quantize(
+
+            if (
+                module.quantization_status == QuantizationStatus.CALIBRATION
+                and not scheme.output_activations.dynamic
+            ):
+                calibrate_activations(
+                    module=module,
+                    value=output,
+                    base_name="output",
+                    quantization_args=scheme.ouput_activations,
+                )
+
+            output = forward_quantize(
                 module, output, "output", scheme.output_activations
             )
 
@@ -356,12 +379,36 @@ def wrap_module_forward_quantized_attn(module: Module, scheme: QuantizationSchem
     setattr(module, "forward", bound_wrapped_forward)
 
 
-def maybe_calibrate_or_quantize(
+def calibrate_activations(
+    module: Module,
+    value: torch.Tensor,
+    base_name: str,
+    quantization_args: QuantizationArgs,
+):
+    # If empty tensor, can't update zp/scale
+    # Case for MoEs
+    if value.numel() == 0:
+        return
+    # calibration mode - get new quant params from observer
+    if not hasattr(module, f"{base_name}_observer"):
+        from compressed_tensors.quantization.lifecycle import initialize_observers
+
+        initialize_observers(
+            module=module, base_name=base_name, quantization_args=quantization_args
+        )
+
+    observer = getattr(module, f"{base_name}_observer")
+
+    updated_scale, updated_zero_point = observer(value)
+
+    # update scale and zero point
+    update_parameter_data(module, updated_scale, f"{base_name}_scale")
+    update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+
+
+def forward_quantize(
     module: Module, value: torch.Tensor, base_name: str, args: "QuantizationArgs"
 ) -> torch.Tensor:
-    # don't run quantization if we haven't entered calibration mode
-    if module.quantization_status == QuantizationStatus.INITIALIZED:
-        return value
 
     # in compressed mode, the weight is already compressed and quantized so we don't
     # need to run fake quantization
@@ -385,22 +432,6 @@ def maybe_calibrate_or_quantize(
         # static quantization - get previous scale and zero point from layer
         scale = getattr(module, f"{base_name}_scale")
         zero_point = getattr(module, f"{base_name}_zero_point", None)
-
-        if (
-            module.quantization_status == QuantizationStatus.CALIBRATION
-            and base_name != "weight"
-        ):
-            # calibration mode - get new quant params from observer
-            observer = getattr(module, f"{base_name}_observer")
-
-            updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
-
-            # update scale and zero point
-            update_parameter_data(module, updated_scale, f"{base_name}_scale")
-            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
-
-            scale = updated_scale
-            zero_point = updated_zero_point
 
     return fake_quantize(
         x=value,

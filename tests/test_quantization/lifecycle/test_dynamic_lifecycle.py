@@ -23,6 +23,7 @@ from transformers import AutoModelForCausalLM
 
 
 def test_apply_tinyllama_dynamic_activations():
+    # NOTE: should not calibrate dynamic quant
     quant_config = get_sample_dynamic_tinyllama_quant_config()
     model = get_tinyllama_model()
 

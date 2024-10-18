@@ -34,9 +34,7 @@ from compressed_tensors.utils import get_execution_device, is_module_offloaded
 from torch.nn import Module, Parameter
 
 
-__all__ = [
-    "initialize_module_for_quantization",
-]
+__all__ = ["initialize_module_for_quantization", "initialize_observers"]
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,7 +72,7 @@ def initialize_module_for_quantization(
     else:
 
         if scheme.input_activations is not None:
-            _initialize_scale_zero_point_observer(
+            _initialize_scale_zero_point(
                 module,
                 "input",
                 scheme.input_activations,
@@ -85,7 +83,7 @@ def initialize_module_for_quantization(
                 weight_shape = None
                 if isinstance(module, torch.nn.Linear):
                     weight_shape = module.weight.shape
-                _initialize_scale_zero_point_observer(
+                _initialize_scale_zero_point(
                     module,
                     "weight",
                     scheme.weights,
@@ -101,7 +99,7 @@ def initialize_module_for_quantization(
 
         if scheme.output_activations is not None:
             if not is_kv_cache_quant_scheme(scheme):
-                _initialize_scale_zero_point_observer(
+                _initialize_scale_zero_point(
                     module, "output", scheme.output_activations
                 )
 
@@ -146,21 +144,23 @@ def initialize_module_for_quantization(
                 module._hf_hook.weights_map = new_prefix_dict
 
 
-def _initialize_scale_zero_point_observer(
+def initialize_observers(
+    module: Module,
+    base_name: str,
+    quantization_args: QuantizationArgs,
+):
+    # initialize observer module and attach as submodule
+    observer = quantization_args.get_observer()
+    module.register_module(f"{base_name}_observer", observer)
+
+
+def _initialize_scale_zero_point(
     module: Module,
     base_name: str,
     quantization_args: QuantizationArgs,
     weight_shape: Optional[torch.Size] = None,
     force_zero_point: bool = True,
 ):
-
-    # initialize observer module and attach as submodule
-    observer = quantization_args.get_observer()
-    # no need to register an observer for dynamic quantization
-    if observer:
-        module.register_module(f"{base_name}_observer", observer)
-
-    # no need to register a scale and zero point for a dynamic quantization
     if quantization_args.dynamic:
         return
 

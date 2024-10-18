@@ -28,7 +28,6 @@ class KVCacheScaleType(Enum):
 
 
 class QuantizedKVParameterCache(HFDyanmicCache):
-
     """
     Quantized KV cache used in the forward call based on HF's dynamic cache.
     Quantization strategy (tensor, group, channel) set from Quantization arg's strategy

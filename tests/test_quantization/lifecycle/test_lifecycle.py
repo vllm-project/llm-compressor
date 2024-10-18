@@ -59,15 +59,12 @@ def test_lifecyle(create_quantization_scheme):
         expected_layer_keys.remove(key)
     assert len(expected_layer_keys) == 0
 
-    # should have both input and weight observer after initalizing
-    assert hasattr(layer, "input_observer")
-    assert hasattr(layer, "weight_observer")
-
     assert hasattr(layer, "quantization_scheme")
     assert hasattr(layer, "quantization_status")
     assert layer.quantization_status == QuantizationStatus.INITIALIZED
 
     set_module_for_calibration(layer)
+    assert hasattr(layer, "weight_observer")
     assert layer.quantization_status == QuantizationStatus.CALIBRATION
 
     # do a calibration step
