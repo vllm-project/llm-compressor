@@ -1,12 +1,15 @@
 try:
     from accelerate import Accelerator
     from torch.distributed.fsdp import FullyShardedDataParallel
-    from torch.distributed.fsdp._common_utils import TrainingState
+    from torch.distributed.fsdp._common_utils import TrainingState, HandleTrainingState
 except ImportError:
     FullyShardedDataParallel = None
     Accelerator = None
 
 from contextlib import nullcontext
+import contextlib
+
+from compressed_tensors import is_module_offloaded, update_parameter_data
 
 __all__ = [
     "summon_full_params_context",
@@ -55,3 +58,33 @@ def fix_fsdp_module_name(name: str) -> str:
     return name.replace(FSDP_WRAPPER_NAME + ".", "").replace(
         "." + FSDP_WRAPPER_NAME, ""
     )
+
+# TODO: change folder name to something else for both FSDP and accelerate
+
+
+@contextlib.contextmanager
+def accelerate_writeback_context(module):
+    module._hf_hook.pre_forward(module)  # TODO: create context
+
+    yield
+
+    for name, param in module.named_parameters():
+        update_parameter_data(module, param.data, name)  # TODO: rewrite
+
+    module._hf_hook.post_forward(module, None)
+
+@contextlib.contextmanager
+def modify_params_context(model, module):
+    if isinstance(model, FullyShardedDataParallel):
+        with (
+            model._use_training_state(TrainingState.IDLE, HandleTrainingState.IDLE),
+            FullyShardedDataParallel.summon_full_params(model)
+        ):
+            yield
+
+    elif is_module_offloaded(module):
+        with accelerate_writeback_context(module):
+            yield
+
+    else:
+        yield
