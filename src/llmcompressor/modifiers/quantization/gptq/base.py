@@ -67,8 +67,8 @@ class GPTQModifier(Modifier):
 
     :param sequential_update: Whether or not to update weights sequentially by layer.
         This option is depreciated and setting to False is no longer supported
-    :param targets: list of layer names to compress during GPTQ, or '__ALL__'
-        to compress every layer in the model
+    :param sequential_targets: list of layer names to compress during GPTQ, or
+        '__ALL__' to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
     :param quantize: Set to True to quantize using an existing quantization modifier,
         or pass in the configuration for a quantization modifier if one does not
@@ -97,16 +97,18 @@ class GPTQModifier(Modifier):
     """
 
     sequential_update: bool = True  # DEPRECIATED
-    targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
-    quantize: Union[bool, Dict] = True
     dampening_frac: Optional[float] = 0.01
+    quantize: Union[bool, Dict] = True
+
+    # arguments used for quant modifier
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
-    ignore: List[str] = Field(default_factory=list)
-    disable_quantization_observer_epoch: Optional[float] = None
-    num_calibration_steps: Optional[int] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
+    targets: Union[str, List[str], None] = None
+    ignore: List[str] = Field(default_factory=list)
+    num_calibration_steps: Optional[int] = None
+    disable_quantization_observer_epoch: Optional[float] = None
 
     model: Optional[Any] = None
     layer_compressors_: Optional[List[Any]] = None
