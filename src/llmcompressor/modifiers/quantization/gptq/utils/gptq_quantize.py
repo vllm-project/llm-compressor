@@ -20,14 +20,13 @@ def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 
-    breakpoint()
+    nsamples = inp.shape[0]  # note this is the number of dataset samples, not
+                             # multiplied by the sequence length
+
     if module_class in (torch.nn.Linear, transformers.Conv1D):
         if len(inp.shape) == 3:
             inp = inp.reshape((-1, inp.shape[-1]))
         inp = inp.t()
-
-    nsamples = inp.shape[0]
-    breakpoint()
 
     inp = inp.to(dtype=GPTQ_PRECISION)
     inp = math.sqrt(2 / nsamples) * inp

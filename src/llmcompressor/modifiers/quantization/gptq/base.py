@@ -3,6 +3,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
+from torch.utils.hooks import RemovableHandle
 import contextlib
 from functools import partial
 from compressed_tensors.quantization import (
@@ -125,6 +126,7 @@ class GPTQModifier(Modifier):
     _num_layers: int = 0
     _hooks_disabled: bool = False
     quantization_modifier_: Optional[QuantizationModifier] = None
+    _hooks: List[RemovableHandle] = []
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -241,7 +243,7 @@ class GPTQModifier(Modifier):
         if self.quantization_modifier_:
             self.quantization_modifier_.finalize(state, **kwargs)
 
-        self.remove_gptq_hooks(state.model)
+        self.remove_gptq_hooks()
 
         return True
     
@@ -250,14 +252,14 @@ class GPTQModifier(Modifier):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 pre_hook = partial(self.target_pre_forward, name)
                 post_hook = partial(self.target_post_forward, name)
-                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
-                module._gptq_post_hook = module.register_forward_hook(post_hook)
+                self._hooks.append(module.register_forward_pre_hook(pre_hook))
+                self._hooks.append(module.register_forward_hook(post_hook))
 
             if module in layers.values():
                 pre_hook = partial(self.layer_pre_forward, name)
                 post_hook = partial(self.layer_post_forward, name)
-                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
-                module._gptq_post_hook = module.register_forward_hook(post_hook, with_kwargs=True)
+                self._hooks.append(module.register_forward_pre_hook(pre_hook))
+                self._hooks.append(module.register_forward_hook(post_hook, with_kwargs=True))
 
     def calibration_forward(self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader):
         dataset = dataloader.dataset
@@ -283,7 +285,6 @@ class GPTQModifier(Modifier):
             pin_memory=True
         )
         
-        breakpoint()
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
 
@@ -349,18 +350,9 @@ class GPTQModifier(Modifier):
         finally:
             self._hooks_disabled = False
 
-    def remove_gptq_hooks(self, module: torch.nn.Module, recurse: bool = True):
-        if hasattr(module, "_gptq_pre_hook"):
-            module._gptq_pre_hook.remove()
-            delattr(module, "_gptq_pre_hook")
-
-        if hasattr(module, "_gptq_post_hook"):
-            module._gptq_post_hook.remove()
-            delattr(module, "_gptq_post_hook")
-
-        if recurse:
-            for child_module in module.children():
-                self.remove_gptq_hooks(child_module)
+    def remove_gptq_hooks(self):
+        for hook in self._hooks:
+            hook.remove()
 
     def _build_quant_modifier(self):
         """
