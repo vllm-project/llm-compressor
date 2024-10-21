@@ -20,6 +20,23 @@ from llmcompressor.utils.pytorch.module import get_prunable_layers
 __all__ = ["LayerCompressor"]
 
 
+class LayerCompressorMixin:
+    def register_hooks(self, model: torch.nn.Module, layers: Dict[str, torch.nn.Module]):
+        return
+        for name, module in model.named_modules():
+            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
+                pre_hook = partial(self.target_pre_forward, name)
+                post_hook = partial(self.target_post_forward, name)
+                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
+                module._gptq_post_hook = module.register_forward_hook(post_hook)
+
+            if module in layers.values():
+                pre_hook = partial(self.layer_pre_forward, name)
+                post_hook = partial(self.layer_post_forward, name)
+                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
+                module._gptq_post_hook = module.register_forward_hook(post_hook, with_kwargs=True)
+
+
 class LayerCompressor:
     """
     Runs weight sparisification on a single layer using calibration data inputs. The

@@ -15,10 +15,11 @@ import re
 import sys
 import tarfile
 import warnings
+import contextlib
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Tuple, Union, Optional
 from urllib.parse import urlparse
 
 import numpy
@@ -1078,26 +1079,40 @@ class DisableKVCache:
         self.config.use_cache = self.restore_value
 
 
-class DisableQuantization:
-    def __init__(self, model: torch.nn.Module):
-        self.model = model
-
-    def __enter__(self):
-        self.model.apply(disable_quantization)
-
-    def __exit__(self, _exc_type, _exc_val, _exc_tb):
-        self.model.apply(enable_quantization)
+@contextlib.contextmanager
+def DisableQuantization(model: torch.nn.Module):
+    model.apply(disable_quantization)
+    yield
+    model.apply(enable_quantization)
 
 
-class OnloadModule:
-    def __init__(self, module: torch.nn.Module):
-        self.module = module
-        self.is_module_offloaded = is_module_offloaded(self.module)
+def calibration_forward_context(model: torch.nn.Module):
+    torch.eval()
 
-    def __enter__(self):
-        if self.is_module_offloaded:
-            self.module._hf_hook.pre_forward(self.module)
+    with (
+        torch.no_grad(),
+        DisableKVCache(model),
+        DisableQuantization(model),
+    ):
+        yield
 
-    def __exit__(self, _exc_type, _exc_val, _exc_tb):
-        if self.is_module_offloaded:
-            self.module._hf_hook.post_forward(self.module, None)
+
+@contextlib.contextmanager
+def align_module(module: torch.nn.Module, device: Optional[torch.device] = None):
+    """
+    Move an offloaded module's parameters to device or module execution device
+
+    :param module: module with parameters to align
+    :param device: optional device to move parameters to, if None is provided then
+        module execution device will be used
+    """
+    if device is not None:
+        original_device = module._hf_hook.execution_device
+        module._hf_hook.execution_device = device
+
+    module._hf_hook.pre_forward(module)
+    yield
+    module._hf_hook.post_forward(module, torch.tensor([]))
+
+    if device is not None:
+        module._hf_hook.execution_device = original_device
