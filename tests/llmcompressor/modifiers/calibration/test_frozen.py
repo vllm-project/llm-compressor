@@ -15,16 +15,15 @@
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
 )
-from compressed_tensors.quantization.quant_args import (
-    QuantizationArgs,
-)
-from compressed_tensors.quantization.quant_scheme import QuantizationScheme
+from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.quant_config import QuantizationStatus
+from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from torch.nn import Linear
+
 from llmcompressor.modifiers.quantization.calibration import (
-        freeze_module_quantization,
-        initialize_observer,
-    )
+    freeze_module_quantization,
+    initialize_observer,
+)
 
 
 def test_set_module_for_calibration():

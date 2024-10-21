@@ -17,10 +17,16 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationStatus,
     apply_quantization_config,
-    is_attention_module
+    is_attention_module,
 )
-from llmcompressor.modifiers.quantization.calibration import set_unset_kv_cache, freeze_module_quantization, calibrate_kv_cache_input_hook, calibrate_kv_cache_output_hook
 from transformers import AutoModelForCausalLM
+
+from llmcompressor.modifiers.quantization.calibration import (
+    calibrate_kv_cache_input_hook,
+    calibrate_kv_cache_output_hook,
+    freeze_module_quantization,
+    set_unset_kv_cache,
+)
 
 config = {
     "quant_method": "compressed-tensors",
@@ -43,15 +49,16 @@ config = {
         },
     },
 }
-_hooks = []
+
 
 def _prep_for_calibration(module: torch.nn.Module):
     if is_attention_module(module):
-        pre_h = module.register_forward_pre_hook(calibrate_kv_cache_input_hook(), with_kwargs=True)
-        post_h = module.register_forward_hook(calibrate_kv_cache_output_hook())
-        _hooks.append(pre_h)
-        _hooks.append(post_h)
+        module.register_forward_pre_hook(
+            calibrate_kv_cache_input_hook(), with_kwargs=True
+        )
+        module.register_forward_hook(calibrate_kv_cache_output_hook())
     module.quantization_status = QuantizationStatus.CALIBRATION
+
 
 @pytest.mark.parametrize("config", [config])
 def test_kv_cache_quantization(config):
