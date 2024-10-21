@@ -39,13 +39,13 @@ parameterize = pytest.mark.parametrize("fsdp,offload", [
 
 
 @contextlib.contextmanager
-def accelerate_writeback_context(module):
-    module._hf_hook.pre_forward(module)  # TODO: create context
+def accelerate_writeback_context(module):  # only for this test, do not actually use
+    module._hf_hook.pre_forward(module)
 
     yield
 
     for name, param in module.named_parameters():
-        update_parameter_data(module, param.data, name)  # TODO: rewrite
+        update_parameter_data(module, param.data, name)
 
     module._hf_hook.post_forward(module, None)
 

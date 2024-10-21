@@ -59,20 +59,9 @@ def fix_fsdp_module_name(name: str) -> str:
         "." + FSDP_WRAPPER_NAME, ""
     )
 
-# TODO: change folder name to something else for both FSDP and accelerate
 
-
-@contextlib.contextmanager
-def accelerate_writeback_context(module):
-    module._hf_hook.pre_forward(module)  # TODO: create context
-
-    yield
-
-    for name, param in module.named_parameters():
-        update_parameter_data(module, param.data, name)  # TODO: rewrite
-
-    module._hf_hook.post_forward(module, None)
-
+# TODO: maybe there's an algorithm to find the closest parameter to unwrap?
+# TODO: wrap __setattr__ to raise error if in-place assignment is attempted
 @contextlib.contextmanager
 def modify_params_context(model, module):
     if isinstance(model, FullyShardedDataParallel):
@@ -80,10 +69,7 @@ def modify_params_context(model, module):
             model._use_training_state(TrainingState.IDLE, HandleTrainingState.IDLE),
             FullyShardedDataParallel.summon_full_params(model)
         ):
-            yield
-
-    elif is_module_offloaded(module):
-        with accelerate_writeback_context(module):
+            
             yield
 
     else:
