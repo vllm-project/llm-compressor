@@ -23,7 +23,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 512 // 4
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -44,10 +44,11 @@ ds = ds.map(preprocess)
 
 
 # Tokenize inputs.
+tokenizer.add_special_tokens({'pad_token': '[PAD]'})
 def tokenize(sample):
     return tokenizer(
         sample["text"],
-        padding=False,
+        padding=True,
         max_length=MAX_SEQUENCE_LENGTH,
         truncation=True,
         add_special_tokens=False,

@@ -283,9 +283,8 @@ class GPTQModifier(Modifier):
             pin_memory=True
         )
         
-        calibration_data = next(iter(dataloader))
         with calibration_forward_context(model):
-            model(**calibration_data)
+            run_calibration_forward(model, dataloader, mask_padding=True)
 
     @gptq_hook
     def target_pre_forward(self, name: str, module: torch.nn.Module, args):

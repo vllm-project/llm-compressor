@@ -1086,8 +1086,9 @@ def DisableQuantization(model: torch.nn.Module):
     model.apply(enable_quantization)
 
 
+@contextlib.contextmanager
 def calibration_forward_context(model: torch.nn.Module):
-    torch.eval()
+    model.eval()
 
     with (
         torch.no_grad(),
