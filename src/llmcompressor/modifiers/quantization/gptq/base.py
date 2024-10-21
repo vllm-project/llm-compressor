@@ -20,6 +20,7 @@ from llmcompressor.modifiers.quantization.gptq.utils import (
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quantize_weight
 from llmcompressor.modifiers.quantization.gptq.utils.helpers import MetricsLogger
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
+from llmcompressor.transformers.finetune.data.data_helpers import format_calibration_data
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
 from llmcompressor.utils.helpers import DisableKVCache, DisableQuantization, OnloadModule, getattr_chain
 from llmcompressor.utils.pytorch.module import (
@@ -257,37 +258,28 @@ class GPTQModifier(Modifier):
                 module._gptq_post_hook = module.register_forward_hook(post_hook, with_kwargs=True)
 
     def calibration_forward(self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader):
-        """
         import torch.nn.functional as F
-        
-        accumulated_data = {}  # Dictionary to accumulate samples per key
+        from torch.nn.utils.rnn import pad_sequence
 
-        def pad_tensor(tensor, max_len):
-            pad_size = max_len - tensor.size(1)  # Calculate the padding size
-            return F.pad(tensor, (0, pad_size), value=0)  # Pad on the right with zeros
-    
-        for batch in dataloader:
-            for key, value in batch.items():
-                if key not in accumulated_data:
-                    accumulated_data[key] = []
-                accumulated_data[key].append(value)  # Accumulate values for each key
+        dataset = dataloader.dataset
+        def collate_fn(batch):
+            # Extract input_ids and attention_mask from the batch
+            input_ids = [torch.tensor(item['input_ids']) for item in batch]
+            attention_masks = [torch.tensor(item['attention_mask']) for item in batch]
+            
+            # Pad sequences in the batch
+            padded_input_ids = pad_sequence(input_ids, batch_first=True, padding_value=0)
+            padded_attention_masks = pad_sequence(attention_masks, batch_first=True, padding_value=0)
 
-        # Find maximum length for each key across all samples to ensure matching shapes
-        max_lengths = {}
-        for key, tensors in accumulated_data.items():
-            max_lengths[key] = max([tensor.size(1) for tensor in tensors])  # Assuming the second dimension is the sequence length
-        
-        # Pad and concatenate for each key
-        concatenated_batch = {
-            key: torch.cat([pad_tensor(tensor, max_lengths[key]) for tensor in accumulated_data[key]], dim=0)
-            for key in accumulated_data
-        }
-        """
-
-        batch = next(iter(dataloader))
+            return {
+                'input_ids': padded_input_ids,
+                'attention_mask': padded_attention_masks
+            }
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=len(dataset), shuffle=True, collate_fn=collate_fn)
+        data = next(iter(dataloader))
         
         with DisableKVCache(model), DisableQuantization(model):
-            model(**batch)
+            model(**data)
 
     @gptq_hook
     def target_pre_forward(self, name: str, module: torch.nn.Module, args):
@@ -362,7 +354,7 @@ class GPTQModifier(Modifier):
 
         if recurse:
             for child_module in module.children():
-                self.remove_hooks(child_module)
+                self.remove_gptq_hooks(child_module)
 
     def _build_quant_modifier(self):
         """
