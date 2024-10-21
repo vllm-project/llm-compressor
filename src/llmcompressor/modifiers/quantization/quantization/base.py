@@ -16,7 +16,7 @@ from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.calibration import (
+from llmcompressor.modifiers.quantization.calibration import (
     calibrate_input_hook,
     calibrate_kv_cache_input_hook,
     calibrate_kv_cache_output_hook,

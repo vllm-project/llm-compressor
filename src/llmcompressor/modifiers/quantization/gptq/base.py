@@ -13,7 +13,7 @@ from torch.nn import Module
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.modifiers.calibration import freeze_module_quantization
+from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from llmcompressor.modifiers.quantization.gptq.utils import (
     GPTQWrapper,
     get_output_error,
