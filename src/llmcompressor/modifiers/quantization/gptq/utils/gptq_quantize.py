@@ -12,19 +12,24 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 
 
+GPTQ_PRECISION = torch.float32
+
+
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
     inp = inp.to(device=device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 
+    breakpoint()
     if module_class in (torch.nn.Linear, transformers.Conv1D):
         if len(inp.shape) == 3:
             inp = inp.reshape((-1, inp.shape[-1]))
         inp = inp.t()
 
     nsamples = inp.shape[0]
+    breakpoint()
 
-    inp = inp.to(dtype=torch.float32)
+    inp = inp.to(dtype=GPTQ_PRECISION)
     inp = math.sqrt(2 / nsamples) * inp
     return inp.matmul(inp.t())
 
@@ -64,7 +69,7 @@ def quantize_weight(
         W = W.flatten(1)
     elif module_class == transformers.Conv1D:
         W.transpose_(0, 1)
-    W = W.to(dtype=torch.float32)
+    W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
