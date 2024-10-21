@@ -216,6 +216,7 @@ class QuantizationModifier(Modifier):
     def _calibrate_if_possible(self, module: Module):
         # TODO: @dsikka restructure such that all of calibration isn't happening
         # on init
+        # flake8: noqa
         """# noqa: E501
         Run calibration if running input/output activation quantization or kv_cache
         quantization.
@@ -240,7 +241,8 @@ class QuantizationModifier(Modifier):
             self.calibration_hooks.append(post_hook_handle)
 
         self._calibrate(module) # run forward pass through model using calibration data
-        set_unset_kv_cache() # remove kv_cache objects attached to attention layers; initially set in _apply_modifier_to_model
+        set_unset_kv_cache() # remove kv_cache objects attached to attention layers
+        # initially set in _apply_modifier_to_model
         remove calibration hooks in self.calibration_hooks_
         remove observers
 
