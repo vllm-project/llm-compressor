@@ -102,7 +102,6 @@ class SequentialLayerCompressor(HooksMixin):
 
     @HooksMixin.hook
     def target_pre_forward(self, name: str, module: torch.nn.Module, args: Tuple[Any, ...]):
-        breakpoint()
         if self.true_sequential:
             # compress first so output is from compressed weights
             with CompressionLogger(module) as comp_logger:
