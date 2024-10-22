@@ -12,7 +12,7 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 import warnings
-from pydantic import Field, field_validator
+from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
@@ -119,8 +119,8 @@ class GPTQModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
 
-    _quantization_modifier: Optional[QuantizationModifier] = None
-    _layer_compressor: Optional[SequentialLayerCompressor] = None
+    _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
+    _layer_compressor: Optional[SequentialLayerCompressor] = PrivateAttr()
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
