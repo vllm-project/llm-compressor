@@ -4,6 +4,7 @@ Common functions for interfacing with python primitives and directories/files.
 """
 
 import ast
+import contextlib
 import errno
 import fnmatch
 import glob
@@ -15,22 +16,16 @@ import re
 import sys
 import tarfile
 import warnings
-import contextlib
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
 import torch
+from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
-
-from compressed_tensors.quantization import (
-    disable_quantization,
-    enable_quantization,
-)
-from compressed_tensors import is_module_offloaded
 
 __all__ = [
     "ALL_TOKEN",

@@ -1,10 +1,13 @@
+import time
 from typing import Any, Iterable, List, Tuple, Union
 
-import time
 import torch
 from loguru import logger
 
-from llmcompressor.utils.metric_logging import get_GPU_memory_usage, get_layer_size_bytes
+from llmcompressor.utils.metric_logging import (
+    get_GPU_memory_usage,
+    get_layer_size_bytes,
+)
 
 __all__ = ["get_output_error", "gptq_hook", "MetricsLogger"]
 
@@ -59,7 +62,7 @@ def gptq_hook(func):
     def wrapped(self, *args, **kwargs):
         if self._hooks_disabled:
             return
-        
+
         func(self, *args, **kwargs)
 
     return wrapped

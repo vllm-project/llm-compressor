@@ -1,12 +1,14 @@
+import contextlib
 import operator
-from typing import Dict, Tuple
+from functools import partial
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 import torch
 from compressed_tensors import get_execution_device
 from loguru import logger
-from torch.nn import Module
 from tqdm import tqdm
 
+from llmcompressor.modifiers.quantization.gptq.utils.helpers import get_output_error
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.pytorch.utils import tensors_to_device
@@ -14,27 +16,123 @@ from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
 )
-from llmcompressor.utils.pytorch import set_layer
-from llmcompressor.utils.pytorch.module import get_prunable_layers
+from llmcompressor.utils.helpers import getattr_chain
+from llmcompressor.utils.pytorch.module import (
+    get_layers,
+    get_no_split_params,
+    get_prunable_layers,
+    set_layer,
+)
 
 __all__ = ["LayerCompressor"]
 
 
-class LayerCompressorMixin:
-    def register_hooks(self, model: torch.nn.Module, layers: Dict[str, torch.nn.Module]):
-        return
+class HooksMixin:
+    def __init__(self):
+        self.hooks = []
+        self.hooks_disabled = False
+
+    @classmethod
+    def hook(func):
+        def wrapped(self, *args, **kwargs):
+            if self.hooks_disabled:
+                return
+
+            func(self, *args, **kwargs)
+
+        return wrapped
+
+    @contextlib.contextmanager
+    def disable_hooks(self):
+        try:
+            self._hooks_disabled = True
+            yield
+        finally:
+            self._hooks_disabled = False
+
+    def remove_hooks(self):
+        for hook in self.hooks:
+            hook.remove()
+
+
+class SequentialLayerCompressor(HooksMixin):
+    def __init__(
+        self,
+        compress_fn: Callable[[str, torch.nn.Module, torch.Tensor], Any],
+        true_sequential: bool = True,
+    ):
+        self.compress_fn = compress_fn
+        self.true_sequential = true_sequential
+
+        self._layer_index = 0
+        self._num_layers = 0
+
+    def register_hooks(
+        self, model: torch.nn.Module, sequential_targets: Union[str, List[str], None]
+    ):
+        # find layers (used for printing even if true_sequential=True)
+        # if no targets are provided, default to the modules that shouldn't be
+        # split by FSDP. For Transformers models this is equivalent to the
+        # decoder layers (ie LlamaDecoderLayer)
+        if self.sequential_targets is None:
+            self.sequential_targets = get_no_split_params(model)
+        layers = get_layers(sequential_targets, model)
+        self._num_layers = len(layers)
+
         for name, module in model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 pre_hook = partial(self.target_pre_forward, name)
                 post_hook = partial(self.target_post_forward, name)
-                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
-                module._gptq_post_hook = module.register_forward_hook(post_hook)
+                self._hooks.append(module.register_forward_pre_hook(pre_hook))
+                self._hooks.append(module.register_forward_hook(post_hook))
 
             if module in layers.values():
                 pre_hook = partial(self.layer_pre_forward, name)
                 post_hook = partial(self.layer_post_forward, name)
-                module._gptq_pre_hook = module.register_forward_pre_hook(pre_hook)
-                module._gptq_post_hook = module.register_forward_hook(post_hook, with_kwargs=True)
+                self._hooks.append(module.register_forward_pre_hook(pre_hook))
+                self._hooks.append(
+                    module.register_forward_hook(post_hook, with_kwargs=True)
+                )
+
+    @HooksMixin.hook
+    def target_pre_forward(self, name: str, module: torch.nn.Module, args):
+        if self.true_sequential:
+            # compress first so output is from quantized weights
+            self.compress_fn(name, module, args)
+
+    @HooksMixin.hook
+    def target_post_forward(
+        self, name: str, module: torch.nn.Module, args: torch.Tensor, _output: Any
+    ):
+        if not self.true_sequential:
+            # compress after so output is from unquantized weights
+            self.compress_fn(name, module, args)
+
+    @HooksMixin.hook
+    def layer_pre_forward(self, name: str, module: torch.nn.Module, args: Any):
+        logger.info(
+            f"\n===== Compressing layer {self._layer_index}/{self._num_layers} ====="
+        )
+
+    @HooksMixin.hook
+    def layer_post_forward(
+        self,
+        name: str,
+        module: torch.nn.Module,
+        args: torch.Tensor,
+        kwargs: Dict[str, Any],
+        output: Any,
+    ):
+        if not self.true_sequential:
+            # rerun with (now) compressed weights
+            with self.disable_hooks():
+                compressed_output = module(*args, **kwargs)
+
+            error = get_output_error(output, compressed_output)
+            logger.info(f"Mean output error from quantization: {error:.3f}")
+
+        self._layer_index += 1
+        return output
 
 
 class LayerCompressor:
@@ -62,8 +160,8 @@ class LayerCompressor:
     def __init__(
         self,
         module_compressor_class: ModuleCompressionWrapper,
-        model: Module,
-        layer: Module,
+        model: torch.nn.Module,
+        layer: torch.nn.Module,
         layer_index: int,
         name: str,
         args: Dict,

@@ -1,16 +1,19 @@
+import math
+from copy import copy
 from typing import Tuple, Union
 
-import time
-import math
 import torch
 import transformers
-from copy import copy
-from loguru import logger
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy, ActivationOrdering, fake_quantize
+from compressed_tensors.quantization import (
+    ActivationOrdering,
+    QuantizationArgs,
+    QuantizationStrategy,
+    fake_quantize,
+)
 from compressed_tensors.quantization.observers import MovingAverageMinMaxObserver
-from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 
+from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
+from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
 
@@ -21,7 +24,7 @@ def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
         inp = inp.unsqueeze(0)
 
     nsamples = inp.shape[0]  # note this is the number of dataset samples, not
-                             # multiplied by the sequence length
+    # multiplied by the sequence length
 
     if module_class in (torch.nn.Linear, transformers.Conv1D):
         if len(inp.shape) == 3:
@@ -43,7 +46,9 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
     return H
 
 
-def compute_scale_zeropoint(W: torch.Tensor, quant_args: QuantizationArgs) -> Tuple[torch.Tensor, torch.Tensor]:
+def compute_scale_zeropoint(
+    W: torch.Tensor, quant_args: QuantizationArgs
+) -> Tuple[torch.Tensor, torch.Tensor]:
     return MovingAverageMinMaxObserver(quant_args)(W)
 
 
@@ -53,14 +58,16 @@ def quantize_weight(
     quant_args: QuantizationArgs,
     blocksize: int = 128,
     percdamp: float = 0.01,
-    module_class = torch.nn.Linear,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
+    module_class=torch.nn.Linear,
+) -> Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor
+]:
     strategy = quant_args.strategy
     actorder = quant_args.actorder
     final_shape = weight.shape
     final_dtype = weight.dtype
     W = weight.data.clone()
-    
+
     H = compute_hessian(inp, module_class, device=weight.device)
 
     # standardize shape and dtype
@@ -219,6 +226,7 @@ def quantize_weight(
     W = W.reshape(final_shape).to(final_dtype)
 
     return losses, W, scale, zero_point, g_idx
+
 
 def _apply_activation_ordering(
     W: torch.Tensor, H: torch.Tensor
