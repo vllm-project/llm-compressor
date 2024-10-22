@@ -13,19 +13,14 @@
 # limitations under the License.
 
 
-from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from compressed_tensors.quantization.lifecycle import KVCacheScaleType
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from torch import Tensor
 from transformers import DynamicCache as HFDyanmicCache
 
 from llmcompressor.observers import Observer
-
-
-class KVCacheScaleType(Enum):
-    KEY = "k_scale"
-    VALUE = "v_scale"
 
 
 class QuantizedKVParameterCache(HFDyanmicCache):
