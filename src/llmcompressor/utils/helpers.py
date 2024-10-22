@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 
 import numpy
 import torch
+from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
 
@@ -1102,13 +1103,25 @@ def align_module(module: torch.nn.Module, device: Optional[torch.device] = None)
     :param device: optional device to move parameters to, if None is provided then
         module execution device will be used
     """
-    if device is not None:
-        original_device = module._hf_hook.execution_device
-        module._hf_hook.execution_device = device
+    if is_module_offloaded(module):
+        if device is not None:
+            original_device = module._hf_hook.execution_device
+            module._hf_hook.execution_device = device
 
-    module._hf_hook.pre_forward(module)
-    yield
-    module._hf_hook.post_forward(module, torch.tensor([]))
+        module._hf_hook.pre_forward(module)
+        yield
+        module._hf_hook.post_forward(module, torch.tensor([]))
 
-    if device is not None:
-        module._hf_hook.execution_device = original_device
+        if device is not None:
+            module._hf_hook.execution_device = original_device
+
+    elif device is not None:
+        devices = {}
+        for name, param in module.named_parameters():
+            devices[name] = param.device
+            setattr(module, name, param.to(device))
+
+        yield
+
+        for name, param_device in module.named_parameters:
+            setattr(module, name, param.to(param_device))

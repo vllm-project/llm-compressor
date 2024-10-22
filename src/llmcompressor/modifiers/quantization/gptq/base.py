@@ -270,9 +270,8 @@ class GPTQModifier(Modifier):
     def quantize_module(self, name, module, args):
         logger.info(f"Compressing {name}...")
 
-        inp = args[
-            0
-        ]  # Assume that first argument is input (true for most Module types)
+        # Assume that first argument is input (true for most supported Module types)
+        inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
         # with onloaded weight
