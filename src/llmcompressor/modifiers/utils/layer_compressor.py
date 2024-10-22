@@ -101,7 +101,8 @@ class SequentialLayerCompressor(HooksMixin):
                 )
 
     @HooksMixin.hook
-    def target_pre_forward(self, name: str, module: torch.nn.Module, args):
+    def target_pre_forward(self, name: str, module: torch.nn.Module, args: Tuple[Any, ...]):
+        breakpoint()
         if self.true_sequential:
             # compress first so output is from compressed weights
             with CompressionLogger(module) as comp_logger:
@@ -110,7 +111,7 @@ class SequentialLayerCompressor(HooksMixin):
 
     @HooksMixin.hook
     def target_post_forward(
-        self, name: str, module: torch.nn.Module, args: torch.Tensor, _output: Any
+        self, name: str, module: torch.nn.Module, args: Tuple[Any, ...], _output: Tuple[Any, ...]
     ):
         if not self.true_sequential:
             # compress after so output is from uncompressed weights
@@ -119,7 +120,7 @@ class SequentialLayerCompressor(HooksMixin):
                 comp_logger.set_loss(loss)
 
     @HooksMixin.hook
-    def layer_pre_forward(self, name: str, module: torch.nn.Module, args: Any):
+    def layer_pre_forward(self, _name: str, _module: torch.nn.Module, _args: Any):
         logger.info(
             f"\n===== Compressing layer {self._layer_index}/{self._num_layers} ====="
         )
@@ -129,9 +130,9 @@ class SequentialLayerCompressor(HooksMixin):
         self,
         name: str,
         module: torch.nn.Module,
-        args: torch.Tensor,
+        args: Tuple[Any, ...],
         kwargs: Dict[str, Any],
-        output: Tuple[torch.Tensor, ...],
+        output: Tuple[Any, ...],
     ):
         if not self.true_sequential:
             # rerun with (now) compressed weights
