@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -11,7 +12,6 @@ from compressed_tensors.utils import (
     update_prefix_dict,
 )
 from loguru import logger
-import warnings
 from pydantic import Field, field_validator
 
 from llmcompressor.core import State
@@ -72,7 +72,10 @@ class GPTQModifier(Modifier):
 
     :param sequential_update: Whether or not to update weights sequentially by layer.
         This option is depreciated and setting to False is no longer supported
-    :param true_sequential: TODO
+    :param true_sequential: Used to control the granularity of compression updates
+        through the forward pass. Set to True to use the weight-compressed outputs
+        of each module, set to False to use the weight-compressed outputs of each
+        layer (transformer block)
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
