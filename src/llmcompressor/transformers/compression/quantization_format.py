@@ -8,6 +8,8 @@ from compressed_tensors.quantization.utils import (
     iter_named_leaf_modules,
 )
 
+from llmcompressor.transformers.compression.sparsity_config import SparsityStructure
+
 __all__ = ["infer_quantization_format"]
 
 
@@ -35,7 +37,10 @@ def infer_quantization_format(
 
     if save_compressed:
         weight_args, input_args = _get_unique_quant_args(model)
-        is_24_structure = sparsity_structure is not None and sparsity_structure == "2:4"
+        is_24_structure = (
+            SparsityStructure(sparsity_structure).value
+            == SparsityStructure.TWO_FOUR.value
+        )
         is_weight_only = len(input_args) == 0 and len(weight_args) > 0
 
         if is_weight_only:  # w4a16 and w8a16

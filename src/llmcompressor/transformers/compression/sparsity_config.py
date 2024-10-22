@@ -1,3 +1,4 @@
+from enum import Enum, unique
 from typing import Dict, Optional
 
 from compressed_tensors import CompressionFormat, SparsityCompressionConfig
@@ -13,13 +14,67 @@ from llmcompressor.transformers.compression.helpers import (
 )
 
 
+@unique
+class SparsityStructure(Enum):
+    """
+    An enumeration to represent different sparsity structures.
+
+    Attributes
+    ----------
+    TWO_FOUR : str
+        Represents a 2:4 sparsity structure.
+    UNSTRUCTURED : str
+        Represents an unstructured sparsity structure.
+
+    Examples
+    --------
+    >>> SparsityStructure('2:4')
+    <SparsityStructure.TWO_FOUR: '2:4'>
+
+    >>> SparsityStructure('unstructured')
+    <SparsityStructure.UNSTRUCTURED: 'unstructured'>
+
+    >>> SparsityStructure('2:4') == SparsityStructure.TWO_FOUR
+    True
+
+    >>> SparsityStructure('UNSTRUCTURED') == SparsityStructure.UNSTRUCTURED
+    True
+
+    >>> SparsityStructure(None) == SparsityStructure.UNSTRUCTURED
+    True
+
+    >>> SparsityStructure('invalid')
+    Traceback (most recent call last):
+        ...
+    ValueError: invalid is not a valid SparsityStructure
+    """
+
+    TWO_FOUR = "2:4"
+    UNSTRUCTURED = "unstructured"
+
+    def __new__(cls, value):
+        obj = object.__new__(cls)
+        obj._value_ = value.lower() if value is not None else value
+        return obj
+
+    @classmethod
+    def _missing_(cls, value):
+        # Handle None and case-insensitive values
+        if value is None:
+            return cls.UNSTRUCTURED
+        for member in cls:
+            if member.value == value.lower():
+                return member
+        raise ValueError(f"{value} is not a valid {cls.__name__}")
+
+
 class SparsityConfigMetadata:
     """
     Class of helper functions for filling out a SparsityCompressionConfig with readable
     metadata from the model
     """
 
-    SPARSITY_THRESHOLD: float = 0.4
+    SPARSITY_THRESHOLD: float = 0.5
 
     @staticmethod
     def infer_global_sparsity(
@@ -66,7 +121,7 @@ class SparsityConfigMetadata:
         if model and sparsity_structure is None:
             sparsity_structure = infer_sparsity_structure_from_model(model)
 
-        return sparsity_structure or "unstructured"
+        return SparsityStructure(sparsity_structure).value
 
     @staticmethod
     def from_pretrained(
@@ -101,7 +156,7 @@ class SparsityConfigMetadata:
             # compression
             format = CompressionFormat.dense.value
         if compress:
-            if sparsity_structure == "2:4":
+            if sparsity_structure == SparsityStructure.TWO_FOUR.value:
                 format = CompressionFormat.sparse_24.value
             else:
                 format = CompressionFormat.sparse_bitmask.value
