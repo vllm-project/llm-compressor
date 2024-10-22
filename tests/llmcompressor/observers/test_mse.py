@@ -28,7 +28,7 @@ from llmcompressor.observers import MovingAverageMSEObserver, Observer
     ],
 )
 def test_mse_observer(symmetric, expected_scale, expected_zero_point):
-    tensor = torch.tensor([1, 1, 1, 1, 1])
+    tensor = torch.tensor([1.0, 1.0, 1.0, 1.0, 1.0])
     num_bits = 8
     weights = QuantizationArgs(num_bits=num_bits, symmetric=symmetric, observer="mse")
 
