@@ -24,9 +24,6 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    modify_save_pretrained,
-)
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
@@ -167,8 +164,6 @@ class StageRunner:
         self.trainer.accelerator.wait_for_everyone()
 
         self.trainer.one_shot(calibration_data=calib_data, stage=stage)
-
-        modify_save_pretrained(self.trainer, self.tokenizer)
 
     def train(self, checkpoint: str, stage: Optional[str] = None):
         """

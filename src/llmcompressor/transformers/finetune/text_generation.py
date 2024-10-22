@@ -42,6 +42,9 @@ from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_save_pretrained,
+)
 from llmcompressor.transformers.sparsification.sparse_model import (
     SparseAutoModel,
     get_shared_tokenizer_src,
@@ -372,6 +375,9 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:
         reset_session()
+
+    # wrap model.save_pretrained
+    modify_save_pretrained(stage_runner.trainer, stage_runner.tokenizer)
 
 
 if __name__ == "__main__":
