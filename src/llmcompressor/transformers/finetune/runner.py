@@ -168,7 +168,6 @@ class StageRunner:
 
         self.trainer.one_shot(calibration_data=calib_data, stage=stage)
 
-        # wrap model.save_pretrained(...)
         modify_save_pretrained(self.trainer, self.tokenizer)
 
     def train(self, checkpoint: str, stage: Optional[str] = None):
