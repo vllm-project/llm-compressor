@@ -49,7 +49,12 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
 def compute_scale_zeropoint(
     W: torch.Tensor, quant_args: QuantizationArgs
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    return MovingAverageMinMaxObserver(quant_args)(W)
+    # TODO: revisit after observers refactor
+
+    scale, zero_point = quant_args.get_observer()(W, g_idx=None)
+    scale = scale.to(dtype=W.dtype)
+    zero_point = zero_point.to(dtype=quant_args.pytorch_dtype())
+    return scale, zero_point
 
 
 def quantize_weight(
