@@ -13,7 +13,6 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import Field, field_validator
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
@@ -22,7 +21,7 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
 )
 from llmcompressor.modifiers.quantization.gptq.utils.helpers import MetricsLogger
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
-from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
+from llmcompressor.modifiers.utils.layer_compressor import SequentialLayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.helpers import (
     align_module,
@@ -72,6 +71,7 @@ class GPTQModifier(Modifier):
 
     :param sequential_update: Whether or not to update weights sequentially by layer,
         True saves on GPU memory, default is True
+    :param true_sequential: TODO
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
@@ -102,7 +102,7 @@ class GPTQModifier(Modifier):
     """
 
     sequential_update: bool = True
-    true_sequential: bool = False
+    true_sequential: bool = True
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -114,11 +114,8 @@ class GPTQModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
 
-    _layer_index: int = 0
-    _num_layers: int = 0
-    _hooks_disabled: bool = False
-    quantization_modifier_: Optional[QuantizationModifier] = None
-    _hooks: List[RemovableHandle] = []
+    _quantization_modifier: Optional[QuantizationModifier] = None
+    _layer_compressor: Optional[SequentialLayerCompressor] = None
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -134,10 +131,7 @@ class GPTQModifier(Modifier):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self._layer_index = 0
-        self._num_layers = 0
-        self.quantization_modifier_ = None
-        self.layer_compressor = LayerCompressor(
+        self._layer_compressor = SequentialLayerCompressor(
             self.quantize_module, self.true_sequential
         )
 
@@ -191,8 +185,8 @@ class GPTQModifier(Modifier):
             self._build_quant_modifier_from_dict(self.quantize)
             self.quantize = True
 
-        if self.quantization_modifier_:
-            self.quantization_modifier_.on_initialize_structure(state, **kwargs)
+        if self._quantization_modifier:
+            self._quantization_modifier.on_initialize_structure(state, **kwargs)
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
@@ -202,14 +196,14 @@ class GPTQModifier(Modifier):
         """
         if not self.initialized_structure_:
             self.on_initialize_structure(state, **kwargs)
-        if self.quantization_modifier_:
-            self.quantization_modifier_.initialize(state, **kwargs)
+        if self._quantization_modifier:
+            self._quantization_modifier.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
         # add hooks to targets and layers
         # after lifecycle refactor, move this to pre_batch
-        self.layer_compressor.register_hooks(state.model, self.sequential_targets)
+        self._layer_compressor.register_hooks(state.model, self.sequential_targets)
 
         # apply calibration and trigger hooks (hooks are self removing)
         self.calibration_forward(state.model, state.data.calib)
@@ -226,10 +220,10 @@ class GPTQModifier(Modifier):
 
         :param state: session state storing input model and calibration data
         """
-        if self.quantization_modifier_:
-            self.quantization_modifier_.finalize(state, **kwargs)
+        if self._quantization_modifier:
+            self._quantization_modifier.finalize(state, **kwargs)
 
-        self.layer_compressor.remove_hooks()
+        self._layer_compressor.remove_hooks()
 
         return True
 
@@ -301,7 +295,7 @@ class GPTQModifier(Modifier):
         Build a quantization modifier based on the specified config_groups,
         ignore list, and num_calibration_steps.
 
-        :postcondition: self.quantization_modifier_ is set to the built
+        :postcondition: self._quantization_modifier is set to the built
             quantization modifier
         """
 
@@ -327,7 +321,7 @@ class GPTQModifier(Modifier):
     def _build_quant_modifier_from_dict(self, quant_config):
         modifier_type = list(quant_config.keys())[0]
         modifier_args = quant_config[modifier_type]
-        self.quantization_modifier_ = ModifierFactory.create(
+        self._quantization_modifier = ModifierFactory.create(
             modifier_type,
             allow_registered=True,
             allow_experimental=True,

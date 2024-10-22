@@ -13,51 +13,23 @@ __all__ = ["get_output_error", "gptq_hook", "MetricsLogger"]
 
 
 def get_output_error(
-    unquantized: List[Tuple[Union[Iterable, torch.Tensor], Any]],
-    quantized: List[Tuple[Union[Iterable, torch.Tensor], Any]],
+    uncompressed: Tuple[torch.Tensor, ...],
+    compressed: Tuple[torch.Tensor, ...],
 ) -> torch.Tensor:
     """
-    Calculate mean l1 loss between weight-unquantized outputs and weight-quantized
-    outputs
+    Calculate mean absolute error between weight-uncompressed outputs and
+    weight-compressed outputs
 
-    :param unquantized: unquantized-weight outputs
-    :param quantized: quantized-weight outputs
-    :return: mean l1 loss between outputs
+    :param uncompressed: uncompressed-weight outputs
+    :param compressed: compressed-weight outputs
+    :return: mean absolute error between outputs
     """
-    unquantized_outputs = sum(
-        [
-            [output for output in outputs]
-            if isinstance(outputs, Iterable)
-            else [outputs]
-            for outputs, _ in unquantized
-        ],
-        start=[],
-    )
+    # assume first output is the the relevant output (true for most Modules)
+    uncompressed = uncompressed[0]
+    compressed = compressed[0]
 
-    quantized_outputs = sum(
-        [
-            [output for output in outputs]
-            if isinstance(outputs, Iterable)
-            else [outputs]
-            for outputs, _ in quantized
-        ],
-        start=[],
-    )
-
-    if len(unquantized_outputs) != len(quantized_outputs):
-        raise ValueError(
-            "Number of samples of weight-unquantized and weight-quantized "
-            "outputs differs"
-        )
-
-    return sum(
-        [
-            torch.nn.functional.l1_loss(unq, q)
-            for unq, q in zip(unquantized_outputs, quantized_outputs)
-        ]
-    ) / len(unquantized_outputs)
-
-
+    return torch.mean(torch.abs(uncompressed - compressed))
+    
 def gptq_hook(func):
     def wrapped(self, *args, **kwargs):
         if self._hooks_disabled:

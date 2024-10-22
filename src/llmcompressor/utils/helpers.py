@@ -1125,3 +1125,6 @@ def align_module(module: torch.nn.Module, device: Optional[torch.device] = None)
 
         for name, param_device in module.named_parameters:
             setattr(module, name, param.to(param_device))
+
+    else:
+        yield

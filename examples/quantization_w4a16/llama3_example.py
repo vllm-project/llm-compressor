@@ -6,8 +6,8 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
-#MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-#MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
 MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 
 model = SparseAutoModelForCausalLM.from_pretrained(
@@ -44,7 +44,9 @@ ds = ds.map(preprocess)
 
 
 # Tokenize inputs.
-tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+
+
 def tokenize(sample):
     return tokenizer(
         sample["text"],
@@ -59,7 +61,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"], percdamp=0.01)
+recipe = GPTQModifier(
+    targets="Linear", scheme="W4A16", ignore=["lm_head"], percdamp=0.01
+)
 
 # Apply algorithms.
 oneshot(

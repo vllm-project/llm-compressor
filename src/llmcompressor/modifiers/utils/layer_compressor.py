@@ -28,30 +28,35 @@ __all__ = ["LayerCompressor"]
 
 
 class HooksMixin:
-    def __init__(self):
-        self.hooks = []
-        self.hooks_disabled = False
+    HOOKS_DISABLED: bool = False
 
     @classmethod
-    def hook(func):
-        def wrapped(self, *args, **kwargs):
-            if self.hooks_disabled:
+    def hook(cls, func):
+        def wrapped(*args, **kwargs):
+            if cls.HOOKS_DISABLED:
                 return
 
-            func(self, *args, **kwargs)
+            func(*args, **kwargs)
 
         return wrapped
 
+    @classmethod
     @contextlib.contextmanager
-    def disable_hooks(self):
+    def disable_hooks(cls):
         try:
-            self._hooks_disabled = True
+            cls.HOOKS_DISABLED = True
             yield
         finally:
-            self._hooks_disabled = False
+            cls.HOOKS_DISABLED = False
+
+    def __init__(self):
+        self._hooks = []
+
+    def register_hook(self, handle: torch.utils.hooks.RemovableHandle):
+        self._hooks.append(handle)
 
     def remove_hooks(self):
-        for hook in self.hooks:
+        for hook in self._hooks:
             hook.remove()
 
 
@@ -61,6 +66,7 @@ class SequentialLayerCompressor(HooksMixin):
         compress_fn: Callable[[str, torch.nn.Module, torch.Tensor], Any],
         true_sequential: bool = True,
     ):
+        HooksMixin.__init__(self)
         self.compress_fn = compress_fn
         self.true_sequential = true_sequential
 
@@ -74,8 +80,8 @@ class SequentialLayerCompressor(HooksMixin):
         # if no targets are provided, default to the modules that shouldn't be
         # split by FSDP. For Transformers models this is equivalent to the
         # decoder layers (ie LlamaDecoderLayer)
-        if self.sequential_targets is None:
-            self.sequential_targets = get_no_split_params(model)
+        if sequential_targets is None:
+            sequential_targets = get_no_split_params(model)
         layers = get_layers(sequential_targets, model)
         self._num_layers = len(layers)
 
@@ -83,16 +89,14 @@ class SequentialLayerCompressor(HooksMixin):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 pre_hook = partial(self.target_pre_forward, name)
                 post_hook = partial(self.target_post_forward, name)
-                self._hooks.append(module.register_forward_pre_hook(pre_hook))
-                self._hooks.append(module.register_forward_hook(post_hook))
+                self.register_hook(module.register_forward_pre_hook(pre_hook))
+                self.register_hook(module.register_forward_hook(post_hook))
 
-            if module in layers.values():
+            if name in layers.keys():
                 pre_hook = partial(self.layer_pre_forward, name)
                 post_hook = partial(self.layer_post_forward, name)
-                self._hooks.append(module.register_forward_pre_hook(pre_hook))
-                self._hooks.append(
-                    module.register_forward_hook(post_hook, with_kwargs=True)
-                )
+                self.register_hook(module.register_forward_pre_hook(pre_hook))
+                self.register_hook(module.register_forward_hook(post_hook, with_kwargs=True))
 
     @HooksMixin.hook
     def target_pre_forward(self, name: str, module: torch.nn.Module, args):
@@ -121,11 +125,11 @@ class SequentialLayerCompressor(HooksMixin):
         module: torch.nn.Module,
         args: torch.Tensor,
         kwargs: Dict[str, Any],
-        output: Any,
+        output: Tuple[torch.Tensor, ...],
     ):
         if not self.true_sequential:
             # rerun with (now) compressed weights
-            with self.disable_hooks():
+            with HooksMixin.disable_hooks():
                 compressed_output = module(*args, **kwargs)
 
             error = get_output_error(output, compressed_output)
