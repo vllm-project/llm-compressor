@@ -1,4 +1,3 @@
-import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -12,6 +11,7 @@ from compressed_tensors.utils import (
     update_prefix_dict,
 )
 from loguru import logger
+import warnings
 from pydantic import Field, field_validator
 
 from llmcompressor.core import State
@@ -53,6 +53,7 @@ class GPTQModifier(Modifier):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
+    |          true_sequential: False
     |          dampening_frac: 0.001
     |          block_size: 128
     |          config_groups:
@@ -75,7 +76,7 @@ class GPTQModifier(Modifier):
     :param true_sequential: Used to control the granularity of compression updates
         through the forward pass. Set to True to use the weight-compressed outputs
         of each module, set to False to use the weight-compressed outputs of each
-        layer (transformer block)
+        layer (transformer block), defaults to False
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
