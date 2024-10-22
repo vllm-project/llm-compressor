@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
@@ -19,7 +19,6 @@ from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.gptq.utils.helpers import MetricsLogger
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.layer_compressor import SequentialLayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
@@ -261,16 +260,17 @@ class GPTQModifier(Modifier):
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
 
-    def quantize_module(self, name, module, args):
-        logger.info(f"Compressing {name}...")
+    def quantize_module(
+        self, name: str, module: torch.nn.Module, args: Tuple[torch.Tensor, ...]
+    ) -> float:
+        logger.info(f"Quantizing {name}...")
 
-        # Assume that first argument is input (true for most supported Module types)
+        # Assume that first argument is the input
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-        # with onloaded weight
-        with align_module(module), MetricsLogger(module) as metrics_logger:
-            losses, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+        with align_module(module):
+            loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                 module.weight.data,
                 inp,
                 quant_args,
@@ -279,17 +279,16 @@ class GPTQModifier(Modifier):
                 module_class=type(module),
             )
 
-            # weight = torch.lerp(module.weight.data, quantized_weight, self.alpha)
-            weight = quantized_weight
+            # FUTURE: Implement learning rate modification to weight update
 
             if is_module_offloaded(module):
-                update_prefix_dict(self.layer, "weight", weight)
-            update_parameter_data(module, weight, "weight")
+                update_prefix_dict(self.layer, "weight", quantized_weight)
+            update_parameter_data(module, quantized_weight, "weight")
             update_parameter_data(module, scale, "weight_scale")
             update_parameter_data(module, zero_point, "weight_zero_point")
             update_parameter_data(module, g_idx, "weight_g_idx")
 
-            metrics_logger.set_losses(losses)
+        return loss
 
     def _build_quant_modifier(self):
         """

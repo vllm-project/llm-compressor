@@ -10,7 +10,6 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
-from compressed_tensors.quantization.observers import MovingAverageMinMaxObserver
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
@@ -64,9 +63,7 @@ def quantize_weight(
     blocksize: int = 128,
     percdamp: float = 0.01,
     module_class=torch.nn.Linear,
-) -> Tuple[
-    torch.Tensor, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor
-]:
+) -> Tuple[float, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
     strategy = quant_args.strategy
     actorder = quant_args.actorder
     final_shape = weight.shape
@@ -230,7 +227,8 @@ def quantize_weight(
         W.transpose_(0, 1)
     W = W.reshape(final_shape).to(final_dtype)
 
-    return losses, W, scale, zero_point, g_idx
+    loss = torch.sum(losses).item()
+    return loss, W, scale, zero_point, g_idx
 
 
 def _apply_activation_ordering(

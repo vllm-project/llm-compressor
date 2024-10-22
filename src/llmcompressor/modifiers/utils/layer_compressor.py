@@ -8,7 +8,6 @@ from compressed_tensors import get_execution_device
 from loguru import logger
 from tqdm import tqdm
 
-from llmcompressor.modifiers.quantization.gptq.utils.helpers import get_output_error
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.pytorch.utils import tensors_to_device
@@ -17,6 +16,7 @@ from llmcompressor.utils.fsdp.context import (
     summon_full_params_context,
 )
 from llmcompressor.utils.helpers import getattr_chain
+from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -24,7 +24,7 @@ from llmcompressor.utils.pytorch.module import (
     set_layer,
 )
 
-__all__ = ["LayerCompressor"]
+__all__ = ["SequentialLayerCompressor", "LayerCompressor"]
 
 
 class HooksMixin:
@@ -63,7 +63,7 @@ class HooksMixin:
 class SequentialLayerCompressor(HooksMixin):
     def __init__(
         self,
-        compress_fn: Callable[[str, torch.nn.Module, torch.Tensor], Any],
+        compress_fn: Callable[[str, torch.nn.Module, torch.Tensor], float],
         true_sequential: bool = True,
     ):
         HooksMixin.__init__(self)
@@ -96,21 +96,27 @@ class SequentialLayerCompressor(HooksMixin):
                 pre_hook = partial(self.layer_pre_forward, name)
                 post_hook = partial(self.layer_post_forward, name)
                 self.register_hook(module.register_forward_pre_hook(pre_hook))
-                self.register_hook(module.register_forward_hook(post_hook, with_kwargs=True))
+                self.register_hook(
+                    module.register_forward_hook(post_hook, with_kwargs=True)
+                )
 
     @HooksMixin.hook
     def target_pre_forward(self, name: str, module: torch.nn.Module, args):
         if self.true_sequential:
-            # compress first so output is from quantized weights
-            self.compress_fn(name, module, args)
+            # compress first so output is from compressed weights
+            with CompressionLogger(module) as comp_logger:
+                loss = self.compress_fn(name, module, args)
+                comp_logger.set_loss(loss)
 
     @HooksMixin.hook
     def target_post_forward(
         self, name: str, module: torch.nn.Module, args: torch.Tensor, _output: Any
     ):
         if not self.true_sequential:
-            # compress after so output is from unquantized weights
-            self.compress_fn(name, module, args)
+            # compress after so output is from uncompressed weights
+            with CompressionLogger(module) as comp_logger:
+                loss = self.compress_fn(name, module, args)
+                comp_logger.set_loss(loss)
 
     @HooksMixin.hook
     def layer_pre_forward(self, name: str, module: torch.nn.Module, args: Any):
@@ -132,7 +138,7 @@ class SequentialLayerCompressor(HooksMixin):
             with HooksMixin.disable_hooks():
                 compressed_output = module(*args, **kwargs)
 
-            error = get_output_error(output, compressed_output)
+            error = torch.nn.functional.l1_loss(output[0], compressed_output[0])
             logger.info(f"Mean output error from quantization: {error:.3f}")
 
         self._layer_index += 1
