@@ -1,9 +1,11 @@
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
+import datasets
 import torch
 from datasets import Dataset, load_dataset
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers.data import default_data_collator
 
@@ -11,11 +13,40 @@ LOGGER = logging.getLogger(__name__)
 LABELS_MASK_VALUE = -100
 
 __all__ = [
+    "create_single_batch_dataloader",
     "format_calibration_data",
     "get_raw_dataset",
     "make_dataset_splits",
     "get_custom_datasets_from_path",
+    "LABELS_MASK_VALUE",
 ]
+
+
+def create_single_batch_dataloader(
+    dataset: datasets.Dataset,
+) -> torch.utils.data.DataLoader:
+    def pad_sequences(batch):
+        # extract input_ids and attention_mask from the batch
+        input_ids = [torch.tensor(item["input_ids"]) for item in batch]
+        masks = [torch.tensor(item["attention_mask"]) for item in batch]
+
+        # while 0 is not necessarily the "correct" padding value, the padded
+        # input_ids are ignored according to the attention_mask
+        pad_input_ids = pad_sequence(input_ids, batch_first=True, padding_value=0)
+        pad_masks = pad_sequence(masks, batch_first=True, padding_value=0)
+
+        return {
+            "input_ids": pad_input_ids,
+            "attention_mask": pad_masks,
+        }
+
+    return torch.utils.data.DataLoader(
+        dataset,
+        batch_size=len(dataset),
+        shuffle=True,
+        collate_fn=pad_sequences,
+        pin_memory=True,
+    )
 
 
 def format_calibration_data(
@@ -24,7 +55,7 @@ def format_calibration_data(
     do_shuffle: bool = True,
     collate_fn: Callable = default_data_collator,
     accelerator: Optional[Any] = None,
-) -> List[torch.Tensor]:
+) -> torch.utils.data.DataLoader:
     """
     Creates a dataloader out of the calibration dataset split, trimming it to
     the desired number of calibration samples

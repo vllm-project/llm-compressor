@@ -12,7 +12,6 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import Field, field_validator
-from torch.nn.utils.rnn import pad_sequence
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
@@ -22,6 +21,9 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.layer_compressor import SequentialLayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
+from llmcompressor.transformers.finetune.data.data_helpers import (
+    create_single_batch_dataloader,
+)
 from llmcompressor.utils.helpers import (
     align_module,
     calibration_forward_context,
@@ -229,34 +231,7 @@ class GPTQModifier(Modifier):
     def calibration_forward(
         self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
     ):
-        dataset = dataloader.dataset
-
-        def collate_fn(batch):
-            # extract input_ids and attention_mask from the batch
-            input_ids = [torch.tensor(item["input_ids"]) for item in batch]
-            attention_masks = [torch.tensor(item["attention_mask"]) for item in batch]
-
-            # pad sequences in the batch
-            padded_input_ids = pad_sequence(
-                input_ids, batch_first=True, padding_value=0
-            )
-            padded_attention_masks = pad_sequence(
-                attention_masks, batch_first=True, padding_value=0
-            )
-
-            return {
-                "input_ids": padded_input_ids,
-                "attention_mask": padded_attention_masks,
-            }
-
-        dataloader = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=len(dataset),
-            shuffle=True,
-            collate_fn=collate_fn,
-            pin_memory=True,
-        )
-
+        dataloader = create_single_batch_dataloader(dataloader.dataset)
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
 
