@@ -102,7 +102,7 @@ class GPTQModifier(Modifier):
     """
 
     sequential_update: bool = True
-    true_sequential: bool = True
+    true_sequential: bool = False
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -284,6 +284,7 @@ class GPTQModifier(Modifier):
 
             if is_module_offloaded(module):
                 update_prefix_dict(self.layer, "weight", weight)
+            update_parameter_data(module, weight, "weight")
             update_parameter_data(module, scale, "weight_scale")
             update_parameter_data(module, zero_point, "weight_zero_point")
             update_parameter_data(module, g_idx, "weight_g_idx")
