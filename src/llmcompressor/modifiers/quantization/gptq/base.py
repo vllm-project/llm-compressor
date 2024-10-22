@@ -11,6 +11,7 @@ from compressed_tensors.utils import (
     update_prefix_dict,
 )
 from loguru import logger
+import warnings
 from pydantic import Field, field_validator
 
 from llmcompressor.core import State
@@ -52,7 +53,6 @@ class GPTQModifier(Modifier):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
-    |          sequential_update: true
     |          dampening_frac: 0.001
     |          block_size: 128
     |          config_groups:
@@ -70,8 +70,8 @@ class GPTQModifier(Modifier):
     |                    actorder: False
 
 
-    :param sequential_update: Whether or not to update weights sequentially by layer,
-        True saves on GPU memory, default is True
+    :param sequential_update: Whether or not to update weights sequentially by layer.
+        This option is depreciated and setting to False is no longer supported
     :param true_sequential: TODO
     :param targets: list of layer names to compress during GPTQ, or '__ALL__'
         to compress every layer in the model
@@ -102,7 +102,7 @@ class GPTQModifier(Modifier):
         and activation 8 bit quantization on the Linear layers.
     """
 
-    sequential_update: bool = True
+    sequential_update: bool = True  # DEPRECIATED
     true_sequential: bool = False
     targets: Union[str, List[str], None] = None
     sequential_targets: Union[str, List[str], None] = None
@@ -121,13 +121,13 @@ class GPTQModifier(Modifier):
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
         if not value:
-            logger.warning(
-                "Not using sequential_update requires allocating all hessians in "
-                "GPU memory. If you are running into GPU memory issues, consider "
-                "using sequential_update=True"
+            warnings.warn(
+                "`sequential_update=False` is no longer supported, setting "
+                "sequential_update=True",
+                DeprecationWarning,
             )
 
-        return value
+        return True
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
