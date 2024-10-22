@@ -206,7 +206,7 @@ class GPTQModifier(Modifier):
         # after lifecycle refactor, move this to pre_batch
         self._layer_compressor.register_hooks(state.model, self.sequential_targets)
 
-        # apply calibration and trigger hooks (hooks are self removing)
+        # apply calibration and trigger hooks
         self.calibration_forward(state.model, state.data.calib)
 
         # freeze quantization
