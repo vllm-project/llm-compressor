@@ -1,10 +1,8 @@
-from transformers import AutoTokenizer
-
-from llmcompressor.transformers import SparseAutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 """
 This example covers how to load a quantized model in compressed mode. By default,
-SparseAutoModelForCausalLM will decompress the whole model on load resulting in no
+AutoModelForCausalLM will decompress the whole model on load resulting in no
 memory savings from quantization. By setting the `run_compressed` kwarg to True, the
 model will remain compressed in memory on load, saving memory during inference at the
 cost of increased runtime
@@ -25,9 +23,10 @@ SAMPLE_INPUT = [
     "def fibonacci(n):",
 ]
 
-# set run_compressed=True to enable running in compressed mode
-compressed_model = SparseAutoModelForCausalLM.from_pretrained(
-    MODEL_STUB, torch_dtype="auto", device_map="cuda:0", run_compressed=True
+compressed_model = AutoModelForCausalLM.from_pretrained(
+    MODEL_STUB,
+    torch_dtype="auto",
+    device_map="cuda:0",
 )
 
 # tokenize the sample data
