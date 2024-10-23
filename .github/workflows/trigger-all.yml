@@ -35,6 +35,6 @@ jobs:
             test_configs: '[{"python":"3.11.4","label":"ubuntu-22.04","timeout":"40"},
                             {"python":"3.10.12","label":"ubuntu-20.04","timeout":"40"},
                             {"python":"3.9.17","label":"k8s-a100-solo","timeout":"40"},
-                            {"python":"3.8.17","label":"k8s-a100-duo","timeout":"40"}]'
+                            {"python":"3.12.6","label":"k8s-a100-duo","timeout":"40"}]'
 
         secrets: inherit
