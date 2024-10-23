@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 import torch
+from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM
 
@@ -11,8 +12,18 @@ from llmcompressor.transformers.utils.helpers import resolve_recipe
 
 __all__ = [
     "SparseAutoModel",
+    "SparseAutoModelForCausalLM",
     "get_shared_tokenizer_src",
 ]
+
+
+class SparseAutoModelForCausalLM:
+    def from_pretrained(*args, **kwargs):
+        logger.warning(
+            "SparseAutoModelForCausalLM is deprecated, "
+            "please use AutoModelForCausalLM"
+        )
+        return AutoModelForCausalLM.from_pretrained(*args, **kwargs)
 
 
 class SparseAutoModel:

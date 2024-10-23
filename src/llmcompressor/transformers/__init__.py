@@ -10,5 +10,6 @@ from .utils import *
 
 from .sparsification import (
     SparseAutoModel,
+    SparseAutoModelForCausalLM,
 )
 from .finetune import *
