@@ -6,10 +6,11 @@ except ImportError:
     FullyShardedDataParallel = None
     Accelerator = None
 
+import torch
 from contextlib import nullcontext
 import contextlib
 
-from compressed_tensors import is_module_offloaded, update_parameter_data
+from compressed_tensors import has_offloaded_params, modify_offload_module
 
 __all__ = [
     "summon_full_params_context",
@@ -63,13 +64,17 @@ def fix_fsdp_module_name(name: str) -> str:
 # TODO: maybe there's an algorithm to find the closest parameter to unwrap?
 # TODO: wrap __setattr__ to raise error if in-place assignment is attempted
 @contextlib.contextmanager
-def modify_params_context(model, module):
+def modify_params_context(model: torch.nn.Module, module: torch.nn.Module):
     if isinstance(model, FullyShardedDataParallel):
         with (
             model._use_training_state(TrainingState.IDLE, HandleTrainingState.IDLE),
             FullyShardedDataParallel.summon_full_params(model)
         ):
             
+            yield
+
+    elif has_offloaded_params(module):
+        with modify_offload_module(module):
             yield
 
     else:
