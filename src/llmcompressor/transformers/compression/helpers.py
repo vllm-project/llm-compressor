@@ -14,6 +14,8 @@ from llmcompressor.pytorch.utils import get_linear_layers
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils.pytorch import get_layers, get_no_split_params
 
+from compressed_tensors import is_module_offloaded
+
 __ALL__ = [
     "tensor_follows_mask_structure",
     "infer_sparsity_structure_from_stage_modifiers",
@@ -291,11 +293,20 @@ def is_sparse_compression_target(
     :return: whether or not the module is a target for sparsity compression,
         i.e True if it is sparse and follows the sparsity structure, else False
     """
-    return (
+    offloaded = is_module_offloaded(module)
+    if offloaded:
+        module._hf_hook.pre_forward(module)
+
+    result = (
         hasattr(module, "weight")
         and tensor_sparsity(module.weight) >= sparsity_threshold
         and tensor_follows_mask_structure(tensor=module.weight, mask=sparsity_structure)
     )
+
+    if offloaded:
+        module._hf_hook.post_forward(module, None)
+
+    return result
 
 
 def _get_sparse_targets_ignore_dicts(
