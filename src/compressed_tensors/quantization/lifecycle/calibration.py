@@ -64,14 +64,12 @@ def set_module_for_calibration(module: Module, quantize_weights_upfront: bool = 
                 quantization_args=module.quantization_scheme.weights,
             )
 
-        observer = module.weight_observer
-
-        g_idx = getattr(module, "weight_g_idx", None)
-
         offloaded = is_module_offloaded(module)
         if offloaded:
             module._hf_hook.pre_forward(module)
 
+        observer = module.weight_observer
+        g_idx = getattr(module, "weight_g_idx", None)
         scale, zero_point = observer(module.weight, g_idx=g_idx)
         update_parameter_data(module, scale, "weight_scale")
         update_parameter_data(module, zero_point, "weight_zero_point")
