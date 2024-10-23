@@ -23,6 +23,8 @@ class SparsityStructure(Enum):
     ----------
     TWO_FOUR : str
         Represents a 2:4 sparsity structure.
+    ZERO_ZERO : str
+        Represents a 0:0 sparsity structure.
     UNSTRUCTURED : str
         Represents an unstructured sparsity structure.
 
@@ -51,6 +53,7 @@ class SparsityStructure(Enum):
 
     TWO_FOUR = "2:4"
     UNSTRUCTURED = "unstructured"
+    ZERO_ZERO = "0:0"
 
     def __new__(cls, value):
         obj = object.__new__(cls)
