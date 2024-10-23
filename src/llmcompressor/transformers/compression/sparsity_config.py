@@ -1,7 +1,7 @@
-from enum import Enum, unique
 from typing import Dict, Optional
 
 from compressed_tensors import CompressionFormat, SparsityCompressionConfig
+from compressed_tensors.config import SparsityStructure
 from torch import Tensor
 from torch.nn import Module
 
@@ -12,63 +12,6 @@ from llmcompressor.transformers.compression.helpers import (
     infer_sparsity_structure_from_model,
     infer_sparsity_structure_from_stage_modifiers,
 )
-
-
-@unique
-class SparsityStructure(Enum):
-    """
-    An enumeration to represent different sparsity structures.
-
-    Attributes
-    ----------
-    TWO_FOUR : str
-        Represents a 2:4 sparsity structure.
-    ZERO_ZERO : str
-        Represents a 0:0 sparsity structure.
-    UNSTRUCTURED : str
-        Represents an unstructured sparsity structure.
-
-    Examples
-    --------
-    >>> SparsityStructure('2:4')
-    <SparsityStructure.TWO_FOUR: '2:4'>
-
-    >>> SparsityStructure('unstructured')
-    <SparsityStructure.UNSTRUCTURED: 'unstructured'>
-
-    >>> SparsityStructure('2:4') == SparsityStructure.TWO_FOUR
-    True
-
-    >>> SparsityStructure('UNSTRUCTURED') == SparsityStructure.UNSTRUCTURED
-    True
-
-    >>> SparsityStructure(None) == SparsityStructure.UNSTRUCTURED
-    True
-
-    >>> SparsityStructure('invalid')
-    Traceback (most recent call last):
-        ...
-    ValueError: invalid is not a valid SparsityStructure
-    """
-
-    TWO_FOUR = "2:4"
-    UNSTRUCTURED = "unstructured"
-    ZERO_ZERO = "0:0"
-
-    def __new__(cls, value):
-        obj = object.__new__(cls)
-        obj._value_ = value.lower() if value is not None else value
-        return obj
-
-    @classmethod
-    def _missing_(cls, value):
-        # Handle None and case-insensitive values
-        if value is None:
-            return cls.UNSTRUCTURED
-        for member in cls:
-            if member.value == value.lower():
-                return member
-        raise ValueError(f"{value} is not a valid {cls.__name__}")
 
 
 class SparsityConfigMetadata:

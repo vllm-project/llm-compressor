@@ -1,14 +1,13 @@
 from typing import Optional
 
 from compressed_tensors import CompressionFormat
+from compressed_tensors.config import SparsityStructure
 from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
 from compressed_tensors.quantization.utils import (
     is_model_quantized,
     is_module_quantized,
     iter_named_leaf_modules,
 )
-
-from llmcompressor.transformers.compression.sparsity_config import SparsityStructure
 
 __all__ = ["infer_quantization_format"]
 
