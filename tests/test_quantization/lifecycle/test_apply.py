@@ -236,14 +236,8 @@ def get_sample_tinyllama_quant_config(status: str = "frozen"):
 def test_apply_quantization_status(caplog, ignore, should_raise_warning):
     import logging
 
-    from transformers import AutoModelForCausalLM
-
     # load a dense, unquantized tiny llama model
-    model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, device_map="cpu", torch_dtype="auto"
-    )
-
+    model = get_tinyllama_model()
     quantization_config_dict = {
         "quant_method": "sparseml",
         "format": "pack-quantized",

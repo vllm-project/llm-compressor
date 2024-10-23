@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from collections import Counter
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 from compressed_tensors.quantization.quant_args import (

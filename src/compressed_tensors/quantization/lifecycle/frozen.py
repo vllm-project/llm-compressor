@@ -14,7 +14,6 @@
 
 
 from compressed_tensors.quantization.quant_config import QuantizationStatus
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from torch.nn import Module
 
 

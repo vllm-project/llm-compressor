@@ -70,7 +70,9 @@ class MovingAverageMSEObserver(Observer):
             absolute_min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             absolute_max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
 
-        best = torch.full_like(absolute_min_val, torch.finfo(absolute_min_val.dtype).max)
+        best = torch.full_like(
+            absolute_min_val, torch.finfo(absolute_min_val.dtype).max
+        )
         min_val = torch.ones_like(absolute_min_val)
         max_val = torch.zeros_like(absolute_max_val)
         for i in range(int(self.maxshrink * self.grid)):
