@@ -1,4 +1,3 @@
-import contextlib
 import operator
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -9,6 +8,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.utils.fsdp.context import (
@@ -25,39 +25,6 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 __all__ = ["SequentialLayerCompressor", "LayerCompressor"]
-
-
-class HooksMixin:
-    HOOKS_DISABLED: bool = False
-
-    @classmethod
-    def hook(cls, func):
-        def wrapped(*args, **kwargs):
-            if cls.HOOKS_DISABLED:
-                return
-
-            func(*args, **kwargs)
-
-        return wrapped
-
-    @classmethod
-    @contextlib.contextmanager
-    def disable_hooks(cls):
-        try:
-            cls.HOOKS_DISABLED = True
-            yield
-        finally:
-            cls.HOOKS_DISABLED = False
-
-    def __init__(self):
-        self._hooks = []
-
-    def register_hook(self, handle: torch.utils.hooks.RemovableHandle):
-        self._hooks.append(handle)
-
-    def remove_hooks(self):
-        for hook in self._hooks:
-            hook.remove()
 
 
 class SequentialLayerCompressor(HooksMixin):

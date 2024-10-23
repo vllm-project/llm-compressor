@@ -20,7 +20,7 @@ GPTQ_PRECISION = torch.float32
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
     """
     Calculate the hessian with respect to the module inputs
-    
+
     :param inp: module inputs
     :param module_class: class of module, likely torch.nn.Linear
     :return: hessian w.r.t. module inputs
