@@ -235,6 +235,13 @@ class GPTQModifier(Modifier):
     def calibration_forward(
         self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
     ):
+        """
+        Perform calibration forward pass with one batch whose size is the size
+        of the dataset
+
+        :param model: model to perform forward pass with
+        :param dataloader: dataloader containing calibration dataset
+        """
         dataloader = create_single_batch_dataloader(dataloader.dataset)
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
@@ -242,6 +249,15 @@ class GPTQModifier(Modifier):
     def quantize_module(
         self, name: str, module: torch.nn.Module, args: Tuple[torch.Tensor, ...]
     ) -> float:
+        """
+        Quantize a module's weight according to the GPTQ algorithm
+
+        :param name: name of module being quantized
+        :param module: module being quantized
+        :param args: input arguments for module forward pass
+
+        :return: total loss from applying weight quantization to this module
+        """
         logger.info(f"Quantizing {name}...")
 
         # Assume that first argument is the input
