@@ -1,12 +1,16 @@
 try:
     from accelerate import Accelerator
     from torch.distributed.fsdp import FullyShardedDataParallel
-    from torch.distributed.fsdp._common_utils import TrainingState
+    from torch.distributed.fsdp._common_utils import TrainingState, HandleTrainingState
 except ImportError:
     FullyShardedDataParallel = None
     Accelerator = None
 
+import torch
 from contextlib import nullcontext
+import contextlib
+
+from compressed_tensors import has_offloaded_params, modify_offload_module
 
 __all__ = [
     "summon_full_params_context",
@@ -55,3 +59,23 @@ def fix_fsdp_module_name(name: str) -> str:
     return name.replace(FSDP_WRAPPER_NAME + ".", "").replace(
         "." + FSDP_WRAPPER_NAME, ""
     )
+
+
+# TODO: maybe there's an algorithm to find the closest parameter to unwrap?
+# TODO: wrap __setattr__ to raise error if in-place assignment is attempted
+@contextlib.contextmanager
+def modify_params_context(model: torch.nn.Module, module: torch.nn.Module):
+    if isinstance(model, FullyShardedDataParallel):
+        with (
+            model._use_training_state(TrainingState.IDLE, HandleTrainingState.IDLE),
+            FullyShardedDataParallel.summon_full_params(model)
+        ):
+            
+            yield
+
+    elif has_offloaded_params(module):
+        with modify_offload_module(module):
+            yield
+
+    else:
+        yield
