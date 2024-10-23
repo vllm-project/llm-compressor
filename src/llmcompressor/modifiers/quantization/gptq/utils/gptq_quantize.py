@@ -18,6 +18,13 @@ GPTQ_PRECISION = torch.float32
 
 
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
+    """
+    Calculate the hessian with respect to the module inputs
+    
+    :param inp: module inputs
+    :param module_class: class of module, likely torch.nn.Linear
+    :return: hessian w.r.t. module inputs
+    """
     inp = inp.to(device=device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -36,6 +43,13 @@ def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
 
 
 def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
+    """
+    Performs in-place inversion of the hessian in order to save memory
+
+    :param H: hessian being inverted
+    :param percdamp: dampening factor on hessian diagonal
+    :return: inverted hessian
+    """
     damp = percdamp * torch.mean(torch.diag(H))
     diag = torch.arange(H.shape[0], device=H.device)
     H[diag, diag] += damp
@@ -45,9 +59,18 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
     return H
 
 
-def compute_scale_zeropoint(
+def compute_scale_zero_point(
     W: torch.Tensor, quant_args: QuantizationArgs
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute the scale and zero point of a module weight
+    TODO: revisit after observers refactor
+
+    :param W: module weight
+    :param quant_args: quantization arguments which determine how quantization
+        parameters are calculated
+    :return: scale and zero_point
+    """
     # TODO: revisit after observers refactor
 
     scale, zero_point = quant_args.get_observer()(W, g_idx=None)
@@ -64,6 +87,17 @@ def quantize_weight(
     percdamp: float = 0.01,
     module_class=torch.nn.Linear,
 ) -> Tuple[float, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
+    """
+    Quantize a module weight according to the GPTQ algorithm
+
+    :param weight: weight being quantized
+    :param inp: module inputs used to calculate hessian
+    :param quant_args: quantization arguments used to find quantization parameters
+    :param blocksize: chunk size of quantization updates
+    :param percdamp: dampening factor on hessian diagonal
+    :param module_class: class of module, likely torch.nn.Linear
+    :return: loss, quantized_weight, scale, zero_point, g_idx
+    """
     strategy = quant_args.strategy
     actorder = quant_args.actorder
     final_shape = weight.shape
@@ -91,22 +125,22 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            scale, zero_point = compute_scale_zeropoint(W, quant_args)
+            scale, zero_point = compute_scale_zero_point(W, quant_args)
 
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            scale, zero_point = compute_scale_zeropoint(W, quant_args)
+            scale, zero_point = compute_scale_zero_point(W, quant_args)
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
 
         else:
-            scale, zero_point = compute_scale_zeropoint(W, quant_args)
+            scale, zero_point = compute_scale_zero_point(W, quant_args)
     else:
-        scale, zero_point = compute_scale_zeropoint(W, quant_args)
+        scale, zero_point = compute_scale_zero_point(W, quant_args)
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
@@ -238,6 +272,8 @@ def _apply_activation_ordering(
     Permute weight and hessian in order of greatest outupt activations
 
     :param W: weight to permute
+    :param H: hessian used to determine activation ordering
+    :return: permuted weight, permuted hessian, permutation map
     """
     perm = torch.argsort(torch.diag(H), descending=True)
     return W[:, perm], H[perm][:, perm], perm
