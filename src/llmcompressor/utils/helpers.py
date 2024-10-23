@@ -1077,6 +1077,9 @@ class DisableKVCache:
 
 @contextlib.contextmanager
 def DisableQuantization(model: torch.nn.Module):
+    """
+    Disable quantization from QuantizationModifier
+    """
     model.apply(disable_quantization)
     yield
     model.apply(enable_quantization)
@@ -1084,6 +1087,13 @@ def DisableQuantization(model: torch.nn.Module):
 
 @contextlib.contextmanager
 def calibration_forward_context(model: torch.nn.Module):
+    """
+    Context in which all calibration forward passes should occur.
+
+    - Remove gradient calculations
+    - Disable the KV cache
+    - Disable quantization from QuantizationModifier
+    """
     model.eval()
 
     with (

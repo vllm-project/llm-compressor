@@ -25,6 +25,12 @@ __all__ = [
 def create_single_batch_dataloader(
     dataset: datasets.Dataset,
 ) -> torch.utils.data.DataLoader:
+    """
+    Create a dataloader whose batch size is equal to the size of the dataset
+    
+    :param dataset: dataset used to generate dataloader
+    :return: dataloader
+    """
     def pad_sequences(batch):
         # extract input_ids and attention_mask from the batch
         input_ids = [torch.tensor(item["input_ids"]) for item in batch]
