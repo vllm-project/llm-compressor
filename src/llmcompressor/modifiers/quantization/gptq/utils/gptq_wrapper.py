@@ -99,16 +99,16 @@ class GPTQWrapper(ModuleCompressionWrapper):
             diagonal norm
         """
         args_loc = "quantization_scheme.weights"
-        weight_quant_args = getattr_chain(self.layer, args_loc, None)
-        if weight_quant_args is None:
+        quant_args = getattr_chain(self.layer, args_loc, None)
+        if quant_args is None:
             logger.debug(f"Skipping unquantized layer {self.name}...")
             return
 
         if is_module_offloaded(self.layer):
             self.layer._hf_hook.pre_forward(self.layer)
 
-        strategy = weight_quant_args.strategy
-        actorder = weight_quant_args.actorder
+        strategy = quant_args.strategy
+        actorder = quant_args.actorder
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
@@ -126,26 +126,28 @@ class GPTQWrapper(ModuleCompressionWrapper):
             # mapping from column index to group index
             g_idx = (
                 torch.arange(self.columns, device=W.device, dtype=torch.int)
-                // weight_quant_args.group_size
+                // quant_args.group_size
             )
 
             if actorder == ActivationOrdering.GROUP:
                 # permute by activation order first, then update groups
                 W, self.H, perm = self._apply_activation_ordering(W, self.H)
-                self._update_quantization_parameters(weight_quant_args, W)
+                scale, zero_point = self.compute_scale_zero_point(W, quant_args)
 
                 # use identity g_idx (invert permutation later)
 
             elif actorder == ActivationOrdering.WEIGHT:
                 # update groups first, then permute by activation order
-                self._update_quantization_parameters(weight_quant_args, W)
+                scale, zero_point = self.compute_scale_zero_point(W, quant_args)
                 W, self.H, perm = self._apply_activation_ordering(W, self.H)
 
                 # permute g_idx to maintain identity mapping after unpermutation
                 g_idx = g_idx[perm]
 
-        scale = self.layer.weight_scale
-        zero_point = self.layer.weight_zero_point
+            else:
+                scale, zero_point = self.compute_scale_zero_point(W, quant_args)
+        else:
+            scale, zero_point = self.compute_scale_zero_point(W, quant_args)
 
         # sparsity mask
         sparsity = tensor_sparsity(W)
@@ -204,16 +206,29 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         q,
                         scale[:, 0],
                         zero_point[:, 0],
-                        weight_quant_args,
+                        quant_args,
                     )
                 elif strategy == QuantizationStrategy.GROUP:
                     # get the group index for the current column
                     column_idx = i1 + i
                     group_index = g_idx[column_idx]
 
+                    # update quantization parameters to reflect changes
+                    # resulting from previous blocks
+                    if (
+                        actorder != ActivationOrdering.WEIGHT
+                        and column_idx % quant_args.group_size == 0
+                    ):
+                        observer = quant_args.get_observer()
+                        _scale, _zero_point = observer.get_qparams_along_dim(
+                            W[:, g_idx == group_index], dim=0
+                        )
+                        scale[:, group_index] = _scale[:, 0]
+                        zero_point[:, group_index] = _zero_point[:, 0]
+
                     # Since we're only applying quantization to a slice, this
                     # ends up being a channelwise application
-                    altered_qargs = copy(weight_quant_args)
+                    altered_qargs = copy(quant_args)
                     altered_qargs.strategy = QuantizationStrategy.CHANNEL
                     q = fake_quantize(
                         q,
@@ -271,6 +286,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
             W.transpose_(0, 1)
         W = W.reshape(final_shape).to(final_dtype)
 
+        update_parameter_data(self.layer, scale, "weight_scale")
+        update_parameter_data(self.layer, zero_point, "weight_zero_point")
+
         # This is a bit hacky, but FSDP updates only work if we change
         # the weight in place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
@@ -288,17 +306,22 @@ class GPTQWrapper(ModuleCompressionWrapper):
         delattr(self, "H")
         super().free()
 
-    def _update_quantization_parameters(self, args: QuantizationArgs, W: torch.Tensor):
+    def compute_scale_zero_point(
+        self, W: torch.Tensor, quant_args: QuantizationArgs
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Update layer quantization parameters with potentially permuted weight
+        Compute the scale and zero point of a module weight
 
-        :param args: quantization arguments
-        :param W: weight to calculate quantization parameters from
+        :param W: module weight
+        :param quant_args: quantization arguments which determine how quantization
+            parameters are calculated
+        :return: scale and zero_point
         """
-        observer = args.get_observer()
-        _scale, _zero_point = observer(W, g_idx=None)
-        update_parameter_data(self.layer, _scale, "weight_scale")
-        update_parameter_data(self.layer, _zero_point, "weight_zero_point")
+
+        scale, zero_point = quant_args.get_observer()(W, g_idx=None)
+        scale = scale.to(dtype=W.dtype)
+        zero_point = zero_point.to(dtype=quant_args.pytorch_dtype())
+        return scale, zero_point
 
     def _apply_activation_ordering(
         self, W: torch.Tensor, H: torch.Tensor
