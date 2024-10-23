@@ -1,7 +1,7 @@
 import contextlib
 import operator
 from functools import partial
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors import get_execution_device
@@ -61,10 +61,29 @@ class HooksMixin:
 
 
 class SequentialLayerCompressor(HooksMixin):
+    """
+    Apply a given compression function to a model during the model's calibration
+    forward pass
+
+    Lifecycle:
+        - QuantizationModifier.initialize(model)
+        - SequentialLayerCompressor(compress_fn)
+        - register_hooks(model)
+        - model.forward()
+            - compress_fn(name, target_module, args)
+        - remove_hooks()
+
+    :param compress_fn: Function to be called on target modules
+    :param true_sequential: Used to control the granularity of compression updates
+        through the forward pass. Set to True to use the weight-compressed outputs
+        of each module, set to False to use the weight-compressed outputs of each
+        layer (transformer block), defaults to False
+    """
+
     def __init__(
         self,
         compress_fn: Callable[[str, torch.nn.Module, torch.Tensor], float],
-        true_sequential: bool = True,
+        true_sequential: bool = False,
     ):
         HooksMixin.__init__(self)
         self.compress_fn = compress_fn
@@ -74,7 +93,9 @@ class SequentialLayerCompressor(HooksMixin):
         self._num_layers = 0
 
     def register_hooks(
-        self, model: torch.nn.Module, sequential_targets: Union[str, List[str], None]
+        self,
+        model: torch.nn.Module,
+        sequential_targets: Optional[Union[str, List[str]]] = None,
     ):
         # find layers (used for printing even if true_sequential=True)
         # if no targets are provided, default to the modules that shouldn't be
