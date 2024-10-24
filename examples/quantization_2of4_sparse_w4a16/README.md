@@ -25,11 +25,11 @@ python3 llama7b_sparse_w4a16.py
 
 # Creating a Sparse Quantized Llama7b Model
 
-This example uses LLMCompressor and Compressed-Tensors to create a 2of4 sparse and quantized Llama2-7b model.
+This example uses LLMCompressor and Compressed-Tensors to create a 2:4 sparse and quantized Llama2-7b model.
 The model is calibrated and trained with the ultachat200k dataset.
 At least 75GB of GPU memory is required to run this example.
 
-Follow the steps below, or to run the example as `python examples/quantization_24_sparse_w4a16/llama7b_sparse_w4a16.py`
+Follow the steps below, or to run the example as `python examples/quantization_2of4_sparse_w4a16/llama7b_sparse_w4a16.py`
 
 ## Step 1: Select a model, dataset, and recipe
 In this step, we select which model to use as a baseline for sparsification, a dataset to
@@ -41,7 +41,7 @@ Datasets can be from a local compatible directory or the huggingface hub.
 
 Recipes are YAML files that describe how a model should be optimized during or after training.
 The recipe used for this flow is located in [2of4_w4a16_recipe.yaml](./2of4_w4a16_recipe.yaml).
-It contains instructions to prune the model to 2of4 sparsity, run one epoch of recovery finetuning,
+It contains instructions to prune the model to 2:4 sparsity, run one epoch of recovery finetuning,
 and quantize to 4 bits in one show using GPTQ.
 
 ```python
