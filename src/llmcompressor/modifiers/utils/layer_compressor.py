@@ -1,6 +1,5 @@
 import operator
-from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Dict, Tuple
 
 import torch
 from compressed_tensors import get_execution_device
@@ -8,135 +7,15 @@ from loguru import logger
 from tqdm import tqdm
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
-from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
 )
-from llmcompressor.utils.helpers import getattr_chain
-from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import (
-    get_layers,
-    get_no_split_params,
-    get_prunable_layers,
-    set_layer,
-)
+from llmcompressor.utils.pytorch.module import get_prunable_layers, set_layer
 
-__all__ = ["SequentialLayerCompressor", "LayerCompressor"]
-
-
-class SequentialLayerCompressor(HooksMixin):
-    """
-    Apply a given compression function to a model during the model's calibration
-    forward pass
-
-    Lifecycle:
-        - QuantizationModifier.initialize(model)
-        - SequentialLayerCompressor(compress_fn)
-        - register_hooks(model)
-        - model.forward()
-            - compress_fn(name, target_module, args)
-        - remove_hooks()
-
-    :param compress_fn: Function to be called on target modules
-    :param true_sequential: Used to control the granularity of compression updates
-        through the forward pass. Set to True to use the weight-compressed outputs
-        of each module, set to False to use the weight-compressed outputs of each
-        layer (transformer block), defaults to False
-    """
-
-    def __init__(
-        self,
-        compress_fn: Callable[[str, torch.nn.Module, torch.Tensor], float],
-        true_sequential: bool = False,
-    ):
-        HooksMixin.__init__(self)
-        self.compress_fn = compress_fn
-        self.true_sequential = true_sequential
-
-        self._layer_index = 0
-        self._num_layers = 0
-
-    def register_hooks(
-        self,
-        model: torch.nn.Module,
-        sequential_targets: Optional[Union[str, List[str]]] = None,
-    ):
-        # find layers (used for printing even if true_sequential=True)
-        # if no targets are provided, default to the modules that shouldn't be
-        # split by FSDP. For Transformers models this is equivalent to the
-        # decoder layers (ie LlamaDecoderLayer)
-        if sequential_targets is None:
-            sequential_targets = get_no_split_params(model)
-        layers = get_layers(sequential_targets, model)
-        self._num_layers = len(layers)
-
-        for name, module in model.named_modules():
-            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
-                pre_hook = partial(self.target_pre_forward, name)
-                post_hook = partial(self.target_post_forward, name)
-                self.register_hook(module.register_forward_pre_hook(pre_hook))
-                self.register_hook(module.register_forward_hook(post_hook))
-
-            if name in layers.keys():
-                pre_hook = partial(self.layer_pre_forward, name)
-                post_hook = partial(self.layer_post_forward, name)
-                self.register_hook(module.register_forward_pre_hook(pre_hook))
-                self.register_hook(
-                    module.register_forward_hook(post_hook, with_kwargs=True)
-                )
-
-    @HooksMixin.hook
-    def target_pre_forward(
-        self, name: str, module: torch.nn.Module, args: Tuple[Any, ...]
-    ):
-        if self.true_sequential:
-            # compress first so output is from compressed weights
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_fn(name, module, args)
-                comp_logger.set_loss(loss)
-
-    @HooksMixin.hook
-    def target_post_forward(
-        self,
-        name: str,
-        module: torch.nn.Module,
-        args: Tuple[Any, ...],
-        _output: Tuple[Any, ...],
-    ):
-        if not self.true_sequential:
-            # compress after so output is from uncompressed weights
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_fn(name, module, args)
-                comp_logger.set_loss(loss)
-
-    @HooksMixin.hook
-    def layer_pre_forward(self, _name: str, _module: torch.nn.Module, _args: Any):
-        logger.info(
-            f"\n===== Compressing layer {self._layer_index}/{self._num_layers} ====="
-        )
-
-    @HooksMixin.hook
-    def layer_post_forward(
-        self,
-        name: str,
-        module: torch.nn.Module,
-        args: Tuple[Any, ...],
-        kwargs: Dict[str, Any],
-        output: Tuple[Any, ...],
-    ):
-        if not self.true_sequential:
-            # rerun with (now) compressed weights
-            with HooksMixin.disable_hooks():
-                compressed_output = module(*args, **kwargs)
-
-            error = torch.nn.functional.l1_loss(output[0], compressed_output[0])
-            logger.info(f"Mean output error from quantization: {error:.3f}")
-
-        self._layer_index += 1
-        return output
+__all__ = ["LayerCompressor"]
 
 
 class LayerCompressor:

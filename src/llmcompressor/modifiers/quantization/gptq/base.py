@@ -20,7 +20,7 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
-from llmcompressor.modifiers.utils.layer_compressor import SequentialLayerCompressor
+from llmcompressor.modifiers.utils.hooks import LayerCompressorMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_single_batch_dataloader,
@@ -35,7 +35,7 @@ from llmcompressor.utils.pytorch.module import qat_active
 __all__ = ["GPTQModifier"]
 
 
-class GPTQModifier(Modifier):
+class GPTQModifier(Modifier, LayerCompressorMixin):
     """
     Modifier for applying the one-shot OBCQ algorithm to a model
 
@@ -122,7 +122,6 @@ class GPTQModifier(Modifier):
     disable_quantization_observer_epoch: Optional[float] = None
 
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
-    _layer_compressor: Optional[SequentialLayerCompressor] = PrivateAttr()
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -134,13 +133,6 @@ class GPTQModifier(Modifier):
             )
 
         return True
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self._layer_compressor = SequentialLayerCompressor(
-            self.quantize_module, self.true_sequential
-        )
 
     def on_initialize_structure(self, state: State, **kwargs):
         """
@@ -210,7 +202,7 @@ class GPTQModifier(Modifier):
 
         # add hooks to targets and layers
         # after lifecycle refactor, move this to pre_batch
-        self._layer_compressor.register_hooks(state.model, self.sequential_targets)
+        self.register_hooks(state.model)
 
         # apply calibration and trigger hooks
         self.calibration_forward(state.model, state.data.calib)
@@ -230,7 +222,7 @@ class GPTQModifier(Modifier):
         if self._quantization_modifier:
             self._quantization_modifier.finalize(state, **kwargs)
 
-        self._layer_compressor.remove_hooks()
+        self.remove_hooks()
 
         return True
 
@@ -248,8 +240,11 @@ class GPTQModifier(Modifier):
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
 
-    def quantize_module(
-        self, name: str, module: torch.nn.Module, args: Tuple[torch.Tensor, ...]
+    def compress_module(
+        self,
+        name: str,
+        module: torch.nn.Module,
+        args: Tuple[torch.Tensor, ...],
     ) -> float:
         """
         Quantize a module's weight according to the GPTQ algorithm
