@@ -118,9 +118,9 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
     device = None
 
     def setUp(self):
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device
         )
 

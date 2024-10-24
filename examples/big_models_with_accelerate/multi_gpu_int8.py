@@ -1,14 +1,14 @@
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
 
 # 1) Load model (device_map="auto" with shard the model over multiple GPUs!).
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",

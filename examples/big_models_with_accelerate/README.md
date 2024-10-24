@@ -14,13 +14,13 @@
 To enable `accelerate` features with `llmcompressor`, simple insert `device_map` in `from_pretrained` during model load.
 
 ```python
-from llmcompressor.transformers import SparseAutoModelForCausalLM
+from transformers import AutoModelForCausalLM
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # device_map="auto" triggers usage of accelerate
 # if > 1 GPU, the model will be sharded across the GPUs
 # if not enough GPU memory to fit the model, parameters are offloaded to the CPU
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype="auto")
 ```
 
@@ -34,12 +34,12 @@ potentially going out-of-memory.
 
 ```python
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
-from llmcompressor.transformers import SparseAutoModelForCausalLM,
+from transformers import AutoModelForCausalLM
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # Load model, reserving memory in the device map for sequential GPTQ (adjust num_gpus as needed)
 device_map = calculate_offload_device_map(MODEL_ID, reserve_for_hessians=True, num_gpus=1)
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map=device_map,
     torch_dtype="auto",

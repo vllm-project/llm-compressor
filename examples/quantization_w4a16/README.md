@@ -34,14 +34,13 @@ Now, we will step though the code in the example. There are four steps:
 
 ### 1) Load Model
 
-Load the model using `SparseAutoModelForCausalLM`, which is a wrapper around `AutoModel` for handling quantized saving and loading. Note that `SparseAutoModel` is compatible with `accelerate` so you can load your model onto multiple GPUs if needed.
+Load the model using `AutoModelForCausalLM` for handling quantized saving and loading. 
 
 ```python
-from llmcompressor.transformers import SparseAutoModelForCausalLM
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)

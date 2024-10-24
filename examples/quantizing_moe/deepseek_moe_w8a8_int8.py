@@ -1,9 +1,9 @@
 import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 # select a Mixture of Experts model for quantization
@@ -19,7 +19,7 @@ device_map = calculate_offload_device_map(
     trust_remote_code=True,
 )
 
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16, trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -84,7 +84,7 @@ oneshot(
     save_compressed=True,
     output_dir=SAVE_DIR,
 )
-
+model.save_pretrained(SAVE_DIR)
 
 print("========== SAMPLE GENERATION ==============")
 SAMPLE_INPUT = ["I love quantization because"]
