@@ -24,6 +24,11 @@ class HooksMixin(BaseModel):
     Modifiers which implement hooks should use the @HooksMixin.hook decorator
     Modifiers must pass registered hooks handles to self.register_hook() and must
     remove hooks when finished using self.remove_hooks()
+
+    Lifecycle:
+        - Modifier.register_hooks(model)
+        - model.forward()
+        - Modifier.remove_hooks()
     """
 
     _HOOKS_DISABLED: ClassVar[bool] = False
@@ -75,11 +80,10 @@ class LayerCompressorMixin(HooksMixin):
 
     Lifecycle:
         - QuantizationModifier.initialize(model)
-        - SequentialLayerCompressor(compress_fn)
-        - register_hooks(model)
+        - Modifier.register_hooks(model)
         - model.forward()
             - compress_fn(name, target_module, args)
-        - remove_hooks()
+        - Modifier.remove_hooks()
 
     :ivar true_sequential: Used to control the granularity of compression updates
         through the forward pass. Set to True to use the weight-compressed outputs
