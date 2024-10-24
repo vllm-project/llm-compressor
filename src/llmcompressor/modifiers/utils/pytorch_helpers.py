@@ -39,7 +39,7 @@ def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.T
     :param batch: batch to apply padding to if it exists
     :return: batch with padding zeroed out in the input_ids
     """
-    batch["input_ids"] = batch["input_ids"] * batch["attention_mask"]
+    batch["input_ids"].masked_fill_(batch["attention_mask"] == 0, 0)
     return batch
 
 

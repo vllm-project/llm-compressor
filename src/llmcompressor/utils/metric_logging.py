@@ -1,7 +1,10 @@
+import time
 from typing import List, Tuple
 
+import torch
 from loguru import logger
-from torch.nn import Module
+
+__all__ = ["CompressionLogger"]
 
 
 def get_GPU_memory_usage() -> List[Tuple]:
@@ -35,7 +38,7 @@ def get_GPU_memory_usage() -> List[Tuple]:
         return []
 
 
-def get_layer_size_bytes(module: Module) -> float:
+def get_module_size_bytes(module: torch.nn.Module) -> float:
     param_size = 0
     buffer_size = 0
 
@@ -49,3 +52,50 @@ def get_layer_size_bytes(module: Module) -> float:
     total_size_mb = total_size / (1024**2)  # Convert bytes to MB
 
     return total_size_mb
+
+
+class CompressionLogger:
+    """
+    Log metrics related to compression algorithm
+
+    :param start_tick: time when algorithm started"
+    :param losses: loss as result of algorithm
+    """
+
+    def __init__(self, module: torch.nn.Module):
+        self.module = module
+        self.start_tick = None
+        self.loss = None
+
+    def set_loss(self, loss: float):
+        self.loss = loss
+
+    def __enter__(self) -> "CompressionLogger":
+        self.start_tick = time.time()
+        return self
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        stop_tick = time.time()
+        patch = logger.patch(lambda r: r.update(function="compress"))
+
+        if self.start_tick is not None:
+            duration = stop_tick - self.start_tick
+            patch.log("METRIC", f"time {duration:.2f}")
+        if self.loss is not None:
+            patch.log("METRIC", f"error {self.loss:.2f}")
+
+        gpu_usage = get_GPU_memory_usage()
+        if len(gpu_usage) > 0:
+            for i in range(len(gpu_usage)):
+                perc = gpu_usage[i][0] * 100
+                total_memory = int(gpu_usage[i][1])  # GB
+                patch.log(
+                    "METRIC",
+                    (
+                        f"GPU {i} | usage: {perc:.2f}%"
+                        f" | total memory: {total_memory} GB"
+                    ),
+                )
+
+        compressed_size = get_module_size_bytes(self.module)
+        patch.log("METRIC", f"Compressed module size: {compressed_size} MB")

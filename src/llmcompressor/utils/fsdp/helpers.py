@@ -1,8 +1,11 @@
+import contextlib
 import operator
 from pathlib import Path
 from typing import Optional
 
 from loguru import logger
+
+from llmcompressor.utils.helpers import getattr_chain
 
 try:
     from torch.distributed.fsdp import (
@@ -179,3 +182,93 @@ def get_fsdp_parent(layer_name: str, model: Module) -> Optional[Module]:
         parent = operator.attrgetter(parent_name)(model)
 
     return parent
+
+def has_offloaded_params(module: torch.nn.Module) -> bool:
+    """
+    Checks if a module has offloaded parameters by checking if the given module
+    has a AlignDevicesHook attached with offloading enabled
+    Args:
+        module (`torch.nn.Module`): The module to check for an offload hook.
+    Returns:
+        bool: `True` if the module has an offload hook and offloading is enabled,
+        `False` otherwise.
+    """
+    from accelerate.hooks import AlignDevicesHook
+
+    return (
+        hasattr(module, "_hf_hook") and
+        isinstance(module._hf_hook, AlignDevicesHook) and
+        module._hf_hook.offload
+    )
+
+@contextlib.contextmanager
+def align_module(
+    module: torch.nn.Module,
+    execution_device: Optional[torch.device] = None,
+    args = tuple(), kwargs = dict()
+):
+    """
+    Move a module's parameters to the execution device
+    :param module: module with parameters to align
+    :param execution_device: if provided, overrides module execution device
+        within the context
+    """
+    if has_offloaded_params(module):
+        if execution_device is not None:
+            original_device = module._hf_hook.execution_device
+            module._hf_hook.execution_device = original_device
+
+        module._hf_hook.pre_forward(module, *args, **kwargs)
+        yield
+        module._hf_hook.post_forward(module, None)
+
+        if execution_device is not None:
+            module._hf_hook.execution_device = original_device
+
+    elif execution_device is not None:
+        devices = {}
+        for name, param in module.named_parameters():
+            devices[name] = param.device
+            setattr(module, name, param.to(execution_device))
+
+        yield
+
+        for name, param_device in module.named_parameters:
+            setattr(module, name, param.to(param_device))
+
+    else:
+        yield
+
+
+def update_offload_parameter(
+    module: torch.nn.Module,
+    name: str,
+    data: torch.Tensor,
+    init_device: Optional[torch.device] = torch.device("cpu"),
+):
+    """
+    :param module: module containing the parameter to update
+    :param name: name of module parameter to update
+    :param data: tensor to update parameter with
+    :param init_device: offload device for newly registered parameters
+    """
+    param = getattr(module, name)
+    param.data = data
+
+    prefix_dict = getattr_chain(module, "module._hf_hook.weights_map.dataset", None)
+    if prefix_dict is not None:
+        prefix = module._hf_hook.weights_map.prefix
+        key = f"{prefix}{name}"
+
+        offload_device = prefix_dict[key].device if key in prefix_dict else init_device
+        prefix_dict[key] = data.to(device=offload_device)
+
+
+def register_offload_parameter(
+    module: torch.nn.Module,
+    name: str,
+    data: torch.Tensor,
+    offload_device: Optional[torch.device] = torch.device("cpu"), 
+):
+    module.register_parameter(name, torch.nn.Parameter(data))
+    update_offload_parameter(module, name, data, offload_device)
