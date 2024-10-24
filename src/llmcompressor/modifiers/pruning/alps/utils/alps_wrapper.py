@@ -1,7 +1,5 @@
 import time
 
-import numpy as np
-
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
 
 try:
@@ -183,7 +181,7 @@ class ALPSWrapper(ModuleCompressionWrapper):
             Res0 = torch.sum(Res0)
 
         params = B.shape[0] * B.shape[1]
-        k_spar = int(np.round((1 - sparsity) * params))
+        k_spar = int((1 - sparsity) * params)
 
         D = L0_proj(
             B.clone(),
@@ -215,7 +213,7 @@ class ALPSWrapper(ModuleCompressionWrapper):
             if (i_admm + 1) % update_iter == 0:
                 if nm_n == 0:
                     D_supp = (D.reshape(-1) == 0).to(torch.float)
-                supp_change = torch.sum((D_supp - D_suppp) ** 2)
+                supp_change = torch.sum((D_supp - D_suppp.reshape(-1)) ** 2)
 
                 if supp_change / k_spar > 0.1:
                     init_rho = True
@@ -288,8 +286,8 @@ class ALPSWrapper(ModuleCompressionWrapper):
             print("Number of iter is {}".format(i_admm))
             print("Final Error is {}".format(error))
             print("Time is admm: {} back:{}".format(admm_time, back_time))
-
-        torch.cuda.synchronize()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         # TODO: Run tests with Conv layers
         if isinstance(self.layer, transformers.Conv1D):
             W = (
