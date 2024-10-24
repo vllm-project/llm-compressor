@@ -1,8 +1,8 @@
-# `int4` Weight Quantization of a 2of4 Sparse Model
+# `int4` Weight Quantization of a 2:4 Sparse Model
 
 `llm-compressor` supports quantizing weights while maintaining sparsity patterns for memory savings and inference acceleration with `vLLM`
 
-> `2of4 sparisty + int4/int8` mixed precision computation is supported in vLLM on Nvidia capability > 8.0 (Ampere, Ada Lovelace, Hopper).
+> `2:4 sparisty + int4/int8` mixed precision computation is supported in vLLM on Nvidia capability > 8.0 (Ampere, Ada Lovelace, Hopper).
 
 ## Installation
 
