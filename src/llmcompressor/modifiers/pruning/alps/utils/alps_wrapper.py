@@ -41,7 +41,7 @@ def L0_proj(
             D = (B * init_mask).t().reshape((new_dim, nm_m))
         _, loss_idx = torch.topk(-(D**2), nm_m - nm_n, dim=1)
         D = D.scatter(
-            src=torch.zeros((new_dim, nm_m - nm_n)).to(B.get_device()),
+            src=torch.zeros((new_dim, nm_m - nm_n)).to(B.device),
             dim=1,
             index=loss_idx,
         )
@@ -192,7 +192,7 @@ class ALPSWrapper(ModuleCompressionWrapper):
             init_mask,
         )
 
-        D_suppp = (D == 0).to(torch.float)
+        D_suppp = (D == 0).to(torch.float).reshape(-1)
         D_init = D.clone()
 
         for i_admm in range(max_iter):
@@ -211,9 +211,8 @@ class ALPSWrapper(ModuleCompressionWrapper):
             V = V + rho * (B - D)
 
             if (i_admm + 1) % update_iter == 0:
-                if nm_n == 0:
-                    D_supp = (D.reshape(-1) == 0).to(torch.float)
-                supp_change = torch.sum((D_supp - D_suppp.reshape(-1)) ** 2)
+                D_supp = (D.reshape(-1) == 0).to(torch.float)
+                supp_change = torch.sum((D_supp - D_suppp) ** 2)
 
                 if supp_change / k_spar > 0.1:
                     init_rho = True

@@ -111,7 +111,7 @@ class DummyNetwork(Linear):
         super().__init__(p, p, bias=False)
         self.weight.requires_grad = False
         if init_sparsity > 0:
-            k = init_sparsity * (p**2)
+            k = int(init_sparsity * (p**2)) + 1
             idx = torch.randperm(p**2)[:k]
             W = self.weight.detach().clone().reshape(-1)
             W[idx] = torch.zeros_like(W[idx])
