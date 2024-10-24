@@ -17,6 +17,7 @@ from pydantic import Field, PrivateAttr, field_validator
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
+    add_batch,
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
@@ -25,6 +26,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forwar
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_single_batch_dataloader,
 )
+from llmcompressor.utils.fsdp.helpers import has_offloaded_params, register_offload_parameter
 from llmcompressor.utils.helpers import (
     align_module,
     calibration_forward_context,
@@ -200,15 +202,17 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
-        # add hooks to targets and layers
-        # after lifecycle refactor, move this to pre_batch
-        self.register_hooks(state.model)
+        # trigger hessian hooks
+        self.register_hessians(state.model)
+        with calibration_forward_context(state.model):
+            run_calibration_forward(state.model, state.data.calib, mask_padding=True)
+        self.remove_hooks()
 
-        # apply calibration and trigger hooks
-        self.calibration_forward(state.model, state.data.calib)
+        self.register_hooks(state.model)
+        state.model(**state.model.dummy_inputs)
+        self.remove_hooks()
 
         # freeze quantization
-        # after lifecycle refactor, move this to post_batch
         state.model.apply(freeze_module_quantization)
 
         return True
@@ -222,9 +226,31 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if self._quantization_modifier:
             self._quantization_modifier.finalize(state, **kwargs)
 
-        self.remove_hooks()
-
         return True
+    
+    def hessian_hook(self, module, args):
+        # onload and offload
+        module.gptq_hessian = add_batch(
+            module.gptq_hessian.to(args[0].device),
+            module.gptq_hessian_samples,
+            module,
+            args[0]
+        ).to("cpu")
+        module.gptq_hessian_samples += 1
+    
+    def register_hessians(self, model: torch.nn.Module):
+        for module in model.modules():
+            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
+                num_columns = module.weight.shape[1]
+
+                # hessian starts offloaded
+                module.gptq_hessian = torch.zeros((num_columns, num_columns), dtype=torch.float32, device="cpu")
+                module.gptq_hessian_samples = 0
+
+                self.register_hook(module.register_forward_pre_hook(self.hessian_hook))
+
+
+        
 
     def calibration_forward(
         self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
@@ -261,24 +287,26 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-        with align_module(module):
-            loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
-                module.weight.data,
-                inp,
-                quant_args,
-                blocksize=self.block_size,
-                percdamp=self.dampening_frac,
-                module_class=type(module),
-            )
+        loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+            module.weight.data,
+            module.gptq_hessian.data.to(module.weight.device),
+            quant_args,
+            blocksize=self.block_size,
+            percdamp=self.dampening_frac,
+            module_class=type(module),
+        )
 
-            # FUTURE: Implement learning rate modification to weight update
+        delattr(module, "gptq_hessian")
+        delattr(module, "gptq_hessian_samples")
 
-            if is_module_offloaded(module):
-                update_prefix_dict(self.layer, "weight", quantized_weight)
-            update_parameter_data(module, quantized_weight, "weight")
-            update_parameter_data(module, scale, "weight_scale")
-            update_parameter_data(module, zero_point, "weight_zero_point")
-            update_parameter_data(module, g_idx, "weight_g_idx")
+        # FUTURE: Implement learning rate modification to weight update
+
+        if is_module_offloaded(module):
+            update_prefix_dict(self.layer, "weight", quantized_weight)
+        update_parameter_data(module, quantized_weight, "weight")
+        update_parameter_data(module, scale, "weight_scale")
+        update_parameter_data(module, zero_point, "weight_zero_point")
+        update_parameter_data(module, g_idx, "weight_g_idx")
 
         return loss
 

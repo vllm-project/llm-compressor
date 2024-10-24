@@ -17,6 +17,28 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 GPTQ_PRECISION = torch.float32
 
 
+def add_batch(H: torch.Tensor, nsamples: int , module: torch.nn.Module, inp: torch.Tensor):
+    """
+    Add a batch of layer input and output data to the Hessian calculation
+    """
+    if len(inp.shape) == 2:
+        inp = inp.unsqueeze(0)
+    tmp = inp.shape[0]
+    if isinstance(module, torch.nn.Linear) or isinstance(
+        module, transformers.Conv1D
+    ):
+        if len(inp.shape) == 3:
+            inp = inp.reshape((-1, inp.shape[-1]))
+        inp = inp.t()
+    H *= nsamples / (nsamples + tmp)
+    nsamples += tmp
+    inp = inp.to(dtype=H.dtype)
+    inp = math.sqrt(2 / nsamples) * inp
+    H += inp.matmul(inp.t())
+
+    return H
+
+
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
     """
     Calculate the hessian with respect to the module inputs
@@ -81,7 +103,7 @@ def compute_scale_zero_point(
 
 def quantize_weight(
     weight: torch.Tensor,
-    inp: torch.Tensor,
+    H: torch.Tensor, #inp: torch.Tensor,
     quant_args: QuantizationArgs,
     blocksize: int = 128,
     percdamp: float = 0.01,
@@ -91,7 +113,7 @@ def quantize_weight(
     Quantize a module weight according to the GPTQ algorithm
 
     :param weight: weight being quantized
-    :param inp: module inputs used to calculate hessian
+    #  :param inp: module inputs used to calculate hessian
     :param quant_args: quantization arguments used to find quantization parameters
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
@@ -104,7 +126,7 @@ def quantize_weight(
     final_dtype = weight.dtype
     W = weight.data.clone()
 
-    H = compute_hessian(inp, module_class, device=weight.device)
+    #H = compute_hessian(inp, module_class, device=weight.device)
 
     # standardize shape and dtype
     if module_class == torch.nn.Conv2d:
