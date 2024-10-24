@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from enum import Enum
+from enum import Enum, unique
 from typing import List, Optional
 
 from compressed_tensors.registry import RegistryMixin
 from pydantic import BaseModel
 
 
-__all__ = ["SparsityCompressionConfig", "CompressionFormat"]
+__all__ = ["SparsityCompressionConfig", "CompressionFormat", "SparsityStructure"]
 
 
+@unique
 class CompressionFormat(Enum):
     dense = "dense"
     sparse_bitmask = "sparse-bitmask"
@@ -30,6 +31,63 @@ class CompressionFormat(Enum):
     naive_quantized = "naive-quantized"
     pack_quantized = "pack-quantized"
     marlin_24 = "marlin-24"
+
+
+@unique
+class SparsityStructure(Enum):
+    """
+    An enumeration to represent different sparsity structures.
+
+    Attributes
+    ----------
+    TWO_FOUR : str
+        Represents a 2:4 sparsity structure.
+    ZERO_ZERO : str
+        Represents a 0:0 sparsity structure.
+    UNSTRUCTURED : str
+        Represents an unstructured sparsity structure.
+
+    Examples
+    --------
+    >>> SparsityStructure('2:4')
+    <SparsityStructure.TWO_FOUR: '2:4'>
+
+    >>> SparsityStructure('unstructured')
+    <SparsityStructure.UNSTRUCTURED: 'unstructured'>
+
+    >>> SparsityStructure('2:4') == SparsityStructure.TWO_FOUR
+    True
+
+    >>> SparsityStructure('UNSTRUCTURED') == SparsityStructure.UNSTRUCTURED
+    True
+
+    >>> SparsityStructure(None) == SparsityStructure.UNSTRUCTURED
+    True
+
+    >>> SparsityStructure('invalid')
+    Traceback (most recent call last):
+        ...
+    ValueError: invalid is not a valid SparsityStructure
+    """
+
+    TWO_FOUR = "2:4"
+    UNSTRUCTURED = "unstructured"
+    ZERO_ZERO = "0:0"
+
+    def __new__(cls, value):
+        obj = object.__new__(cls)
+        obj._value_ = value.lower() if value is not None else value
+        return obj
+
+    @classmethod
+    def _missing_(cls, value):
+        # Handle None and case-insensitive values
+        if value is None:
+            return cls.UNSTRUCTURED
+        for member in cls:
+            if member.value == value.lower():
+                return member
+        raise ValueError(f"{value} is not a valid {cls.__name__}")
 
 
 class SparsityCompressionConfig(RegistryMixin, BaseModel):
