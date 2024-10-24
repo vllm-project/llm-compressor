@@ -16,14 +16,14 @@ from tests.testing_utils import run_cli_command
 
 @pytest.fixture
 def example_dir() -> str:
-    return "examples/quantization_24_sparse_w4a16"
+    return "examples/quantization_2of4_sparse_w4a16"
 
 
 @pytest.mark.example
 @requires_gpu_count(1)
 class TestQuantization24SparseW4A16:
     """
-    Tests for examples in the "quantization_24_sparse_w4a16" example folder.
+    Tests for examples in the "quantization_2of4_sparse_w4a16" example folder.
     """
 
     def test_doc_example_command(self, example_dir: str, tmp_path: Path):
@@ -52,7 +52,7 @@ class TestQuantization24SparseW4A16:
         script_path = tmp_path / example_dir / script_filename
         content = script_path.read_text(encoding="utf-8")
         content = content.replace(
-            "2:4_w4a16_recipe.yaml", "2:4_w4a16_group-128_recipe.yaml"
+            "2of4_w4a16_recipe.yaml", "2of4_w4a16_group-128_recipe.yaml"
         )
         script_path.write_text(content, encoding="utf-8")
 

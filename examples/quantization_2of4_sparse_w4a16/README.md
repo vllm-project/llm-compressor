@@ -46,10 +46,10 @@ and quantize to 4 bits in one show using GPTQ.
 
 ```python
 import torch
-from transformers import AutoModelForCausalLM
+from llmcompressor.transformers import SparseAutoModelForCausalLM
 
 model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
-model = AutoModelForCausalLM.from_pretrained(
+model = SparseAutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
 
@@ -96,10 +96,10 @@ run the following:
 
 ```python
 import torch
-from transformers import AutoModelForCausalLM
+from llmcompressor.transformers import SparseAutoModelForCausalLM
 
 compressed_output_dir = "output_llama7b_2:4_w4a16_channel_compressed"
-model = AutoModelForCausalLM.from_pretrained(output_dir, torch_dtype=torch.bfloat16)
+model = SparseAutoModelForCausalLM.from_pretrained(output_dir, torch_dtype=torch.bfloat16)
 model.save_pretrained(compressed_output_dir, save_compressed=True)
 ```
 
