@@ -1,7 +1,6 @@
 from typing import Any, List, Optional, Union
 
 from llmcompressor.modifiers.obcq import SparseGPTModifier
-
 from llmcompressor.modifiers.pruning.alps.utils.alps_wrapper import ALPSWrapper
 
 __all__ = ["ALPSModifier"]
@@ -51,6 +50,7 @@ class ALPSModifier(SparseGPTModifier):
     targets: Union[str, List[str], None] = None
     dampening_frac: Optional[float] = 0.01
     preserve_sparsity_mask: bool = False
+    verbose: bool = False
 
     model: Optional[Any] = None
     layer_compressors_: Optional[List[Any]] = None
@@ -74,6 +74,7 @@ class ALPSModifier(SparseGPTModifier):
             "prunem": self.prunem_,
             "percdamp": self.dampening_frac,
             "preserve_sparsity_mask": self.preserve_sparsity_mask,
+            "verbose": self.verbose,
         }
 
     def _compression_class(self):
@@ -81,4 +82,3 @@ class ALPSModifier(SparseGPTModifier):
         :return: wrapper class used for root modules of this compression class
         """
         return ALPSWrapper
-
