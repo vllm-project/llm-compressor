@@ -125,14 +125,13 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     for no_split_name, no_split_layer in transformer_layers.items():
         total_hessian_elems[no_split_name] = 0
         max_column_size[no_split_name] = 0
-        for name, module in no_split_layer.named_modules():
-            if isinstance(module, Linear):
-                for param in module.parameters():
-                    column_size = param.shape[1]
-                    total_hessian_elems[no_split_name] += column_size * column_size
-                    if column_size > max_column_size[no_split_name]:
-                        # max extra memory for inverse calculation
-                        max_column_size[no_split_name] = column_size
+        for _name, module in no_split_layer.named_modules():
+            if isinstance(module, Linear) and hasattr(module, "weight"):
+                column_size = module.weight.shape[1]
+                total_hessian_elems[no_split_name] += column_size * column_size
+                if column_size > max_column_size[no_split_name]:
+                    # max extra memory for inverse calculation
+                    max_column_size[no_split_name] = column_size
 
     max_total_hessian_elems = max(total_hessian_elems.values())
     overall_max_column_size = max(max_column_size.values())
