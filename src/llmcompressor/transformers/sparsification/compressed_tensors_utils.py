@@ -6,7 +6,11 @@ from typing import Optional
 import torch
 import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors import ModelCompressor, SparsityCompressionConfig
+from compressed_tensors import (
+    CompressionFormat,
+    ModelCompressor,
+    SparsityCompressionConfig,
+)
 from loguru import logger
 from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
@@ -78,15 +82,22 @@ def modify_save_pretrained(model: PreTrainedModel):
             if state_dict is None:
                 state_dict = get_state_dict_offloaded_model(model)
 
+            sparsity_stucture = SparsityConfigMetadata.infer_sparsity_structure(model)
+            quantization_format = infer_quantization_format(
+                model=model,
+                quantization_format=quantization_format,
+                save_compressed=save_compressed,
+                sparsity_structure=sparsity_stucture,
+            )
+            is_marlin = quantization_format == CompressionFormat.marlin_24.value
+
             if sparsity_config is not None:
                 sparsity_config.global_sparsity = (
                     SparsityConfigMetadata.infer_global_sparsity(
                         model, state_dict=state_dict
                     )
                 )
-                sparsity_config.sparsity_structure = (
-                    SparsityConfigMetadata.infer_sparsity_structure()
-                )
+                sparsity_config.sparsity_structure = sparsity_stucture
             elif not skip_compression_stats:
                 # try to infer a sparsity config from the model if none is provided
                 logger.info(
@@ -96,15 +107,12 @@ def modify_save_pretrained(model: PreTrainedModel):
                     "skip_compression_stats=True"
                 )
                 sparsity_config = SparsityConfigMetadata.from_pretrained(
-                    model, state_dict=state_dict, compress=save_compressed
+                    model,
+                    state_dict=state_dict,
+                    compress=save_compressed,
+                    is_marlin=is_marlin,
                 )
 
-            quantization_format = infer_quantization_format(
-                model=model,
-                quantization_format=quantization_format,
-                save_compressed=save_compressed,
-                sparsity_config=sparsity_config,
-            )
             compressor = ModelCompressor.from_pretrained_model(
                 model,
                 sparsity_config=sparsity_config,
