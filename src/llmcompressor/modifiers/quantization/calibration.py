@@ -208,7 +208,7 @@ def calibrate_kv_cache_output_hook():
 
 def set_unset_kv_cache(module: Module):
     """
-    Set or Unset singleton QuantizedKVParameterCache for each
+    Set or unset singleton QuantizedKVParameterCache for each
     attn module when running kv_cache quantization.
     """
     if not hasattr(module, "quantization_scheme"):
