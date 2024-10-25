@@ -66,6 +66,10 @@ def call_observer(module: Module, base_name: str, value: torch.Tensor):
     :param base_name: substring used to fetch the observer, scales, and zp
     :param value: torch.Tensor to be passed to the observer
     """
+    offloaded = is_module_offloaded(module)
+    if offloaded:
+        module._hf_hook.pre_forward(module)
+
     observer = getattr(module, f"{base_name}_observer")
     g_idx = getattr(module, "weight_g_idx", None)
 
@@ -77,6 +81,9 @@ def call_observer(module: Module, base_name: str, value: torch.Tensor):
     # update scale and zero point
     update_parameter_data(module, updated_scale, f"{base_name}_scale")
     update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+
+    if offloaded:
+        module._hf_hook.post_forward(module, None)
 
 
 def update_weight_zp_scale(module: Module):
@@ -108,14 +115,7 @@ def update_weight_zp_scale(module: Module):
 
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
-        offloaded = is_module_offloaded(module)
-        if offloaded:
-            module._hf_hook.pre_forward(module)
-
         call_observer(module=module, base_name="weight", value=module.weight)
-
-        if offloaded:
-            module._hf_hook.post_forward(module, None)
 
     module.quantization_status = QuantizationStatus.CALIBRATION
 
