@@ -234,7 +234,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         :param model: model to perform forward pass with
         :param dataloader: dataloader containing calibration dataset
         """
-        dataloader = create_single_batch_dataloader(dataloader.dataset)
+        #dataloader = create_single_batch_dataloader(dataloader.dataset)
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
 

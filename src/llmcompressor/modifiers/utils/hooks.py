@@ -177,7 +177,7 @@ class LayerCompressorMixin(HooksMixin):
     ):
         print(f"post {name}")
 
-        if module.gptq_hessian_samples >= 512:
+        if module.gptq_hessian_samples >= 20:
             # compress
             print(f"compressing {name}")
             if True: #self.true_sequential:
@@ -232,26 +232,27 @@ class LayerCompressorMixin(HooksMixin):
                 for batch_index in range(input.shape[0])
             ]
 
-        # forward with individuals (might not be necessary)
-        forward_call = (layer._slow_forward if torch._C._get_tracing_state() else layer.forward)
-        self._module_outputs[layer] = []
-        for batch_index in range(input.size(0) - 1):
-            print("layer forward")
-            output = forward_call(input[batch_index: batch_index + 1], *args[1:], **kwargs)
-            self._module_outputs[layer].append(output)
-            pass
 
-        # last sample can be passed normally
-        print("last layer forward")
+        if len(self._module_outputs[layer]) >= 20 - 1:
+            # last sample can be passed normally
+            print("last layer forward")
+            return (input[-1:], *args[1:]), kwargs
+        
+        else:
+            forward_call = (layer._slow_forward if torch._C._get_tracing_state() else layer.forward)
+            for batch_index in range(input.size(0)):
+                print("layer forward")
+                output = forward_call(input[batch_index: batch_index + 1], *args[1:], **kwargs)
+                self._module_outputs[layer].append(output)
 
-        return (input[-1:], *args[1:]), kwargs
+            raise EarlyStopException(torch.tensor([]), None)
 
 
     @HooksMixin.hook
     def layer_post_forward(
         self,
         name: str,
-        module: torch.nn.Module,
+        layer: torch.nn.Module,
         args: Tuple[Any, ...],
         kwargs: Dict[str, Any],
         output: Tuple[Any, ...],
@@ -260,10 +261,10 @@ class LayerCompressorMixin(HooksMixin):
         breakpoint()
 
         # capture last sample
-        self._module_outputs[module].append(output)
+        self._module_outputs[layer].append(output)
 
         # batch outputs
-        outputs = self._module_outputs[module]
+        outputs = self._module_outputs[layer]
         batched_outputs = tuple(
             torch.concat(tuple(
                 outputs[sample_index][output_index]
@@ -271,19 +272,19 @@ class LayerCompressorMixin(HooksMixin):
             ))
             for output_index in range(len(outputs[0]))
         )
-        del self._module_outputs[module]
+        del self._module_outputs[layer]
 
         if not self.true_sequential:
             pass  # run again
 
-            del self._module_inputs[module] 
+            del self._module_inputs[layer] 
 
         return batched_outputs
     
         if not self.true_sequential:
             # rerun with (now) compressed weights
             with HooksMixin.disable_hooks():
-                compressed_output = module(*args, **kwargs)
+                compressed_output = layer(*args, **kwargs)
 
             error = torch.nn.functional.l1_loss(output[0], compressed_output[0])
             logger.info(f"Mean output error from quantization: {error:.3f}")
