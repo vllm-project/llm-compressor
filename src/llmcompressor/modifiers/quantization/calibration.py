@@ -240,12 +240,9 @@ def freeze_module_quantization(module: Module):
         # nothing to do, already frozen
         return
 
-    # delete observers from module if not dynamic
-    if hasattr(module, "input_observer"):
-        delattr(module, "input_observer")
-    if hasattr(module, "weight_observer"):
-        delattr(module, "weight_observer")
-    if hasattr(module, "output_observer"):
-        delattr(module, "output_observer")
+    for name in ("input", "weight", "output"):
+        obs_name = f"{name}_observer"
+        if hasattr(module, obs_name):
+            delattr(module, obs_name)
 
     module.quantization_status = QuantizationStatus.FROZEN
