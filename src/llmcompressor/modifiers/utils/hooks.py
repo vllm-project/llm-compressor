@@ -1,13 +1,15 @@
 import contextlib
 from abc import abstractmethod
 from functools import partial
-from typing import Any, Callable, ClassVar, Dict, List, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Set, Tuple
 
 import torch
 from loguru import logger
 from pydantic import BaseModel
 from torch.utils.hooks import RemovableHandle
 
+from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import add_batch
+from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.utils.helpers import getattr_chain
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import get_layers, get_no_split_params
@@ -100,6 +102,9 @@ class LayerCompressorMixin(HooksMixin):
 
     _layer_index = 0
     _num_layers = 0
+    _pre_active: Set[torch.nn.Module] = set()
+    _module_inputs: List[Tuple[Tuple[Any, ...], Dict[str, Any]]] = []
+    _module_outputs: List[Tuple[Any, ...]] = []
 
     @abstractmethod
     def compress_module(
@@ -125,7 +130,7 @@ class LayerCompressorMixin(HooksMixin):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 pre_hook = partial(self.target_pre_forward, name)
                 post_hook = partial(self.target_post_forward, name)
-                self.register_hook(module.register_forward_pre_hook(pre_hook))
+                self.register_hook(module.register_forward_pre_hook(pre_hook, with_kwargs=True))
                 self.register_hook(module.register_forward_hook(post_hook))
 
             if name in layers.keys():
@@ -138,13 +143,44 @@ class LayerCompressorMixin(HooksMixin):
 
     @HooksMixin.hook
     def target_pre_forward(
-        self, name: str, module: torch.nn.Module, args: Tuple[Any, ...]
+        self, name: str, module: torch.nn.Module, args: Tuple[Any, ...], kwargs: Dict[str, Any]
     ):
-        if self.true_sequential:
-            # compress first so output is from compressed weights
+        if module in self._pre_active:
+            return
+
+        if not hasattr(module, "gptq_hessian"):
+            print("init hessian")
+            num_columns = module.weight.shape[1]
+
+            # hessian starts offloaded
+            module.gptq_hessian = torch.zeros((num_columns, num_columns), dtype=torch.float32, device="cpu")
+            module.gptq_hessian_samples = 0
+
+        print("add to hessian")
+        # onload and offload
+        module.gptq_hessian = add_batch(
+            module.gptq_hessian.to(args[0].device),
+            module.gptq_hessian_samples,
+            module,
+            args[0]
+        ).to("cpu")
+        module.gptq_hessian_samples += 1
+        self._module_inputs.append((args, kwargs))
+        
+        if module.gptq_hessian_samples >= 2:
+            print("compress")
             with CompressionLogger(module) as comp_logger:
                 loss = self.compress_module(name, module, args)
                 comp_logger.set_loss(loss)
+
+            self._pre_active.add(module)
+            for args, kwargs in self._module_inputs:
+                try:
+                    module(*args, **kwargs)
+                except EarlyStopException:
+                    pass
+
+        raise EarlyStopException(torch.Tensor([]), None)
 
     @HooksMixin.hook
     def target_post_forward(
@@ -152,8 +188,29 @@ class LayerCompressorMixin(HooksMixin):
         name: str,
         module: torch.nn.Module,
         args: Tuple[Any, ...],
-        _output: Tuple[Any, ...],
+        output: Tuple[Any, ...],
     ):
+        print("target_post_forward")
+        return
+        # accumulate
+        self._module_outputs.append(output)
+
+        if len(self._module_outputs) == 2:
+            with CompressionLogger(module) as comp_logger:
+                loss = self.compress_module(name, module, args)
+                comp_logger.set_loss(loss)
+
+        ret = self._module_outputs
+        self._module_outputs = []
+
+        return ret
+
+        if self.true_sequential:
+            # compress first so output is from compressed weights
+            with CompressionLogger(module) as comp_logger:
+                loss = self.compress_module(name, module, args)
+                comp_logger.set_loss(loss)
+
         if not self.true_sequential:
             # compress after so output is from uncompressed weights
             with CompressionLogger(module) as comp_logger:

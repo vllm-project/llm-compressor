@@ -203,13 +203,11 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
         # trigger hessian hooks
-        self.register_hessians(state.model)
+        self.register_hooks(state.model)
         with calibration_forward_context(state.model):
             run_calibration_forward(state.model, state.data.calib, mask_padding=True)
-        self.remove_hooks()
 
-        self.register_hooks(state.model)
-        state.model(**state.model.dummy_inputs)
+        #state.model(**state.model.dummy_inputs)
         self.remove_hooks()
 
         # freeze quantization
@@ -227,30 +225,6 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             self._quantization_modifier.finalize(state, **kwargs)
 
         return True
-    
-    def hessian_hook(self, module, args):
-        # onload and offload
-        module.gptq_hessian = add_batch(
-            module.gptq_hessian.to(args[0].device),
-            module.gptq_hessian_samples,
-            module,
-            args[0]
-        ).to("cpu")
-        module.gptq_hessian_samples += 1
-    
-    def register_hessians(self, model: torch.nn.Module):
-        for module in model.modules():
-            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
-                num_columns = module.weight.shape[1]
-
-                # hessian starts offloaded
-                module.gptq_hessian = torch.zeros((num_columns, num_columns), dtype=torch.float32, device="cpu")
-                module.gptq_hessian_samples = 0
-
-                self.register_hook(module.register_forward_pre_hook(self.hessian_hook))
-
-
-        
 
     def calibration_forward(
         self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
