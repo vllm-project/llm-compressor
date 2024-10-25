@@ -36,7 +36,7 @@ def add_batch(H: torch.Tensor, nsamples: int , module: torch.nn.Module, inp: tor
     inp = math.sqrt(2 / nsamples) * inp
     H += inp.matmul(inp.t())
 
-    return H
+    return H, nsamples
 
 
 def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:

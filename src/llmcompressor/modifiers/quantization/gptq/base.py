@@ -202,10 +202,8 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
-        # trigger hessian hooks
         self.register_hooks(state.model)
-        with calibration_forward_context(state.model):
-            run_calibration_forward(state.model, state.data.calib, mask_padding=True)
+        self.calibration_forward(state.model, state.data.calib)
 
         #state.model(**state.model.dummy_inputs)
         self.remove_hooks()

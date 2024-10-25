@@ -1,7 +1,7 @@
 import contextlib
 from abc import abstractmethod
 from functools import partial
-from typing import Any, Callable, ClassVar, Dict, List, Set, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Set, Tuple, Union
 
 import torch
 from loguru import logger
@@ -104,7 +104,10 @@ class LayerCompressorMixin(HooksMixin):
     _num_layers = 0
     _pre_active: Set[torch.nn.Module] = set()
     _module_inputs: List[Tuple[Tuple[Any, ...], Dict[str, Any]]] = []
-    _module_outputs: List[Tuple[Any, ...]] = []
+    _module_outputs: Union[List[Tuple[Any, ...]], torch.Tensor] = []
+
+    _layer_inputs: List[Tuple[Tuple[Any, ...], Dict[str, Any]]] = []
+    _layer_outputs: List[Tuple[Any, ...]] = []
 
     @abstractmethod
     def compress_module(
@@ -136,7 +139,7 @@ class LayerCompressorMixin(HooksMixin):
             if name in layers.keys():
                 pre_hook = partial(self.layer_pre_forward, name)
                 post_hook = partial(self.layer_post_forward, name)
-                self.register_hook(module.register_forward_pre_hook(pre_hook))
+                self.register_hook(module.register_forward_pre_hook(pre_hook, with_kwargs=True))
                 self.register_hook(
                     module.register_forward_hook(post_hook, with_kwargs=True)
                 )
@@ -145,42 +148,42 @@ class LayerCompressorMixin(HooksMixin):
     def target_pre_forward(
         self, name: str, module: torch.nn.Module, args: Tuple[Any, ...], kwargs: Dict[str, Any]
     ):
-        if module in self._pre_active:
-            return
+        input = args[0]
 
+        # compute hessian
         if not hasattr(module, "gptq_hessian"):
-            print("init hessian")
-            num_columns = module.weight.shape[1]
 
-            # hessian starts offloaded
-            module.gptq_hessian = torch.zeros((num_columns, num_columns), dtype=torch.float32, device="cpu")
+            num_columns = module.weight.shape[1]
+            module.gptq_hessian = torch.zeros((num_columns, num_columns), dtype=torch.float32, device=input.device)
             module.gptq_hessian_samples = 0
 
-        print("add to hessian")
-        # onload and offload
-        module.gptq_hessian = add_batch(
-            module.gptq_hessian.to(args[0].device),
+        module.gptq_hessian, module.gptq_hessian_samples = add_batch(
+            module.gptq_hessian,
             module.gptq_hessian_samples,
             module,
-            args[0]
-        ).to("cpu")
-        module.gptq_hessian_samples += 1
-        self._module_inputs.append((args, kwargs))
-        
+            input
+        )
+
         if module.gptq_hessian_samples >= 2:
-            print("compress")
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_module(name, module, args)
-                comp_logger.set_loss(loss)
+            # if true, compress
+            if True: #self.true_sequential:
+                with CompressionLogger(module) as comp_logger:
+                    loss = self.compress_module(name, module, args)
+                    comp_logger.set_loss(loss)
 
-            self._pre_active.add(module)
-            for args, kwargs in self._module_inputs:
-                try:
-                    module(*args, **kwargs)
-                except EarlyStopException:
-                    pass
+        else:
+            raise EarlyStopException(torch.Tensor([]), None)
 
-        raise EarlyStopException(torch.Tensor([]), None)
+        # forward with individuals
+        forward_call = (module._slow_forward if torch._C._get_tracing_state() else module.forward)
+        self._module_outputs = [
+            forward_call(input[batch_index: batch_index + 1])
+            for batch_index in range(input.shape[0])
+        ]
+
+        self._module_outputs = torch.concat(self._module_outputs)
+
+        return (input[0:1], *args[1:]), kwargs
 
     @HooksMixin.hook
     def target_post_forward(
@@ -191,7 +194,11 @@ class LayerCompressorMixin(HooksMixin):
         output: Tuple[Any, ...],
     ):
         print("target_post_forward")
-        return
+
+        ret = self._module_outputs
+        self._module_outputs = []
+        return ret
+
         # accumulate
         self._module_outputs.append(output)
 
@@ -218,10 +225,13 @@ class LayerCompressorMixin(HooksMixin):
                 comp_logger.set_loss(loss)
 
     @HooksMixin.hook
-    def layer_pre_forward(self, _name: str, _module: torch.nn.Module, _args: Any):
+    def layer_pre_forward(self, _name: str, layer: torch.nn.Module, _args: Any, kwargs):
         logger.info(
             f"\n===== Compressing layer {self._layer_index}/{self._num_layers} ====="
         )
+
+        
+
 
     @HooksMixin.hook
     def layer_post_forward(
