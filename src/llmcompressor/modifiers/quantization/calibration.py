@@ -69,7 +69,10 @@ def call_observer(module: Module, base_name: str, value: torch.Tensor):
     observer = getattr(module, f"{base_name}_observer")
     g_idx = getattr(module, "weight_g_idx", None)
 
-    updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+    if base_name == "weight":
+        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+    else:
+        updated_scale, updated_zero_point = observer(value)
 
     # update scale and zero point
     update_parameter_data(module, updated_scale, f"{base_name}_scale")

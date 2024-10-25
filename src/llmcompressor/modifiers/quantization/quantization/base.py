@@ -276,6 +276,8 @@ class QuantizationModifier(Modifier):
         if not quantization_scheme:
             return
 
+        pre_hook_handle = None
+        post_hook_handle = None
         is_attention_module_ = is_attention_module(module)
         input_quant = quantization_scheme.input_activations
         output_quant = quantization_scheme.output_activations
@@ -287,24 +289,26 @@ class QuantizationModifier(Modifier):
         # Calibrate inputs if an input_quant is provided and not running dynamic quant
         if calibrate_inputs:
             pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
-            self.calibration_hooks_.append(pre_hook_handle)
 
         if output_quant:
-            output_callable_ = None
-            # hooks for attn modules if running kv_cache
+            # hooks for attn modules if running kv_cache quant
             if is_attention_module_:
                 pre_hook_handle = module.register_forward_pre_hook(
                     calibrate_kv_cache_input_hook(), with_kwargs=True
                 )
-                self.calibration_hooks_.append(pre_hook_handle)
-                output_callable_ = calibrate_kv_cache_output_hook
+                post_hook_handle = module.register_forward_hook(
+                    calibrate_kv_cache_output_hook()
+                )
             # hooks for output quant if not running dynamic quant
             elif not output_quant.dynamic:
-                output_callable_ = calibrate_output_hook
+                post_hook_handle = module.register_forward_hook(calibrate_output_hook())
 
-            if output_callable_:
-                post_hook_handle = module.register_forward_hook(output_callable_())
-                self.calibration_hooks_.append(post_hook_handle)
+        if pre_hook_handle:
+            logger.debug(f"Add {pre_hook_handle} for calibration")
+            self.calibration_hooks_.append(pre_hook_handle)
+        if post_hook_handle:
+            logger.debug(f"Add {post_hook_handle} for calibration")
+            self.calibration_hooks_.append(post_hook_handle)
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")
