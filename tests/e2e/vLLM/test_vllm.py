@@ -69,7 +69,7 @@ class TestvLLM(unittest.TestCase):
         self.device = "cuda:0"
         self.oneshot_kwargs = {}
         self.num_calibration_samples = 256
-        self.max_seq_length = 1048
+        self.max_seq_length = 2048
         self.prompts = [
             "The capital of France is",
             "The president of the US is",
@@ -77,6 +77,8 @@ class TestvLLM(unittest.TestCase):
         ]
 
     def test_vllm(self):
+        import torch
+
         # Load model.
         loaded_model = SparseAutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype="auto"
@@ -120,7 +122,11 @@ class TestvLLM(unittest.TestCase):
         # Run vLLM with saved model
         print("================= RUNNING vLLM =========================")
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        llm = LLM(model=self.save_dir)
+        if "W4A16_2of4" in self.scheme:
+            # required by the kernel
+            llm = LLM(model=self.save_dir, dtype=torch.float16)
+        else:
+            llm = LLM(model=self.save_dir)
         outputs = llm.generate(self.prompts, sampling_params)
         print("================= vLLM GENERATION ======================")
         for output in outputs:
@@ -129,7 +135,6 @@ class TestvLLM(unittest.TestCase):
             generated_text = output.outputs[0].text
             print("PROMPT", prompt)
             print("GENERATED TEXT", generated_text)
-
         print("================= UPLOADING TO HUB ======================")
         self.oneshot_kwargs["model"].push_to_hub(f"nm-testing/{self.save_dir}-e2e")
         tokenizer.push_to_hub(f"nm-testing/{self.save_dir}-e2e")
