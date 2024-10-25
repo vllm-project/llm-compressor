@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
-from compressed_tensors.quantization import (  # set_module_for_calibration,
+from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
@@ -99,7 +99,6 @@ class QuantizationModifier(Modifier):
         if self.calculate_start() == -1:  # one-shot
             self._check_calibration_data(config)
             module.apply(update_weight_zp_scale)
-            # module.apply(set_module_for_calibration)
             self.calibration_hooks_ = []
             self._calibrate_if_possible(module)
             self._check_token_distribution(
@@ -111,7 +110,6 @@ class QuantizationModifier(Modifier):
 
     def on_start(self, state: State, event: Event, **kwargs):
         module = state.model
-        # module.apply(set_module_for_calibration)
         module.apply(update_weight_zp_scale)
 
     def on_update(self, state: State, event: Event, **kwargs):

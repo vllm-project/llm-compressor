@@ -1,10 +1,9 @@
-import logging
-
 import torch
 from compressed_tensors.quantization import QuantizationStatus, is_attention_module
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
+from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
@@ -20,8 +19,6 @@ __all__ = [
     "set_unset_kv_cache",
     "freeze_module_quantization",
 ]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def initialize_observer(
@@ -84,7 +81,7 @@ def update_weight_zp_scale(module: Module):
     marks a layer as ready for calibration which activates observers
     to update scales and zero points on each forward pass
 
-    apply to full model with `model.apply(set_module_for_calibration)`
+    apply to full model with `model.apply(update_weight_zp_scale)`
 
     :param module: module to set for calibration
     :param quantize_weights_upfront: whether to automatically
@@ -95,8 +92,11 @@ def update_weight_zp_scale(module: Module):
         return
 
     status = getattr(module, "quantization_status", None)
-    if not status or status != QuantizationStatus.INITIALIZED:
-        _LOGGER.warning(
+    if not status:
+        # not set to initialize; no scales/zp to update
+        return
+    if status != QuantizationStatus.INITIALIZED:
+        logger.warning(
             f"Attempting set module with status {status} to calibration mode. "
             f"but status is not {QuantizationStatus.INITIALIZED} - you may "
             "be calibrating an uninitialized module which may fail or attempting "
