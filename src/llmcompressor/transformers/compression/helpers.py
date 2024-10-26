@@ -5,6 +5,7 @@ import psutil
 import torch
 from accelerate import infer_auto_device_map, init_empty_weights
 from accelerate.accelerator import get_state_dict_offloaded_model
+from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization.utils import iter_named_leaf_modules, module_type
 from torch.nn.modules import Linear
 from tqdm import tqdm
@@ -13,8 +14,6 @@ from transformers import AutoModelForCausalLM
 from llmcompressor.pytorch.utils import get_linear_layers
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils.pytorch import get_layers, get_no_split_params
-
-from compressed_tensors import is_module_offloaded
 
 __ALL__ = [
     "tensor_follows_mask_structure",
