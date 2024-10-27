@@ -252,7 +252,10 @@ class SessionManagerMixIn:
         return super().create_scheduler(num_training_steps, optimizer)
 
     def training_step(
-        self, model: Module, inputs: Dict[str, Union[torch.Tensor, Any]]
+        self,
+        model: torch.nn.Module,
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        num_items_in_batch: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Overrides the Trainer's training step to trigger the batch_start callback to
@@ -265,12 +268,16 @@ class SessionManagerMixIn:
         self._check_super_defined("training_step")
 
         callbacks.batch_start(batch_data=inputs)
-        model_outputs = super().training_step(model, inputs)
+        model_outputs = super().training_step(model, inputs, num_items_in_batch)
 
         return model_outputs
 
     def compute_loss(
-        self, model: Module, inputs: Dict[str, Any], return_outputs: bool = False
+        self,
+        model: Module,
+        inputs: Dict[str, Any],
+        return_outputs: bool = False,
+        num_items_in_batch: Optional[int] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
         """
         Override for the compute_loss to factor trigger callbacks and filter columns
@@ -286,7 +293,7 @@ class SessionManagerMixIn:
 
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
-        loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
+        loss = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
 
         # take the mean across multiple GPUs
         # this is done outside the compute_loss function in the parent, replicating it
