@@ -6,7 +6,12 @@ from typing import Optional
 import torch
 import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors import ModelCompressor, SparsityCompressionConfig
+from compressed_tensors import (
+    ModelCompressor,
+    SparsityCompressionConfig,
+    is_module_offloaded,
+    update_parameter_data,
+)
 from loguru import logger
 from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
@@ -163,8 +168,16 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
     ):
         input_embed = model.get_input_embeddings()
         output_embed = model.get_output_embeddings()
+
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
-            input_embed.weight.data = input_embed.weight.data.clone()
-            output_embed.weight.data = output_embed.weight.data.clone()
+            for module in (input_embed, output_embed):
+                offloaded = is_module_offloaded(module)
+                if offloaded:
+                    module._hf_hook.pre_forward(module)
+
+                update_parameter_data(module, module.weight.data.clone(), "weight")
+
+                if offloaded:
+                    module._hf_hook.post_forward(module, None)
 
     return model
