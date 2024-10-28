@@ -297,7 +297,7 @@ class SessionManagerMixIn:
             model,
             inputs,
             return_outputs=return_outputs,
-            num_items_in_batch=num_items_in_batch
+            num_items_in_batch=num_items_in_batch,
         )
 
         # take the mean across multiple GPUs
