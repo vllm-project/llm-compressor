@@ -5,6 +5,7 @@ import psutil
 import torch
 from accelerate import infer_auto_device_map, init_empty_weights
 from accelerate.accelerator import get_state_dict_offloaded_model
+from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization.utils import iter_named_leaf_modules, module_type
 from torch.nn.modules import Linear
 from tqdm import tqdm
@@ -291,11 +292,20 @@ def is_sparse_compression_target(
     :return: whether or not the module is a target for sparsity compression,
         i.e True if it is sparse and follows the sparsity structure, else False
     """
-    return (
+    offloaded = is_module_offloaded(module)
+    if offloaded:
+        module._hf_hook.pre_forward(module)
+
+    result = (
         hasattr(module, "weight")
         and tensor_sparsity(module.weight) >= sparsity_threshold
         and tensor_follows_mask_structure(tensor=module.weight, mask=sparsity_structure)
     )
+
+    if offloaded:
+        module._hf_hook.post_forward(module, None)
+
+    return result
 
 
 def _get_sparse_targets_ignore_dicts(
