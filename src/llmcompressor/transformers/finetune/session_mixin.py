@@ -249,7 +249,9 @@ class SessionManagerMixIn:
 
         # TODO: we don't currently have a LR scheduler in the new modifier framework
         self._check_super_defined("create_scheduler")
-        return super().create_scheduler(num_training_steps, optimizer)
+        return super().create_scheduler(
+            num_training_steps=num_training_steps, optimizer=optimizer
+        )
 
     def training_step(
         self,
@@ -268,7 +270,9 @@ class SessionManagerMixIn:
         self._check_super_defined("training_step")
 
         callbacks.batch_start(batch_data=inputs)
-        model_outputs = super().training_step(model, inputs, num_items_in_batch)
+        model_outputs = super().training_step(
+            model=model, inputs=inputs, num_items_in_batch=num_items_in_batch
+        )
 
         return model_outputs
 
@@ -294,8 +298,8 @@ class SessionManagerMixIn:
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
         loss = super().compute_loss(
-            model,
-            inputs,
+            model=model,
+            inputs=inputs,
             return_outputs=return_outputs,
             num_items_in_batch=num_items_in_batch,
         )
@@ -344,7 +348,10 @@ class SessionManagerMixIn:
         inputs = {k: inputs[k] for k in inputs if k in self._model_signature_columns}
 
         model_outputs = super().prediction_step(
-            model, inputs, prediction_loss_only, ignore_keys
+            model=model,
+            inputs=inputs,
+            prediction_loss_only=prediction_loss_only,
+            ignore_keys=ignore_keys,
         )
         return model_outputs
 
