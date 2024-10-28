@@ -40,7 +40,6 @@ apply(
     dataset=dataset,
     recipe=recipe,
     bf16=bf16,
-    output_dir=output_dir,
     splits=splits,
     max_seq_length=max_seq_length,
     num_calibration_samples=num_calibration_samples,
@@ -52,3 +51,5 @@ apply(
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
 )
+
+model.save_pretrained(output_dir)

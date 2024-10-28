@@ -22,6 +22,5 @@ oneshot(
     model=model,
     recipe=recipe,
     tokenizer=AutoTokenizer.from_pretrained(MODEL_ID),
-    output_dir=OUTPUT_DIR,
 )
 model.save_pretrained(OUTPUT_DIR)

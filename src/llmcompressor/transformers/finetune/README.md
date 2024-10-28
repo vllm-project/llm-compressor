@@ -10,7 +10,6 @@ llmcompressor.transformers.text_generation.train
     --distill_teacher PATH_TO_TEACHER
     --dataset DATASET_NAME
     --recipe PATH_TO_RECIPE
-    --output_dir PATH_TO_OUTPUT
     --num_train_epochs 1
     --splits "train"
 ```
@@ -33,7 +32,6 @@ accelerate launch
     --distill_teacher PATH_TO_TEACHER
     --dataset DATASET_NAME
     --recipe PATH_TO_RECIPE
-    --output_dir PATH_TO_OUTPUT
     --num_train_epochs 1
     --splits "train"
 ```
@@ -44,8 +42,9 @@ See [configure_fsdp.md](../../../../examples/finetuning/configure_fsdp.md) for a
 
 ```python
 from llmcompressor.transformers import train
+from transformers import AutoModelForCausalLM
 
-model = "./obcq_deployment"
+model = AutoModelForCausalLM.from_pretrained("./obcq_deployment")
 teacher_model = "Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
@@ -61,13 +60,13 @@ train(
     model=model,
     distill_teacher=teacher_model,
     dataset=dataset_name,
-    output_dir=output_dir,
     recipe=recipe,
     num_train_epochs=num_train_epochs,
     overwrite_output_dir=overwrite_output_dir,
     concatenate_data = concatenate_data,
     splits = splits
 )
+model.save_pretrained(output_dir)
 ```
 
 ## Additional Configuration
@@ -91,7 +90,6 @@ accelerate launch
     --max_seq_len OPTIONAL
     --concatenate_data OPTIONAL
     --recipe PATH_TO_RECIPE
-    --output_dir PATH_TO_OUTPUT
     --splits "train"
     --pad_to_max_length False
 ```
@@ -100,8 +98,9 @@ accelerate launch
 ## Running One-shot from Python (without FSDP)
 ```python
 from llmcompressor.transformers import oneshot
+from transformers import AutoModelForCausalLM
 
-model = "Xenova/llama2.c-stories15M"
+model = AutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
 dataset_name = "open_platypus"
 concatenate_data = False
 pad_to_max_length = False
@@ -116,13 +115,13 @@ oneshot(
     model=model,
     dataset=dataset_name,
     concatenate_data=concatenate_data,
-    output_dir=output_dir,
     recipe=recipe,
     overwrite_output_dir=overwrite_output_dir,
     concatenate_data = concatenate_data,
     pad_to_max_length = pad_to_max_length,
     splits = splits
 )
+model.save_pretrained(output_dir)
 ```
 
 ## Running Multi-Stage Recipes
@@ -141,8 +140,11 @@ of a staged recipe for Llama.
 test_multi.py
 ```python
 from llmcompressor.transformers import apply
+from transformers import AutoModelForCausalLM
 
-model = "../ml-experiments/nlg-text_generation/llama_pretrain-llama_7b-base/dense/training"
+model = AutoModelForCausalLM.from_pretrained(
+    "../ml-experiments/nlg-text_generation/llama_pretrain-llama_7b-base/dense/training"
+)
 dataset_name = "open_platypus"
 concatenate_data = False
 run_stages=True
@@ -159,7 +161,6 @@ apply(
     model_name_or_path=model,
     dataset_name=dataset_name,
     run_stages=run_stages,
-    output_dir=output_dir,
     recipe=recipe,
     num_train_epochs=num_train_epochs,
     overwrite_output_dir=overwrite_output_dir,
@@ -167,4 +168,5 @@ apply(
     remove_unused_columns = False,
     splits = splits
 )
+model.save_pretrained(output_dir)
 ```

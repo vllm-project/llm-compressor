@@ -40,7 +40,6 @@ response_template = "Answer:"
 collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer)
 
 training_args = TrainingArguments(
-    output_dir=output_dir,
     num_train_epochs=0.6,
     logging_steps=50,
     gradient_checkpointing=True,
@@ -57,4 +56,4 @@ trainer = SFTTrainer(
     max_seq_length=512,
 )
 trainer.train()
-trainer.save_model()
+trainer.save_model(output_dir)

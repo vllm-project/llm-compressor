@@ -46,7 +46,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=SAVE_COMPRESSED,
     overwrite_output_dir=True,
-    output_dir=OUTPUT_DIR,
 )
 model.save_pretrained(OUTPUT_DIR)
 

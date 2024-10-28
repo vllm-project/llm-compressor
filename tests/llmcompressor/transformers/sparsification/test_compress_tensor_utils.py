@@ -10,7 +10,7 @@ from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
@@ -233,16 +233,16 @@ def test_quant_model_reload(format, dtype, tmp_path):
 @pytest.mark.parametrize(
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
-        # # dtype
-        # (False, torch.float16, False, "cpu"),
-        # (False, torch.float16, True, "cpu"),
-        # (False, torch.float32, False, "cpu"),
-        # (False, torch.float32, True, "cpu"),
-        # # offloading
+        # dtype
+        (False, torch.float16, False, "cpu"),
+        (False, torch.float16, True, "cpu"),
+        (False, torch.float32, False, "cpu"),
+        (False, torch.float32, True, "cpu"),
+        # offloading
         (True, torch.float16, False, "cpu"),
         (True, torch.float32, False, "cpu"),
-        # # (True, torch.float16, True, "cpu"),  # TODO: fails
-        # # (True, torch.float32, True, "cpu"),  # TODO: fails
+        # (True, torch.float16, True, "cpu"),  # TODO: fails
+        # (True, torch.float32, True, "cpu"),  # TODO: fails
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
@@ -256,16 +256,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         device_map=device_map,
     )
     if offload:
-        # model.to("cpu")
         model = cpu_offload(model)
-
-    tokenizer = AutoTokenizer.from_pretrained(model_path)
-    breakpoint()
-    dummy_input = tokenizer("Hello", return_tensors="pt").input_ids.to(model.device)
-
-    # with torch.no_grad():
-    #     model(dummy_input)
-    model(dummy_input)
 
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)

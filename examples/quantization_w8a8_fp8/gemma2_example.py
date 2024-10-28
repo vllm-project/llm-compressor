@@ -21,7 +21,7 @@ recipe = QuantizationModifier(
 
 # 3) Apply quantization and save in compressed-tensors format.
 OUTPUT_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-oneshot(model=model, recipe=recipe, output_dir=OUTPUT_DIR, tokenizer=tokenizer)
+oneshot(model=model, recipe=recipe, tokenizer=tokenizer)
 model.save_pretrained(OUTPUT_DIR)
 
 # Confirm generations of the quantized model look sane.

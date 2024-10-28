@@ -73,7 +73,6 @@ oneshot(
     model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     dataset="open_platypus",
     recipe=recipe,
-    output_dir="TinyLlama-1.1B-Chat-v1.0-INT8",
     max_seq_length=2048,
     num_calibration_samples=512,
 )
