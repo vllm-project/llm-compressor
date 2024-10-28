@@ -43,6 +43,7 @@ from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
@@ -50,6 +51,7 @@ from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_tokenizer_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
+from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 def train(**kwargs):
@@ -377,7 +379,11 @@ def main(
         reset_session()
 
     # wrap model.save_pretrained
-    modify_save_pretrained(stage_runner.trainer, stage_runner.tokenizer)
+    model = trainer.model
+    if is_fsdp_model(model):
+        modify_fsdp_model_save_pretrained(trainer, tokenizer)
+    else:
+        modify_save_pretrained(model)
 
 
 if __name__ == "__main__":

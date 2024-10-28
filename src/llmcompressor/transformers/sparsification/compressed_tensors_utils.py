@@ -19,18 +19,80 @@ from llmcompressor.transformers.compression.quantization_format import (
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
-
-# from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.utils.fsdp.helpers import (
     find_and_move_state_dicts_to_cpu,
-    is_fsdp_model,
     unwrap_and_export_model,
 )
 
-__all__ = ["modify_save_pretrained"]
+__all__ = ["modify_save_pretrained", "modify_fsdp_model_save_pretrained"]
 
 
-def modify_save_pretrained(trainer, tokenizer):
+def modify_fsdp_model_save_pretrained(trainer, tokenizer):
+    """
+    Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
+    supports compression
+    """
+
+    def save_pretrained_compressed(save_pretrained_method):
+        if getattr(save_pretrained_method, "_overridden", False):
+            # `model.save_pretrained` has already been replaced, return.
+            return save_pretrained_method
+
+        # Keep a weak reference to the model class and unbound save_pretrained
+        # method so we can call the original
+        original_save_pretrained = save_pretrained_method.__func__
+        del save_pretrained_method
+
+        @wraps(original_save_pretrained)
+        def save_pretrained_wrapper(
+            save_directory: str,
+            **kwargs,
+        ):
+            """
+            Wrapper around PreTrainedModel.save_pretrained(), adds functionality for
+            saving models in a compressed format on disk. The compression format is
+            saved to the model's config file
+
+            :param save_directory: output directory to save model to
+            :param sparsity_config: optional sparsity config to compress model with,
+            if no config is provided it will be inferred from the model
+            :param quantization_format: optional compression format for quantized
+            models. If none is provided it will be inferred from the model
+            :param save_compressed: whether or not to compress the model on disk
+            :param skip_compression_stats: whether to skip the calculation of
+            compression statistics (such as global sparsity and sparsity structure) when
+            saving a model in dense format
+            :param kwargs: additional kwargs to pass on to model.save_pretrained
+            """
+            try:
+                trainer.save_model(output_dir=save_directory, _is_oneshot=True)
+            except AssertionError:
+                # fallback to this in the case of quantization
+                unwrap_and_export_model(
+                    model=trainer.model,
+                    accelerator=trainer.accelerator,
+                    output_dir=save_directory,
+                    tokenizer=tokenizer,
+                )
+                # only allow the main process move the state
+                # dicts to cpu
+                if trainer.accelerator.is_main_process:
+                    # assuming quantization is the last step
+                    # we no longer need the original model
+                    # and can safely delete it to save memory
+                    del trainer.model
+                    find_and_move_state_dicts_to_cpu(save_directory)
+
+        save_pretrained_wrapper._overriden = True
+        return save_pretrained_wrapper
+
+    # wrap save_pretrained
+    trainer.model.save_pretrained = save_pretrained_compressed(
+        trainer.model.save_pretrained
+    )
+
+
+def modify_save_pretrained(model: torch.nn.Module):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
     supports compression
@@ -73,82 +135,66 @@ def modify_save_pretrained(trainer, tokenizer):
             saving a model in dense format
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
-            model = trainer.model
-            if is_fsdp_model(model):
-                try:
-                    trainer.save_model(output_dir=save_directory, _is_oneshot=True)
-                except AssertionError:
-                    # fallback to this in the case of quantization
-                    unwrap_and_export_model(
-                        model=trainer.model,
-                        accelerator=trainer.accelerator,
-                        output_dir=save_directory,
-                        tokenizer=tokenizer,
-                    )
-                    # only allow the main process move the state
-                    # dicts to cpu
-                    if trainer.accelerator.is_main_process:
-                        # assuming quantization is the last step
-                        # we no longer need the original model
-                        # and can safely delete it to save memory
-                        del trainer.model
-                        find_and_move_state_dicts_to_cpu(save_directory)
 
-            else:
-                # HACK: Override the dtype_byte_size function in transformers to
-                # support float8 types. Fix is posted upstream
-                # https://github.com/huggingface/transformers/pull/30488
-                transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
+            # patch a shared tensor bug in HF transformers
+            # https://github.com/huggingface/transformers/issues/33689
+            weight_untied_model = patch_tied_tensors_bug(model)
 
-                # state_dict gets passed in as a kwarg for FSDP models
-                state_dict = kwargs.pop("state_dict", None)
-                if state_dict is None:
-                    state_dict = get_state_dict_offloaded_model(model)
+            # HACK: Override the dtype_byte_size function in transformers to
+            # support float8 types. Fix is posted upstream
+            # https://github.com/huggingface/transformers/pull/30488
+            transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
 
-                compressor = get_model_compressor(
-                    model=model,
-                    sparsity_config=sparsity_config,
-                    quantization_format=quantization_format,
-                    save_compressed=save_compressed,
-                    skip_compression_stats=skip_compression_stats,
-                    state_dict=state_dict,
+            # state_dict gets passed in as a kwarg for FSDP models
+            state_dict = kwargs.pop("state_dict", None)
+            if state_dict is None:
+                state_dict = get_state_dict_offloaded_model(weight_untied_model)
+
+            compressor = get_model_compressor(
+                model=weight_untied_model,
+                sparsity_config=sparsity_config,
+                quantization_format=quantization_format,
+                save_compressed=save_compressed,
+                skip_compression_stats=skip_compression_stats,
+                state_dict=state_dict,
+            )
+
+            if compressor is None:
+                # model is not compressed or quantized, save as normal
+                original_save_pretrained_func = original_save_pretrained.__get__(
+                    weight_untied_model, model_class
+                )
+                original_save_pretrained_func(
+                    save_directory, state_dict=state_dict, **kwargs
+                )
+                return
+
+            # make sure we're on the main process when saving
+            if state_dict is not None and len(state_dict) > 0:
+                compressed_state_dict = compressor.compress(
+                    weight_untied_model, state_dict
                 )
 
-                if compressor is None:
-                    # model is not compressed or quantized, save as normal
-                    original_save_pretrained.__get__(model, model_class)(
-                        save_directory, state_dict=state_dict, **kwargs
-                    )
-                    return
+                kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
+                original_save_pretrained.__get__(weight_untied_model, model_class)(
+                    save_directory, state_dict=compressed_state_dict, **kwargs
+                )
+                compressor.update_config(save_directory)
 
-                # make sure we're on the main process when saving
-                if state_dict is not None and len(state_dict) > 0:
-                    compressed_state_dict = compressor.compress(model, state_dict)
+            recipe_path = os.path.join(save_directory, "recipe.yaml")
+            session = active_session()
+            recipe_yaml_str = session.get_serialized_recipe()
+            with open(recipe_path, "w") as fp:
+                fp.write(recipe_yaml_str)
 
-                    kwargs["safe_serialization"] = kwargs.get(
-                        "safe_serialization", True
-                    )
-                    original_save_pretrained.__get__(model, model_class)(
-                        save_directory, state_dict=compressed_state_dict, **kwargs
-                    )
-                    compressor.update_config(save_directory)
-
-                recipe_path = os.path.join(save_directory, "recipe.yaml")
-                session = active_session()
-                recipe_yaml_str = session.get_serialized_recipe()
-                with open(recipe_path, "w") as fp:
-                    fp.write(recipe_yaml_str)
-
-                # copy python files from cache dir to save_path if any
-                copy_python_files_from_model_cache(model, save_directory)
+            # copy python files from cache dir to save_path if any
+            copy_python_files_from_model_cache(weight_untied_model, save_directory)
 
         save_pretrained_wrapper._overriden = True
         return save_pretrained_wrapper
 
     # wrap save_pretrained
-    trainer.model.save_pretrained = save_pretrained_compressed(
-        trainer.model.save_pretrained
-    )
+    model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
 # HACK: Override the dtype_byte_size function in transformers to support float8 types
