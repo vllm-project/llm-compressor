@@ -152,7 +152,7 @@ def new_dtype_byte_size(dtype):
     return bit_size // 8
 
 
-def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
+def patch_tied_tensors_bug(model: torch.nn.Module):
     """
     Patches bug where HF transformers will fail to untie weights under specific
     circumstances (https://github.com/huggingface/transformers/issues/33689).
@@ -160,7 +160,6 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
     This function detects those cases and unties the tensors if applicable
 
     :param model: model to fix
-    :return: model with fixed parameters
     """
     if (
         hasattr(model.config, "tie_word_embeddings")
@@ -179,5 +178,3 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
 
                 if offloaded:
                     module._hf_hook.post_forward(module, None)
-
-    return model
