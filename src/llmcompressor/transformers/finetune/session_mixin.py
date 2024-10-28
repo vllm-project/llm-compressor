@@ -293,7 +293,12 @@ class SessionManagerMixIn:
 
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
-        loss = super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+        loss = super().compute_loss(
+            model,
+            inputs,
+            return_outputs=return_outputs,
+            num_items_in_batch=num_items_in_batch
+        )
 
         # take the mean across multiple GPUs
         # this is done outside the compute_loss function in the parent, replicating it
