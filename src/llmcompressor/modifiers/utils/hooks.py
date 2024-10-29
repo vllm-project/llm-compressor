@@ -136,7 +136,6 @@ class LayerCompressorMixin(HooksMixin):
                 self.register_hook(module.register_forward_pre_hook(pre_hook, with_kwargs=True))
                 self.register_hook(module.register_forward_hook(post_hook))
 
-                breakpoint()
                 register_offload_parameter(module, "weight_original", torch.nn.Parameter(module.weight.data.clone(), requires_grad=False))  # TODO: better name?
                 #register_offload_parameter(module, "weight_update_acc", torch.nn.Parameter(torch.zeros_like(module.weight.data), requires_grad=False))  # TODO: better name?
                 #register_offload_parameter(module, "num_samples", torch.nn.Parameter(torch.tensor(0.0), requires_grad=False))  # TODO: better name?
