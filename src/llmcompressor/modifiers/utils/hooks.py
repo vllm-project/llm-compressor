@@ -98,7 +98,6 @@ class LayerCompressorMixin(HooksMixin):
     :ivar compresss_module: Function to be called on target modules
     """
 
-    true_sequential: bool
     sequential_targets: bool
 
     _layer_index = 0
