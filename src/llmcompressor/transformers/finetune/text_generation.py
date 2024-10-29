@@ -299,9 +299,7 @@ def main(
     # distill TODO: support for different tokenizer for teacher?
     tokenizer = model_args.tokenizer
 
-    breakpoint()
     if isinstance(model, str) or isinstance(model, PosixPath):
-        breakpoint()
         (teacher, _model_path, model) = initialize_model_from_path(
             model_args,
             training_args,
