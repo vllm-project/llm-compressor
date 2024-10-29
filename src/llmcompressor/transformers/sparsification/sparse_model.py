@@ -108,7 +108,7 @@ def wrap_hf_model_class(hf_model_class: PreTrainedModel) -> PreTrainedModel:
 
         # patch a shared tensor bug in HF transformers
         # https://github.com/huggingface/transformers/issues/33689
-        model = patch_tied_tensors_bug(model)
+        patch_tied_tensors_bug(model)
 
         if model.dtype != model.config.torch_dtype:
             logger.warning(
