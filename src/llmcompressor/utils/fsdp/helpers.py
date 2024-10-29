@@ -27,7 +27,7 @@ from llmcompressor.utils.pytorch import set_layer
 
 try:
     from accelerate.hooks import AlignDevicesHook
-    from accelerate.utils import OffloadedWeightsLoader, PrefixedDataset
+    from accelerate.utils import OffloadedWeightsLoader, PrefixedDataset, set_module_tensor_to_device
     _has_accelerate = True
 except ImportError:
     _has_accelerate = False
@@ -339,16 +339,20 @@ def update_parameter_data(
 @contextlib.contextmanager
 def align_module(module: torch.nn.Module, execution_device: Optional[torch.device] = None):
     """
-    Move a module's parameters to the execution device
+    Moves a module's parameters to the specified execution device.
 
-    :param module: module with parameters to align
-    :param execution_device: if provided, overrides module execution device
-        within the context
+    Args:
+        module (torch.nn.Module): Module with parameters to align.
+        execution_device (Optional[torch.device]): If provided, overrides the
+            module's execution device within the context.
+
+    Yields:
+        None: Yields control while the module's parameters are aligned to the execution device.
     """
     if has_offloaded_params(module):
         if execution_device is not None:
             original_device = module._hf_hook.execution_device
-            module._hf_hook.execution_device = original_device
+            module._hf_hook.execution_device = execution_device
 
         module._hf_hook.pre_forward(module)
         yield
@@ -361,15 +365,24 @@ def align_module(module: torch.nn.Module, execution_device: Optional[torch.devic
         devices = {}
         for name, param in module.named_parameters():
             devices[name] = param.device
-            setattr(module, name, param.to(execution_device))
+            set_module_tensor_to_device(
+                module,
+                name,
+                execution_device,
+            )
 
         yield
 
-        for name, param_device in module.named_parameters:
-            setattr(module, name, param.to(param_device))
+        for name, param in module.named_parameters():
+            set_module_tensor_to_device(
+                module,
+                name,
+                devices[name],
+            )
 
     else:
         yield
+
 
 
 @contextlib.contextmanager
@@ -400,5 +413,21 @@ def register_offload_parameter(
 
 
 # upstream candidate?
-def deregister_offload_parameter():
-    raise NotImplementedError()
+def delete_offload_parameter(module: torch.nn.Module, name: str):
+    delattr(module, name)
+
+    if has_offloaded_params(module):
+        weights_map = module._hf_hook.weights_map
+
+        # for upstreaming, probably better to modify the weight map types so that they can be written to?
+        if isinstance(weights_map, PrefixedDataset):
+            dataset = weights_map.dataset
+            prefix = weights_map.prefix
+            if dataset is not None:
+                del dataset[f"{prefix}{name}"]
+            
+        elif isinstance(weights_map, OffloadedWeightsLoader):
+            raise NotImplementedError()
+        
+        elif weights_map is not None:
+            raise NotImplementedError(f"Cannot delete parameter from weights_map of type {type(weights_map)}")

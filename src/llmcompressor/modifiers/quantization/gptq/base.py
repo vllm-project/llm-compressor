@@ -27,7 +27,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forwar
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_batch_dataloader,
 )
-from llmcompressor.utils.fsdp.helpers import has_offloaded_params, register_offload_parameter, update_offload_parameter
+from llmcompressor.utils.fsdp.helpers import delete_offload_parameter, register_offload_parameter, update_offload_parameter
 from llmcompressor.utils.helpers import (
     align_module,
     calibration_forward_context,
@@ -236,11 +236,11 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
 
                 if self.naive_update:
                     weight = module.weight_acc / self._num_batches
-                    delattr(module, "weight_acc")
+                    delete_offload_parameter(module, "weight_acc")
 
                 else:
                     weight = module.weight
-                    delattr(module, "weight_original")
+                    delete_offload_parameter(module, "weight_original")
 
                 scale, zero_point = quant_args.get_observer()(weight)
                 weight = fake_quantize(
