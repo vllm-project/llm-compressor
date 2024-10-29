@@ -284,4 +284,3 @@ def get_model_compressor(
         sparsity_config=sparsity_config,
         quantization_format=quantization_format,
     )
-      

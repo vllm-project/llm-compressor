@@ -53,6 +53,9 @@ class SparseAutoModel:
             use the default dtype for the model. Defaults to "auto".
         :return: the created model for text generation
         """
+        logger.warning(
+            "SparseAutoModel is deprecated, " "please use AutoModelForCausalLM"
+        )
         model = AutoModelForCausalLM.from_pretrained(
             model_name_or_path,
             torch_dtype=torch_dtype,

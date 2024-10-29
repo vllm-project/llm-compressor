@@ -22,7 +22,6 @@ class TestOneshotAndFinetune(unittest.TestCase):
         splits = {"train": "train[:50%]", "calibration": "train[50%:60%]"}
         if self.dataset == "ultrachat-200k":
             splits = {"train": "train_gen[:50%]", "calibration": "train_gen[50%:60%]"}
-        breakpoint()
 
         apply(
             model=self.model,
