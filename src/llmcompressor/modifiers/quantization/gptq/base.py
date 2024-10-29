@@ -26,7 +26,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forwar
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_single_batch_dataloader,
 )
-from llmcompressor.utils.fsdp.helpers import has_offloaded_params, register_offload_parameter
+from llmcompressor.utils.fsdp.helpers import has_offloaded_params
 from llmcompressor.utils.helpers import (
     align_module,
     calibration_forward_context,
@@ -259,10 +259,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-        offloaded = is_module_offloaded(module)
-        if offloaded:
-            module._hf_hook.pre_forward(module)
-
+        with align_module(module):
             loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                 module.weight.data,
                 inp,
@@ -273,20 +270,13 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 original_weight=module.original_weight.data,
             )
 
-            delattr(module, "gptq_hessian")
-            delattr(module, "gptq_hessian_samples")
+            #weight_update_acc = module.weight_update_acc.data + quantized_weight
+            #update_parameter_data(module, quantized_weight, "weight")
 
-            # FUTURE: Implement learning rate modification to weight update
-
-            if is_module_offloaded(module):
-                update_prefix_dict(self.layer, "weight", quantized_weight)
             update_parameter_data(module, quantized_weight, "weight")
             update_parameter_data(module, scale, "weight_scale")
             update_parameter_data(module, zero_point, "weight_zero_point")
             update_parameter_data(module, g_idx, "weight_g_idx")
-
-        if offloaded:
-            module._hf_hook.post_forward(module, None)
 
         return loss
 

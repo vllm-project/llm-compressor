@@ -137,8 +137,8 @@ class LayerCompressorMixin(HooksMixin):
                 self.register_hook(module.register_forward_hook(post_hook))
 
                 #register_offload_parameter(module, "weight_original", torch.nn.Parameter(module.weight.data.clone(), requires_grad=False))  # TODO: better name?
-                register_offload_parameter(module, "weight_update_acc", torch.nn.Parameter(module.weight.data.clone(), requires_grad=False))  # TODO: better name?
-                register_offload_parameter(module, "num_samples", torch.nn.Parameter(torch.tensor(0.0), requires_grad=False))  # TODO: better name?
+                #register_offload_parameter(module, "weight_update_acc", torch.nn.Parameter(torch.zeros_like(module.weight.data), requires_grad=False))  # TODO: better name?
+                #register_offload_parameter(module, "num_samples", torch.nn.Parameter(torch.tensor(0.0), requires_grad=False))  # TODO: better name?
 
             if name in layers.keys():
                 pre_hook = partial(self.layer_pre_forward, name)
@@ -153,30 +153,12 @@ class LayerCompressorMixin(HooksMixin):
     def target_pre_forward(
         self, name: str, module: torch.nn.Module, args: Tuple[Any, ...], kwargs: Dict[str, Any]
     ):
-        input = args[0]
-
-        # compute hessian
-        if not hasattr(module, "gptq_hessian"):
-            num_columns = module.weight.shape[1]
-            module.gptq_hessian = torch.zeros((num_columns, num_columns), dtype=torch.float32, device=input.device)
-            module.gptq_hessian_samples = 0
-
-        print(f"{name} adding {input.size(0)} samples")
-        module.gptq_hessian, module.gptq_hessian_samples = add_batch(
-            module.gptq_hessian,
-            module.gptq_hessian_samples,
-            module,
-            input
-        )
-
-        if self.true_sequential:
-            if module.gptq_hessian_samples >= 20:
-                # compress
-                print(f"compressing {name}")
-                if True: #self.true_sequential:
-                    with CompressionLogger(module) as comp_logger:
-                        loss = self.compress_module(name, module, args)
-                        comp_logger.set_loss(loss)
+        # compress
+        print(f"compressing {name}")
+        if True: #self.true_sequential:
+            with CompressionLogger(module) as comp_logger:
+                loss = self.compress_module(name, module, args)
+                comp_logger.set_loss(loss)
 
     @HooksMixin.hook
     def target_post_forward(
@@ -187,47 +169,6 @@ class LayerCompressorMixin(HooksMixin):
         output: Tuple[Any, ...],
     ):
         print(f"post {name}")
-        if not self.true_sequential:
-            if module.gptq_hessian_samples >= 20:
-                # compress
-                print(f"compressing {name}")
-                if True: #self.true_sequential:
-                    with CompressionLogger(module) as comp_logger:
-                        loss = self.compress_module(name, module, args)
-                        comp_logger.set_loss(loss)
-
-        """
-        breakpoint()
-        ret = torch.concat(self._module_outputs)
-        del self._module_inputs[module] 
-        del self._module_outputs[module]
-        return ret
-
-        # accumulate
-        self._module_outputs.append(output)
-
-        if len(self._module_outputs) == 2:
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_module(name, module, args)
-                comp_logger.set_loss(loss)
-
-        ret = self._module_outputs
-        self._module_outputs = []
-
-        return ret
-
-        if self.true_sequential:
-            # compress first so output is from compressed weights
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_module(name, module, args)
-                comp_logger.set_loss(loss)
-
-        if not self.true_sequential:
-            # compress after so output is from uncompressed weights
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_module(name, module, args)
-                comp_logger.set_loss(loss)
-        """
 
     @HooksMixin.hook
     def layer_pre_forward(self, name: str, layer: torch.nn.Module, args: Any, kwargs):
@@ -246,15 +187,5 @@ class LayerCompressorMixin(HooksMixin):
         output: Tuple[Any, ...],
     ):
         print(f"post {name}")
-    
-        
-        if False and not self.true_sequential:  # only print 
-            # rerun with (now) compressed weights
-            with HooksMixin.disable_hooks():
-                compressed_output = layer(*args, **kwargs)
-
-            error = torch.nn.functional.l1_loss(output[0], compressed_output[0])
-            logger.info(f"Mean output error from quantization: {error:.3f}")
-
         self._layer_index += 1
         return output
