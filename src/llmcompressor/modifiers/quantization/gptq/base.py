@@ -267,7 +267,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 blocksize=self.block_size,
                 percdamp=self.dampening_frac,
                 module_class=type(module),
-                original_weight=module.original_weight.data,
+                weight_original=module.weight_original.data,
             )
 
             #weight_update_acc = module.weight_update_acc.data + quantized_weight

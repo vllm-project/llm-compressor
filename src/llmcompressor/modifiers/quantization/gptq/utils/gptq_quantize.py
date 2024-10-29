@@ -109,7 +109,7 @@ def quantize_weight(
     blocksize: int = 128,
     percdamp: float = 0.01,
     module_class: Type[torch.nn.Module] = torch.nn.Linear,
-    original_weight: Optional[torch.Tensor] = None,
+    weight_original: Optional[torch.Tensor] = None,
 ) -> Tuple[float, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
     """
     Quantize a module weight according to the GPTQ algorithm
@@ -202,7 +202,7 @@ def quantize_weight(
             W1_nz_mask = W_nz_mask[:, i1:i2]
 
         for i in range(count):
-            w = original_weight[:, i]
+            w = weight_original[:, i]
             d = Hinv1[i, i]
             q = W1[:, i].clone()
 
