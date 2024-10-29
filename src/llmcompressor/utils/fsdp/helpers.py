@@ -284,7 +284,7 @@ def update_prefix_dict(module: torch.nn.Module, key: str, data: torch.Tensor):
 def update_offload_parameter(
     module: torch.nn.Module,
     name: str,
-    data: torch.Tensor,
+    data: Optional[torch.Tensor] = None,
     offload_device: Optional[torch.device] = None,
 ):
     """
@@ -297,9 +297,12 @@ def update_offload_parameter(
         raise ValueError("Cannot copy data from meta device. Consider calling with align_module(module) context")
 
     param = getattr(module, name)
-    if param.data.dtype != data.dtype:
-        warnings.warn("TODO")
-    param.data.copy_(data)
+    if data is None:
+        data = param.data
+    else:
+        if param.data.dtype != data.dtype:
+            warnings.warn("TODO")
+        param.data.copy_(data)
 
     if has_offloaded_params(module):
         weights_map = module._hf_hook.weights_map

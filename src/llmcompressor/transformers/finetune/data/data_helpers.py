@@ -13,7 +13,7 @@ LOGGER = logging.getLogger(__name__)
 LABELS_MASK_VALUE = -100
 
 __all__ = [
-    "create_single_batch_dataloader",
+    "create_batch_dataloader",
     "format_calibration_data",
     "get_raw_dataset",
     "make_dataset_splits",
@@ -22,13 +22,15 @@ __all__ = [
 ]
 
 
-def create_single_batch_dataloader(
+def create_batch_dataloader(
     dataset: datasets.Dataset,
+    batch_size: int,
 ) -> torch.utils.data.DataLoader:
     """
     Create a dataloader whose batch size is equal to the size of the dataset
 
     :param dataset: dataset used to generate dataloader
+    :param batch_size: batch size of new dataloader
     :return: dataloader
     """
 
@@ -49,7 +51,7 @@ def create_single_batch_dataloader(
 
     return torch.utils.data.DataLoader(
         dataset,
-        batch_size=len(dataset),
+        batch_size=batch_size,
         shuffle=True,
         collate_fn=pad_sequences,
         pin_memory=True,

@@ -110,6 +110,15 @@ class LayerCompressorMixin(HooksMixin):
     _layer_outputs: List[Tuple[Any, ...]] = []
 
     @abstractmethod
+    def pre_compress_module(
+        self,
+        name: str,
+        module: torch.nn.Module,
+        args: Tuple[torch.Tensor, ...],
+    ) -> float:
+        raise NotImplementedError()
+
+    @abstractmethod
     def compress_module(
         self,
         name: str,
@@ -136,9 +145,7 @@ class LayerCompressorMixin(HooksMixin):
                 self.register_hook(module.register_forward_pre_hook(pre_hook, with_kwargs=True))
                 self.register_hook(module.register_forward_hook(post_hook))
 
-                register_offload_parameter(module, "weight_original", torch.nn.Parameter(module.weight.data.clone(), requires_grad=False))  # TODO: better name?
-                #register_offload_parameter(module, "weight_update_acc", torch.nn.Parameter(torch.zeros_like(module.weight.data), requires_grad=False))  # TODO: better name?
-                #register_offload_parameter(module, "num_samples", torch.nn.Parameter(torch.tensor(0.0), requires_grad=False))  # TODO: better name?
+                self.pre_compress_module(module)
 
             if name in layers.keys():
                 pre_hook = partial(self.layer_pre_forward, name)

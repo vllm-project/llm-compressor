@@ -2,6 +2,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+import math
 from compressed_tensors.quantization import (
     QuantizationScheme,
     freeze_module_quantization,
@@ -24,14 +25,18 @@ from llmcompressor.modifiers.quantization.quantization.base import QuantizationM
 from llmcompressor.modifiers.utils.hooks import LayerCompressorMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.transformers.finetune.data.data_helpers import (
-    create_single_batch_dataloader,
+    create_batch_dataloader,
 )
-from llmcompressor.utils.fsdp.helpers import has_offloaded_params
+from llmcompressor.utils.fsdp.helpers import has_offloaded_params, register_offload_parameter, update_offload_parameter
 from llmcompressor.utils.helpers import (
     align_module,
     calibration_forward_context,
     getattr_chain,
 )
+from compressed_tensors.quantization import (
+    fake_quantize,
+)
+
 from llmcompressor.utils.pytorch.module import qat_active
 
 __all__ = ["GPTQModifier"]
@@ -75,10 +80,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
 
     :param sequential_update: Whether or not to update weights sequentially by layer.
         This option is depreciated and setting to False is no longer supported
-    :param true_sequential: Used to control the granularity of compression updates
-        through the forward pass. Set to True to use the weight-compressed outputs
-        of each module, set to False to use the weight-compressed outputs of each
-        layer (transformer block), defaults to False
+    :param naive_update: TODO
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
@@ -109,7 +111,8 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
     """
 
     sequential_update: bool = True  # DEPRECIATED
-    true_sequential: bool = False
+    naive_update: bool = False
+    batch_size: int = 1
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -124,6 +127,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
     disable_quantization_observer_epoch: Optional[float] = None
 
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
+    _num_batches: int = PrivateAttr()
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -201,6 +205,8 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             self._quantization_modifier.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
+        
+        self._num_batches = math.ceil(len(state.data.calib.dataset) / self.batch_size)
 
         self.register_hooks(state.model)
         self.calibration_forward(state.model, state.data.calib)
@@ -222,6 +228,31 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if self._quantization_modifier:
             self._quantization_modifier.finalize(state, **kwargs)
 
+        for module in state.model.modules():
+            with align_module(module):
+                quant_args = getattr_chain(module, "quantization_scheme.weights", None)
+                if quant_args is None:
+                    continue
+
+                if self.naive_update:
+                    weight = module.weight_acc / self._num_batches
+                    delattr(module, "weight_acc")
+
+                if self.naive_update:
+                    weight = module.weight
+                    delattr(module, "weight_original")
+
+                scale, zero_point = quant_args.get_observer()(weight)
+                weight = fake_quantize(
+                    weight,
+                    scale,
+                    zero_point,
+                    quant_args,
+                )
+                update_offload_parameter(module, "weight", weight)
+                update_offload_parameter(module, "scale", scale)
+                update_offload_parameter(module, "zero_point", zero_point)
+
         return True
 
     def calibration_forward(
@@ -234,9 +265,17 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         :param model: model to perform forward pass with
         :param dataloader: dataloader containing calibration dataset
         """
-        #dataloader = create_single_batch_dataloader(dataloader.dataset)
+        dataloader = create_batch_dataloader(dataloader.dataset, batch_size=self.batch_size)
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
+
+    def pre_compress_module(self, module: torch.nn.Module):
+        # TODO: better names?
+        if self.naive_update:
+            register_offload_parameter(module, "weight_acc", torch.nn.Parameter(torch.zeros_like(module.weight.data), requires_grad=False))
+
+        else:
+            register_offload_parameter(module, "weight_original", torch.nn.Parameter(module.weight.data.clone(), requires_grad=False))
 
     def compress_module(
         self,
@@ -267,16 +306,19 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 blocksize=self.block_size,
                 percdamp=self.dampening_frac,
                 module_class=type(module),
-                weight_original=module.weight_original.data,
+                weight_original=module.weight_original.data if self.naive_update else module.weight.data
             )
 
-            #weight_update_acc = module.weight_update_acc.data + quantized_weight
-            #update_parameter_data(module, quantized_weight, "weight")
+            if self.naive_update:
+                module.weight_acc += quantized_weight
+                update_offload_parameter(module, "weight_acc")
+            else:
+                module.weight += (quantized_weight - module.weight) * self._num_batches
+                update_offload_parameter(module, "weight")
 
-            update_parameter_data(module, quantized_weight, "weight")
-            update_parameter_data(module, scale, "weight_scale")
-            update_parameter_data(module, zero_point, "weight_zero_point")
-            update_parameter_data(module, g_idx, "weight_g_idx")
+                scale, zero_point = quant_args.get_observer()(module.weight)
+                update_offload_parameter(module, "scale", scale)
+                update_offload_parameter(module, "zero_point", zero_point)
 
         return loss
 
