@@ -293,15 +293,14 @@ def update_offload_parameter(
     :param data: tensor to update parameter with
     :param offload_device: offload device for newly registered parameters
     """
-    if data.device == "meta":
-        raise ValueError("Cannot copy data from meta device. Consider calling with align_module(module) context")
-
     param = getattr(module, name)
-    if data is None:
-        data = param.data
-    else:
+    if data is not None:
+        if data.device == "meta":
+            raise ValueError("Cannot copy data from meta device. Consider calling with align_module(module) context")
+    
         if param.data.dtype != data.dtype:
             warnings.warn("TODO")
+            
         param.data.copy_(data)
 
     if has_offloaded_params(module):
@@ -319,7 +318,7 @@ def update_offload_parameter(
                     else offload_device if offload_device is not None
                     else _infer_offload_device(module)
                 )
-                prefix_dict[key] = data.to(device=offload_device)
+                prefix_dict[key] = param.data.to(device=offload_device)
             
         if isinstance(weights_map, OffloadedWeightsLoader):
             raise NotImplementedError()
