@@ -1,6 +1,6 @@
 import math
 from copy import copy
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional, Type
 
 import torch
 import transformers
@@ -82,7 +82,8 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
 
 
 def compute_scale_zero_point(
-    W: torch.Tensor, quant_args: QuantizationArgs
+    W: torch.Tensor,
+    quant_args: QuantizationArgs,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Compute the scale and zero point of a module weight
@@ -103,17 +104,19 @@ def compute_scale_zero_point(
 
 def quantize_weight(
     weight: torch.Tensor,
-    H: torch.Tensor, #inp: torch.Tensor,
+    inp: torch.Tensor,
     quant_args: QuantizationArgs,
     blocksize: int = 128,
     percdamp: float = 0.01,
-    module_class=torch.nn.Linear,
+    module_class: Type[torch.nn.Module] = torch.nn.Linear,
+    original_weight: Optional[torch.Tensor] = None,
 ) -> Tuple[float, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
     """
     Quantize a module weight according to the GPTQ algorithm
 
+    TODO
     :param weight: weight being quantized
-    #  :param inp: module inputs used to calculate hessian
+    :param inp: module inputs used to calculate hessian
     :param quant_args: quantization arguments used to find quantization parameters
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
@@ -126,7 +129,7 @@ def quantize_weight(
     final_dtype = weight.dtype
     W = weight.data.clone()
 
-    #H = compute_hessian(inp, module_class, device=weight.device)
+    H = compute_hessian(inp, module_class, device=weight.device)
 
     # standardize shape and dtype
     if module_class == torch.nn.Conv2d:
@@ -199,9 +202,9 @@ def quantize_weight(
             W1_nz_mask = W_nz_mask[:, i1:i2]
 
         for i in range(count):
-            w = W1[:, i]
+            w = original_weight[:, i]
             d = Hinv1[i, i]
-            q = w.clone()
+            q = W1[:, i].clone()
 
             # quantize column
             if strategy == QuantizationStrategy.TENSOR:

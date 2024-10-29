@@ -259,26 +259,34 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-        loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
-            module.weight.data,
-            module.gptq_hessian.data.to(module.weight.device),
-            quant_args,
-            blocksize=self.block_size,
-            percdamp=self.dampening_frac,
-            module_class=type(module),
-        )
+        offloaded = is_module_offloaded(module)
+        if offloaded:
+            module._hf_hook.pre_forward(module)
 
-        delattr(module, "gptq_hessian")
-        delattr(module, "gptq_hessian_samples")
+            loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                module.weight.data,
+                inp,
+                quant_args,
+                blocksize=self.block_size,
+                percdamp=self.dampening_frac,
+                module_class=type(module),
+                original_weight=module.original_weight.data,
+            )
 
-        # FUTURE: Implement learning rate modification to weight update
+            delattr(module, "gptq_hessian")
+            delattr(module, "gptq_hessian_samples")
 
-        if is_module_offloaded(module):
-            update_prefix_dict(self.layer, "weight", quantized_weight)
-        update_parameter_data(module, quantized_weight, "weight")
-        update_parameter_data(module, scale, "weight_scale")
-        update_parameter_data(module, zero_point, "weight_zero_point")
-        update_parameter_data(module, g_idx, "weight_g_idx")
+            # FUTURE: Implement learning rate modification to weight update
+
+            if is_module_offloaded(module):
+                update_prefix_dict(self.layer, "weight", quantized_weight)
+            update_parameter_data(module, quantized_weight, "weight")
+            update_parameter_data(module, scale, "weight_scale")
+            update_parameter_data(module, zero_point, "weight_zero_point")
+            update_parameter_data(module, g_idx, "weight_g_idx")
+
+        if offloaded:
+            module._hf_hook.post_forward(module, None)
 
         return loss
 
