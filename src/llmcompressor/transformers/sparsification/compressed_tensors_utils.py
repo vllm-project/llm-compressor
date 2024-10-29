@@ -7,7 +7,12 @@ from typing import Dict, Optional
 import torch
 import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors import ModelCompressor, SparsityCompressionConfig
+from compressed_tensors import (
+    ModelCompressor,
+    SparsityCompressionConfig,
+    is_module_offloaded,
+    update_parameter_data,
+)
 from loguru import logger
 from safetensors.torch import storage_ptr
 
@@ -209,7 +214,7 @@ def new_dtype_byte_size(dtype):
     return bit_size // 8
 
 
-def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
+def patch_tied_tensors_bug(model: torch.nn.Module):
     """
     Patches bug where HF transformers will fail to untie weights under specific
     circumstances (https://github.com/huggingface/transformers/issues/33689).
@@ -217,7 +222,6 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
     This function detects those cases and unties the tensors if applicable
 
     :param model: model to fix
-    :return: model with fixed parameters
     """
     if (
         hasattr(model.config, "tie_word_embeddings")
@@ -225,11 +229,17 @@ def patch_tied_tensors_bug(model: torch.nn.Module) -> torch.nn.Module:
     ):
         input_embed = model.get_input_embeddings()
         output_embed = model.get_output_embeddings()
-        if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
-            input_embed.weight.data = input_embed.weight.data.clone()
-            output_embed.weight.data = output_embed.weight.data.clone()
 
-    return model
+        if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
+            for module in (input_embed, output_embed):
+                offloaded = is_module_offloaded(module)
+                if offloaded:
+                    module._hf_hook.pre_forward(module)
+
+                update_parameter_data(module, module.weight.data.clone(), "weight")
+
+                if offloaded:
+                    module._hf_hook.post_forward(module, None)
 
 
 def get_model_compressor(
@@ -274,3 +284,4 @@ def get_model_compressor(
         sparsity_config=sparsity_config,
         quantization_format=quantization_format,
     )
+      
