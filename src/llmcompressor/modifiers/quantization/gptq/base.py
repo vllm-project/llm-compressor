@@ -111,7 +111,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
     """
 
     sequential_update: bool = True  # DEPRECIATED
-    naive_update: bool = False
+    naive_update: bool = True
     batch_size: int = 1
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
@@ -250,8 +250,8 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                     quant_args,
                 )
                 update_offload_parameter(module, "weight", weight)
-                update_offload_parameter(module, "scale", scale)
-                update_offload_parameter(module, "zero_point", zero_point)
+                update_offload_parameter(module, "weight_scale", scale)
+                update_offload_parameter(module, "weight_zero_point", zero_point)
 
         return True
 
@@ -317,8 +317,8 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 update_offload_parameter(module, "weight")
 
                 scale, zero_point = quant_args.get_observer()(module.weight)
-                update_offload_parameter(module, "scale", scale)
-                update_offload_parameter(module, "zero_point", zero_point)
+                update_offload_parameter(module, "weight_scale", scale)
+                update_offload_parameter(module, "weight_zero_point", zero_point)
 
         return loss
 
