@@ -143,7 +143,7 @@ def modify_save_pretrained(model: torch.nn.Module):
 
             # patch a shared tensor bug in HF transformers
             # https://github.com/huggingface/transformers/issues/33689
-            weight_untied_model = patch_tied_tensors_bug(model)
+            patch_tied_tensors_bug(model)
 
             # HACK: Override the dtype_byte_size function in transformers to
             # support float8 types. Fix is posted upstream
@@ -153,10 +153,10 @@ def modify_save_pretrained(model: torch.nn.Module):
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.pop("state_dict", None)
             if state_dict is None:
-                state_dict = get_state_dict_offloaded_model(weight_untied_model)
+                state_dict = get_state_dict_offloaded_model(model)
 
             compressor = get_model_compressor(
-                model=weight_untied_model,
+                model=model,
                 sparsity_config=sparsity_config,
                 quantization_format=quantization_format,
                 save_compressed=save_compressed,
@@ -167,7 +167,7 @@ def modify_save_pretrained(model: torch.nn.Module):
             if compressor is None:
                 # model is not compressed or quantized, save as normal
                 original_save_pretrained_func = original_save_pretrained.__get__(
-                    weight_untied_model, model_class
+                    model, model_class
                 )
                 original_save_pretrained_func(
                     save_directory, state_dict=state_dict, **kwargs
@@ -176,12 +176,10 @@ def modify_save_pretrained(model: torch.nn.Module):
 
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
-                compressed_state_dict = compressor.compress(
-                    weight_untied_model, state_dict
-                )
+                compressed_state_dict = compressor.compress(model, state_dict)
 
                 kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
-                original_save_pretrained.__get__(weight_untied_model, model_class)(
+                original_save_pretrained.__get__(model, model_class)(
                     save_directory, state_dict=compressed_state_dict, **kwargs
                 )
                 compressor.update_config(save_directory)
@@ -193,7 +191,7 @@ def modify_save_pretrained(model: torch.nn.Module):
                 fp.write(recipe_yaml_str)
 
             # copy python files from cache dir to save_path if any
-            copy_python_files_from_model_cache(weight_untied_model, save_directory)
+            copy_python_files_from_model_cache(model, save_directory)
 
         save_pretrained_wrapper._overriden = True
         return save_pretrained_wrapper
