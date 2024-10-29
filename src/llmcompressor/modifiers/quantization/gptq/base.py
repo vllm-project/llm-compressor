@@ -238,7 +238,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                     weight = module.weight_acc / self._num_batches
                     delattr(module, "weight_acc")
 
-                if self.naive_update:
+                else:
                     weight = module.weight
                     delattr(module, "weight_original")
 
@@ -306,7 +306,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 blocksize=self.block_size,
                 percdamp=self.dampening_frac,
                 module_class=type(module),
-                weight_original=module.weight_original.data if self.naive_update else module.weight.data
+                weight_original=module.weight.data if self.naive_update else module.weight_original.data
             )
 
             if self.naive_update:
