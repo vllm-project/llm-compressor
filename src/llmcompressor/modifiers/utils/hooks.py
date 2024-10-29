@@ -207,7 +207,6 @@ class LayerCompressorMixin(HooksMixin):
         output: Tuple[Any, ...],
     ):
         print(f"post {name}")
-        breakpoint()
 
         if not self.true_sequential:
             # rerun with (now) compressed weights
