@@ -166,6 +166,13 @@ class LayerCompressorMixin(HooksMixin):
             input
         )
 
+        if self.true_sequential:
+            # compress first so output is from compressed weights
+            with CompressionLogger(module) as comp_logger:
+                loss = self.compress_module(name, module, args)
+                comp_logger.set_loss(loss)
+
+
 
     @HooksMixin.hook
     def target_post_forward(
@@ -177,75 +184,17 @@ class LayerCompressorMixin(HooksMixin):
     ):
         print(f"post {name}")
 
-        if module.gptq_hessian_samples >= 20:
-            # compress
-            print(f"compressing {name}")
-            if True: #self.true_sequential:
-                with CompressionLogger(module) as comp_logger:
-                    loss = self.compress_module(name, module, args)
-                    comp_logger.set_loss(loss)
-
-        """
-        breakpoint()
-        ret = torch.concat(self._module_outputs)
-        del self._module_inputs[module] 
-        del self._module_outputs[module]
-        return ret
-
-        # accumulate
-        self._module_outputs.append(output)
-
-        if len(self._module_outputs) == 2:
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_module(name, module, args)
-                comp_logger.set_loss(loss)
-
-        ret = self._module_outputs
-        self._module_outputs = []
-
-        return ret
-
-        if self.true_sequential:
-            # compress first so output is from compressed weights
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_module(name, module, args)
-                comp_logger.set_loss(loss)
-
         if not self.true_sequential:
             # compress after so output is from uncompressed weights
             with CompressionLogger(module) as comp_logger:
                 loss = self.compress_module(name, module, args)
                 comp_logger.set_loss(loss)
-        """
 
     @HooksMixin.hook
     def layer_pre_forward(self, name: str, layer: torch.nn.Module, args: Any, kwargs):
         logger.info(
             f"\n===== Compressing layer {self._layer_index}/{self._num_layers} ====="
         )
-
-        input = args[0]
-
-        if not self.true_sequential:
-            self._module_inputs[layer] += [
-                input[batch_index: batch_index + 1]
-                for batch_index in range(input.shape[0])
-            ]
-
-
-        if len(self._module_outputs[layer]) >= 20 - 1:
-            # last sample can be passed normally
-            print("last layer forward")
-            return (input[-1:], *args[1:]), kwargs
-        
-        else:
-            forward_call = (layer._slow_forward if torch._C._get_tracing_state() else layer.forward)
-            for batch_index in range(input.size(0)):
-                print("layer forward")
-                output = forward_call(input[batch_index: batch_index + 1], *args[1:], **kwargs)
-                self._module_outputs[layer].append(output)
-
-            raise EarlyStopException(torch.tensor([]), None)
 
 
     @HooksMixin.hook
@@ -260,27 +209,6 @@ class LayerCompressorMixin(HooksMixin):
         print(f"post {name}")
         breakpoint()
 
-        # capture last sample
-        self._module_outputs[layer].append(output)
-
-        # batch outputs
-        outputs = self._module_outputs[layer]
-        batched_outputs = tuple(
-            torch.concat(tuple(
-                outputs[sample_index][output_index]
-                for sample_index in range(len(outputs))
-            ))
-            for output_index in range(len(outputs[0]))
-        )
-        del self._module_outputs[layer]
-
-        if not self.true_sequential:
-            pass  # run again
-
-            del self._module_inputs[layer] 
-
-        return batched_outputs
-    
         if not self.true_sequential:
             # rerun with (now) compressed weights
             with HooksMixin.disable_hooks():

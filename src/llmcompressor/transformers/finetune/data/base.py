@@ -51,17 +51,17 @@ class TextGenerationDataset(RegistryMixin):
             self.padding = False
 
         if self.tokenizer:
-            if not self.tokenizer.pad_token:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
+            if not self.tokenizer.tokenizer.pad_token:
+                self.tokenizer.tokenizer.pad_token = self.tokenizer.tokenizer.eos_token
 
         # configure sequence length
         max_seq_length = data_args.max_seq_length
-        model_max_length = tokenizer.model_max_length if tokenizer else max_seq_length
+        model_max_length = tokenizer.tokenizer.model_max_length if tokenizer else max_seq_length
         if self.tokenizer and max_seq_length > model_max_length:
             logger.warning(
                 f"The max_seq_length passed ({max_seq_length}) is larger than "
-                f"the maximum length for the model ({tokenizer.model_max_length}). "
-                f"Using max_seq_length={tokenizer.model_max_length}."
+                f"the maximum length for the model ({tokenizer.tokenizer.model_max_length}). "
+                f"Using max_seq_length={tokenizer.tokenizer.model_max_length}."
             )
         self.max_seq_length = min(data_args.max_seq_length, model_max_length)
 
@@ -97,6 +97,7 @@ class TextGenerationDataset(RegistryMixin):
     def tokenize_and_process(
         self, raw_dataset: Optional[Dataset] = None, add_labels: Optional[bool] = True
     ) -> Dataset:
+        breakpoint()
         """
         Sets up the raw dataset for finetuning, performs tokenization, concatenates
         entries to max sequence length if desired, and adds labels to each entry
@@ -107,6 +108,15 @@ class TextGenerationDataset(RegistryMixin):
 
         # helper fn for tokenizing text column
         def tokenize_fn(data):
+            """
+            inputs = processor(
+                image,
+                input_text,
+                add_special_tokens=False,
+                return_tensors="pt"
+            ).to(model.device)
+            """
+
             result = self.tokenizer(
                 data[self.text_column],
                 padding=self.padding,
