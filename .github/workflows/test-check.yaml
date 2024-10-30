@@ -19,6 +19,7 @@ env:
   CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
+
   base-tests:
     runs-on: ubuntu-22.04
     steps:
@@ -40,6 +41,7 @@ jobs:
         run: rm -r compressed-tensors/
       - name: "🔬 Running base tests"
         run: make test
+
   pytorch-tests:
     runs-on: ubuntu-22.04
     steps:
@@ -62,6 +64,7 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
     steps:
@@ -84,6 +87,7 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+
   transformers-tests:
     runs-on: gcp-k8s-vllm-l4-solo
     steps:
