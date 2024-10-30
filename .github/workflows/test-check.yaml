@@ -85,7 +85,7 @@ jobs:
         run: |
           pytest -v tests/llmcompressor/pytorch
   transformers-tests:
-    runs-on: ubuntu-22.04
+    runs-on: gcp-k8s-vllm-l4-solo
     steps:
       - uses: actions/setup-python@v5
         with:
