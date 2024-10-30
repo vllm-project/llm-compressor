@@ -7,9 +7,6 @@ from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.pytorch.model_load.helpers import initialize_recipe
-from llmcompressor.transformers.utils.helpers import resolve_recipe
-
 __all__ = [
     "SparseAutoModel",
     "SparseAutoModelForCausalLM",
@@ -62,10 +59,7 @@ class SparseAutoModel:
             trust_remote_code=trust_remote_code,
             **kwargs,
         )
-        recipe = resolve_recipe(recipe=recipe, model_path=model_name_or_path)
 
-        if recipe:
-            initialize_recipe(model=model, recipe_path=recipe)
         if sequence_length is not None:
             model.seqlen = sequence_length
 
