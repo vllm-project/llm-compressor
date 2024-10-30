@@ -1,0 +1,16 @@
+name: Commit
+on:
+    push:
+
+jobs:
+    COMMIT:
+        runs-on: gcp-k8s-vllm-util
+        steps:
+
+            - name: set python
+              uses: actions/setup-python@v5
+              with:
+                python-version: '3.12.5'
+
+            - name: checkout
+              uses: actions/checkout@v4
