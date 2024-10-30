@@ -102,11 +102,6 @@ class LayerCompressorMixin(HooksMixin):
 
     _layer_index = 0
     _num_layers = 0
-    _module_inputs: Dict[torch.nn.Module, List[Tuple[Tuple[Any, ...], Dict[str, Any]]]] = defaultdict(lambda: [])
-    _module_outputs: Dict[torch.nn.Module, Union[List[Tuple[Any, ...]], torch.Tensor]] = defaultdict(lambda: [])
-
-    _layer_inputs: List[Tuple[Tuple[Any, ...], Dict[str, Any]]] = []
-    _layer_outputs: List[Tuple[Any, ...]] = []
 
     @abstractmethod
     def pre_compress_module(
