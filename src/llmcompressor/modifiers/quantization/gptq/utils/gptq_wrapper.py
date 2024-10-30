@@ -35,6 +35,7 @@ from compressed_tensors.utils import (
     update_prefix_dict,
 )
 from loguru import logger
+from llmcompressor.timer_utils import log_time
 
 __all__ = ["GPTQWrapper"]
 
@@ -85,6 +86,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         inp = math.sqrt(2 / self.nsamples) * inp
         self.H += inp.matmul(inp.t())
 
+    @log_time
     def compress(
         self,
         blocksize: int = 128,

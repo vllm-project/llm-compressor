@@ -16,6 +16,7 @@ from llmcompressor.utils.fsdp.context import (
 )
 from llmcompressor.utils.pytorch import set_layer
 from llmcompressor.utils.pytorch.module import get_prunable_layers
+from llmcompressor.timer_utils import log_time
 
 __all__ = ["LayerCompressor"]
 
@@ -91,6 +92,7 @@ class LayerCompressor:
             self.early_stop_handle.remove()
             self.early_stop_handle = None
 
+    @log_time
     def pre_compress(self):
         """
         Sets up the CompressionWrapper objects for each compressible module, adding a
@@ -121,6 +123,29 @@ class LayerCompressor:
         for name in self.modules:
             self.handles.append(subset[name].register_forward_hook(add_batch(name)))
 
+    @log_time
+    def get_device(self):
+        return get_execution_device(self.layer)
+
+    @log_time
+    def empty_cache(self):
+        torch.cuda.empty_cache()
+    
+    @log_time
+    def map_tensor(self, output):
+        return tensors_to_device(output, "cpu")
+    
+    @log_time
+    def map_device(self, args, device):
+        return tensors_to_device(args, device)
+    
+    @log_time
+    def fwd_pass(self, inputs, kwargs):
+        logger.info(f"Device: {next(self.layer.parameters()).device}")
+        logger.info(f"Execution Device: {get_execution_device(self.layer)}")
+        return self.layer(*inputs, **kwargs)
+
+    @log_time
     def calibrate_layer(self, intermediates: Tuple[Tuple, Dict]) -> Tuple[Tuple, Dict]:
         """
         Runs all calibration samples through the stored layer
@@ -128,13 +153,15 @@ class LayerCompressor:
         :param intermediates: inputs to run through the layer
         :return: outputs of the layer
         """
+        logger.info(f"intermediates Len {str(len(intermediates))}")
         outputs = [None for _ in range(len(intermediates))]
         for idx in tqdm(range(len(intermediates))):
             args, kwargs = intermediates[idx]
-            device = get_execution_device(self.layer)
-            output = self.layer(*tensors_to_device(args, device), **kwargs)
-            outputs[idx] = (tensors_to_device(output, "cpu"), kwargs)
-            torch.cuda.empty_cache()
+            device = self.get_device()
+            logger.info(f"Device {device}")
+            inputs = self.map_device(args, device)
+            output = self.fwd_pass(inputs, kwargs)
+            outputs[idx] = (self.map_tensor(output), kwargs)
 
         return outputs
 
@@ -161,6 +188,7 @@ class LayerCompressor:
             torch.cuda.empty_cache()
         self.modules = None
 
+    @log_time
     def compress(self):
         """
         Apply compression to each wrapped submodule in the layer

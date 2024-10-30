@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.pytorch.utils import tensors_module_forward, tensors_to_device
+from llmcompressor.timer_utils import log_time
 
 __all__ = [
     "EarlyStopException",
@@ -42,7 +43,7 @@ def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.T
     batch["input_ids"] = batch["input_ids"] * batch["attention_mask"]
     return batch
 
-
+@log_time
 def run_calibration_forward(
     model: Module,
     calibration_dataloader: DataLoader,
