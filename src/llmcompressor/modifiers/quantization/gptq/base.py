@@ -7,20 +7,12 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     freeze_module_quantization,
 )
-from compressed_tensors.utils import (
-    is_module_offloaded,
-    update_parameter_data,
-    update_prefix_dict,
-)
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
-    add_batch,
-    quantize_weight,
-)
+from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quantize_weight
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import LayerCompressorMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
@@ -112,7 +104,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
 
     sequential_update: bool = True  # DEPRECIATED
     naive_update: bool = True
-    batch_size: int = 1
+    batch_size: int = -1
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -136,6 +128,16 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 "`sequential_update=False` is no longer supported, setting "
                 "sequential_update=True",
                 DeprecationWarning,
+            )
+
+        return True
+    
+    @field_validator("naive_update", mode="before")
+    def validate_naive_update(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError(
+                "`naive_update=False` is not implemented yet, please use "
+                "`naive_update=True`"
             )
 
         return True
@@ -206,29 +208,23 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
         
+        if self.batch_size <= 0:
+            self.batch_size = len(state.data.calib.dataset)
         self._num_batches = math.ceil(len(state.data.calib.dataset) / self.batch_size)
 
         self.register_hooks(state.model)
         self.calibration_forward(state.model, state.data.calib)
 
-        #state.model(**state.model.dummy_inputs)
         self.remove_hooks()
+        self.finish_compression()
 
         # freeze quantization
         state.model.apply(freeze_module_quantization)
 
         return True
-
-    def on_finalize(self, state: "State", **kwargs) -> bool:
-        """
-        disable the quantization observers used by the OBCQ algorithm
-
-        :param state: session state storing input model and calibration data
-        """
-        if self._quantization_modifier:
-            self._quantization_modifier.finalize(state, **kwargs)
-
-        for module in state.model.modules():
+    
+    def finish_compression(self, model: torch.nn.Module):
+        for module in model.modules():
             with align_module(module):
                 quant_args = getattr_chain(module, "quantization_scheme.weights", None)
                 if quant_args is None:
@@ -253,6 +249,15 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 update_offload_parameter(module, "weight_scale", scale)
                 update_offload_parameter(module, "weight_zero_point", zero_point)
 
+    def on_finalize(self, state: "State", **kwargs) -> bool:
+        """
+        disable the quantization observers used by the OBCQ algorithm
+
+        :param state: session state storing input model and calibration data
+        """
+        if self._quantization_modifier:
+            self._quantization_modifier.finalize(state, **kwargs)
+
         return True
 
     def calibration_forward(
@@ -265,7 +270,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         :param model: model to perform forward pass with
         :param dataloader: dataloader containing calibration dataset
         """
-        dataloader = create_batch_dataloader(dataloader.dataset, batch_size=self.batch_size)
+        dataloader = create_batch_dataloader(dataloader, batch_size=self.batch_size)
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
 
@@ -297,6 +302,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         # Assume that first argument is the input
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
+        logger.info(f"Using {inp.size(0)} samples")
 
         with align_module(module):
             loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
@@ -306,19 +312,20 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 blocksize=self.block_size,
                 percdamp=self.dampening_frac,
                 module_class=type(module),
-                weight_original=module.weight.data if self.naive_update else module.weight_original.data
+                weight_original=None if self.naive_update else module.weight_original.data
             )
 
             if self.naive_update:
                 module.weight_acc += quantized_weight
                 update_offload_parameter(module, "weight_acc")
             else:
-                module.weight += (quantized_weight - module.weight) * self._num_batches
+                module.weight += (quantized_weight - module.weight) / self._num_batches
                 update_offload_parameter(module, "weight")
 
                 scale, zero_point = quant_args.get_observer()(module.weight)
                 update_offload_parameter(module, "weight_scale", scale)
                 update_offload_parameter(module, "weight_zero_point", zero_point)
+                update_offload_parameter(module, "weight_g_idx", g_idx)  # NOT SURE IF THIS IS CORRECT
 
         return loss
 

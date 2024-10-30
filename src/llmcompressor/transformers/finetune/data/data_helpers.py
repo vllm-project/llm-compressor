@@ -23,7 +23,7 @@ __all__ = [
 
 
 def create_batch_dataloader(
-    dataset: datasets.Dataset,
+    dataloader: torch.utils.data.DataLoader,
     batch_size: int,
 ) -> torch.utils.data.DataLoader:
     """
@@ -33,6 +33,8 @@ def create_batch_dataloader(
     :param batch_size: batch size of new dataloader
     :return: dataloader
     """
+    dataset = dataloader.dataset
+    sampler = dataloader.sampler.__class__(dataset)
 
     def pad_sequences(batch):
         # extract input_ids and attention_mask from the batch
@@ -52,7 +54,7 @@ def create_batch_dataloader(
     return torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
+        sampler=sampler,
         collate_fn=pad_sequences,
         pin_memory=True,
     )

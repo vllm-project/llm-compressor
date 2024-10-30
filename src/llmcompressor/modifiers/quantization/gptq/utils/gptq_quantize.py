@@ -17,29 +17,7 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 GPTQ_PRECISION = torch.float32
 
 
-def add_batch(H: torch.Tensor, nsamples: int , module: torch.nn.Module, inp: torch.Tensor):
-    """
-    Add a batch of layer input and output data to the Hessian calculation
-    """
-    if len(inp.shape) == 2:
-        inp = inp.unsqueeze(0)
-    tmp = inp.shape[0]
-    if isinstance(module, torch.nn.Linear) or isinstance(
-        module, transformers.Conv1D
-    ):
-        if len(inp.shape) == 3:
-            inp = inp.reshape((-1, inp.shape[-1]))
-        inp = inp.t()
-    H *= nsamples / (nsamples + tmp)
-    nsamples += tmp
-    inp = inp.to(dtype=H.dtype)
-    inp = math.sqrt(2 / nsamples) * inp
-    H += inp.matmul(inp.t())
-
-    return H, nsamples
-
-
-def compute_hessian(inp: torch.Tensor, module_class, device) -> torch.Tensor:
+def compute_hessian(inp: torch.Tensor, module_class: Type[torch.nn.Module], device) -> torch.Tensor:
     """
     Calculate the hessian with respect to the module inputs
 
@@ -129,7 +107,8 @@ def quantize_weight(
     final_dtype = weight.dtype
     W = weight.data.clone()
 
-    H = compute_hessian(inp, module_class, device=weight.device)
+    if weight_original is not None:
+        raise NotImplementedError()
 
     # standardize shape and dtype
     if module_class == torch.nn.Conv2d:
@@ -139,6 +118,8 @@ def quantize_weight(
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
     num_columns = W.shape[1]
+
+    H = compute_hessian(inp, module_class, device=weight.device)
 
     if strategy == QuantizationStrategy.GROUP:
         # mapping from column index to group index
@@ -202,9 +183,9 @@ def quantize_weight(
             W1_nz_mask = W_nz_mask[:, i1:i2]
 
         for i in range(count):
-            w = weight_original[:, i]
+            w = W1[:, i]
             d = Hinv1[i, i]
-            q = W1[:, i].clone()
+            q = w.clone()
 
             # quantize column
             if strategy == QuantizationStrategy.TENSOR:
