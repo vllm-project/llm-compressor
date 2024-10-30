@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from compressed_tensors.utils import tensor_follows_mask_structure
 from parameterized import parameterized_class
+from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import reset_session
 from tests.testing_utils import parse_params, requires_torch
@@ -56,8 +57,9 @@ class TestMaskStructurePreserved(unittest.TestCase):
         tolerance = 1e-3
         num_calibration_samples = 16
 
+        first_model = AutoModelForCausalLM(self.model)
         oneshot(
-            model=self.model,
+            model=first_model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
             recipe=self.initial_pruning_only_recipe,
@@ -66,6 +68,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
             clear_sparse_session=False,
             save_compressed=False,
         )
+        first_model.save_pretrained(self.output_first)
         first_tiny_model = get_session_model()
         targetted_layer = first_tiny_model.model.layers[0].self_attn.k_proj
         target_layer_sparsity = tensor_sparsity(targetted_layer.weight)
