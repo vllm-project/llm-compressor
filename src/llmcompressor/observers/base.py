@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 from math import ceil
 from typing import Any, Iterable, Optional, Tuple, Union
 
@@ -23,11 +22,9 @@ from compressed_tensors.quantization.quant_args import (
 )
 from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import safe_permute
+from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
-
-_LOGGER = logging.getLogger(__name__)
-
 
 __all__ = ["Observer"]
 
@@ -78,7 +75,6 @@ class Observer(Module, RegistryMixin):
         """
         Run any logic specific to its observers after running calculate_qparams
         """
-        ...
 
     def get_qparams(
         self,
@@ -186,7 +182,7 @@ class Observer(Module, RegistryMixin):
             raise ValueError(f"Expected value to be a tensor, got {type(batch_tensor)}")
 
         if batch_tensor.ndim != 2:
-            _LOGGER.debug(
+            logger.debug(
                 "The input tensor is expected to have two dimensions "
                 "(batch_size * sequence_length, num_features). "
                 f"The input tensor has {batch_tensor.ndim} dimensions."
