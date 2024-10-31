@@ -174,6 +174,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         precision=dtype,
     )
 
+    # Fetch the oneshot model
     model = get_session_model()
     og_state_dict = model.state_dict()
 
@@ -182,27 +183,33 @@ def test_quant_model_reload(format, dtype, tmp_path):
             assert module.weight.dtype == dtype
             assert module.quantization_status == QuantizationStatus.FROZEN
 
+    # Save to disk
     model.save_pretrained(
         "compress_out",
         quantization_format=format,
         save_compressed=True,
     )
 
+    # Verify config on disk
     config = AutoConfig.from_pretrained("compress_out")
     compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
     quant_config = ModelCompressor.parse_quantization_config(compression_config)
     assert quant_config["format"] == format
 
+    # As HFQuantizer doesn't decompress the model, use the compressor to decompress
+    # the model instead
     compressor = ModelCompressor.from_compression_config(compression_config)
     compressor.quantization_config.quantization_status = QuantizationStatus.FROZEN
     compressor.decompress(model_path="compress_out", model=empty_model)
 
+    # eventually use this pathway once HFQuant Decompression works
     """
     dense_model = SparseAutoModelForCausalLM.from_pretrained(
         "compress_out", torch_dtype="auto", device_map=device
     )
     """
-
+    # Verify the abs difference between the decompressed model
+    # and the original model
     reconstructed_state_dict = empty_model.state_dict()
     assert len(og_state_dict) == len(reconstructed_state_dict)
     for key in og_state_dict.keys():
