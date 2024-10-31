@@ -1,14 +1,6 @@
 name: Test Checks
 on:
   push:
-    branches:
-      - main
-      - 'release/*'
-  pull_request:
-    branches:
-      - main
-      - 'release/*'
-    types: [opened, synchronize]
 
 env:
   CADENCE: "commit"
