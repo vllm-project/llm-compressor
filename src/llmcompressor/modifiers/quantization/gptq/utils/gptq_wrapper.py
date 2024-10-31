@@ -10,6 +10,7 @@ from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
@@ -227,6 +228,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         and column_idx % quant_args.group_size == 0
                     ):
                         observer = quant_args.get_observer()
+                        observer = Observer.load_from_registry("mse", quantization_args=quant_args)
                         _scale, _zero_point = observer.get_qparams_along_dim(
                             W[:, g_idx == group_index], dim=0
                         )
@@ -325,7 +327,9 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :return: scale and zero_point
         """
 
-        scale, zero_point = quant_args.get_observer()(W, g_idx=None)
+        observer = quant_args.get_observer()
+        observer = Observer.load_from_registry(observer, quantization_args=quant_args)
+        scale, zero_point = observer(W, g_idx=None)
         scale = scale.to(dtype=W.dtype)
         zero_point = zero_point.to(dtype=quant_args.pytorch_dtype())
         return scale, zero_point
