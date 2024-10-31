@@ -1,11 +1,7 @@
 import time
 from typing import Tuple
 
-from compressed_tensors.quantization import (
-    ActivationOrdering,
-    QuantizationArgs,
-    QuantizationStrategy,
-)
+from compressed_tensors.quantization import ActivationOrdering, QuantizationStrategy
 from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
@@ -114,6 +110,13 @@ class GPTQWrapper(ModuleCompressionWrapper):
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
 
+        # create observer for calculating quantization parameters
+        observer = Observer.load_from_registry(
+            "minmax",
+            quantization_args=quant_args,
+            averaging_constant=1.0,  # ignore moving average
+        )
+
         # standardize shape and dtype
         if isinstance(self.layer, nn.Conv2d):
             W = W.flatten(1)
@@ -133,22 +136,22 @@ class GPTQWrapper(ModuleCompressionWrapper):
             if actorder == ActivationOrdering.GROUP:
                 # permute by activation order first, then update groups
                 W, self.H, perm = self._apply_activation_ordering(W, self.H)
-                scale, zero_point = self.compute_scale_zero_point(W, quant_args)
+                scale, zero_point = observer(W, g_idx=None)
 
                 # use identity g_idx (invert permutation later)
 
             elif actorder == ActivationOrdering.WEIGHT:
                 # update groups first, then permute by activation order
-                scale, zero_point = self.compute_scale_zero_point(W, quant_args)
+                scale, zero_point = observer(W, g_idx=None)
                 W, self.H, perm = self._apply_activation_ordering(W, self.H)
 
                 # permute g_idx to maintain identity mapping after unpermutation
                 g_idx = g_idx[perm]
 
             else:
-                scale, zero_point = self.compute_scale_zero_point(W, quant_args)
+                scale, zero_point = observer(W, g_idx=None)
         else:
-            scale, zero_point = self.compute_scale_zero_point(W, quant_args)
+            scale, zero_point = observer(W, g_idx=None)
 
         # sparsity mask
         sparsity = tensor_sparsity(W)
@@ -227,8 +230,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
                         actorder != ActivationOrdering.WEIGHT
                         and column_idx % quant_args.group_size == 0
                     ):
-                        observer = quant_args.get_observer()
-                        observer = Observer.load_from_registry("mse", quantization_args=quant_args)
                         _scale, _zero_point = observer.get_qparams_along_dim(
                             W[:, g_idx == group_index], dim=0
                         )
@@ -314,25 +315,6 @@ class GPTQWrapper(ModuleCompressionWrapper):
         """
         delattr(self, "H")
         super().free()
-
-    def compute_scale_zero_point(
-        self, W: torch.Tensor, quant_args: QuantizationArgs
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Compute the scale and zero point of a module weight
-
-        :param W: module weight
-        :param quant_args: quantization arguments which determine how quantization
-            parameters are calculated
-        :return: scale and zero_point
-        """
-
-        observer = quant_args.get_observer()
-        observer = Observer.load_from_registry(observer, quantization_args=quant_args)
-        scale, zero_point = observer(W, g_idx=None)
-        scale = scale.to(dtype=W.dtype)
-        zero_point = zero_point.to(dtype=quant_args.pytorch_dtype())
-        return scale, zero_point
 
     def _apply_activation_ordering(
         self, W: torch.Tensor, H: torch.Tensor
