@@ -139,9 +139,9 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
 @pytest.mark.parametrize(
     "format,dtype",
     [
-        #["dense", torch.float32],
+        ["dense", torch.float32],
         ["dense", torch.float16],
-        #["int_quantized", torch.float32],
+        ["int_quantized", torch.float32],
         # [True, "int_quantized", torch.float16],
     ],
 )
@@ -159,7 +159,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     concatenate_data = False
     num_calibration_samples = 64
     splits = {"calibration": "train[:10%]"}
-    empty_model = AutoModelForCausalLM.from_pretrained(model_path)
+    empty_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
 
     # create a quantized model
     oneshot(
@@ -193,9 +193,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     quant_config = ModelCompressor.parse_quantization_config(compression_config)
     assert quant_config["format"] == format
 
-    compressor = ModelCompressor.from_compression_config(
-        compression_config
-    )
+    compressor = ModelCompressor.from_compression_config(compression_config)
     compressor.quantization_config.quantization_status = QuantizationStatus.FROZEN
     compressor.decompress(model_path="compress_out", model=empty_model)
 
