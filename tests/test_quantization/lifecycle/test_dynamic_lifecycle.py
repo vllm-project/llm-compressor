@@ -14,10 +14,7 @@
 
 
 import torch
-from compressed_tensors.quantization.lifecycle import (
-    apply_quantization_config,
-    freeze_module_quantization,
-)
+from compressed_tensors.quantization.lifecycle import apply_quantization_config
 from compressed_tensors.quantization.quant_config import QuantizationConfig
 from transformers import AutoModelForCausalLM
 
@@ -39,8 +36,6 @@ def test_apply_tinyllama_dynamic_activations():
     # verify forward works w/ dynamic during calibration
     model(torch.zeros((1, 1), dtype=int), torch.zeros((1, 1), dtype=int))
 
-    # freeze and test that only weight observers are deleted
-    model.apply(freeze_module_quantization)
     _test_linears_dynamic_quantization_status(model, quant_config, frozen=True)
     # verify forward works w/ dynamic after freeze
     model(torch.zeros((1, 1), dtype=int), torch.zeros((1, 1), dtype=int))
@@ -79,7 +74,6 @@ def _test_layer_dynamic_quantization_status(
     # check weights always have scale/zp and observer only if not frozen
     assert hasattr(module, "weight_scale") == weights
     assert hasattr(module, "weight_zero_point") == weights
-    assert hasattr(module, "weight_observer") == (weights and not frozen)
 
 
 def get_tinyllama_model():

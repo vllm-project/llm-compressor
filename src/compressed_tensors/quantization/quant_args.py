@@ -114,20 +114,13 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         """
         :return: torch quantization FakeQuantize built based on these QuantizationArgs
         """
-        from compressed_tensors.quantization.observers.base import Observer
 
         # No observer required for the dynamic case
         if self.dynamic:
             self.observer = None
             return self.observer
 
-        return Observer.load_from_registry(self.observer, quantization_args=self)
-
-    def get_kv_cache(self):
-        """Get the singleton KV Cache"""
-        from compressed_tensors.quantization.cache import QuantizedKVParameterCache
-
-        return QuantizedKVParameterCache(self)
+        return self.observer
 
     @field_validator("type", mode="before")
     def validate_type(cls, value) -> QuantizationType:

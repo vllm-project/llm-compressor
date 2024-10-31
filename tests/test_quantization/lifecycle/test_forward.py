@@ -15,18 +15,12 @@
 
 import pytest
 import torch
-from compressed_tensors.quantization.lifecycle.calibration import (
-    set_module_for_calibration,
-)
 from compressed_tensors.quantization.lifecycle.forward import (
-    calibrate_activations,
     dequantize,
     forward_quantize,
     quantize,
     wrap_module_forward_quantized,
-    wrap_module_forward_quantized_attn,
 )
-from compressed_tensors.quantization.lifecycle.frozen import freeze_module_quantization
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
 )
@@ -60,10 +54,10 @@ def test_wrap_module_forward_quantized(create_quantization_scheme):
     assert not func_forward == layer.forward.__func__
 
 
-@pytest.mark.parametrize(
-    "quantization_status", ["initialized", "calibration", "frozen"]
-)
-def test_forward_quantize(create_quantization_scheme, quantization_status):
+@pytest.mark.parametrize("quantization_status", ["initialized", "calibration"])
+def test_forward_quantize(
+    mock_per_tensor_calibration, create_quantization_scheme, quantization_status
+):
     num_bits = 8
     quantization_scheme = create_quantization_scheme(
         targets=["*"],
@@ -81,37 +75,20 @@ def test_forward_quantize(create_quantization_scheme, quantization_status):
     if layer.quantization_status == QuantizationStatus.INITIALIZED:
         # Init zp and scales
         initialize_module_for_quantization(layer, quantization_scheme)
-        # init weight observers; update weight scales/zp
-        set_module_for_calibration(layer)
+        # mock weight calibration
+        mock_per_tensor_calibration(layer, "weight", value=layer.weight.data)
         # call quant/dequant on weights
         out = forward_quantize(layer, layer.weight, "weight", quantization_args)
         assert torch.allclose(out, layer.weight.data, atol=0.2)
     elif layer.quantization_status == QuantizationStatus.CALIBRATION:
         # init zp/scales
         initialize_module_for_quantization(layer, quantization_scheme)
-        #  init weight observers; update weight scales/zp
-        set_module_for_calibration(layer)
-        #  init input observers, update input scales/zp
-        calibrate_activations(
-            module=layer,
-            value=dummy_tensor,
-            base_name="input",
-            quantization_args=quantization_args,
-        )
+        # run weight and input calibration
+        mock_per_tensor_calibration(layer, "weight", value=layer.weight.data)
+        mock_per_tensor_calibration(layer, "input", value=dummy_tensor)
         # call quant/dequant on inputs
         out = forward_quantize(layer, dummy_tensor, "input", quantization_args)
         assert torch.allclose(out, dummy_tensor, atol=0.2)
-        assert layer.input_observer._num_observed_tokens == dummy_tensor.shape[0]
-    elif layer.quantization_status == QuantizationStatus.FROZEN:
-        # init weight observers
-        initialize_module_for_quantization(layer, quantization_scheme)
-        # init weight observers; update weight scales/zp
-        set_module_for_calibration(layer)
-        # remove weight observers and any input observers
-        freeze_module_quantization(layer)
-        # call quant/dequant on weights
-        out = forward_quantize(layer, layer.weight.data, "weight", quantization_args)
-        assert torch.allclose(out, layer.weight.data, atol=0.2)
 
 
 @pytest.mark.parametrize(
@@ -226,21 +203,3 @@ def test_dequantize(num_bits, type, strategy, group_size, scale, zero_point, g_i
         dtype=None,
         g_idx=g_idx,
     )
-
-
-def test_wrap_module_forward_quantized_attn(create_quantization_scheme):
-    num_bits = 8
-    quantization_scheme = create_quantization_scheme(
-        targets=["self_attn"],
-        weights=QuantizationArgs(num_bits=num_bits, symmetric=True),
-        input_activations=QuantizationArgs(num_bits=num_bits, symmetric=False),
-    )
-
-    mock_attn_layer = Linear(4, 4)
-
-    attn_forward = mock_attn_layer.forward.__func__
-
-    # check that the forward call is overwritten
-    wrap_module_forward_quantized_attn(mock_attn_layer, quantization_scheme)
-
-    assert not attn_forward == mock_attn_layer.forward.__func__

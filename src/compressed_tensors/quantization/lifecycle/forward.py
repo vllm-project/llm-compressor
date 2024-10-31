@@ -17,11 +17,6 @@ from math import ceil
 from typing import Callable, Optional
 
 import torch
-from compressed_tensors.quantization.cache import QuantizedKVParameterCache
-from compressed_tensors.quantization.observers.helpers import (
-    calculate_range,
-    compute_dynamic_scales_and_zp,
-)
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
@@ -29,6 +24,10 @@ from compressed_tensors.quantization.quant_args import (
 )
 from compressed_tensors.quantization.quant_config import QuantizationStatus
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
+from compressed_tensors.quantization.utils import (
+    calculate_range,
+    compute_dynamic_scales_and_zp,
+)
 from compressed_tensors.utils import safe_permute, update_parameter_data
 from torch.nn import Module
 
@@ -39,7 +38,6 @@ __all__ = [
     "fake_quantize",
     "wrap_module_forward_quantized",
     "forward_quantize",
-    "calibrate_activations",
 ]
 
 
@@ -276,19 +274,7 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
         compressed = module.quantization_status == QuantizationStatus.COMPRESSED
 
         if scheme.input_activations is not None:
-            # calibrate and (fake) quantize input activations when applicable
-            # NOTE: will be moved out of compressed-tensors
-            if (
-                module.quantization_status == QuantizationStatus.CALIBRATION
-                and not scheme.input_activations.dynamic
-            ):
-                calibrate_activations(
-                    module=module,
-                    value=input_,
-                    base_name="input",
-                    quantization_args=scheme.input_activations,
-                )
-
+            # prehook should calibrate activations before forward call
             input_ = forward_quantize(module, input_, "input", scheme.input_activations)
 
         if scheme.weights is not None and not compressed:
@@ -302,108 +288,28 @@ def wrap_module_forward_quantized(module: Module, scheme: QuantizationScheme):
         output = forward_func_orig.__get__(module, module.__class__)(
             input_, *args[1:], **kwargs
         )
-        if scheme.output_activations is not None:
-
-            # calibrate and (fake) quantize output activations when applicable
-            # kv_cache scales updated on model self_attn forward call in
-            # wrap_module_forward_quantized_attn
-
-            if (
-                module.quantization_status == QuantizationStatus.CALIBRATION
-                and not scheme.output_activations.dynamic
-            ):
-                calibrate_activations(
-                    module=module,
-                    value=output,
-                    base_name="output",
-                    quantization_args=scheme.ouput_activations,
-                )
-
-            output = forward_quantize(
-                module, output, "output", scheme.output_activations
-            )
 
         # restore back to unquantized_value
         if scheme.weights is not None and not compressed:
             self.weight.data = unquantized_weight
 
+        if scheme.output_activations is not None:
+            # forward-hook should calibrate/forward_quantize
+            if (
+                module.quantization_status == QuantizationStatus.CALIBRATION
+                and not scheme.output_activations.dynamic
+            ):
+                return output
+
+            output = forward_quantize(
+                module, output, "output", scheme.output_activations
+            )
         return output
 
     # bind wrapped forward to module class so reference to `self` is correct
     bound_wrapped_forward = wrapped_forward.__get__(module, module.__class__)
     # set forward to wrapped forward
     setattr(module, "forward", bound_wrapped_forward)
-
-
-def wrap_module_forward_quantized_attn(module: Module, scheme: QuantizationScheme):
-    # expects a module already initialized and injected with the parameters in
-    # initialize_module_for_quantization
-    if hasattr(module.forward, "__func__"):
-        forward_func_orig = module.forward.__func__
-    else:
-        forward_func_orig = module.forward.func
-
-    @wraps(forward_func_orig)  # ensures docstring, names, etc are propagated
-    def wrapped_forward(self, *args, **kwargs):
-
-        # kv cache stored under weights
-        if module.quantization_status == QuantizationStatus.CALIBRATION:
-            quantization_args: QuantizationArgs = scheme.output_activations
-            past_key_value: QuantizedKVParameterCache = quantization_args.get_kv_cache()
-            kwargs["past_key_value"] = past_key_value
-
-            # QuantizedKVParameterCache used for obtaining k_scale, v_scale only,
-            # does not store quantized_key_states and quantized_value_state
-            kwargs["use_cache"] = False
-
-            attn_forward: Callable = forward_func_orig.__get__(module, module.__class__)
-
-            past_key_value.reset_states()
-
-            rtn = attn_forward(*args, **kwargs)
-
-            update_parameter_data(
-                module, past_key_value.k_scales[module.layer_idx], "k_scale"
-            )
-            update_parameter_data(
-                module, past_key_value.v_scales[module.layer_idx], "v_scale"
-            )
-
-            return rtn
-
-        return forward_func_orig.__get__(module, module.__class__)(*args, **kwargs)
-
-    # bind wrapped forward to module class so reference to `self` is correct
-    bound_wrapped_forward = wrapped_forward.__get__(module, module.__class__)
-    # set forward to wrapped forward
-    setattr(module, "forward", bound_wrapped_forward)
-
-
-def calibrate_activations(
-    module: Module,
-    value: torch.Tensor,
-    base_name: str,
-    quantization_args: QuantizationArgs,
-):
-    # If empty tensor, can't update zp/scale
-    # Case for MoEs
-    if value.numel() == 0:
-        return
-    # calibration mode - get new quant params from observer
-    if not hasattr(module, f"{base_name}_observer"):
-        from compressed_tensors.quantization.lifecycle import initialize_observers
-
-        initialize_observers(
-            module=module, base_name=base_name, quantization_args=quantization_args
-        )
-
-    observer = getattr(module, f"{base_name}_observer")
-
-    updated_scale, updated_zero_point = observer(value)
-
-    # update scale and zero point
-    update_parameter_data(module, updated_scale, f"{base_name}_scale")
-    update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
 def forward_quantize(
@@ -426,10 +332,10 @@ def forward_quantize(
     g_idx = getattr(module, "weight_g_idx", None)
 
     if args.dynamic:
-        # dynamic quantization - no need to invoke observer
+        # dynamic quantization - determine the scale/zp on the fly
         scale, zero_point = compute_dynamic_scales_and_zp(value=value, args=args)
     else:
-        # static quantization - get previous scale and zero point from layer
+        # static quantization - get scale and zero point from layer
         scale = getattr(module, f"{base_name}_scale")
         zero_point = getattr(module, f"{base_name}_zero_point", None)
 

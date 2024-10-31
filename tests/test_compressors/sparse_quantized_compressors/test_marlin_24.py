@@ -54,7 +54,13 @@ def test_marlin_registered():
     "strategy", [QuantizationStrategy.GROUP, QuantizationStrategy.CHANNEL]
 )
 @pytest.mark.parametrize("layer_shape", [(512, 128), (1024, 1024), (128, 256)])
-def test_marlin24_format(num_bits, strategy, layer_shape):
+def test_marlin24_format(
+    mock_per_group_calibration,
+    mock_per_channel_calibration,
+    num_bits,
+    strategy,
+    layer_shape,
+):
     QUANT_NAME = "quant"
     NOT_QUANT_NAME = "not_quant"
     model = Sequential(
@@ -70,11 +76,17 @@ def test_marlin24_format(num_bits, strategy, layer_shape):
     model.quant.weight.data *= mask
 
     apply_quantization_config(model, config)
-    apply_quantization_status(model, QuantizationStatus.CALIBRATION)
+    model.quantization_status = QuantizationStatus.CALIBRATION
 
     # runs observer to get scale and zero point
-    input = torch.rand((64, layer_shape[0]))
-    _ = model(input)
+    if strategy == QuantizationStrategy.GROUP:
+        mock_per_group_calibration(
+            model.quant, base_name="weight", value=model.quant.weight, group_size=128
+        )
+    if strategy == QuantizationStrategy.CHANNEL:
+        mock_per_channel_calibration(
+            model.quant, base_name="weight", value=model.quant.weight
+        )
 
     state_dict = model.state_dict()
     assert len(state_dict) == 4

@@ -16,9 +16,14 @@ import logging
 from typing import Generator, List, Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.observers.base import Observer
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import (
+    FP8_DTYPE,
+    QuantizationArgs,
+    QuantizationStrategy,
+    QuantizationType,
+)
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
+from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -36,6 +41,9 @@ __all__ = [
     "is_kv_cache_quant_scheme",
     "iter_named_leaf_modules",
     "iter_named_quantizable_modules",
+    "compute_dynamic_scales_and_zp",
+    "calculate_range",
+    "calculate_qparams",
 ]
 
 # target the self_attn layer
@@ -43,6 +51,105 @@ __all__ = [
 KV_CACHE_TARGETS = ["re:.*self_attn$"]
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+
+
+def calculate_qparams(
+    min_vals: Tensor, max_vals: Tensor, quantization_args: QuantizationArgs
+) -> Tuple[FloatTensor, IntTensor]:
+    """
+    :param min_vals: tensor of min value(s) to calculate scale(s) and zero point(s)
+        from
+    :param max_vals: tensor of max value(s) to calculate scale(s) and zero point(s)
+        from
+    :param quantization_args: settings to quantization
+    :return: tuple of the calculated scale(s) and zero point(s)
+    """
+    min_vals = torch.min(min_vals, torch.zeros_like(min_vals))
+    max_vals = torch.max(max_vals, torch.zeros_like(max_vals))
+    device = min_vals.device
+
+    bit_min, bit_max = calculate_range(quantization_args, device)
+    bit_range = bit_max - bit_min
+    zp_dtype = quantization_args.pytorch_dtype()
+
+    if quantization_args.symmetric:
+        max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
+        scales = max_val_pos / (float(bit_range) / 2)
+        scales = torch.clamp(scales, min=torch.finfo(torch.float32).eps)
+        zero_points = torch.zeros(scales.shape, device=device, dtype=min_vals.dtype)
+    else:
+        scales = (max_vals - min_vals) / float(bit_range)
+        scales = torch.clamp(scales, min=torch.finfo(torch.float32).eps)
+        zero_points = bit_min - (min_vals / scales)
+        zero_points = torch.clamp(zero_points, bit_min, bit_max)
+
+    # match zero-points to quantized type
+    zero_points = zero_points.to(zp_dtype)
+
+    if scales.ndim == 0:
+        scales = scales.reshape(1)
+        zero_points = zero_points.reshape(1)
+
+    return scales, zero_points
+
+
+def compute_dynamic_scales_and_zp(value: Tensor, args: QuantizationArgs):
+    """
+    Returns the computed scales and zero points for dynamic activation
+    qunatization.
+
+    :param value: tensor to calculate quantization parameters for
+    :param args: quantization args
+    :param reduce_dims: optional tuple of dimensions to reduce along,
+        returned scale and zero point will be shaped (1,) along the
+        reduced dimensions
+    :return: tuple of scale and zero point derived from the observed tensor
+    """
+    if args.strategy == QuantizationStrategy.TOKEN:
+        dim = {1, 2}
+        reduce_dims = tuple(idx for idx in range(value.ndim) if idx not in dim)
+    elif args.strategy == QuantizationStrategy.TENSOR:
+        reduce_dims = None
+    else:
+        raise ValueError(
+            f"One of {QuantizationStrategy.TOKEN} or {QuantizationStrategy.TENSOR} ",
+            "must be used for dynamic quantization",
+        )
+
+    if not reduce_dims:
+        min_val, max_val = torch.aminmax(value)
+    else:
+        min_val = torch.amin(value, dim=reduce_dims, keepdims=True)
+        max_val = torch.amax(value, dim=reduce_dims, keepdims=True)
+
+    return calculate_qparams(min_val, max_val, args)
+
+
+def calculate_range(quantization_args: QuantizationArgs, device: str) -> Tuple:
+    """
+    Calculated the effective quantization range for the given Quantization Args
+
+    :param quantization_args: quantization args to get range of
+    :param device: device to store the range to
+    :return: tuple endpoints for the given quantization range
+    """
+    if quantization_args.type == QuantizationType.INT:
+        bit_range = 2**quantization_args.num_bits
+        q_max = torch.tensor(bit_range / 2 - 1, device=device)
+        q_min = torch.tensor(-bit_range / 2, device=device)
+    elif quantization_args.type == QuantizationType.FLOAT:
+        if quantization_args.num_bits != 8:
+            raise ValueError(
+                "Floating point quantization is only supported for 8 bits,"
+                f"got {quantization_args.num_bits}"
+            )
+        fp_range_info = torch.finfo(FP8_DTYPE)
+        q_max = torch.tensor(fp_range_info.max, device=device)
+        q_min = torch.tensor(fp_range_info.min, device=device)
+    else:
+        raise ValueError(f"Invalid quantization type {quantization_args.type}")
+
+    return q_min, q_max
 
 
 def infer_quantization_status(model: Module) -> Optional["QuantizationStatus"]:  # noqa
@@ -118,12 +225,18 @@ def iter_named_leaf_modules(model: Module) -> Generator[Tuple[str, Module], None
     """
     for name, submodule in model.named_modules():
         children = list(submodule.children())
-        if len(children) == 0 and not isinstance(submodule, Observer):
+        # TODO: verify if an observer would ever be attached in this case/remove check
+        if len(children) == 0 and "observer" in name:
             yield name, submodule
         else:
+            if len(children) > 0:
+                named_children, children = zip(*list(submodule.named_children()))
             has_non_observer_children = False
-            for child in children:
-                if not isinstance(child, Observer):
+            for i in range(len(children)):
+                child = children[i]
+                child_name = named_children[i]
+
+                if "observer" not in child_name:
                     has_non_observer_children = True
 
             if not has_non_observer_children:
@@ -144,14 +257,20 @@ def iter_named_quantizable_modules(
     :returns: generator tuple of (name, submodule)
     """
     for name, submodule in model.named_modules():
+        # TODO: verify if an observer would ever be attached in this case/remove check
         if include_children:
             children = list(submodule.children())
-            if len(children) == 0 and not isinstance(submodule, Observer):
+            if len(children) == 0 and "observer" not in name:
                 yield name, submodule
             else:
+                if len(children) > 0:
+                    named_children, children = zip(*list(submodule.named_children()))
                 has_non_observer_children = False
-                for child in children:
-                    if not isinstance(child, Observer):
+                for i in range(len(children)):
+                    child_name = named_children[i]
+                    child = children[i]
+
+                    if "observer" not in child_name:
                         has_non_observer_children = True
 
                 if not has_non_observer_children:

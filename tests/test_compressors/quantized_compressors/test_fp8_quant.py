@@ -114,7 +114,13 @@ def test_quant_format(strategy, group_size, sc, zp):
         # Note that group quantization is not supported
     ],
 )
-def test_reload_match(strategy, group_size, tmp_path):
+def test_reload_match(
+    mock_per_group_calibration,
+    mock_per_channel_calibration,
+    strategy,
+    group_size,
+    tmp_path,
+):
     model = Sequential(
         OrderedDict(
             [
@@ -124,11 +130,15 @@ def test_reload_match(strategy, group_size, tmp_path):
     )
     quant_config = get_dummy_quant_config(strategy=strategy, group_size=group_size)
     apply_quantization_config(model, quant_config)
-    apply_quantization_status(model, QuantizationStatus.CALIBRATION)
-
-    for _ in range(16):
-        inputs = torch.rand((512, 512))
-        _ = model(inputs)
+    model.dummy.quantization_status = QuantizationStatus.CALIBRATION
+    if strategy == QuantizationStrategy.GROUP:
+        mock_per_group_calibration(
+            model.dummy, base_name="weight", value=model.dummy.weight, group_size=128
+        )
+    if strategy == QuantizationStrategy.CHANNEL:
+        mock_per_channel_calibration(
+            model.dummy, base_name="weight", value=model.dummy.weight
+        )
 
     compressor = FloatQuantizationCompressor(config=quant_config)
     quantized_modules_to_args = {

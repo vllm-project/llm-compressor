@@ -14,13 +14,12 @@
 
 
 import logging
+from enum import Enum
 from typing import Optional
 
 import torch
-from compressed_tensors.quantization.cache import KVCacheScaleType
 from compressed_tensors.quantization.lifecycle.forward import (
     wrap_module_forward_quantized,
-    wrap_module_forward_quantized_attn,
 )
 from compressed_tensors.quantization.quant_args import (
     ActivationOrdering,
@@ -34,10 +33,19 @@ from compressed_tensors.utils import get_execution_device, is_module_offloaded
 from torch.nn import Module, Parameter
 
 
-__all__ = ["initialize_module_for_quantization", "initialize_observers"]
+__all__ = [
+    "initialize_module_for_quantization",
+    "is_attention_module",
+    "KVCacheScaleType",
+]
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class KVCacheScaleType(Enum):
+    KEY = "k_scale"
+    VALUE = "v_scale"
 
 
 def initialize_module_for_quantization(
@@ -64,9 +72,7 @@ def initialize_module_for_quantization(
         return
 
     if is_attention_module(module):
-        # wrap forward call of module to perform
         # quantized actions based on calltime status
-        wrap_module_forward_quantized_attn(module, scheme)
         _initialize_attn_scales(module)
 
     else:
@@ -107,6 +113,7 @@ def initialize_module_for_quantization(
         module.quantization_status = QuantizationStatus.INITIALIZED
 
         offloaded = False
+        # What is this doing/why isn't this in the attn case?
         if is_module_offloaded(module):
             try:
                 from accelerate.hooks import add_hook_to_module, remove_hook_from_module
@@ -144,14 +151,12 @@ def initialize_module_for_quantization(
                 module._hf_hook.weights_map = new_prefix_dict
 
 
-def initialize_observers(
-    module: Module,
-    base_name: str,
-    quantization_args: QuantizationArgs,
-):
-    # initialize observer module and attach as submodule
-    observer = quantization_args.get_observer()
-    module.register_module(f"{base_name}_observer", observer)
+def is_attention_module(module: Module):
+    return "attention" in module.__class__.__name__.lower() and (
+        hasattr(module, "k_proj")
+        or hasattr(module, "v_proj")
+        or hasattr(module, "qkv_proj")
+    )
 
 
 def _initialize_scale_zero_point(
@@ -207,14 +212,6 @@ def _initialize_scale_zero_point(
             requires_grad=False,
         )
         module.register_parameter(f"{base_name}_g_idx", init_g_idx)
-
-
-def is_attention_module(module: Module):
-    return "attention" in module.__class__.__name__.lower() and (
-        hasattr(module, "k_proj")
-        or hasattr(module, "v_proj")
-        or hasattr(module, "qkv_proj")
-    )
 
 
 def _initialize_attn_scales(module: Module) -> None:
