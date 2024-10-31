@@ -6,7 +6,7 @@ from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
-from llmcompressor.observers.base import Observer
+from llmcompressor.observers import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
