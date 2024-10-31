@@ -452,9 +452,7 @@ class SessionManagerMixIn:
         # self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
 
-    def save_model(
-        self, output_dir: Optional[str] = None, _internal_call=False, _is_oneshot=False
-    ):
+    def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """
         Override of the save_model function and expects it to exist in the parent.
         Calls into super() to save the model and additionally saves any recipes
@@ -464,9 +462,6 @@ class SessionManagerMixIn:
         """
         if active_session() is None:
             return  # nothing to save
-
-        if output_dir is None:
-            output_dir = self.args.output_dir
 
         # knowledge distillation requires making wrappers transparent during
         if isinstance(self.model, KDModelWrapper):

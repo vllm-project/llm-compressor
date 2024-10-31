@@ -23,6 +23,7 @@ from pathlib import PosixPath
 from loguru import logger
 from transformers import (
     AutoConfig,
+    AutoModelForCausalLM,
     AutoTokenizer,
     DefaultDataCollator,
     HfArgumentParser,
@@ -42,11 +43,15 @@ from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_fsdp_model_save_pretrained,
+    modify_save_pretrained,
+)
 from llmcompressor.transformers.sparsification.sparse_model import (
-    SparseAutoModel,
     get_shared_tokenizer_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
+from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 def train(**kwargs):
@@ -199,16 +204,14 @@ def initialize_model_from_path(
         "trust_remote_code": model_args.trust_remote_code_model,
     }
     # this calls from_pretrained under the hood so should be FSDP safe
-    model = SparseAutoModel.text_generation_from_pretrained(
-        model_name_or_path=model_path,
-        sequence_length=None,  # use model default
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
         **model_kwargs,
     )
 
     teacher = (
-        SparseAutoModel.text_generation_from_pretrained(
-            model_name_or_path=model_args.distill_teacher,
-            sequence_length=None,  # use model default
+        AutoModelForCausalLM.from_pretrained(
+            model_args.distill_teacher,
             **teacher_kwargs,
         )
         if model_args.distill_teacher is not None
@@ -348,7 +351,6 @@ def main(
 
         # exit immediately
         return
-
     # Training
     if training_args.do_train:
         checkpoint = None
@@ -373,6 +375,13 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:
         reset_session()
+
+    # wrap model.save_pretrained
+    model = trainer.model
+    if is_fsdp_model(model):
+        modify_fsdp_model_save_pretrained(trainer, tokenizer)
+    else:
+        modify_save_pretrained(model)
 
 
 if __name__ == "__main__":

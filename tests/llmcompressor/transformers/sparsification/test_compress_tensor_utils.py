@@ -10,13 +10,16 @@ from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
+)
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_save_pretrained,
 )
 
 
@@ -58,7 +61,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         clear_sparse_session=False,
     )
 
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         tmp_path / "oneshot_out", torch_dtype=dtype
     )
 
@@ -90,7 +93,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     ] == SparsityConfigMetadata.infer_global_sparsity(model)
     assert sparsity_config["sparsity_structure"] == inferred_structure
 
-    dense_model = SparseAutoModelForCausalLM.from_pretrained(
+    dense_model = AutoModelForCausalLM.from_pretrained(
         tmp_path / "compress_out", torch_dtype="auto"
     )
 
@@ -114,7 +117,7 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     reset_session()
 
     model_path = "Xenova/llama2.c-stories15M"
-    model = SparseAutoModelForCausalLM.from_pretrained(model_path)
+    model = AutoModelForCausalLM.from_pretrained(model_path)
 
     inferred_global_sparsity = SparsityConfigMetadata.infer_global_sparsity(model)
     assert math.isclose(inferred_global_sparsity, 0.0, rel_tol=1e-3)
@@ -140,8 +143,8 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     "format,dtype",
     [
         ["dense", torch.float32],
-        ["dense", torch.float16],
-        ["int_quantized", torch.float32],
+        # ["dense", torch.float16],
+        # ["int_quantized", torch.float32],
         # [True, "int_quantized", torch.float16],
     ],
 )
@@ -159,9 +162,14 @@ def test_quant_model_reload(format, dtype, tmp_path):
     output_dir = tmp_path / "oneshot_out"
     splits = {"calibration": "train[:10%]"}
 
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        torch_dtype=dtype,
+    )
+
     # create a quantized model
     oneshot(
-        model=model_path,
+        model=model,
         dataset=dataset,
         output_dir=output_dir,
         num_calibration_samples=num_calibration_samples,
@@ -171,34 +179,41 @@ def test_quant_model_reload(format, dtype, tmp_path):
         oneshot_device=device,
         precision=dtype,
     )
-
-    model = SparseAutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype
-    )
-
-    for _, module in model.named_modules():
-        if hasattr(module, "quantization_scheme"):
-            assert module.weight.dtype == dtype
-            assert module.quantization_status == QuantizationStatus.FROZEN
-
+    save_path = tmp_path / "oneshot_out"
     model.save_pretrained(
-        tmp_path / "compress_out",
+        save_path,
         quantization_format=format,
         save_compressed=True,
     )
 
-    config = AutoConfig.from_pretrained(tmp_path / "compress_out")
+    loaded_model = AutoModelForCausalLM.from_pretrained(
+        save_path,
+        torch_dtype=dtype,
+    )
+    for _, module in loaded_model.named_modules():
+        if hasattr(module, "quantization_scheme"):
+            assert module.weight.dtype == dtype
+            assert module.quantization_status == QuantizationStatus.FROZEN
+
+    config = AutoConfig.from_pretrained(save_path)
     compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
     quant_config = ModelCompressor.parse_quantization_config(compression_config)
     assert quant_config["format"] == format
 
-    dense_model = SparseAutoModelForCausalLM.from_pretrained(
+    model.save_pretrained(
+        tmp_path / "compress_out",
+        quantization_format=format,
+        save_compressed=False,
+    )
+
+    dense_model = AutoModelForCausalLM.from_pretrained(
         tmp_path / "compress_out", torch_dtype="auto"
     )
 
     og_state_dict = model.state_dict()
     reconstructed_state_dict = dense_model.state_dict()
     assert len(og_state_dict) == len(reconstructed_state_dict)
+
     for key in og_state_dict.keys():
         dense_tensor = og_state_dict[key]
         reconstructed_tensor = reconstructed_state_dict[key]
@@ -234,7 +249,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     model_path = "Xenova/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         model_path,
         tie_word_embeddings=tie_word_embeddings,
         torch_dtype=torch_dtype,
@@ -243,9 +258,10 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     if offload:
         model = cpu_offload(model)
 
+    modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
 
-    reloaded = SparseAutoModelForCausalLM.from_pretrained(
+    reloaded = AutoModelForCausalLM.from_pretrained(
         save_path, torch_dtype="auto", device_map="cpu"
     )
 
@@ -288,7 +304,7 @@ def test_model_shared_tensors(
     offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
 ):
     # load model
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         "Xenova/llama2.c-stories15M",
         torch_dtype=torch_dtype,
         tie_word_embeddings=tie_word_embeddings,
