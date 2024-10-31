@@ -18,6 +18,7 @@ __all__ = [
     "calibrate_kv_cache_output_hook",
     "set_unset_kv_cache",
     "freeze_module_quantization",
+    "apply_calibration_status",
 ]
 
 
@@ -116,8 +117,6 @@ def update_weight_zp_scale(module: Module):
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
         call_observer(module=module, base_name="weight", value=module.weight)
-
-    module.quantization_status = QuantizationStatus.CALIBRATION
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
@@ -224,6 +223,14 @@ def set_unset_kv_cache(module: Module):
             delattr(module, "kv_cache")
         else:
             setattr(module, "kv_cache", kv_cache)
+
+
+def apply_calibration_status(module: Module):
+    scheme = getattr(module, "quantization_scheme", None)
+    if not scheme:
+        # no quantization scheme nothing to do
+        return
+    module.quantization_status = QuantizationStatus.CALIBRATION
 
 
 def freeze_module_quantization(module: Module):

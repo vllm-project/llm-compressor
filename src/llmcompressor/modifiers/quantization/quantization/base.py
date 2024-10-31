@@ -17,6 +17,7 @@ from torch.nn import Module
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
+    apply_calibration_status,
     calibrate_input_hook,
     calibrate_kv_cache_input_hook,
     calibrate_kv_cache_output_hook,
@@ -99,6 +100,7 @@ class QuantizationModifier(Modifier):
         if self.calculate_start() == -1:  # one-shot
             self._check_calibration_data(config)
             module.apply(update_weight_zp_scale)
+            module.apply(apply_calibration_status)
             self.calibration_hooks_ = []
             self._calibrate_if_possible(module)
             self._check_token_distribution(
