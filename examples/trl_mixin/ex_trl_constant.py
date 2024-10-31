@@ -1,13 +1,13 @@
 from datasets import load_dataset
 from sft_trainer import SFTTrainer
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import DataCollatorForCompletionOnlyLM
 
-from llmcompressor.transformers import SparseAutoModelForCausalLM, TrainingArguments
+from llmcompressor.transformers import TrainingArguments
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 output_dir = "./output_trl_sft_test_7b_gsm8k_sft_data"
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     model_path, torch_dtype="auto", device_map="auto"
 )
 tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -40,7 +40,6 @@ response_template = "Answer:"
 collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer)
 
 training_args = TrainingArguments(
-    output_dir=output_dir,
     num_train_epochs=0.6,
     logging_steps=50,
     gradient_checkpointing=True,
@@ -57,4 +56,4 @@ trainer = SFTTrainer(
     max_seq_length=512,
 )
 trainer.train()
-trainer.save_model()
+trainer.save_model(output_dir)

@@ -1,9 +1,8 @@
 from sft_trainer import SFTTrainer
-from transformers import AutoTokenizer, DefaultDataCollator
+from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
 from llmcompressor.transformers import (
     DataTrainingArguments,
-    SparseAutoModelForCausalLM,
     TextGenerationDataset,
     TrainingArguments,
 )
@@ -12,10 +11,10 @@ model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
 output_dir = "./output_trl_sft_test_7b_gsm8k"
 
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     model_path, torch_dtype="auto", device_map="auto"
 )
-teacher = SparseAutoModelForCausalLM.from_pretrained(
+teacher = AutoModelForCausalLM.from_pretrained(
     teacher_path, torch_dtype="auto", device_map="auto"
 )
 
@@ -53,7 +52,6 @@ test_stage:
 
 data_collator = DefaultDataCollator()
 training_args = TrainingArguments(
-    output_dir=output_dir,
     num_train_epochs=0.6,
     logging_steps=50,
     gradient_checkpointing=True,
@@ -73,4 +71,4 @@ trainer = SFTTrainer(
     packing=True,
 )
 trainer.train()
-trainer.save_model()
+trainer.save_model(output_dir)

@@ -1,13 +1,14 @@
 import torch
+from transformers import AutoModelForCausalLM
 
-from llmcompressor.transformers import SparseAutoModelForCausalLM, apply
+from llmcompressor.transformers import apply
 
 # define a recipe to handle sparsity, finetuning and quantization
 recipe = "2of4_w4a16_recipe.yaml"
 
 # load the model in as bfloat16 to save on memory and compute
 model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
 
@@ -39,7 +40,6 @@ apply(
     dataset=dataset,
     recipe=recipe,
     bf16=bf16,
-    output_dir=output_dir,
     splits=splits,
     max_seq_length=max_seq_length,
     num_calibration_samples=num_calibration_samples,
@@ -51,3 +51,5 @@ apply(
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
 )
+
+model.save_pretrained(output_dir)

@@ -60,11 +60,10 @@ oneshot(
     dataset=dataset,
     recipe=recipe,
     save_compressed=True,
-    output_dir=output_dir,
-    overwrite_output_dir=True,
     max_seq_length=2048,
     num_calibration_samples=512,
 )
+model.save_pretrained(output_dir)
 ```
 
 ### Custom Quantization

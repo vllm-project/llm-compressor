@@ -1,12 +1,12 @@
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 # 1) Select model and load it.
 MODEL_ID = "google/gemma-2-2b-it"
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
@@ -64,9 +64,10 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    output_dir=MODEL_ID.split("/")[1] + "-INT8",
 )
 
+SAVE_DIR = MODEL_ID.split("/")[1] + "-w8a8_int8"
+model.save_pretrained(SAVE_DIR)
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")

@@ -1,13 +1,14 @@
 from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot, wrap_hf_model_class
+from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
 # Load model.
-model_class = wrap_hf_model_class(MllamaForConditionalGeneration)
-model = model_class.from_pretrained(MODEL_ID, device_map="auto", torch_dtype="auto")
+model = MllamaForConditionalGeneration.from_pretrained(
+    MODEL_ID, device_map="auto", torch_dtype="auto"
+)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -22,8 +23,9 @@ recipe = QuantizationModifier(
 
 # Apply quantization and save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-oneshot(model=model, recipe=recipe, output_dir=SAVE_DIR)
+oneshot(model=model, recipe=recipe)
 processor.save_pretrained(SAVE_DIR)
+model.save_pretrained(SAVE_DIR)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

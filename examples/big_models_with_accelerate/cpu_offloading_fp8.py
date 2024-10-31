@@ -1,14 +1,14 @@
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 OUTPUT_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
 
 # Load model
 # Note: device_map="auto" will offload to CPU if not enough space on GPU.
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype="auto", trust_remote_code=True
 )
 
@@ -22,5 +22,5 @@ oneshot(
     model=model,
     recipe=recipe,
     tokenizer=AutoTokenizer.from_pretrained(MODEL_ID),
-    output_dir=OUTPUT_DIR,
 )
+model.save_pretrained(OUTPUT_DIR)
