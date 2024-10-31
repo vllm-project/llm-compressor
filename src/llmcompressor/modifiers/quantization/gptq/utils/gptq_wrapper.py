@@ -10,6 +10,7 @@ from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.observers import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
@@ -303,6 +304,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param W: weight to calculate quantization parameters from
         """
         observer = args.get_observer()
+        observer = Observer.load_from_registry(observer, quantization_args=args)
         _scale, _zero_point = observer(W, g_idx=None)
         update_parameter_data(self.layer, _scale, "weight_scale")
         update_parameter_data(self.layer, _zero_point, "weight_zero_point")
