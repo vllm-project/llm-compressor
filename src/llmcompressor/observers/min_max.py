@@ -32,7 +32,7 @@ class MinMaxObserver(Observer):
     """
 
     def __init__(
-        self, quantization_args: QuantizationArgs, averaging_constant: float = 1.0
+        self, quantization_args: QuantizationArgs, averaging_constant: float = 0.01
     ):
         super().__init__(quantization_args=quantization_args)
 
