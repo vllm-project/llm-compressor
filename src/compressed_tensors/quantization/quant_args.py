@@ -114,12 +114,6 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         """
         :return: torch quantization FakeQuantize built based on these QuantizationArgs
         """
-
-        # No observer required for the dynamic case
-        if self.dynamic:
-            self.observer = None
-            return self.observer
-
         return self.observer
 
     @field_validator("type", mode="before")
@@ -203,6 +197,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                 "activation ordering"
             )
 
+        # infer observer w.r.t. dynamic
         if dynamic:
             if strategy not in (
                 QuantizationStrategy.TOKEN,
@@ -214,18 +209,19 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                     "quantization",
                 )
             if observer is not None:
-                warnings.warn(
-                    "No observer is used for dynamic quantization, setting to None"
-                )
-                model.observer = None
+                if observer != "memoryless":  # avoid annoying users with old configs
+                    warnings.warn(
+                        "No observer is used for dynamic quantization, setting to None"
+                    )
+                observer = None
 
-        # if we have not set an observer and we
-        # are running static quantization, use minmax
-        if not observer and not dynamic:
-            model.observer = "minmax"
+        elif observer is None:
+            # default to minmax for non-dynamic cases
+            observer = "minmax"
 
         # write back modified values
         model.strategy = strategy
+        model.observer = observer
         return model
 
     def pytorch_dtype(self) -> torch.dtype:

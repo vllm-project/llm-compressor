@@ -258,7 +258,7 @@ def get_from_registry(
         retrieved_value = _import_and_get_value_from_module(module_path, value_name)
     else:
         # look up name in alias registry
-        name = _ALIAS_REGISTRY[parent_class].get(name)
+        name = _ALIAS_REGISTRY[parent_class].get(name, name)
         # look up name in registry
         retrieved_value = _REGISTRY[parent_class].get(name)
         if retrieved_value is None:
