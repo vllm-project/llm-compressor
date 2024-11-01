@@ -21,18 +21,18 @@ from torch import FloatTensor, IntTensor, Tensor
 
 from llmcompressor.observers.base import Observer
 
-__all__ = ["MovingAverageMinMaxObserver"]
+__all__ = ["MinMaxObserver"]
 
 
 @Observer.register("minmax")
-class MovingAverageMinMaxObserver(Observer):
+class MinMaxObserver(Observer):
     """
     Implements a dynamic quantization observer that sets the scale and
     zero point based on a moving average of the overall min and max observed values
     """
 
     def __init__(
-        self, quantization_args: QuantizationArgs, averaging_constant: float = 0.01
+        self, quantization_args: QuantizationArgs, averaging_constant: float = 1.0
     ):
         super().__init__(quantization_args=quantization_args)
 
@@ -65,6 +65,10 @@ class MovingAverageMinMaxObserver(Observer):
         else:
             min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
+
+        # early stopping, save some computation and memory
+        if self.averaging_constant == 1.0:
+            return calculate_qparams(min_val, max_val, self.quantization_args)
 
         running_min_val = self.min_val.get(tensor_id, None)
         running_max_val = self.max_val.get(tensor_id, None)
