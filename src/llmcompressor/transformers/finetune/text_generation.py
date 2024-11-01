@@ -383,8 +383,11 @@ def main(
     else:
         modify_save_pretrained(model)
 
-    # save if model was provided as a string
-    if isinstance(model_args.model, str):
+    # save if model was provided as a string or custom output_dir was set
+    if isinstance(model_args.model, str) or (
+        training_args.output_dir
+        != TrainingArguments.__dataclass_fields__["output_dir"].default
+    ):
         model.save_pretrained(training_args.output_dir)
 
 
