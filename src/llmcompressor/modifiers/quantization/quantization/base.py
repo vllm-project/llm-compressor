@@ -73,7 +73,7 @@ class QuantizationModifier(Modifier):
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
     ignore: List[str] = Field(default_factory=list)
-    targets: Union[str, List[str]] = ["Linear"]
+    a: Union[str, List[str]] = ["Linear"]
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
     disable_quantization_observer_epoch: Optional[float] = None
@@ -155,8 +155,7 @@ class QuantizationModifier(Modifier):
             default_quant_scheme = QuantizationScheme(targets=self.targets)
             self.config_groups = {"group_0": default_quant_scheme}
             logger.info(
-                "No config groups were provided, generating "
-                f"QuantizationScheme.default_scheme = {self.config_groups}"
+                f"No config groups were provided, using default {self.config_groups}"
             )
 
         return QuantizationConfig(
