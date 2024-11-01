@@ -2,6 +2,7 @@ import math
 from copy import copy
 from typing import Tuple, Union, Optional, Type
 
+from llmcompressor.observers.base import Observer
 import torch
 import transformers
 from compressed_tensors.quantization import (
@@ -59,27 +60,6 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
     return H
 
 
-def compute_scale_zero_point(
-    W: torch.Tensor,
-    quant_args: QuantizationArgs,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Compute the scale and zero point of a module weight
-    TODO: revisit after observers refactor
-
-    :param W: module weight
-    :param quant_args: quantization arguments which determine how quantization
-        parameters are calculated
-    :return: scale and zero_point
-    """
-    # TODO: revisit after observers refactor
-
-    scale, zero_point = quant_args.get_observer()(W, g_idx=None)
-    scale = scale.to(dtype=W.dtype)
-    zero_point = zero_point.to(dtype=quant_args.pytorch_dtype())
-    return scale, zero_point
-
-
 def quantize_weight(
     weight: torch.Tensor,
     inp: torch.Tensor,
@@ -107,6 +87,13 @@ def quantize_weight(
     final_dtype = weight.dtype
     W = weight.data.clone()
 
+    # create observer for calculating quantization parameters
+    observer = Observer.load_from_registry(
+        "minmax",
+        quantization_args=quant_args,
+        averaging_constant=1.0,  # ignore moving average
+    )
+
     if weight_original is not None:
         raise NotImplementedError()
 
@@ -131,22 +118,22 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            scale, zero_point = compute_scale_zero_point(W, quant_args)
+            scale, zero_point = observer(W, g_idx=None)
 
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            scale, zero_point = compute_scale_zero_point(W, quant_args)
+            scale, zero_point = observer(W, g_idx=None)
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
 
         else:
-            scale, zero_point = compute_scale_zero_point(W, quant_args)
+            scale, zero_point = observer(W, g_idx=None)
     else:
-        scale, zero_point = compute_scale_zero_point(W, quant_args)
+        scale, zero_point = observer(W, g_idx=None)
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
