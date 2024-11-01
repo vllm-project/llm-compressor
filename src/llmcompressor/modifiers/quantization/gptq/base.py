@@ -5,8 +5,8 @@ import torch
 import math
 from compressed_tensors.quantization import (
     QuantizationScheme,
-    freeze_module_quantization,
 )
+from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 

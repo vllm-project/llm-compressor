@@ -1,14 +1,6 @@
 name: Test Checks
 on:
   push:
-    branches:
-      - main
-      - 'release/*'
-  pull_request:
-    branches:
-      - main
-      - 'release/*'
-    types: [opened, synchronize]
 
 env:
   CADENCE: "commit"
@@ -19,12 +11,13 @@ env:
   CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
+
   base-tests:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - uses: actions/checkout@v4
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
@@ -40,6 +33,7 @@ jobs:
         run: rm -r compressed-tensors/
       - name: "🔬 Running base tests"
         run: make test
+
   pytorch-tests:
     runs-on: ubuntu-22.04
     steps:
@@ -62,12 +56,13 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
       - uses: actions/checkout@v4
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
@@ -84,12 +79,13 @@ jobs:
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+
   transformers-tests:
-    runs-on: ubuntu-22.04
+    runs-on: gcp-k8s-vllm-l4-solo
     steps:
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.9'
       - uses: actions/checkout@v4
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
