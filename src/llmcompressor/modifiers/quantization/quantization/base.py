@@ -11,7 +11,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
@@ -73,7 +73,7 @@ class QuantizationModifier(Modifier):
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
     ignore: List[str] = Field(default_factory=list)
-    targets: Union[str, List[str], None] = None
+    targets: Union[str, List[str]] = ["Linear"]
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
     disable_quantization_observer_epoch: Optional[float] = None
@@ -82,6 +82,13 @@ class QuantizationModifier(Modifier):
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
     calibration_hooks_: List = None
+
+    @field_validator("targets", mode="before")
+    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
+        if isinstance(value, str):
+            return [value]
+
+        return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.end and self.end != -1:
@@ -125,9 +132,6 @@ class QuantizationModifier(Modifier):
         module.apply(freeze_module_quantization)
 
     def create_init_config(self) -> QuantizationConfig:
-        if self.targets is not None and isinstance(self.targets, str):
-            self.targets = [self.targets]
-
         if self.scheme is not None:
             # takes precedence over config_groups
 
@@ -148,9 +152,7 @@ class QuantizationModifier(Modifier):
                 self.config_groups[group_name] = scheme
 
         if self.config_groups is None or len(self.config_groups) == 0:
-            default_quant_scheme = QuantizationScheme.default_scheme(
-                targets=self.targets
-            )
+            default_quant_scheme = QuantizationScheme(targets=self.targets)
             self.config_groups = {"group_0": default_quant_scheme}
             logger.info(
                 "No config groups were provided, generating "
