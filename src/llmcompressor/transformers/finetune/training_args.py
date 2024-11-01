@@ -58,7 +58,6 @@ class TrainingArguments(HFTrainingArgs):
             "default torch.load and torch.save."
         },
     )
-    # TODO: deprecate, make sure to address stage runner
     output_dir: str = field(
         default="./output",
         metadata={
