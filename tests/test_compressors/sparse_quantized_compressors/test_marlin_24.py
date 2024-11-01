@@ -29,7 +29,6 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
     QuantizationStrategy,
     apply_quantization_config,
-    apply_quantization_status,
 )
 from compressed_tensors.utils import mask_creator, merge_names
 from torch.nn.modules import Linear, Sequential

@@ -30,7 +30,6 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
-    apply_quantization_status,
 )
 from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 from compressed_tensors.quantization.quant_args import ActivationOrdering

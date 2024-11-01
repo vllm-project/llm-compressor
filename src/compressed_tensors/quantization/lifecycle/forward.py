@@ -14,7 +14,7 @@
 
 from functools import wraps
 from math import ceil
-from typing import Callable, Optional
+from typing import Optional
 
 import torch
 from compressed_tensors.quantization.quant_args import (
@@ -28,7 +28,7 @@ from compressed_tensors.quantization.utils import (
     calculate_range,
     compute_dynamic_scales_and_zp,
 )
-from compressed_tensors.utils import safe_permute, update_parameter_data
+from compressed_tensors.utils import safe_permute
 from torch.nn import Module
 
 

@@ -13,14 +13,9 @@
 # limitations under the License.
 
 from math import ceil
-from typing import Any, Iterable, Optional, Union
 
 import pytest
 import torch
-from compressed_tensors.quantization.quant_args import (
-    QuantizationArgs,
-    QuantizationStrategy,
-)
 from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils.offload import update_parameter_data
 

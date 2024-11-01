@@ -25,7 +25,6 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
     QuantizationStrategy,
     apply_quantization_config,
-    apply_quantization_status,
 )
 from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 from safetensors.torch import save_file

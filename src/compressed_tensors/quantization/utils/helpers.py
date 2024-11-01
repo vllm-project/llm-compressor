@@ -233,7 +233,6 @@ def iter_named_leaf_modules(model: Module) -> Generator[Tuple[str, Module], None
                 named_children, children = zip(*list(submodule.named_children()))
             has_non_observer_children = False
             for i in range(len(children)):
-                child = children[i]
                 child_name = named_children[i]
 
                 if "observer" not in child_name:
@@ -268,7 +267,6 @@ def iter_named_quantizable_modules(
                 has_non_observer_children = False
                 for i in range(len(children)):
                     child_name = named_children[i]
-                    child = children[i]
 
                     if "observer" not in child_name:
                         has_non_observer_children = True

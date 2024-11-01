@@ -14,7 +14,6 @@
 
 from copy import deepcopy
 
-import pytest
 import torch
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
