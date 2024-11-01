@@ -73,7 +73,7 @@ class QuantizationModifier(Modifier):
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
     ignore: List[str] = Field(default_factory=list)
-    a: Union[str, List[str]] = ["Linear"]
+    targets: Union[str, List[str]] = ["Linear"]
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
     disable_quantization_observer_epoch: Optional[float] = None
