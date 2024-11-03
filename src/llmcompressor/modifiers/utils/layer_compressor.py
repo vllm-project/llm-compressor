@@ -162,6 +162,7 @@ class LayerCompressor:
             inputs = self.map_device(args, device)
             output = self.fwd_pass(inputs, kwargs)
             outputs[idx] = (self.map_tensor(output), kwargs)
+            torch.cuda.empty_cache()
 
         return outputs
 
