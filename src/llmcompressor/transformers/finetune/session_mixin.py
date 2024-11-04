@@ -463,6 +463,9 @@ class SessionManagerMixIn:
         if active_session() is None:
             return  # nothing to save
 
+        if output_dir is None:
+            output_dir = self.args.output_dir
+
         # knowledge distillation requires making wrappers transparent during
         if isinstance(self.model, KDModelWrapper):
             self.model.prepare_for_save()

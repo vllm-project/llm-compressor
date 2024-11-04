@@ -10,6 +10,7 @@ llmcompressor.transformers.text_generation.train
     --distill_teacher PATH_TO_TEACHER
     --dataset DATASET_NAME
     --recipe PATH_TO_RECIPE
+    --output_dir PATH_TO_OUTPUT
     --num_train_epochs 1
     --splits "train"
 ```
@@ -32,6 +33,7 @@ accelerate launch
     --distill_teacher PATH_TO_TEACHER
     --dataset DATASET_NAME
     --recipe PATH_TO_RECIPE
+    --output_dir PATH_TO_OUTPUT
     --num_train_epochs 1
     --splits "train"
 ```
@@ -42,9 +44,8 @@ See [configure_fsdp.md](../../../../examples/finetuning/configure_fsdp.md) for a
 
 ```python
 from llmcompressor.transformers import train
-from transformers import AutoModelForCausalLM
 
-model = AutoModelForCausalLM.from_pretrained("./obcq_deployment")
+model = "./obcq_deployment"
 teacher_model = "Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
@@ -66,7 +67,6 @@ train(
     concatenate_data = concatenate_data,
     splits = splits
 )
-model.save_pretrained(output_dir)
 ```
 
 ## Additional Configuration
@@ -90,6 +90,7 @@ accelerate launch
     --max_seq_len OPTIONAL
     --concatenate_data OPTIONAL
     --recipe PATH_TO_RECIPE
+    --output_dir PATH_TO_OUTPUT
     --splits "train"
     --pad_to_max_length False
 ```
@@ -98,9 +99,8 @@ accelerate launch
 ## Running One-shot from Python (without FSDP)
 ```python
 from llmcompressor.transformers import oneshot
-from transformers import AutoModelForCausalLM
 
-model = AutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
+model =" Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
 pad_to_max_length = False
@@ -117,11 +117,9 @@ oneshot(
     concatenate_data=concatenate_data,
     recipe=recipe,
     overwrite_output_dir=overwrite_output_dir,
-    concatenate_data = concatenate_data,
     pad_to_max_length = pad_to_max_length,
     splits = splits
 )
-model.save_pretrained(output_dir)
 ```
 
 ## Running Multi-Stage Recipes
@@ -142,9 +140,8 @@ test_multi.py
 from llmcompressor.transformers import apply
 from transformers import AutoModelForCausalLM
 
-model = AutoModelForCausalLM.from_pretrained(
-    "../ml-experiments/nlg-text_generation/llama_pretrain-llama_7b-base/dense/training"
-)
+model = "../ml-experiments/nlg-text_generation/llama_pretrain-llama_7b-base/dense/training"
+
 dataset_name = "open_platypus"
 concatenate_data = False
 run_stages=True
@@ -168,5 +165,5 @@ apply(
     remove_unused_columns = False,
     splits = splits
 )
-model.save_pretrained(output_dir)
+
 ```

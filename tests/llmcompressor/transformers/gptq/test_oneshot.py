@@ -73,10 +73,8 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
     def test_oneshot_application(self):
         from llmcompressor.transformers import oneshot
 
-        model = AutoModelForCausalLM.from_pretrained(self.model, device_map=self.device)
-
         oneshot(
-            model=model,
+            model=self.model,
             dataset=self.dataset,
             output_dir=self.output,
             overwrite_output_dir=True,
@@ -84,7 +82,6 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
             oneshot_device=self.device,
             num_calibration_samples=9,
         )
-        model.save_pretrained(self.output)
         model_loaded = AutoModelForCausalLM.from_pretrained(
             self.output, device_map=self.device
         )
