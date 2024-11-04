@@ -40,12 +40,13 @@ class TestQuantizationMatches(unittest.TestCase):
         cls.model = AutoModelForCausalLM.from_pretrained(
             cls.model_stub, torch_dtype=cls.weight_dtype, device_map="cuda:0"
         )
-        cls._run_oneshot(
+        model = cls._run_oneshot(
             cls.model,
             cls.new_recipe,
             cls.dataset,
             os.path.join(cls.test_dir, cls.output),
         )
+        cls.session_model = model
 
     @classmethod
     def tearDownClass(cls):
@@ -68,10 +69,14 @@ class TestQuantizationMatches(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=recipe,
             pad_to_max_length=pad_to_max_length,
-            clear_sparse_session=True,
+            clear_sparse_session=False,
             splits={"calibration": "train_gen[:5%]"},
             save_compressed=False,
         )
+        from llmcompressor.pytorch.model_load.helpers import get_session_model
+
+        # note: get_session_model() is None outside of function scope
+        return get_session_model()
 
     def _get_quant_info(self, model):
         quant_info_weights = {}
@@ -96,11 +101,7 @@ class TestQuantizationMatches(unittest.TestCase):
         return quant_info_weights, quant_info_inputs
 
     def test_quantization_reload(self):
-        model_reloaded = AutoModelForCausalLM.from_pretrained(
-            os.path.join(self.test_dir, self.output),
-            torch_dtype="auto",
-            device_map="cuda:0",
-        )
+        model_reloaded = self.session_model
 
         og_weights, og_inputs = self._get_quant_info(self.model)
         reloaded_weights, reloaded_inputs = self._get_quant_info(model_reloaded)

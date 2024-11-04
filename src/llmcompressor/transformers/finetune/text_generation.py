@@ -376,10 +376,6 @@ def main(
     if training_args.do_predict:
         stage_runner.predict()
 
-    # Clean up the CompressionSession before exit if requested
-    if training_args.clear_sparse_session:
-        reset_session()
-
     # wrap model.save_pretrained
     model = trainer.model
     if is_fsdp_model(model):
@@ -395,6 +391,10 @@ def main(
         model.save_pretrained(training_args.output_dir)
         if tokenizer is not None:
             tokenizer.save_pretrained(training_args.output_dir)
+
+    # Clean up the CompressionSession before exit if requested
+    if training_args.clear_sparse_session:
+        reset_session()
 
 
 if __name__ == "__main__":
