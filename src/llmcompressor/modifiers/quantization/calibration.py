@@ -1,8 +1,15 @@
+from typing import Optional
+
 import torch
+from accelerate.utils import send_to_device
 from compressed_tensors.quantization import QuantizationStatus, is_attention_module
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
+from compressed_tensors.utils.offload import (
+    get_execution_device,
+    is_module_offloaded,
+    update_parameter_data,
+)
 from loguru import logger
 from torch.nn import Module
 
@@ -57,27 +64,30 @@ def initialize_observer(
         module.register_module(f"{base_name}_observer", observer)
 
 
-def call_observer(module: Module, base_name: str, value: torch.Tensor):
+def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] = None):
     """
-    Call a module's attached input/output observer using a provided value.
-    Update the module's scale and zp using the observer's return
-    values.
+    Call a module's attached input/weight/output observer using a provided value.
+    Update the module's scale and zp using the observer's return values.
 
     :param module: torch.nn.Module
     :param base_name: substring used to fetch the observer, scales, and zp
-    :param value: torch.Tensor to be passed to the observer
+    :param value: torch.Tensor to be passed to the observer for activations. If
+        base_name is "weight", then the module's weight tensor will be used
     """
     offloaded = is_module_offloaded(module)
     if offloaded:
         module._hf_hook.pre_forward(module)
 
-    observer = getattr(module, f"{base_name}_observer")
-    g_idx = getattr(module, "weight_g_idx", None)
-
     if base_name == "weight":
-        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+        value = module.weight
+        g_idx = getattr(module, "weight_g_idx", None)
+    elif value is not None:
+        g_idx = None
     else:
-        updated_scale, updated_zero_point = observer(value)
+        raise ValueError("Must provide a value to observe if not using weight observer")
+
+    observer = getattr(module, f"{base_name}_observer")
+    updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
 
     # update scale and zero point
     update_parameter_data(module, updated_scale, f"{base_name}_scale")
@@ -116,7 +126,7 @@ def update_weight_zp_scale(module: Module):
 
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
-        call_observer(module=module, base_name="weight", value=module.weight)
+        call_observer(module=module, base_name="weight")
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
@@ -133,6 +143,10 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     # Case for MoEs
     if value.numel() == 0:
         return
+
+    # ensure activation value is on same device as weight
+    execution_device = get_execution_device(module)
+    value = send_to_device(value, execution_device)
 
     call_observer(
         module=module,
