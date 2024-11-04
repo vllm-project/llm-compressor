@@ -70,8 +70,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
-SAVE_DIR = MODEL_ID.split("/")[1] + "-w8a8-int8"
-model.save_pretrained(SAVE_DIR)
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")

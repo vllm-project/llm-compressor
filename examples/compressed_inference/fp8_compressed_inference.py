@@ -1,11 +1,7 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 """
-This example covers how to load a quantized model in compressed mode. By default,
-AutoModelForCausalLM will decompress the whole model on load resulting in no
-memory savings from quantization. By setting the `run_compressed` kwarg to True, the
-model will remain compressed in memory on load, saving memory during inference at the
-cost of increased runtime
+This example covers how to load a quantized model using AutoModelForCausalLM.
 
 During inference, each layer will be decompressed as needed before the forward pass.
 This saves memory as only a single layer is ever uncompressed at a time, but increases

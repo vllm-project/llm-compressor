@@ -77,6 +77,7 @@ oneshot(
     save_compressed=True,
 )
 model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

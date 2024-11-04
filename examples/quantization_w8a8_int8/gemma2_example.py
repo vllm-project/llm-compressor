@@ -68,6 +68,7 @@ oneshot(
 
 SAVE_DIR = MODEL_ID.split("/")[1] + "-w8a8_int8"
 model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")

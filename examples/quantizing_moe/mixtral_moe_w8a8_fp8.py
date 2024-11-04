@@ -48,6 +48,7 @@ oneshot(
     overwrite_output_dir=True,
 )
 model.save_pretrained(OUTPUT_DIR)
+tokenizer.save_pretrained(OUTPUT_DIR)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
