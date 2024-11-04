@@ -38,6 +38,8 @@ class ModuleCompressionWrapper(Module, ABC):
 
         self.name = name
         self.layer = layer
+        if getattr(self.layer, "weight", None) is None:
+            breakpoint()
 
         self.dev = self.layer.weight.device
         if hasattr(self.layer, "_hf_hook") and self.layer._hf_hook.offload:

@@ -49,6 +49,8 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         session.reset()
 
+        breakpoint()
+
         # reload saved model and up sparsity to 0.7
         oneshot(
             model=self.output_first,

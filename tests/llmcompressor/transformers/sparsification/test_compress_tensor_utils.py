@@ -228,7 +228,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
     shutil.rmtree(tmp_path)
 
 
-
 # technically only tie_word_embeddings=False is supported right now
 # setting to True is discouraged
 @pytest.mark.parametrize(
