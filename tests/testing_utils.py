@@ -83,6 +83,7 @@ def parse_params(
         for file in os.listdir(current_config_dir):
             config_path = os.path.join(current_config_dir, file)
             config = _load_yaml(config_path)
+            config["testconfig_path"] = config_path
             if not config:
                 continue
 
