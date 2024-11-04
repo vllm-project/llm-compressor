@@ -4,12 +4,11 @@ from typing import Callable
 
 import pytest
 from datasets import load_dataset
-from parameterized import parameterized_class
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
+from parameterized import parameterized, parameterized_class
+from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
+from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from tests.testing_utils import (
     parse_params,
     preprocess_tokenize_dataset,
@@ -94,7 +93,7 @@ class TestvLLM(unittest.TestCase):
         import torch
 
         # Load model.
-        loaded_model = AutoModelForCausalLM.from_pretrained(
+        loaded_model = SparseAutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype="auto"
         )
         tokenizer = AutoTokenizer.from_pretrained(self.model)
