@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from loguru import logger
@@ -142,17 +142,18 @@ def fallback_to_cpu(device: str) -> str:
     return device
 
 
-def parse_dtype(dtype_arg: str) -> torch.dtype:
+def parse_dtype(dtype_arg: Union[str, torch.dtype]) -> torch.dtype:
     """
-    :param dtype_arg: dtype string to parse
+    :param dtype_arg: dtype or string to parse
     :return: torch.dtype parsed from input string
     """
+    dtype_arg = str(dtype_arg)
     dtype = "auto"  # get precision from model by default
-    if dtype_arg == "half" or dtype_arg == "float16":
+    if dtype_arg in ("half", "float16", "torch.float16"):
         dtype = torch.float16
-    elif dtype_arg == "bfloat16":
+    elif dtype_arg in ("torch.bfloat16", "bfloat16"):
         dtype = torch.bfloat16
-    elif dtype_arg == "full" or dtype_arg == "float32":
+    elif dtype_arg in ("full", "float32", "torch.float32"):
         dtype = torch.float32
 
     return dtype

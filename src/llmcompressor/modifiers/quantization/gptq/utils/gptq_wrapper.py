@@ -10,6 +10,7 @@ from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.observers import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils import getattr_chain
 from llmcompressor.utils.metric_logging import (
@@ -164,13 +165,20 @@ class GPTQWrapper(ModuleCompressionWrapper):
         Losses = torch.zeros(self.rows, device=self.dev)
 
         # compute inverse hessian in place to save memory
-        damp = percdamp * torch.mean(torch.diag(self.H))
-        diag = torch.arange(self.columns, device=self.dev)
-        self.H[diag, diag] += damp
-        self.H = torch.linalg.cholesky(self.H)
-        self.H = torch.cholesky_inverse(self.H)
-        self.H = torch.linalg.cholesky(self.H, upper=True)
-        Hinv = self.H
+        try:
+            damp = percdamp * torch.mean(torch.diag(self.H))
+            diag = torch.arange(self.columns, device=self.dev)
+            self.H[diag, diag] += damp
+            self.H = torch.linalg.cholesky(self.H)
+            self.H = torch.cholesky_inverse(self.H)
+            self.H = torch.linalg.cholesky(self.H, upper=True)
+            Hinv = self.H
+        except torch._C._LinAlgError:
+            raise ValueError(
+                "Failed to invert hessian due to numerical instability. Consider "
+                "increasing GPTQModifier.dampening_frac, increasing the number "
+                "of calibration samples, or shuffling the calibration dataset"
+            )
 
         # See section 3.4 of https://arxiv.org/abs/2203.07259
         for i1 in range(0, self.columns, blocksize):
@@ -296,6 +304,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
         :param W: weight to calculate quantization parameters from
         """
         observer = args.get_observer()
+        observer = Observer.load_from_registry(observer, quantization_args=args)
         _scale, _zero_point = observer(W, g_idx=None)
         update_parameter_data(self.layer, _scale, "weight_scale")
         update_parameter_data(self.layer, _zero_point, "weight_zero_point")
