@@ -1,10 +1,9 @@
 import shutil
 import unittest
-from typing import Callable
 
 import pytest
 from datasets import load_dataset
-from parameterized import parameterized, parameterized_class
+from parameterized import parameterized_class
 from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -33,22 +32,10 @@ WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
 CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
 
 
-def gen_test_name(testcase_func: Callable, param_num: int, param: dict) -> str:
-    return "_".join(
-        [
-            testcase_func.__name__,
-            parameterized.to_safe_name(
-                param.get("testconfig_path", "").split("configs/")[-1]
-            ),
-            param.get("cadence", "").lower(),
-        ]
-    )
-
-
 @requires_gpu
 @requires_torch
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
-@parameterized_class(parse_params(CONFIGS), class_name_func=gen_test_name)
+@parameterized_class(parse_params(CONFIGS))
 class TestvLLM(unittest.TestCase):
     """
     The following test quantizes a model using a preset scheme or recipe,
