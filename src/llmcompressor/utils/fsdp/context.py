@@ -1,7 +1,4 @@
-try:
-    from accelerate import Accelerator
-except ImportError:
-    Accelerator = None
+from accelerate import Accelerator
 try:
     from torch.distributed.fsdp import FullyShardedDataParallel
     from torch.distributed.fsdp._common_utils import FSDP_WRAPPED_MODULE, TrainingState
