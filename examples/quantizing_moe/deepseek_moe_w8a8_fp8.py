@@ -73,6 +73,7 @@ oneshot(
 )
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
+
 print("========== SAMPLE GENERATION ==============")
 SAMPLE_INPUT = ["I love quantization because"]
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
