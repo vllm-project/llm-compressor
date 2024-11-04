@@ -1,15 +1,10 @@
 from typing import Optional
 
 import torch
-from accelerate.utils import send_to_device
 from compressed_tensors.quantization import QuantizationStatus, is_attention_module
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils.offload import (
-    get_execution_device,
-    is_module_offloaded,
-    update_parameter_data,
-)
+from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from loguru import logger
 from torch.nn import Module
 
@@ -143,10 +138,6 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     # Case for MoEs
     if value.numel() == 0:
         return
-
-    # ensure activation value is on same device as weight
-    execution_device = get_execution_device(module)
-    value = send_to_device(value, execution_device)
 
     call_observer(
         module=module,
