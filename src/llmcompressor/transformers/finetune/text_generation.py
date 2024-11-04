@@ -393,6 +393,8 @@ def main(
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
         model.save_pretrained(training_args.output_dir)
+        if tokenizer is not None:
+            tokenizer.save_pretrained(training_args.output_dir)
 
 
 if __name__ == "__main__":
