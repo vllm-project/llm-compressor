@@ -47,8 +47,8 @@ class MinMaxObserver(Observer):
         tensor_id: Optional[Any] = None,
     ) -> Tuple[torch.FloatTensor, torch.IntTensor]:
         """
-        Updates the observed min and max values. If averaging_constant is provided, then
-        the values are updated using a moving average smoothed by the averaging_constant
+        Updates the observed min and max using a moving average smoothed by the
+        averaging_constant. Set the averaging_constant to 1.0 to disable averaging.
 
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
