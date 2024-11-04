@@ -208,6 +208,8 @@ def initialize_model_from_path(
         model_path,
         **model_kwargs,
     )
+    if "sequence_length" in model_kwargs:
+        model.seqlen = model_kwargs["sequence_length"]
 
     teacher = (
         AutoModelForCausalLM.from_pretrained(
@@ -217,6 +219,8 @@ def initialize_model_from_path(
         if model_args.distill_teacher is not None
         else None
     )
+    if teacher is not None and "sequence_length" in teacher_kwargs:
+        model.seqlen = teacher_kwargs["sequence_length"]
 
     return teacher, model_path, model
 

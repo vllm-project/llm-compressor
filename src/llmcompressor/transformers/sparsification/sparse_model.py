@@ -1,14 +1,11 @@
 import inspect
-from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 
-import torch
 from loguru import logger
 from torch.nn import Module
 from transformers import AutoModelForCausalLM
 
 __all__ = [
-    "SparseAutoModel",
     "SparseAutoModelForCausalLM",
     "get_shared_tokenizer_src",
 ]
@@ -21,49 +18,6 @@ class SparseAutoModelForCausalLM:
             "please use AutoModelForCausalLM"
         )
         return AutoModelForCausalLM.from_pretrained(*args, **kwargs)
-
-
-class SparseAutoModel:
-    """
-    Factory class for creating sparse models using transformers AutoModel classes
-    """
-
-    @staticmethod
-    def text_generation_from_pretrained(
-        model_name_or_path: str,
-        sequence_length: Optional[int] = None,
-        recipe: Optional[Union[str, Path]] = None,
-        trust_remote_code: bool = False,
-        torch_dtype: Union[str, torch.dtype] = "auto",
-        **kwargs,
-    ) -> Module:
-        """
-        :param model_name_or_path: the name of or path to the model to load
-        :param sequence_length: the maximum length of the sequence to generate.
-            If None, will use the default sequence length for the model.
-            Defaults to None.
-        :param recipe: the recipe to apply to the model. If None, no recipe is applied
-        :param trust_remote_code: related to trust_remote_code in HF transformers.
-            If True, will execute the modelling code from the model directory
-            (if present). Defaults to False.
-        :param torch_dtype: the torch dtype to use for the model. If "auto", will
-            use the default dtype for the model. Defaults to "auto".
-        :return: the created model for text generation
-        """
-        logger.warning(
-            "SparseAutoModel is deprecated, " "please use AutoModelForCausalLM"
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            torch_dtype=torch_dtype,
-            trust_remote_code=trust_remote_code,
-            **kwargs,
-        )
-
-        if sequence_length is not None:
-            model.seqlen = sequence_length
-
-        return model
 
 
 def get_shared_tokenizer_src(student: Module, teacher: Optional[Module]) -> str:

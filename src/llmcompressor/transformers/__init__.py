@@ -9,7 +9,6 @@ Tools for integrating LLM Compressor with transformers training flows
 from .utils import *
 
 from .sparsification import (
-    SparseAutoModel,
     SparseAutoModelForCausalLM,
 )
 from .finetune import *

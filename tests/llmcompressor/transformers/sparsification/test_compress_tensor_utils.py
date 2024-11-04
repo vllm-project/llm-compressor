@@ -143,9 +143,9 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     "format,dtype",
     [
         ["dense", torch.float32],
-        # ["dense", torch.float16],
-        # ["int_quantized", torch.float32],
-        # [True, "int_quantized", torch.float16],
+        ["dense", torch.float16],
+        ["int_quantized", torch.float32],
+        [True, "int_quantized", torch.float16],
     ],
 )
 def test_quant_model_reload(format, dtype, tmp_path):
