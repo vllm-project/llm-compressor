@@ -16,6 +16,7 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quanti
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import LayerCompressorMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
+from llmcompressor.observers.base import Observer
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_batch_dataloader,
 )
@@ -197,11 +198,20 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
         
         if self.batch_size <= 0:
-            self.batch_size = len(state.data.calib.dataset)
-        self._num_batches = math.ceil(len(state.data.calib.dataset) / self.batch_size)
+            batch_size = len(state.data.calib.dataset)
+        else:
+            batch_size = self.batch_size
+        self._num_batches = math.ceil(len(state.data.calib.dataset) / batch_size)
 
         self.register_hooks(state.model)
-        self.calibration_forward(state.model, state.data.calib)
+        #torch.cuda.memory._record_memory_history(max_entries=1_000_000)
+        try:
+            self.calibration_forward(state.model, state.data.calib)
+        finally:
+            pass
+            #torch.cuda.memory._dump_snapshot("bs256.pickle")
+            #torch.cuda.memory._record_memory_history(enabled=None)
+            #exit(0)
 
         self.remove_hooks()
         self.finish_compression(state.model)
@@ -213,15 +223,22 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
     
     def finish_compression(self, model: torch.nn.Module):
         for module in model.modules():
+            quant_args = getattr_chain(module, "quantization_scheme.weights", None)
+            if quant_args is None:
+                continue
+            
             with align_module(module):
-                quant_args = getattr_chain(module, "quantization_scheme.weights", None)
-                if quant_args is None:
-                    continue
 
-                weight = module.weight_acc / self._num_batches
-                delete_offload_parameter(module, "weight_acc")
+                if self.batch_size != -1:
+                    weight = module.weight_acc / self._num_batches
+                    delete_offload_parameter(module, "weight_acc")
+                else:
+                    weight = module.weight
 
-                scale, zero_point = quant_args.get_observer()(weight)
+                observer = Observer.load_from_registry(
+                    quant_args.observer, quantization_args=quant_args
+                )
+                scale, zero_point = observer(weight)
                 weight = fake_quantize(
                     weight,
                     scale,
@@ -253,12 +270,18 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         :param model: model to perform forward pass with
         :param dataloader: dataloader containing calibration dataset
         """
-        dataloader = create_batch_dataloader(dataloader, batch_size=self.batch_size)
+        if self.batch_size <= 0:
+            batch_size = len(dataloader.dataset)
+        else:
+            batch_size = self.batch_size
+        dataloader = create_batch_dataloader(dataloader, batch_size=batch_size)
         with calibration_forward_context(model):
             run_calibration_forward(model, dataloader, mask_padding=True)
 
     def pre_compress_module(self, module: torch.nn.Module):
-        register_offload_parameter(module, "weight_acc", torch.nn.Parameter(torch.zeros_like(module.weight.data), requires_grad=False))
+        if self.batch_size != -1:
+            print("created aux buffers")
+            register_offload_parameter(module, "weight_acc", torch.nn.Parameter(torch.zeros_like(module.weight.data), requires_grad=False))
 
     def compress_module(
         self,
@@ -292,8 +315,13 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
                 module_class=type(module),
             )
 
-            module.weight_acc += quantized_weight
-            update_offload_parameter(module, "weight_acc")
+            if self.batch_size != -1:
+                module.weight_acc += quantized_weight
+                update_offload_parameter(module, "weight_acc")
+            else:
+                module.weight -= module.weight
+                module.weight += quantized_weight
+                update_offload_parameter(module, "weight")
 
         return loss
 

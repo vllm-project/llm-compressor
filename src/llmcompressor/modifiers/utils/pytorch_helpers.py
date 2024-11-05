@@ -26,6 +26,8 @@ class EarlyStopException(Exception):
     """
 
     def __init__(self, args: Tuple, kwargs: Dict):
+        if args is None:
+            return
         self.args = tensors_to_device(args, "cpu")
         self.kwargs = kwargs
 
@@ -98,7 +100,8 @@ def run_calibration_forward(
             except EarlyStopException as e:
                 # model was stopped early, save last calculated output and
                 # move on to next calibration sample
-                intermediates.append((e.args, e.kwargs))
+                #intermediates.append((e.args, e.kwargs))
+                pass
 
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from torch.utils.hooks import RemovableHandle
 from collections import defaultdict
 
+from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.utils.helpers import getattr_chain
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import get_layers, get_no_split_params
@@ -168,6 +169,7 @@ class LayerCompressorMixin(HooksMixin):
     ):
         print(f"post {name}")
 
+
     @HooksMixin.hook
     def layer_pre_forward(self, name: str, layer: torch.nn.Module, args: Any, kwargs):
         logger.info(
@@ -186,4 +188,8 @@ class LayerCompressorMixin(HooksMixin):
     ):
         print(f"post {name}")
         self._layer_index += 1
+
+        if name == "model.layers.31":
+            raise EarlyStopException(None, None)
+
         return output

@@ -1127,7 +1127,7 @@ def align_module(module: torch.nn.Module, device: Optional[torch.device] = None)
 
     elif device is not None:
         devices = {}
-        for name, param in module.named_parameters():
+        for name, param in module.named_parameters(recurse=False):
             devices[name] = param.device
             setattr(module, name, param.to(device))
 
