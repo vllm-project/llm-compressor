@@ -25,6 +25,9 @@ class TestConsecutiveRuns(unittest.TestCase):
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
+        
+        from llmcompressor.transformers.utils.helpers import resolve_recipe
+        from llmcompressor.pytorch.model_load.helpers import initialize_recipe
 
         # test recipe with 50% sparsity, quantization and smoothquant
         oneshot(
@@ -48,10 +51,14 @@ class TestConsecutiveRuns(unittest.TestCase):
         stages = [stage.group for stage in session_recipe.stages]
         self.assertEqual(len(stages), 1)
         session.reset()
-
+        
+        recipe = resolve_recipe(recipe=self.first_recipe, model_path=self.output_first)
+        if recipe:
+            initialize_recipe(model=first_tiny_model, recipe_path=recipe)
+        
         # reload saved model and up sparsity to 0.7
         oneshot(
-            model=self.output_first,
+            model=first_tiny_model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
             recipe=self.second_recipe,
@@ -64,12 +71,14 @@ class TestConsecutiveRuns(unittest.TestCase):
         layer_0_sparse = tensor_sparsity(
             second_tiny_model.model.layers[0].self_attn.k_proj.weight
         )
+
         assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
         assert qat_active(second_tiny_model)
 
         session = active_session()
         session_recipe = session.lifecycle.recipe_container.compiled_recipe
         stages = [stage.group for stage in session_recipe.stages]
+        
         self.assertEqual(len(stages), 2)
 
         recipe_path = self.output_second / "recipe.yaml"
@@ -118,9 +127,9 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
     device = None
 
     def setUp(self):
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device
         )
 
