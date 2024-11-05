@@ -124,11 +124,11 @@ class LayerCompressorMixin(HooksMixin):
         # if no targets are provided, default to the modules that shouldn't be
         # split by FSDP. For Transformers models this is equivalent to the
         # decoder layers (ie LlamaDecoderLayer)
-        sequential_targets = self.sequential_targets
-        if sequential_targets is None:
-            sequential_targets = get_no_split_params(model)
-        layers = get_layers(sequential_targets, model)
-        self._num_layers = len(layers)
+        # sequential_targets = self.sequential_targets
+        # if sequential_targets is None:
+        #     sequential_targets = get_no_split_params(model)
+        # layers = get_layers(sequential_targets, model)
+        # self._num_layers = len(layers)
 
         for name, module in model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
@@ -139,13 +139,13 @@ class LayerCompressorMixin(HooksMixin):
 
                 self.pre_compress_module(module)
 
-            if name in layers.keys():
-                pre_hook = partial(self.layer_pre_forward, name)
-                post_hook = partial(self.layer_post_forward, name)
-                self.register_hook(module.register_forward_pre_hook(pre_hook, with_kwargs=True))
-                self.register_hook(
-                    module.register_forward_hook(post_hook, with_kwargs=True)
-                )
+            # if name in layers.keys():
+            #     pre_hook = partial(self.layer_pre_forward, name)
+            #     post_hook = partial(self.layer_post_forward, name)
+            #     self.register_hook(module.register_forward_pre_hook(pre_hook, with_kwargs=True))
+            #     self.register_hook(
+            #         module.register_forward_hook(post_hook, with_kwargs=True)
+            #     )
         
 
     @HooksMixin.hook

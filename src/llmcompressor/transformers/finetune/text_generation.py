@@ -23,7 +23,7 @@ from pathlib import PosixPath
 from loguru import logger
 from transformers import (
     AutoConfig,
-    AutoTokenizer,
+    AutoProcessor,
     DefaultDataCollator,
     HfArgumentParser,
     set_seed,
@@ -221,12 +221,12 @@ def initialize_model_from_path(
 def initialize_tokenizer_from_path(model_args, model, teacher):
     tokenizer_src = model_args.tokenizer
     tokenizer_src = tokenizer_src or get_shared_tokenizer_src(model, teacher)
-    tokenizer = AutoTokenizer.from_pretrained(
+    tokenizer = AutoProcessor.from_pretrained(
         tokenizer_src,
-        cache_dir=model_args.cache_dir,
-        use_fast=True,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
+        # cache_dir=model_args.cache_dir,
+        # use_fast=True,
+        # revision=model_args.model_revision,
+        # use_auth_token=True if model_args.use_auth_token else None,
         trust_remote_code=model_args.trust_remote_code_model,
     )
 

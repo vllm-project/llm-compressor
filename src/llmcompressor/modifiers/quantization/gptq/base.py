@@ -209,7 +209,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             self.calibration_forward(state.model, state.data.calib)
         finally:
             pass
-            #torch.cuda.memory._dump_snapshot("bs256.pickle")
+            #torch.cuda.memory._dump_snapshot("bs10.pickle")
             #torch.cuda.memory._record_memory_history(enabled=None)
             #exit(0)
 
@@ -306,6 +306,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         logger.info(f"Using {inp.size(0)} samples")
 
         with align_module(module):
+            print(inp.shape)
             loss, quantized_weight, _scale, _zero_point, _g_idx = quantize_weight(
                 module.weight.data,
                 inp,

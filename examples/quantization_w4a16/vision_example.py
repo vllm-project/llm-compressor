@@ -1,26 +1,27 @@
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="cuda:0",
     torch_dtype="auto",
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+breakpoint()
+processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
+DATASET_ID = "lmms-lab/flickr30k"
+DATASET_SPLIT = "test[:165]"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 160 #2048
+NUM_CALIBRATION_SAMPLES = 165 #2048
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -29,11 +30,22 @@ ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 
 def preprocess(example):
+    messages = [
+        [
+            {
+                "role": "user", 
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "What does the image show?"}
+                ]
+            }
+        ],
+    ]
     return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
+        "text": processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+        ),
     }
 
 
@@ -42,13 +54,7 @@ ds = ds.map(preprocess)
 
 # Tokenize inputs.
 def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
+    return processor(sample["image"], sample["text"], add_special_tokens=False, return_tensors="pt", max_length=MAX_SEQUENCE_LENGTH)
 
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
@@ -60,21 +66,23 @@ recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"], batc
 # Apply algorithms.
 oneshot(
     model=model,
+    tokenizer=MODEL_ID,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    trust_remote_code_model=True,
 )
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+input_ids = processor("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
+print(processor.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)

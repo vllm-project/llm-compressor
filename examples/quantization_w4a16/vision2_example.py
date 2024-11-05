@@ -1,18 +1,18 @@
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = MllamaForConditionalGeneration.from_pretrained(
     MODEL_ID,
     device_map="cuda:0",
     torch_dtype="auto",
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -30,7 +30,7 @@ ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 def preprocess(example):
     return {
-        "text": tokenizer.apply_chat_template(
+        "text": processor.apply_chat_template(
             example["messages"],
             tokenize=False,
         )
@@ -42,7 +42,8 @@ ds = ds.map(preprocess)
 
 # Tokenize inputs.
 def tokenize(sample):
-    return tokenizer(
+    return processor(
+        None,
         sample["text"],
         padding=False,
         max_length=MAX_SEQUENCE_LENGTH,
@@ -55,26 +56,28 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"], batch_size=-1, dampening_frac=0.5)
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"], batch_size=1, dampening_frac=0.5)
 
 # Apply algorithms.
 oneshot(
     model=model,
+    tokenizer=MODEL_ID,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    trust_remote_code_model=True,
 )
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+input_ids = processor("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
+print(processor.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)
