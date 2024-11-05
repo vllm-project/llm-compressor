@@ -20,6 +20,7 @@ from llmcompressor.transformers.compression.sparsity_config import (
 )
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
+    patch_tied_tensors_bug,
 )
 
 
@@ -310,6 +311,7 @@ def test_model_shared_tensors(
         tie_word_embeddings=tie_word_embeddings,
         device_map=device_map,
     )
+    patch_tied_tensors_bug(model)
     if offload:
         model = cpu_offload(model)
 
