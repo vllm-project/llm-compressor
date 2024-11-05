@@ -223,10 +223,6 @@ def initialize_tokenizer_from_path(model_args, model, teacher):
     tokenizer_src = tokenizer_src or get_shared_tokenizer_src(model, teacher)
     tokenizer = AutoProcessor.from_pretrained(
         tokenizer_src,
-        cache_dir=model_args.cache_dir,
-        use_fast=True,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
         trust_remote_code=model_args.trust_remote_code_model,
     )
 
