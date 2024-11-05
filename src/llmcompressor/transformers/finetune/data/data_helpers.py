@@ -34,8 +34,8 @@ def create_single_batch_dataloader(
 
     def pad_sequences(batch):
         # extract input_ids and attention_mask from the batch
-        input_ids = [torch.tensor(item["input_ids"]) for item in batch]
-        masks = [torch.tensor(item["attention_mask"]) for item in batch]
+        input_ids = [torch.tensor(item["input_ids"]).squeeze(0) for item in batch]
+        masks = [torch.tensor(item["attention_mask"]).squeeze(0) for item in batch]
 
         # while 0 is not necessarily the "correct" padding value, the padded
         # input_ids are ignored according to the attention_mask

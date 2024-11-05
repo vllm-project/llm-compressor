@@ -1,13 +1,17 @@
 from datasets import load_dataset
-from transformers import AutoProcessor, MllamaForConditionalGeneration
+from transformers import AutoProcessor, MllamaForConditionalGeneration, LlavaForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot, wrap_hf_model_class
 import os
+from accelerate import init_empty_weights
+#os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 # Load model.
-model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-model_class = wrap_hf_model_class(MllamaForConditionalGeneration)
+#model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+model_id = "mgoin/pixtral-12b"
+#with init_empty_weights():
+model_class = wrap_hf_model_class(LlavaForConditionalGeneration)
 model = model_class.from_pretrained(model_id, device_map="auto", torch_dtype="auto", trust_remote_code=True, _attn_implementation="eager",)
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
@@ -15,7 +19,7 @@ print("Loading dataset")
 DATASET_ID = "lmms-lab/flickr30k"
 DATASET_SPLIT = "test[:128]"
 
-NUM_CALIBRATION_SAMPLES = 1#128
+NUM_CALIBRATION_SAMPLES = 2
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -47,11 +51,7 @@ ds = ds.map(preprocess)
 
 # Tokenize inputs.
 def tokenize(sample):
-    tmp = processor(sample["image"], sample["text"], add_special_tokens=False, return_tensors="pt")
-    for key in tmp:
-        tmp[key] = tmp[key].squeeze(0)
-
-    return tmp
+    return processor(sample["image"], sample["text"], add_special_tokens=False, return_tensors="pt", max_length=MAX_SEQUENCE_LENGTH)
 
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
@@ -68,7 +68,7 @@ ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"]
 
 recipe = [
     # SmoothQuantModifier(smoothing_strength=0.8, ignore=ignore),
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=ignore),
+    GPTQModifier(targets="Linear", scheme="W8A8", ignore=ignore, sequential_targets=["MistralDecoderLayer"]),
 ]
 
 save_name = model_id.split("/")[1] + "-W8A8"
