@@ -46,6 +46,7 @@ from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
+    patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_tokenizer_src,
@@ -220,7 +221,7 @@ def initialize_model_from_path(
         else None
     )
     if teacher is not None and "sequence_length" in teacher_kwargs:
-        model.seqlen = teacher_kwargs["sequence_length"]
+        teacher.seqlen = teacher_kwargs["sequence_length"]
 
     return teacher, model_path, model
 
@@ -308,6 +309,10 @@ def main(
             model_args,
             training_args,
         )
+
+    # patch a shared tensor bug in HF transformers
+    # https://github.com/huggingface/transformers/issues/33689
+    patch_tied_tensors_bug(model)
 
     if teacher is not None:
         teacher.eval()

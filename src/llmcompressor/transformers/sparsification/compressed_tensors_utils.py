@@ -141,10 +141,6 @@ def modify_save_pretrained(model: torch.nn.Module):
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
-            # patch a shared tensor bug in HF transformers
-            # https://github.com/huggingface/transformers/issues/33689
-            patch_tied_tensors_bug(model)
-
             # HACK: Override the dtype_byte_size function in transformers to
             # support float8 types. Fix is posted upstream
             # https://github.com/huggingface/transformers/pull/30488
