@@ -115,6 +115,7 @@ oneshot(
     model=model,
     dataset=dataset_name,
     concatenate_data=concatenate_data,
+    output_dir=output_dir,
     recipe=recipe,
     overwrite_output_dir=overwrite_output_dir,
     pad_to_max_length = pad_to_max_length,
