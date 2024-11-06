@@ -312,7 +312,7 @@ def test_model_shared_tensors(
         device_map=device_map,
     )
     patch_tied_tensors_bug(model)
-    
+
     if offload:
         model = cpu_offload(model)
 

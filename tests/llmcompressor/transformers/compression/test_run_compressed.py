@@ -25,6 +25,7 @@ class TestQuantizationMatches(unittest.TestCase):
             cls.model_stub,
             torch_dtype="auto",
             device_map="auto",
+            run_compressed=True,
         )
         cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
             cls.model_stub,
