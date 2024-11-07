@@ -259,6 +259,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     if offload:
         model = cpu_offload(model)
 
+    patch_tied_tensors_bug(model)
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
 
