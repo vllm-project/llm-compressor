@@ -112,7 +112,7 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         # create observer for calculating quantization parameters
         observer = Observer.load_from_registry(
-            "minmax",
+            quant_args.observer,
             quantization_args=quant_args,
             averaging_constant=1.0,  # ignore moving average
         )
