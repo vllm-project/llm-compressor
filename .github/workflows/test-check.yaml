@@ -107,7 +107,7 @@ jobs:
       - name: Run Finetune Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/finetune -m unit
+          pytest -v tests/llmcompressor/transformers/finetune
       - name: Running GPTQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
