@@ -33,9 +33,9 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         tokenizer = AutoTokenizer.from_pretrained(
             self.model,
         )
-        device = "cuda:0"
+
         model_loaded = SparseAutoModelForCausalLM.from_pretrained(
-            self.model, device_map=device
+            self.model, device_map="auto"
         )
 
         dataset_loaded = load_dataset(
