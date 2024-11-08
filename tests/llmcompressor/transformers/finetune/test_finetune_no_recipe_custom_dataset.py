@@ -129,7 +129,7 @@ class TestOneshotCustomDatasetSmall(TestFinetuneNoRecipeCustomDataset):
             self.device = "cuda:0"
             self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
         else:
-            self.device = "cuda:0"
+            self.device = "cpu"
 
         self.output = "./oneshot_output"
 
