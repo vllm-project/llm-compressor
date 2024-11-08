@@ -109,6 +109,7 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.output)
+        self.monkeypatch.undo()
 
 
 @requires_torch
@@ -122,7 +123,14 @@ class TestOneshotCustomDatasetSmall(TestFinetuneNoRecipeCustomDataset):
     def setUp(self):
         import torch
 
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.monkeypatch = pytest.MonkeyPatch()
+
+        if torch.cuda.is_available():
+            self.device = "cuda:0"
+            self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+        else:
+            self.device = "cpu"
+
         self.output = "./oneshot_output"
 
     def test_oneshot_then_finetune_small(self):
@@ -143,12 +151,15 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
 
         from llmcompressor.transformers import SparseAutoModelForCausalLM
 
+        self.monkeypatch = pytest.MonkeyPatch()
         self.device = "cuda:0"
         self.output = "./oneshot_output"
+        self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
         self.model = SparseAutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
+        self.monkeypatch = pytest.MonkeyPatch()
 
     def test_oneshot_then_finetune_gpu(self):
         self._test_finetune_wout_recipe_custom_dataset()
