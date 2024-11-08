@@ -139,6 +139,12 @@ class LayerCompressorMixin(HooksMixin):
 
                 self.pre_compress_module(module)
 
+            if "head" in name:
+                def hook(module: torch.nn.Module, args: Tuple[Any, ...]):
+                    raise EarlyStopException(None, None)
+                    
+                self.register_hook(module.register_forward_pre_hook(hook, with_kwargs=False))
+
             # if name in layers.keys():
             #     pre_hook = partial(self.layer_pre_forward, name)
             #     post_hook = partial(self.layer_post_forward, name)
@@ -151,7 +157,7 @@ class LayerCompressorMixin(HooksMixin):
     @HooksMixin.hook
     def target_pre_forward(
         self, name: str, module: torch.nn.Module, args: Tuple[Any, ...], kwargs: Dict[str, Any]
-    ):
+    ):  
         # compress
         print(f"compressing {name}")
         if True: #self.true_sequential:
@@ -188,8 +194,5 @@ class LayerCompressorMixin(HooksMixin):
     ):
         print(f"post {name}")
         self._layer_index += 1
-
-        if name == "model.layers.31":
-            raise EarlyStopException(None, None)
 
         return output
