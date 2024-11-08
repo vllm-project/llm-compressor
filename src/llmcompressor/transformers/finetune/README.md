@@ -100,7 +100,7 @@ accelerate launch
 ```python
 from llmcompressor.transformers import oneshot
 
-model =" Xenova/llama2.c-stories15M"
+model ="Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
 pad_to_max_length = False
@@ -159,6 +159,7 @@ apply(
     model_name_or_path=model,
     dataset_name=dataset_name,
     run_stages=run_stages,
+    output_dir=output_dir,
     recipe=recipe,
     num_train_epochs=num_train_epochs,
     overwrite_output_dir=overwrite_output_dir,

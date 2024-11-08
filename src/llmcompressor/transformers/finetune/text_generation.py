@@ -52,7 +52,7 @@ from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_tokenizer_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model
+from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
 
 def train(**kwargs):
@@ -349,6 +349,14 @@ def main(
         tokenizer=tokenizer,
         data_collator=data_collator,
     )
+
+    # wrap model.save_pretrained
+    model = trainer.model
+    if is_fsdp_model(model):
+        modify_fsdp_model_save_pretrained(trainer, tokenizer)
+    else:
+        modify_save_pretrained(model)
+
     stage_runner.trainer = trainer
 
     # alternating Training/One-shot
@@ -381,21 +389,17 @@ def main(
     if training_args.do_predict:
         stage_runner.predict()
 
-    # wrap model.save_pretrained
-    model = trainer.model
-    if is_fsdp_model(model):
-        modify_fsdp_model_save_pretrained(trainer, tokenizer)
-    else:
-        modify_save_pretrained(model)
-
     # save if model was provided as a string or custom output_dir was set
     if isinstance(model_args.model, str) or (
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
-        model.save_pretrained(training_args.output_dir)
-        if tokenizer is not None:
-            tokenizer.save_pretrained(training_args.output_dir)
+        save_model_and_recipe(
+            model=model,
+            save_path=training_args.output_dir,
+            tokenizer=tokenizer,
+            save_compressed=training_args.save_compressed,
+        )
 
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:

@@ -35,7 +35,7 @@ __all__ = ["modify_save_pretrained", "modify_fsdp_model_save_pretrained"]
 def modify_fsdp_model_save_pretrained(trainer, tokenizer):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
-    supports compression
+    supports compression for fsdp model
     """
 
     def save_pretrained_compressed(save_pretrained_method):
@@ -244,6 +244,20 @@ def get_model_compressor(
     skip_compression_stats: bool = False,
     state_dict: Optional[Dict] = None,
 ):
+    """
+    Obtain the compressor based on the config and the
+        quantization_format
+
+    :param model: torch model
+    :param sparsify_config: Sparsity Compression config
+    :param quantization_format: Format that the model was quantized to.
+        if not provivided, will be extrapolated from `infer_quantization_format`
+    :param save_compressed: boolean representing to save in a compressed
+        format
+    :param skip_compression_stats: bool allowing compression stats on std out
+    :param state_dict: state_dict of the model
+    """
+
     # find offloaded state dict if none is provided
     if state_dict is None:
         state_dict = get_state_dict_offloaded_model(model)
