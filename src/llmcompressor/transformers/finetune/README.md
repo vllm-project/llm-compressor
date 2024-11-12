@@ -61,6 +61,7 @@ train(
     model=model,
     distill_teacher=teacher_model,
     dataset=dataset_name,
+    output_dir=output_dir,
     recipe=recipe,
     num_train_epochs=num_train_epochs,
     overwrite_output_dir=overwrite_output_dir,

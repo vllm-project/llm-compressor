@@ -38,7 +38,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         tokenizer = AutoTokenizer.from_pretrained(
             self.model,
         )
-        model_loaded = SparseAutoModelForCausalLM.from_pretrained(
+        model_loaded = AutoModelForCausalLM.from_pretrained(
             self.model, device_map="auto"
         )
 
