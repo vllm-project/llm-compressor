@@ -52,7 +52,7 @@ from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_tokenizer_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
+from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 def train(**kwargs):
@@ -394,12 +394,9 @@ def main(
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
-        save_model_and_recipe(
-            model=model,
-            save_path=training_args.output_dir,
-            tokenizer=tokenizer,
-            save_compressed=training_args.save_compressed,
-        )
+        model.save_pretrained(training_args.output_dir)
+        if tokenizer is not None:
+            tokenizer.save_pretrained(training_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:

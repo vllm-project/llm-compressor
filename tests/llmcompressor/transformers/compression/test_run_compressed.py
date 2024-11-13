@@ -21,17 +21,21 @@ class TestQuantizationMatches(unittest.TestCase):
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp()
 
+        # TODO: Give option on HFQuantizer to run run_compressed True/False
+        # currently hardcoded to True
         cls.compressed_model = AutoModelForCausalLM.from_pretrained(
             cls.model_stub,
             torch_dtype="auto",
             device_map="auto",
-            run_compressed=True,
+            # run_compressed=True, # TODO: Give option on HFQuantizer
         )
         cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
             cls.model_stub,
             torch_dtype="auto",
             device_map="auto",
+            # run_compressed=False, # TODO: Give option on HFQuantizer
         )
+
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.model_stub)
         cls.device = cls.compressed_model.device
 
