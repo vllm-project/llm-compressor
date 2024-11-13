@@ -247,6 +247,7 @@ class HookedModel:
             # TODO: detect and call hooks
 
             if subgraph_index < len(self.subgraphs) - 1:
+                # TODO: smart vacate intermediates which are not used by future subgraphs
                 intermediates.update(forward_function(self.model, **inputs))
             else:
                 return forward_function(self.model, **inputs)
