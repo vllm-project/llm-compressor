@@ -320,7 +320,7 @@ def update_offload_parameter(
                 )
                 prefix_dict[key] = param.data.to(device=offload_device)
             
-        if isinstance(weights_map, OffloadedWeightsLoader):
+        elif isinstance(weights_map, OffloadedWeightsLoader):
             raise NotImplementedError()
         
         else:

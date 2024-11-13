@@ -1,18 +1,28 @@
 from datasets import load_dataset
 from transformers import AutoTokenizer
+from accelerate import cpu_offload
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers.compression.helpers import custom_offload_device_map
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+#MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
+#MODEL_ID = "meta-llama/Meta-Llama-3-70B"
+#MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+#MODEL_ID = "mgoin/pixtral-12b"
+
+#device_map = custom_offload_device_map(MODEL_ID, "30GB")
 
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="cuda:0",
     torch_dtype="auto",
 )
+cpu_offload(model, "cuda:0")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+#tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-70B-Instruct")
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -20,7 +30,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 160 #2048
+NUM_CALIBRATION_SAMPLES = 200 #2048
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.

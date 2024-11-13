@@ -93,7 +93,7 @@ def run_calibration_forward(
             break
         if mask_padding:
             batch = apply_pad_mask_to_batch(batch)
-        batch = tensors_to_device(batch, model_device)
+        batch = tensors_to_device(batch, "cuda:0")
         with torch.no_grad():
             try:
                 forward_fn(batch, module=model)
