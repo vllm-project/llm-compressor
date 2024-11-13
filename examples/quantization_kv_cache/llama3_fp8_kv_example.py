@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -18,7 +18,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 1
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -77,7 +77,6 @@ oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
-    output_dir="./outputputput",
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
