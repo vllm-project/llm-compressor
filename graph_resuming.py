@@ -185,6 +185,7 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
         subgraph.lint()
         input_names = [node.name for node in subgraph.nodes if node.op == "placeholder"]
         subgraphs.append({
+            "graph": subgraph,
             "code": subgraph.python_code("self"),
             "input_names": input_names,
             "consumed_names": [],
@@ -207,14 +208,15 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
     return subgraphs
 
 
-def gptq_compress(module: torch.nn.Module, inputs: List[torch.Tensor]):
-    print("gptq_compress")
+def gptq_compress(name: str, module: torch.nn.Module, inputs: List[torch.Tensor]):
+    print(f"gptq_compress {name} {module} {inputs.shape}")
     pass
 
 
 class HookedModel:
     def __init__(self):
         self.hook_targets = []
+        self.hook_target_nodes = []
         self.graph = None
         self.subgraphs = []
         self.model = None
@@ -226,21 +228,21 @@ class HookedModel:
         self.model = model
 
         # 1. create graph
-        # TODO: better tracing of submodules/nn.sequential, although I don't think the
-        # current implementation covers this case either
         self.graph: GraphModule = symbolic_trace(model)
 
         # 2. identify target nodes
-        target_nodes = set().union(*(
-            get_target_nodes(self.graph, targets)
-            for func, targets in self.hook_targets
-        ))
+        for func, targets in self.hook_targets:
+            self.hook_target_nodes.append((func, get_target_nodes(self.graph, targets)))
+
+        all_target_nodes = set().union(*(target_nodes for _, target_nodes in self.hook_target_nodes))
 
         # 3. cut into partitions along target nodes
-        partitions: List[List[Node]] = topological_partition(self.graph, target_nodes)
+        partitions: List[List[Node]] = topological_partition(self.graph, all_target_nodes)
         self.subgraphs: List[GraphModule] = partition_graph(model, partitions)
     
     def forward(self, *args, **kwargs):
+        model_modules = {name: module for name, module in self.model.named_modules()}
+
         # 4. perform compression
         intermediates = kwargs.copy()
         for subgraph_index, subgraph in enumerate(self.subgraphs):
@@ -250,8 +252,18 @@ class HookedModel:
 
             inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
 
-            # TODO: detect and call hooks
-            
+            # detect and call hooks
+            for func, target_nodes in self.hook_target_nodes:
+                target_nodes = set(target_node for target_node in target_nodes)
+                subgraph_node_names = set(node.name for node in subgraph["graph"].nodes if node.op == "call_module")
+
+                for target_node in target_nodes:
+                    if target_node.name in subgraph_node_names:
+                        assert len(target_node.all_input_nodes) == 1
+
+                        module = model_modules[target_node.target]
+                        input_value = inputs[target_node.all_input_nodes[0].name]
+                        func(target_node.target, module, input_value)
 
             if subgraph_index < len(self.subgraphs) - 1:
                 intermediates.update(forward_function(self.model, **inputs))
@@ -275,8 +287,8 @@ if __name__ == "__main__":
 
     data_loader = [
         {"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
-        {"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
-        {"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
+        #{"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
+        #{"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
     ]
 
     # modifier inits
