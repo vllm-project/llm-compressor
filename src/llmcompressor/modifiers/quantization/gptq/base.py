@@ -13,6 +13,7 @@ from pydantic import Field, PrivateAttr, field_validator
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quantize_weight
+from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import PartitionedModel
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import LayerCompressorMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
@@ -276,7 +277,10 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             batch_size = self.batch_size
         dataloader = create_batch_dataloader(dataloader, batch_size=batch_size)
         with calibration_forward_context(model):
-            run_calibration_forward(model, dataloader, mask_padding=True)
+            partitioned_model = PartitionedModel()
+            partitioned_model.init_forward(model, ["Linear"])
+            run_calibration_forward(partitioned_model, dataloader, mask_padding=True)
+
 
     def pre_compress_module(self, module: torch.nn.Module):
         if self.batch_size != -1:
