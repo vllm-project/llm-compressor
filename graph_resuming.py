@@ -8,13 +8,16 @@ from torch.fx import GraphModule, Graph, Node
 
 
 class Model(torch.nn.Module):
-    def __init__(self, d_model=128, n_heads=1, d_ff=256, dropout=0.1):
+    def __init__(self, vocab_size=4096, d_model=128, n_heads=1, d_ff=256, dropout=0.1):
         super(Model, self).__init__()
         
         self.d_model = d_model
         self.n_heads = n_heads
         self.head_dim = d_model // n_heads
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
+        
+        # Embedding layer
+        self.embedding = torch.nn.Embedding(vocab_size, d_model)
         
         # Linear transformations for queries, keys, and values
         self.query_linear = torch.nn.Linear(d_model, d_model)
@@ -46,7 +49,9 @@ class Model(torch.nn.Module):
         return output
 
     def forward(self, input_ids):
-        x = input_ids
+        # Apply embedding layer
+        x = self.embedding(input_ids)  # (batch_size, seq_length, d_model)
+        
         batch_size, seq_length, _ = x.size()
         
         # Linear projections
@@ -214,6 +219,7 @@ class HookedModel:
         self.model = model
 
         # 1. create graph
+        # TODO: better tracing of submodules/nn.sequential
         self.graph: GraphModule = symbolic_trace(model)
         #tracer = InlineTracer()
         #self.graph = GraphModule(model, tracer.trace(model))
@@ -238,6 +244,8 @@ class HookedModel:
 
             inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
 
+            # TODO: detect and call hooks
+
             if subgraph_index < len(self.subgraphs) - 1:
                 intermediates.update(forward_function(self.model, **inputs))
             else:
@@ -245,14 +253,19 @@ class HookedModel:
 
 
 if __name__ == "__main__":
-    # model = AutoModel.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
-    # from transformers.utils.fx import symbolic_trace
-    model = Model()
-    from torch.fx import symbolic_trace
+    sequence_length = 2048
+
+    if False:
+        model = AutoModel.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
+        from transformers.utils.fx import symbolic_trace
+    else:
+        model = Model()
+        from torch.fx import symbolic_trace
+
     data_loader = [
-        {"input_ids": torch.arange(2048 * 128, dtype=torch.float32).reshape(1, 2048, 128)},
-        {"input_ids": torch.arange(2048 * 128, dtype=torch.float32).reshape(1, 2048, 128)},
-        {"input_ids": torch.arange(2048 * 128, dtype=torch.float32).reshape(1, 2048, 128)},
+        {"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
+        {"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
+        {"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
     ]
 
     # modifier inits
