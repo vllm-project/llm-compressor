@@ -5,6 +5,7 @@ import inspect
 from collections import deque
 from transformers import AutoModel
 from torch.fx import GraphModule, Graph, Node
+from transformers.modeling_outputs import BaseModelOutputWithPast
 
 
 class Model(torch.nn.Module):
@@ -82,7 +83,7 @@ class Model(torch.nn.Module):
         x = x + self.dropout(ff_output)
         x = self.norm2(x)
         
-        return x
+        return BaseModelOutputWithPast(last_hidden_state=x)
     
 
 def get_target_nodes(graph: GraphModule, targets: List[str]):
@@ -117,7 +118,7 @@ def check_assumption(graph: Graph) -> bool:
 
 
 def topological_partition(graph: GraphModule, target_nodes: Set[Node]) -> List[List[Node]]:
-    # use list representation to mantain topological sorting
+    # use list representation to maintain topological sorting
     assert check_assumption(graph.graph)
 
     partitions: List[List[Node]] = [[]]
@@ -149,9 +150,9 @@ def topological_partition(graph: GraphModule, target_nodes: Set[Node]) -> List[L
 
 
 def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
-    # could potentially use torch.fx.experimental.optimization.extract_subgraph
     subgraphs = []
 
+    # create subgraphs
     for partition_nodes in partitions:
         # create a new graph for the partition
         subgraph = Graph(model)
@@ -172,24 +173,36 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
             node_map[node] = subgraph.node_copy(node, lambda n: node_map[n])
 
         # add an output node to collect all subgraph outputs into a dictionary
-        # TODO: skip for last partition
-        output_dict = {
-            node.name: node_map[node]
-            for node in partition_nodes
-            if any(user not in partition_nodes for user in node.users.keys())
-        }
-        subgraph.output(output_dict)
+        if len(subgraph.find_nodes(op="output")) <= 0:
+            output_dict = {
+                node.name: node_map[node]
+                for node in partition_nodes
+                if any(user not in partition_nodes for user in node.users.keys())
+            }
+            subgraph.output(output_dict)
 
         # Save the subgraph for this partition
         subgraph.lint()
         input_names = [node.name for node in subgraph.nodes if node.op == "placeholder"]
         subgraphs.append({
-            #"graph": GraphModule(model, subgraph, f"SubgraphModule{len(subgraphs)}"),
             "code": subgraph.python_code("self"),
             "input_names": input_names,
+            "consumed_names": [],
         })
 
+        print([n for n in subgraph.nodes])
         assert check_assumption(subgraph)
+
+    # populate consumed_names according to when inputs are last used
+    # in order to vacate the `intermediates` cache and save memory
+    all_input_names = set().union(*(subgraph["input_names"] for subgraph in subgraphs))
+    for input_name in all_input_names:
+        for subgraph in reversed(subgraphs):
+            if input_name in subgraph["input_names"]:
+                subgraph["consumed_names"].append(input_name)
+                break
+        else:
+            assert False
     
     return subgraphs
 
@@ -197,12 +210,6 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
 def gptq_compress(module: torch.nn.Module, inputs: List[torch.Tensor]):
     print("gptq_compress")
     pass
-
-
-class InlineTracer(torch.fx.Tracer):
-    def is_leaf_module(self, m, module_qualified_name):
-        # Override to expand the submodules instead of treating them as leaf nodes
-        return False  # Expands all submodules
 
 
 class HookedModel:
@@ -219,10 +226,9 @@ class HookedModel:
         self.model = model
 
         # 1. create graph
-        # TODO: better tracing of submodules/nn.sequential
+        # TODO: better tracing of submodules/nn.sequential, although I don't think the
+        # current implementation covers this case either
         self.graph: GraphModule = symbolic_trace(model)
-        #tracer = InlineTracer()
-        #self.graph = GraphModule(model, tracer.trace(model))
 
         # 2. identify target nodes
         target_nodes = set().union(*(
@@ -245,23 +251,27 @@ class HookedModel:
             inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
 
             # TODO: detect and call hooks
+            
 
             if subgraph_index < len(self.subgraphs) - 1:
-                # TODO: smart vacate intermediates which are not used by future subgraphs
                 intermediates.update(forward_function(self.model, **inputs))
+
+                for consumed_name in subgraph["consumed_names"]:
+                    del intermediates[consumed_name]
             else:
                 return forward_function(self.model, **inputs)
 
 
 if __name__ == "__main__":
+    use_dummy_model = True
     sequence_length = 2048
 
-    if False:
-        model = AutoModel.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
-        from transformers.utils.fx import symbolic_trace
-    else:
+    if use_dummy_model:
         model = Model()
         from torch.fx import symbolic_trace
+    else:
+        model = AutoModel.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
+        from transformers.utils.fx import symbolic_trace
 
     data_loader = [
         {"input_ids": torch.zeros(sequence_length, dtype=torch.int32).reshape(1, sequence_length)},
@@ -280,5 +290,6 @@ if __name__ == "__main__":
     model.eval()
     with torch.no_grad():
         for batch in data_loader:
-            output = hooked_model.forward(**batch)
-            print(output)
+            hooked_output = hooked_model.forward(**batch)
+            model_output = model.forward(**batch)
+            assert torch.equal(hooked_output["last_hidden_state"], model_output["last_hidden_state"])
