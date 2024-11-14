@@ -204,14 +204,14 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         self.register_hooks(state.model)
 
         # feed data
-        torch.cuda.memory._record_memory_history(max_entries=1_000_000)
+        #torch.cuda.memory._record_memory_history(max_entries=1_000_000)
         try:
             self.calibration_forward(state.model, state.data.calib)
         finally:
             pass
-            torch.cuda.memory._dump_snapshot("partition.pickle")
-            torch.cuda.memory._record_memory_history(enabled=None)
-            exit(0)
+            #torch.cuda.memory._dump_snapshot("partition.pickle")
+            #torch.cuda.memory._record_memory_history(enabled=None)
+            #exit(0)
 
         # finalize stuff
         self.remove_hooks()
