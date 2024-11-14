@@ -114,7 +114,7 @@ def parse_params(
             _parse_configs_dir(config)
     else:
         _parse_configs_dir(configs_directory)
-    return config_dicts
+    return config_dicts[3:]
 
 
 def run_cli_command(cmd: List[str], cwd: Optional[Union[str, Path]] = None):
