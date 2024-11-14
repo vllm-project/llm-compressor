@@ -220,8 +220,8 @@ def _copy_python_files_from_model_cache(model: Module, save_path: str):
         import os
         import shutil
 
+        cache_dir = config._name_or_path
         if os.path.exists(cache_dir):
-            cache_dir = config._name_or_path
             for file in os.listdir(cache_dir):
                 full_file_name = os.path.join(cache_dir, file)
                 if file.endswith(".py") and os.path.isfile(full_file_name):
