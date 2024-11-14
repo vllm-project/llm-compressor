@@ -18,6 +18,35 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 GPTQ_PRECISION = torch.float32
 
 
+def make_empty_hessian(module: torch.nn.Module):
+    weight = module.weight
+    num_columns = weight.shape[1]
+    return torch.zeros((num_columns, num_columns), device=weight.device, dtype=GPTQ_PRECISION)
+
+
+def accumulate_hessian(inp: torch.Tensor, module_class: Type[torch.nn.Module], H: Optional[torch.Tensor] = None, num_samples: int = 1) -> Tuple[torch.Tensor, int]:
+    inp = inp.to(device=H.device)
+    if len(inp.shape) == 2:
+        inp = inp.unsqueeze(0)
+
+    num_added = inp.shape[0]  # note this is the number of dataset samples, not
+    # multiplied by the sequence length
+
+    if module_class in (torch.nn.Linear, transformers.Conv1D):
+        if len(inp.shape) == 3:
+            inp = inp.reshape((-1, inp.shape[-1]))
+        inp = inp.t()
+
+    H *= num_samples / (num_samples + num_added)
+    num_samples += num_added
+
+    inp = inp.to(dtype=GPTQ_PRECISION)
+    inp = math.sqrt(2 / num_samples) * inp
+    H += inp.matmul(inp.t())
+
+    return H, num_samples
+
+
 def compute_hessian(inp: torch.Tensor, module_class: Type[torch.nn.Module], device) -> torch.Tensor:
     """
     Calculate the hessian with respect to the module inputs
@@ -255,7 +284,7 @@ def quantize_weight(
     W = W.reshape(final_shape).to(final_dtype)
 
     loss = torch.sum(losses).item()
-    return loss, W, scale, zero_point, g_idx
+    return loss, W, scale.to(dtype=final_dtype), zero_point.to(dtype=quant_args.pytorch_dtype()), g_idx
 
 
 def _apply_activation_ordering(

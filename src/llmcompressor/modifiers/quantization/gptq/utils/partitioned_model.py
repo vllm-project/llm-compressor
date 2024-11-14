@@ -6,7 +6,10 @@ from collections import deque
 from transformers import AutoModel
 from torch.fx import GraphModule, Graph, Node
 from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.utils.fx import symbolic_trace
+from transformers.utils.fx import symbolic_trace, HFTracer
+
+from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
+from llmcompressor.pytorch.utils.helpers import tensors_to_device
 
 
 class Model(torch.nn.Module):
@@ -123,11 +126,13 @@ def topological_partition(graph: GraphModule, target_nodes: Set[Node]) -> List[L
     assert check_assumption(graph.graph)
 
     partitions: List[List[Node]] = [[]]
-    remaining_indegrees = {node: len(node.all_input_nodes) for node in graph.graph.nodes}
+    remaining_indegrees = {node: len([node for node in node.all_input_nodes if node.op != "get_attr"]) for node in graph.graph.nodes}
+    #remaining_indegrees = {node: len((node for node in node.all_input_nodes)) for node in graph.graph.nodes}
     partition_index = 0  # global counter, not necessary but ensures partitions are connected
 
     # start with graph input nodes
-    queue = deque(node for node in graph.graph.nodes if remaining_indegrees[node] == 0)
+    #queue = deque(node for node in graph.graph.nodes if remaining_indegrees[node] == 0)# and node.op != "get_attr")
+    queue = deque(node for node in graph.graph.nodes if remaining_indegrees[node] == 0 and node.op != "get_attr")
     while len(queue) > 0:
         node = queue.popleft()
 
@@ -146,6 +151,17 @@ def topological_partition(graph: GraphModule, target_nodes: Set[Node]) -> List[L
             if remaining_indegrees[user] == 0:
                 queue.append(user)
 
+    for node in graph.graph.nodes:
+        if node.op == "get_attr":
+            user_partitions = []
+            for user in node.users:
+                for index in range(len(partitions)):
+                    if user in partitions[index]:
+                        user_partitions.append(index)
+                        break
+            partition_index = min(user_partitions)
+            partitions[partition_index].insert(0, node)
+
     assert set().union(*partitions) == set(graph.graph.nodes)
     return partitions
 
@@ -163,8 +179,9 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
         new_input_nodes = {
             input_node
             for node in partition_nodes
+            #if node.op != "get_attr"
             for input_node in node.all_input_nodes
-            if input_node not in partition_nodes
+            if input_node not in partition_nodes and input_node.op
         }
         for input_node in new_input_nodes:
             node_map[input_node] = subgraph.placeholder(input_node.name)
@@ -228,8 +245,14 @@ class PartitionedModel:
     def init_forward(self, model: torch.nn.Module, targets):
         self.model = model
 
-        # 1. create graph
-        self.graph: GraphModule = symbolic_trace(model)
+        # 1. trace graph
+        class CustomTracer(HFTracer):
+            def is_leaf_module(self, module: torch.nn.Module, module_qualified_name: str) -> bool:
+                if type(module).__name__ in targets:
+                    return True  # Treat as leaf, skip tracing inside this module
+                return super().is_leaf_module(module, module_qualified_name)
+        
+        self.graph: GraphModule = symbolic_trace(model, tracer_cls=CustomTracer)
 
         # 2. identify target nodes
         all_target_nodes = get_target_nodes(self.graph, targets)
@@ -238,9 +261,40 @@ class PartitionedModel:
         partitions: List[List[Node]] = topological_partition(self.graph, all_target_nodes)
         self.subgraphs: List[GraphModule] = partition_graph(model, partitions)
 
-    def forward(self, *args, **kwargs):
-        model_modules = {name: module for name, module in self.model.named_modules()}
+    def forward_data(self, dataloader, mask_padding: bool = True):
+        # 4. perform compression
+        model_device = next(self.model.parameters()).device
+        batch_intermediates = [
+            tensors_to_device(apply_pad_mask_to_batch(batch), model_device) if mask_padding else tensors_to_device(batch, model_device)
+            for batch in dataloader
+        ]
+        batch_outputs = [None for _ in range(len(dataloader))]
 
+        for subgraph_index, subgraph in enumerate(self.subgraphs):
+            code = subgraph["code"]
+            exec(code.src, code.globals)
+            forward_function = code.globals.get("forward")
+
+            print(f"subgraph_index: {subgraph_index}")
+            print(batch_intermediates[0].keys())
+
+            for batch_index in range(len(dataloader)):
+                intermediates = batch_intermediates[batch_index]
+
+                inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
+                subgraph_output = forward_function(self.model, **inputs)
+
+                for consumed_name in subgraph["consumed_names"]:
+                    del intermediates[consumed_name]
+
+                if subgraph_index < len(self.subgraphs) - 1:
+                    intermediates.update(subgraph_output)
+                else:
+                    batch_outputs[batch_index] = subgraph_output
+
+        return batch_outputs
+
+    def forward(self, *args, **kwargs):
         # 4. perform compression
         intermediates = kwargs.copy()
         for subgraph_index, subgraph in enumerate(self.subgraphs):
@@ -249,19 +303,6 @@ class PartitionedModel:
             forward_function = code.globals.get("forward")
 
             inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
-
-            # detect and call hooks
-            for func, target_nodes in self.hook_target_nodes:
-                target_nodes = set(target_node for target_node in target_nodes)
-                subgraph_node_names = set(node.name for node in subgraph["graph"].nodes if node.op == "call_module")
-
-                for target_node in target_nodes:
-                    if target_node.name in subgraph_node_names:
-                        assert len(target_node.all_input_nodes) == 1
-
-                        module = model_modules[target_node.target]
-                        input_value = inputs[target_node.all_input_nodes[0].name]
-                        func(target_node.target, module, input_value)
 
             if subgraph_index < len(self.subgraphs) - 1:
                 intermediates.update(forward_function(self.model, **inputs))
@@ -300,8 +341,7 @@ if __name__ == "__main__":
     ]
 
     # modifier inits
-    hooked_model = HookedModel()
-    hooked_model.register_hook(gptq_compress, ["Linear"])
+    hooked_model = PartitionedModel()
 
     # some time after modifier inits but before forward passes
     hooked_model.init_forward(model)

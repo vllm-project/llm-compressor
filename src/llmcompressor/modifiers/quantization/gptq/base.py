@@ -12,11 +12,11 @@ from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import quantize_weight
+from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import accumulate_hessian, make_empty_hessian, quantize_weight
 from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import PartitionedModel
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import LayerCompressorMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
+from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException, run_calibration_forward
 from llmcompressor.observers.base import Observer
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_batch_dataloader,
@@ -31,7 +31,8 @@ from compressed_tensors.quantization import (
     fake_quantize,
 )
 
-from llmcompressor.utils.pytorch.module import qat_active
+from llmcompressor.utils.metric_logging import CompressionLogger
+from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 
 __all__ = ["GPTQModifier"]
 
@@ -104,7 +105,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
     """
 
     sequential_update: bool = True  # DEPRECIATED
-    batch_size: int = -1
+    update_size: int = 1
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -119,7 +120,8 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
     disable_quantization_observer_epoch: Optional[float] = None
 
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
-    _num_batches: int = PrivateAttr()
+    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=lambda: {})
+    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=lambda: {})
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -197,58 +199,24 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             self._quantization_modifier.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
-        
-        if self.batch_size <= 0:
-            batch_size = len(state.data.calib.dataset)
-        else:
-            batch_size = self.batch_size
-        self._num_batches = math.ceil(len(state.data.calib.dataset) / batch_size)
 
         self.register_hooks(state.model)
-        #torch.cuda.memory._record_memory_history(max_entries=1_000_000)
+        torch.cuda.memory._record_memory_history(max_entries=1_000_000)
         try:
             self.calibration_forward(state.model, state.data.calib)
         finally:
             pass
-            #torch.cuda.memory._dump_snapshot("bs10.pickle")
-            #torch.cuda.memory._record_memory_history(enabled=None)
-            #exit(0)
+            torch.cuda.memory._dump_snapshot("partition.pickle")
+            torch.cuda.memory._record_memory_history(enabled=None)
+            exit(0)
 
         self.remove_hooks()
-        self.finish_compression(state.model)
 
         # freeze quantization
         state.model.apply(freeze_module_quantization)
 
         return True
-    
-    def finish_compression(self, model: torch.nn.Module):
-        for module in model.modules():
-            quant_args = getattr_chain(module, "quantization_scheme.weights", None)
-            if quant_args is None:
-                continue
-            
-            with align_module(module):
 
-                if self.batch_size != -1:
-                    weight = module.weight_acc / self._num_batches
-                    delete_offload_parameter(module, "weight_acc")
-                else:
-                    weight = module.weight
-
-                observer = Observer.load_from_registry(
-                    quant_args.observer, quantization_args=quant_args
-                )
-                scale, zero_point = observer(weight)
-                weight = fake_quantize(
-                    weight,
-                    scale,
-                    zero_point,
-                    quant_args,
-                )
-                update_offload_parameter(module, "weight", weight)
-                update_offload_parameter(module, "weight_scale", scale)
-                update_offload_parameter(module, "weight_zero_point", zero_point)
 
     def on_finalize(self, state: "State", **kwargs) -> bool:
         """
@@ -271,28 +239,27 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         :param model: model to perform forward pass with
         :param dataloader: dataloader containing calibration dataset
         """
-        if self.batch_size <= 0:
-            batch_size = len(dataloader.dataset)
-        else:
-            batch_size = self.batch_size
-        dataloader = create_batch_dataloader(dataloader, batch_size=batch_size)
+        dataloader = create_batch_dataloader(dataloader, batch_size=1)
         with calibration_forward_context(model):
             partitioned_model = PartitionedModel()
-            partitioned_model.init_forward(model, ["Linear"])
-            run_calibration_forward(partitioned_model, dataloader, mask_padding=True)
+            targets = get_no_split_params(model)
+            partitioned_model.init_forward(model, targets)
+            breakpoint()
 
-
-    def pre_compress_module(self, module: torch.nn.Module):
-        if self.batch_size != -1:
-            print("created aux buffers")
-            register_offload_parameter(module, "weight_acc", torch.nn.Parameter(torch.zeros_like(module.weight.data), requires_grad=False))
+            model.config.use_cache = False
+            model.eval()
+            with torch.no_grad():
+                try:
+                    partitioned_model.forward_data(dataloader, mask_padding=True)
+                except EarlyStopException:
+                    pass
 
     def compress_module(
         self,
         name: str,
         module: torch.nn.Module,
         args: Tuple[torch.Tensor, ...],
-    ) -> float:
+    ):
         """
         Quantize a module's weight according to the GPTQ algorithm
 
@@ -302,33 +269,47 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
 
         :return: total loss from applying weight quantization to this module
         """
-        logger.info(f"Quantizing {name}...")
 
         # Assume that first argument is the input
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
-        logger.info(f"Using {inp.size(0)} samples")
 
-        with align_module(module):
-            print(inp.shape)
-            loss, quantized_weight, _scale, _zero_point, _g_idx = quantize_weight(
-                module.weight.data,
-                inp,
-                quant_args,
-                blocksize=self.block_size,
-                percdamp=self.dampening_frac,
-                module_class=type(module),
-            )
+        if module not in self._num_samples:
+            self._hessians[module] = make_empty_hessian(module)
+            self._num_samples[module] = 0
 
-            if self.batch_size != -1:
-                module.weight_acc += quantized_weight
-                update_offload_parameter(module, "weight_acc")
-            else:
+        self._hessians[module], self._num_samples[module] = accumulate_hessian(
+            inp,
+            type(module),
+            self._hessians[module],
+            self._num_samples[module],
+        )
+
+        if self._num_samples[module] >= self.update_size:
+            logger.info(f"Quantizing {name}...")
+            logger.info(f"Using {self._num_samples[module]} accumulated samples")
+            with align_module(module), CompressionLogger(module) as comp_logger:
+                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                    module.weight.data,
+                    inp,
+                    quant_args,
+                    blocksize=self.block_size,
+                    percdamp=self.dampening_frac,
+                    module_class=type(module),
+                )
+
                 module.weight -= module.weight
                 module.weight += quantized_weight
                 update_offload_parameter(module, "weight")
+                update_offload_parameter(module, "weight_scale", scale)
+                update_offload_parameter(module, "weight_zero_point", zero_point)
+                if g_idx is not None:
+                    update_offload_parameter(module, "weight_g_idx", g_idx)
 
-        return loss
+                del self._hessians[module]
+                del self._num_samples[module]
+
+                comp_logger.set_loss(loss)
 
     def _build_quant_modifier(self):
         """

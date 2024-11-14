@@ -299,6 +299,8 @@ def update_offload_parameter(
             raise ValueError("Cannot copy data from meta device. Consider calling with align_module(module) context")
     
         if param.data.dtype != data.dtype:
+            print(name)
+            print((param.data.dtype, data.dtype))
             warnings.warn("TODO")
             
         param.data.copy_(data)

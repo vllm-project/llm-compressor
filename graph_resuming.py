@@ -162,6 +162,7 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
         new_input_nodes = {
             input_node
             for node in partition_nodes
+            if node.op != "get_attr"
             for input_node in node.all_input_nodes
             if input_node not in partition_nodes
         }
@@ -275,7 +276,7 @@ class HookedModel:
 
 
 if __name__ == "__main__":
-    use_dummy_model = True
+    use_dummy_model = False
     sequence_length = 2048
 
     if use_dummy_model:

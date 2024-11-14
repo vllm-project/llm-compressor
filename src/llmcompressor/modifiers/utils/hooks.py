@@ -102,21 +102,12 @@ class LayerCompressorMixin(HooksMixin):
     _num_layers = 0
 
     @abstractmethod
-    def pre_compress_module(
-        self,
-        name: str,
-        module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
-    ) -> float:
-        raise NotImplementedError()
-
-    @abstractmethod
     def compress_module(
         self,
         name: str,
         module: torch.nn.Module,
         args: Tuple[torch.Tensor, ...],
-    ) -> float:
+    ):
         raise NotImplementedError()
 
     def register_hooks(self, model: torch.nn.Module):
@@ -133,17 +124,15 @@ class LayerCompressorMixin(HooksMixin):
         for name, module in model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 pre_hook = partial(self.target_pre_forward, name)
-                post_hook = partial(self.target_post_forward, name)
+                #post_hook = partial(self.target_post_forward, name)
                 self.register_hook(module.register_forward_pre_hook(pre_hook, with_kwargs=True))
-                self.register_hook(module.register_forward_hook(post_hook))
-
-                self.pre_compress_module(module)
+                #self.register_hook(module.register_forward_hook(post_hook))
 
             if "head" in name:
                 def hook(module: torch.nn.Module, args: Tuple[Any, ...]):
                     raise EarlyStopException(None, None)
                     
-                self.register_hook(module.register_forward_pre_hook(hook, with_kwargs=False))
+            #     self.register_hook(module.register_forward_pre_hook(hook, with_kwargs=False))
 
             # if name in layers.keys():
             #     pre_hook = partial(self.layer_pre_forward, name)
@@ -159,11 +148,7 @@ class LayerCompressorMixin(HooksMixin):
         self, name: str, module: torch.nn.Module, args: Tuple[Any, ...], kwargs: Dict[str, Any]
     ):  
         # compress
-        print(f"compressing {name}")
-        if True: #self.true_sequential:
-            with CompressionLogger(module) as comp_logger:
-                loss = self.compress_module(name, module, args)
-                comp_logger.set_loss(loss)
+        self.compress_module(name, module, args)
 
     @HooksMixin.hook
     def target_post_forward(
