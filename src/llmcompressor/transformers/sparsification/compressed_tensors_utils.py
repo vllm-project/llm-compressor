@@ -146,6 +146,15 @@ def modify_save_pretrained(model: torch.nn.Module):
             # https://github.com/huggingface/transformers/pull/30488
             transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
 
+            def skip(*args, **kwargs):
+                pass
+
+            # Skip the initializer step. This accelerates the loading
+            # of the models, especially for the quantized models
+            torch.nn.init.kaiming_uniform_ = skip
+            torch.nn.init.uniform_ = skip
+            torch.nn.init.normal_ = skip
+
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.pop("state_dict", None)
             if state_dict is None:

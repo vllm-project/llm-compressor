@@ -59,15 +59,6 @@ class TestQuantizationMatches(unittest.TestCase):
         num_calibration_samples = 512
         max_seq_length = 512
         pad_to_max_length = False
-        
-        def skip(*args, **kwargs):
-            pass
-        
-        # Skip the initializer step. This accelerates the loading
-        # of the models, especially for the quantized models
-        torch.nn.init.kaiming_uniform_ = skip
-        torch.nn.init.uniform_ = skip
-        torch.nn.init.normal_ = skip
 
         oneshot(
             model=model,
@@ -110,17 +101,11 @@ class TestQuantizationMatches(unittest.TestCase):
         return quant_info_weights, quant_info_inputs
 
     def test_quantization_reload(self):
-        breakpoint()
         model_reloaded = AutoModelForCausalLM.from_pretrained(
             os.path.join(self.test_dir, self.output),
             torch_dtype="auto",
             device_map="cuda:0",
         )
-        # model_reloaded = self.session_model
-        """
-        model_reloaded = AutoModelForCausalLM.from_pretrained(os.path.join(self.test_dir, self.output),torch_dtype="auto", device_map="cuda:0",)
-        model_reloaded = AutoModelForCausalLM.from_pretrained(os.path.join(self.test_dir, self.output),torch_dtype="auto",)
-        """
 
         og_weights, og_inputs = self._get_quant_info(self.model)
         reloaded_weights, reloaded_inputs = self._get_quant_info(model_reloaded)
@@ -184,4 +169,3 @@ class TestQuantizationMatches(unittest.TestCase):
 
         avg_ppl = total_ppl / total_non_nan
         assert avg_ppl <= self.ppl_threshold
-

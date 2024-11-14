@@ -351,7 +351,6 @@ def main(
     )
 
     # wrap model.save_pretrained
-    model = trainer.model
     if is_fsdp_model(model):
         modify_fsdp_model_save_pretrained(trainer, tokenizer)
     else:
@@ -394,7 +393,9 @@ def main(
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
-        model.save_pretrained(training_args.output_dir)
+        model.save_pretrained(
+            training_args.output_dir, save_compressed=training_args.save_compressed
+        )
         if tokenizer is not None:
             tokenizer.save_pretrained(training_args.output_dir)
 
