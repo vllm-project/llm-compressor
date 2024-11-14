@@ -1,3 +1,4 @@
+from functools import partial
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -15,7 +16,7 @@ from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import accumulate_hessian, make_empty_hessian, quantize_weight
 from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import PartitionedModel
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
-from llmcompressor.modifiers.utils.hooks import LayerCompressorMixin
+from llmcompressor.modifiers.utils.hooks import HooksMixin, LayerCompressorMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException, run_calibration_forward
 from llmcompressor.observers.base import Observer
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -37,7 +38,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 __all__ = ["GPTQModifier"]
 
 
-class GPTQModifier(Modifier, LayerCompressorMixin):
+class GPTQModifier(Modifier, HooksMixin):
     """
     Modifier for applying the one-shot OBCQ algorithm to a model
 
@@ -193,6 +194,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
 
         :param state: session state storing input model and calibration data
         """
+        # initialize quantization modifier
         if not self.initialized_structure_:
             self.on_initialize_structure(state, **kwargs)
         if self._quantization_modifier:
@@ -200,22 +202,23 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
-        # apply modifier
-        self.register_hooks(state.model)
+        # register hooks
+        for name, module in state.model.named_modules():
+            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
+                post_hook = partial(self.compress_module, name)
+                self.register_forward_hook(module, post_hook)
+
+            if "head" in name:
+                def hook(module: torch.nn.Module, args: Tuple[Any, ...]):
+                    raise EarlyStopException(None, None)
 
         # feed data
-        #torch.cuda.memory._record_memory_history(max_entries=1_000_000)
-        try:
-            self.calibration_forward(state.model, state.data.calib)
-        finally:
-            pass
-            #torch.cuda.memory._dump_snapshot("partition.pickle")
-            #torch.cuda.memory._record_memory_history(enabled=None)
-            #exit(0)
-
-        # finalize stuff
-        self.remove_hooks()
-        state.model.apply(freeze_module_quantization)
+        dataloader = create_batch_dataloader(dataloader, batch_size=1)
+        with calibration_forward_context(state.model):
+            targets = get_no_split_params(state.model)
+            partitioned_model = PartitionedModel()
+            partitioned_model.init_forward(state.model, targets)
+            partitioned_model.forward_data(dataloader, mask_padding=True)
 
         return True
 
@@ -228,28 +231,10 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if self._quantization_modifier:
             self._quantization_modifier.finalize(state, **kwargs)
 
+        self.remove_hooks()
+        state.model.apply(freeze_module_quantization)
+
         return True
-
-    def calibration_forward(
-        self, model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
-    ):
-        """
-        Perform calibration forward pass with one batch whose size is the size
-        of the dataset
-
-        :param model: model to perform forward pass with
-        :param dataloader: dataloader containing calibration dataset
-        """
-        dataloader = create_batch_dataloader(dataloader, batch_size=1)
-        with calibration_forward_context(model):
-            partitioned_model = PartitionedModel()
-            targets = get_no_split_params(model)
-            partitioned_model.init_forward(model, targets)
-
-            try:
-                partitioned_model.forward_data(dataloader, mask_padding=True)
-            except EarlyStopException:
-                pass
 
     def compress_module(
         self,

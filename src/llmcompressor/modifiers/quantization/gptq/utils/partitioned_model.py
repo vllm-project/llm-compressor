@@ -1,4 +1,5 @@
 
+import contextlib
 from typing import Any, Callable, Dict, List, Set
 
 import torch
@@ -8,7 +9,8 @@ from torch.fx import GraphModule, Graph, Node
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.utils.fx import symbolic_trace, HFTracer
 
-from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
+from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException, apply_pad_mask_to_batch
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 
 
@@ -186,7 +188,13 @@ class PartitionedModel:
         partitions: List[List[Node]] = topological_partition(self.graph, all_target_nodes)
         self.subgraphs: List[GraphModule] = partition_graph(model, partitions)
 
-    def forward_data(self, dataloader, mask_padding: bool = True):
+    def forward_data(
+        self,
+        dataloader,
+        mask_padding: bool = True,
+        run_twice: bool = True
+    ):
+        # TODO: give option to skip lm_head
         # 4. perform compression
         model_device = next(self.model.parameters()).device
         batch_intermediates = [
@@ -200,23 +208,35 @@ class PartitionedModel:
             exec(code.src, code.globals)
             forward_function = code.globals.get("forward")
 
-            print(f"subgraph_index: {subgraph_index}")
-            print(batch_intermediates[0].keys())
+            if run_twice:
+                for batch_index in range(len(dataloader)):
+                    intermediates = batch_intermediates[batch_index]
+                    inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
+                    inputs = tensors_to_device(inputs, model_device)
+                    try:
+                        forward_function(self.model, **inputs)
+                    except EarlyStopException:
+                        pass
+                
+            with HooksMixin.disable_hooks() if run_twice else contextlib.nullcontext():
+                for batch_index in range(len(dataloader)):
+                    intermediates = batch_intermediates[batch_index]
 
-            for batch_index in range(len(dataloader)):
-                intermediates = batch_intermediates[batch_index]
+                    inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
+                    inputs = tensors_to_device(inputs, model_device)
+                    try:
+                        subgraph_output = forward_function(self.model, **inputs)
+                    except EarlyStopException:
+                        subgraph_output = None
+                        pass
+                    subgraph_output = tensors_to_device(subgraph_output, "cpu")
 
-                inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
-                inputs = tensors_to_device(inputs, model_device)
-                subgraph_output = forward_function(self.model, **inputs)
-                subgraph_output = tensors_to_device(subgraph_output, "cpu")
+                    for consumed_name in subgraph["consumed_names"]:
+                        del intermediates[consumed_name]
 
-                for consumed_name in subgraph["consumed_names"]:
-                    del intermediates[consumed_name]
-
-                if subgraph_index < len(self.subgraphs) - 1:
-                    intermediates.update(subgraph_output)
-                else:
-                    batch_outputs[batch_index] = subgraph_output
+                    if subgraph_index < len(self.subgraphs) - 1:
+                        intermediates.update(subgraph_output)
+                    else:
+                        batch_outputs[batch_index] = subgraph_output
 
         return batch_outputs
