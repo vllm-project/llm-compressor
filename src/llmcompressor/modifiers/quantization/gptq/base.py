@@ -245,15 +245,11 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             partitioned_model = PartitionedModel()
             targets = get_no_split_params(model)
             partitioned_model.init_forward(model, targets)
-            breakpoint()
 
-            model.config.use_cache = False
-            model.eval()
-            with torch.no_grad():
-                try:
-                    partitioned_model.forward_data(dataloader, mask_padding=True)
-                except EarlyStopException:
-                    pass
+            try:
+                partitioned_model.forward_data(dataloader, mask_padding=True)
+            except EarlyStopException:
+                pass
 
     def compress_module(
         self,

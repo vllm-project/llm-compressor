@@ -302,6 +302,9 @@ def tensors_to_device(
         ex: 'cpu', 'cuda', 'cuda:1'
     :return: the tensors or collection of tensors after being placed on the device
     """
+    if isinstance(tensors, Tensor):
+        return tensors.to(device)
+    
     if isinstance(tensors, OrderedDict):
         return OrderedDict(
             [(key, tensors_to_device(tens, device)) for key, tens in tensors.items()]
@@ -315,9 +318,6 @@ def tensors_to_device(
 
     if isinstance(tensors, Iterable):
         return [tensors_to_device(tens, device) for tens in tensors]
-    
-    if isinstance(tensors, Tensor):
-        return tensors.to(device)
     
     return tensors
 
