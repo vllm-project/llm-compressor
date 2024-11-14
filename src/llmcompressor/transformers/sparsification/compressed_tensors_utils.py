@@ -193,7 +193,8 @@ def modify_save_pretrained(model: torch.nn.Module):
         return save_pretrained_wrapper
 
     # wrap save_pretrained
-    model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+    if hasattr(model, "__self__"):
+        model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
 # HACK: Override the dtype_byte_size function in transformers to support float8 types
