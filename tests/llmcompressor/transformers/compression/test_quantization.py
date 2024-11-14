@@ -101,12 +101,12 @@ class TestQuantizationMatches(unittest.TestCase):
         return quant_info_weights, quant_info_inputs
 
     def test_quantization_reload(self):
-        # TODO: reload the model using HFQuantizer
-        # model_reloaded = AutoModelForCausalLM.from_pretrained(
-        #     os.path.join(self.test_dir, self.output),
-        #     torch_dtype="auto",
-        #     device_map="cuda:0",
-        # )
+        # TODO: reload the model using HFQuantizer, fp8 loading error
+        model_reloaded = AutoModelForCausalLM.from_pretrained(
+            os.path.join(self.test_dir, self.output),
+            torch_dtype="auto",
+            device_map="cuda:0",
+        )
         model_reloaded = self.session_model
 
         og_weights, og_inputs = self._get_quant_info(self.model)
