@@ -265,7 +265,7 @@ class PartitionedModel:
         # 4. perform compression
         model_device = next(self.model.parameters()).device
         batch_intermediates = [
-            tensors_to_device(apply_pad_mask_to_batch(batch), model_device) if mask_padding else tensors_to_device(batch, model_device)
+            apply_pad_mask_to_batch(batch) if mask_padding else batch
             for batch in dataloader
         ]
         batch_outputs = [None for _ in range(len(dataloader))]
@@ -282,7 +282,9 @@ class PartitionedModel:
                 intermediates = batch_intermediates[batch_index]
 
                 inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
+                inputs = tensors_to_device(inputs, model_device)
                 subgraph_output = forward_function(self.model, **inputs)
+                subgraph_output = tensors_to_device(subgraph_output, "cpu")
 
                 for consumed_name in subgraph["consumed_names"]:
                     del intermediates[consumed_name]
