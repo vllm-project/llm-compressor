@@ -177,7 +177,7 @@ class PartitionedModel:
                     return True  # Treat as leaf, skip tracing inside this module
                 return super().is_leaf_module(module, module_qualified_name)
         
-        self.graph: GraphModule = symbolic_trace(model, tracer_cls=CustomTracer)
+        self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
 
         # 2. identify target nodes
         all_target_nodes = get_target_nodes(self.graph, targets)

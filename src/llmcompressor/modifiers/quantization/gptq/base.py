@@ -200,7 +200,10 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
+        # apply modifier
         self.register_hooks(state.model)
+
+        # feed data
         torch.cuda.memory._record_memory_history(max_entries=1_000_000)
         try:
             self.calibration_forward(state.model, state.data.calib)
@@ -210,13 +213,11 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
             torch.cuda.memory._record_memory_history(enabled=None)
             exit(0)
 
+        # finalize stuff
         self.remove_hooks()
-
-        # freeze quantization
         state.model.apply(freeze_module_quantization)
 
         return True
-
 
     def on_finalize(self, state: "State", **kwargs) -> bool:
         """
@@ -274,6 +275,7 @@ class GPTQModifier(Modifier, LayerCompressorMixin):
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
+        # TODO: attach as parameters to the module to allow them to be offloaded
         if module not in self._num_samples:
             self._hessians[module] = make_empty_hessian(module)
             self._num_samples[module] = 0

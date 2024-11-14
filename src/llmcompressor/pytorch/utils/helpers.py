@@ -289,8 +289,7 @@ def tensors_to_device(
     Default function for putting a tensor or collection of tensors to the proper device.
     Returns the tensor references after being placed on the proper device.
 
-    Supported use cases:
-        - single tensor
+    Recursive cases:
         - Dictionary of single tensors
         - Dictionary of iterable of tensors
         - Dictionary of dictionary of tensors
@@ -303,9 +302,6 @@ def tensors_to_device(
         ex: 'cpu', 'cuda', 'cuda:1'
     :return: the tensors or collection of tensors after being placed on the device
     """
-    if isinstance(tensors, Tensor):
-        return tensors.to(device)
-
     if isinstance(tensors, OrderedDict):
         return OrderedDict(
             [(key, tensors_to_device(tens, device)) for key, tens in tensors.items()]
@@ -319,10 +315,11 @@ def tensors_to_device(
 
     if isinstance(tensors, Iterable):
         return [tensors_to_device(tens, device) for tens in tensors]
-
-    raise ValueError(
-        "unrecognized type for tensors given of {}".format(tensors.__class__.__name__)
-    )
+    
+    if isinstance(tensors, Tensor):
+        return tensors.to(device)
+    
+    return tensors
 
 
 def tensors_to_precision(
