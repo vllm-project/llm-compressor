@@ -46,7 +46,7 @@ class HooksMixin(BaseModel):
         hook: Callable[[Any], Any],
         hook_type: str,
         **kwargs,
-    ):
+    ) -> RemovableHandle:
         """
         Registers a hook on a specified module with the option to disable it with
         HooksMixin.disable_hooks
@@ -68,7 +68,9 @@ class HooksMixin(BaseModel):
 
         handle = getattr(module, f"register_{hook_type}_hook")(wrapped_hook, **kwargs)
         self._hooks.append(handle)
-        logger.debug(f"Added {handle} for {self}")
+        logger.debug(f"{self} added {handle}")
+
+        return handle
 
     def remove_hooks(self):
         """Remove all hooks belonging to a modifier"""
