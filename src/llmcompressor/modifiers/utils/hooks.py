@@ -3,6 +3,7 @@ from functools import wraps
 from typing import Any, Callable, ClassVar, List
 
 import torch
+from loguru import logger
 from pydantic import BaseModel
 from torch.utils.hooks import RemovableHandle
 
@@ -67,6 +68,7 @@ class HooksMixin(BaseModel):
 
         handle = getattr(module, f"register_{hook_type}_hook")(wrapped_hook, **kwargs)
         self._hooks.append(handle)
+        logger.debug(f"Added {handle} for {self}")
 
     def remove_hooks(self):
         """Remove all hooks belonging to a modifier"""
