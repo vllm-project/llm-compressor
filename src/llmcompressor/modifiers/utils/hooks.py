@@ -1,6 +1,6 @@
 import contextlib
 from functools import wraps
-from typing import Any, Callable, ClassVar, List
+from typing import Any, Callable, ClassVar, List, Union
 
 import torch
 from loguru import logger
@@ -19,7 +19,9 @@ class HooksMixin(BaseModel):
     Modifiers which implement hooks should register them using
     `self.register_..._hook(module, hook)` rather than the usual
     `module.register_..._hook(hook)`. Modifiers should remove hooks with
-    `self.remove_hooks()`
+    `self.remove_hooks()`.
+
+    Hooks can be applied to modules or parameters
 
     Lifecycle:
         - modifier.register_forward_hook(module, hook)
@@ -42,20 +44,20 @@ class HooksMixin(BaseModel):
 
     def register_hook(
         self,
-        module: torch.nn.Module,
+        target: Union[torch.nn.Module, torch.nn.Parameter],
         hook: Callable[[Any], Any],
         hook_type: str,
         **kwargs,
     ) -> RemovableHandle:
         """
-        Registers a hook on a specified module with the option to disable it with
-        HooksMixin.disable_hooks
+        Registers a hook on a specified module/parameter with the option to disable it
+        with HooksMixin.disable_hooks()
 
-        :param module: the module on which the hook should be registered
+        :param target: the module or parameter on which the hook should be registered
         :param hook: the hook to register
         :param hook_type: the type of hook to register corresponding to the
             `register_{hook_type}_hook` attribute on torch.nn.Module.
-            Ex. "forward", "forward_pre", "full_backward", "state_dict_post"
+            Ex. "forward", "forward_pre", "full_backward", "state_dict_post", ""
         :param kwargs: keyword arguments to pass to register hook method
         """
 
@@ -66,7 +68,7 @@ class HooksMixin(BaseModel):
 
             return hook(*args, **kwargs)
 
-        handle = getattr(module, f"register_{hook_type}_hook")(wrapped_hook, **kwargs)
+        handle = getattr(target, f"register_{hook_type}_hook")(wrapped_hook, **kwargs)
         self._hooks.append(handle)
         logger.debug(f"{self} added {handle}")
 
@@ -76,3 +78,5 @@ class HooksMixin(BaseModel):
         """Remove all hooks belonging to a modifier"""
         for hook in self._hooks:
             hook.remove()
+
+        self._hooks = []
