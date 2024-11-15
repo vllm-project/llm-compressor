@@ -1,4 +1,4 @@
-import functools
+from functools import partial
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -288,9 +288,8 @@ class WandaPruningModifier(Modifier, HooksMixin):
 
         for name, mod in self.model.named_modules():
             if isinstance(mod, torch.nn.Linear) and "lm_head" not in name:
-                self.register_hook(
-                    mod, functools.partial(save_acts, name=name), "forward_pre"
-                )
+                self.register_hook(mod, partial(save_acts, name=name), "forward_pre")
+
         device = next(self.model.parameters()).device
         for batch in tqdm(data_loader):
             batch = {k: v.to(device) for k, v in batch.items()}
