@@ -10,7 +10,6 @@ from tqdm import tqdm
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.wanda.utils.wanda_wrapper import WandaWrapper
-from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.pytorch.module import (
@@ -22,7 +21,7 @@ from llmcompressor.utils.pytorch.module import (
 __all__ = ["WandaPruningModifier"]
 
 
-class WandaPruningModifier(Modifier, HooksMixin):
+class WandaPruningModifier(Modifier):
     """
     Modifier for applying the one-shot WANDA algorithm to a model
     from the paper: https://arxiv.org/abs/2306.11695

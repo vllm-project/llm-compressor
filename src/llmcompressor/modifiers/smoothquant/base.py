@@ -11,7 +11,6 @@ from llmcompressor.modifiers.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
-from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
@@ -53,7 +52,7 @@ class SmoothQuantMapping:
     balance_layers: List[Module]
 
 
-class SmoothQuantModifier(Modifier, HooksMixin):
+class SmoothQuantModifier(Modifier):
     """
      Implements the SmoothQuant algorithm from https://arxiv.org/abs/2211.10438. This
      modifier performs a channel-wise smoothing of outliers in activations, making them

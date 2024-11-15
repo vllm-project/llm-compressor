@@ -27,7 +27,6 @@ from llmcompressor.modifiers.quantization.calibration import (
     set_unset_kv_cache,
     update_weight_zp_scale,
 )
-from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import (
     is_moe_model,
     run_calibration_forward,
@@ -37,7 +36,7 @@ from llmcompressor.observers.helpers import get_observer_token_count
 __all__ = ["QuantizationModifier"]
 
 
-class QuantizationModifier(Modifier, HooksMixin):
+class QuantizationModifier(Modifier):
     """
     Enables post training quantization (PTQ) and quantization aware training (QAT) for a
     given module or its submodules. After calibration (PTQ) or the start epoch (QAT),
