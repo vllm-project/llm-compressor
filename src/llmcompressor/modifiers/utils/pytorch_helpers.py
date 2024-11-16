@@ -2,6 +2,7 @@ from itertools import cycle
 from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from compressed_tensors import is_module_offloaded
 from torch.nn import Module
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -71,10 +72,18 @@ def run_calibration_forward(
     )
 
     # move model to optional specified device if it is not already there
-    model_device = next(model.parameters()).device
-    if device is not None and model_device != device:
+    # TODO: move to accelerate utilities as `get_model_execution_device`
+    offloaded_module = next(
+        (module for module in model.modules() if is_module_offloaded(module)), None
+    )
+    if device is not None and offloaded_module is not None:
         model.to(device)
-        model_device = next(model.parameters()).device
+    model_device = (
+        model.device
+        if offloaded_module is None
+        else offloaded_module._hf_hook.execution_device
+    )
+
     _dataloader = (
         calibration_dataloader
         if num_calibration_steps is None
@@ -102,7 +111,7 @@ def run_calibration_forward(
 
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
     return intermediates
 

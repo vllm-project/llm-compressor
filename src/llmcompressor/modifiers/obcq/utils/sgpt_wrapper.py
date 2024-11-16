@@ -1,8 +1,14 @@
 import time
 
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
+from compressed_tensors.utils import (
+    get_offloaded_device,
+    is_module_offloaded,
+    update_prefix_dict,
+)
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
+from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils import getattr_chain
 
 try:
@@ -87,9 +93,14 @@ class SparseGptWrapper(ModuleCompressionWrapper):
             diagonal norm
         :param preserve_sparsity_mask: Extend or ignore the base sparsity mask
         """
+        if is_module_offloaded(self.layer):
+            self.layer._hf_hook.pre_forward(self.layer)
+
         final_shape = self.layer.weight.shape
         final_dtype = self.layer.weight.dtype
         W = self.layer.weight.data.clone()
+
+        # ensure weight has been properly quantized (if applicable) before sparsifying
         args_loc = "quantization_scheme.weights"
         weight_quant_args = getattr_chain(self.layer, args_loc, None)
         if weight_quant_args is not None:
@@ -204,8 +215,8 @@ class SparseGptWrapper(ModuleCompressionWrapper):
             else:
                 W[:, i2:] -= Err1.matmul(Hinv[i1:i2, i2:])
 
-        logger.info("time %.2f" % (time.time() - tick))
-        logger.info("error %.2f" % torch.sum(Losses).item())
+        logger.info(f"time {time.time() - tick:.2f}")
+        logger.info(f"error {torch.sum(Losses).item():.2f}")
 
         if isinstance(self.layer, transformers.Conv1D):
             W = W.t()
@@ -217,6 +228,13 @@ class SparseGptWrapper(ModuleCompressionWrapper):
         # place, clone() or direct assignment won't work
         self.layer.weight -= self.layer.weight
         self.layer.weight += W
+
+        logger.info(f"sparsity {tensor_sparsity(W):.2f}")
+
+        if is_module_offloaded(self.layer):
+            device = get_offloaded_device(self.layer)
+            update_prefix_dict(self.layer, "weight", self.layer.weight.to(device))
+            self.layer._hf_hook.post_forward(self.layer, None)
 
     def free(self):
         """
