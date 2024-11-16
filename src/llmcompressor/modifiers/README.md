@@ -8,7 +8,7 @@ are relevant only during training. Below is a summary of the key modifiers avail
 
 Modifiers that introduce sparsity into a model
 
-### [SparseGPT](./obcq/base.py)
+### [SparseGPT](./pruning/gptq/base.py)
 One-shot algorithm that uses calibration data to introduce unstructured or structured 
 sparsity into weights. Implementation based on [SparseGPT: Massive Language Models Can Be Accurately Pruned in One-Shot](https://arxiv.org/abs/2301.00774). A small amount of calibration data is used 
 to calculate a Hessian for each layers input activations, this Hessian is then used to 

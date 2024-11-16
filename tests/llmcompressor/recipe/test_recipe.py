@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.obcq.base import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt.base import SparseGPTModifier
 from llmcompressor.recipe import Recipe
 from llmcompressor.recipe.recipe import create_recipe_string_from_modifiers
 from tests.llmcompressor.helpers import valid_recipe_strings

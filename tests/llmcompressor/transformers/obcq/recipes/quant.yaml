@@ -1,5 +1,5 @@
 test_stage:
-  obcq_modifiers:
+  modifiers:
     SmoothQuantModifier:
       smoothing_strength: 0.6
     GPTQModifier:

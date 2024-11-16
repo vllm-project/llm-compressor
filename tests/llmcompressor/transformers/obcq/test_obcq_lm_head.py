@@ -34,7 +34,7 @@ class TestLMHead(unittest.TestCase):
 
     def test_lm_head_target(self):
         from llmcompressor.core.state import State
-        from llmcompressor.modifiers.obcq import SparseGPTModifier
+        from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
         sparsegpt_modifier_no_head = SparseGPTModifier(**self.kwargs)
 

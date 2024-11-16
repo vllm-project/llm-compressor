@@ -1,6 +1,6 @@
 initial_sparsity_stage:
   run_type: oneshot
-  obcq_modifiers:
+  modifiers:
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
@@ -18,7 +18,7 @@ initial_training_stage:
       start: 0
 next_sparsity_stage:
   run_type: oneshot
-  obcq_modifiers:
+  modifiers:
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128

@@ -17,7 +17,7 @@ class TestInferTargets(unittest.TestCase):
         self.targets = get_no_split_params(self.modifiable_model)
 
     def test_infer_targets(self):
-        from llmcompressor.modifiers.obcq import SparseGPTModifier
+        from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
         self.assertEqual(len(self.targets), 1)
         self.assertEqual(self.targets[0], "LlamaDecoderLayer")

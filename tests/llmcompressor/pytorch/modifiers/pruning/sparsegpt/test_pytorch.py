@@ -4,7 +4,7 @@ import pytest
 from compressed_tensors.quantization import QuantizationScheme
 from parameterized import parameterized
 
-from llmcompressor.modifiers.obcq import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
 from llmcompressor.utils.pytorch.module import qat_active

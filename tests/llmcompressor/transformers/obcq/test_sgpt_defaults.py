@@ -10,7 +10,7 @@ from tests.testing_utils import requires_torch
 class TestSGPTDefaults(unittest.TestCase):
     def test_sgpt_defaults(self):
         from llmcompressor.core.state import State
-        from llmcompressor.modifiers.obcq import SparseGPTModifier
+        from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
         kwargs = {"sparsity": 0.5}
         sparsegpt_modifier_only_sparsity = SparseGPTModifier(**kwargs)

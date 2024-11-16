@@ -46,7 +46,7 @@ class GPTQModifier(Modifier):
                 - LayerCompressor.revert_layer_wrappers()
     | Sample yaml:
     | test_stage:
-    |    obcq_modifiers:
+    |    modifiers:
     |      GPTQModifier:
     |          dampening_frac: 0.001
     |          block_size: 128
