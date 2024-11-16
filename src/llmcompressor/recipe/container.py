@@ -97,6 +97,7 @@ class RecipeContainer:
 
         for rec, stage, args in zip(recipe, recipe_stage, recipe_args):
             if isinstance(rec, str):
+                breakpoint()
                 rec = Recipe.create_instance(rec)
             self.recipes.append(RecipeTuple(rec, stage, args))
 

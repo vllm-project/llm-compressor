@@ -140,6 +140,7 @@ class SessionManagerMixIn:
 
         self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
+            breakpoint()
             initialize(
                 model=self.model,
                 teacher_model=self.teacher,  # TODO: what about for self/disable?
@@ -378,7 +379,9 @@ class SessionManagerMixIn:
 
         # train with accelerator
         self.accelerator.wait_for_everyone()
+        breakpoint()
         output = super().train(*args, **kwargs)
+        breakpoint()
         self.accelerator.wait_for_everyone()
 
         # restore original setting for saving final model

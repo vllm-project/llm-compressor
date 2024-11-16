@@ -270,6 +270,8 @@ def main(
         )
 
     # Setup based on stage types if running stage mode
+    # TODO: Dipika go through use case
+    breakpoint()
     if training_args.run_stages and training_args.recipe is not None:
         recipe_obj = Recipe.create_instance(training_args.recipe)
         for stage in recipe_obj.stages:
@@ -308,6 +310,7 @@ def main(
     if isinstance(tokenizer, str) or tokenizer is None:
         tokenizer = initialize_tokenizer_from_path(model_args, model, teacher)
 
+    breakpoint()
     pre_initialize_structure(model=model)
 
     # initialize session manager
@@ -318,6 +321,7 @@ def main(
         model_args=model_args, data_args=data_args, training_args=training_args
     )
     add_labels = training_args.do_train or training_args.run_stages
+    breakpoint()
     stage_runner.populate_datasets(tokenizer=tokenizer, add_labels=add_labels)
     train_dataset = stage_runner.get_dataset_split("train")
     eval_dataset = stage_runner.get_dataset_split("validation")
@@ -360,6 +364,7 @@ def main(
 
     # One Shot
     if training_args.do_oneshot:
+        breakpoint()
         stage_runner.one_shot()
 
     # Evaluation

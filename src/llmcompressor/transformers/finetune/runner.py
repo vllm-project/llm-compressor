@@ -168,6 +168,7 @@ class StageRunner:
 
         self.trainer.accelerator.wait_for_everyone()
 
+        # stage seems to always be None
         self.trainer.one_shot(calibration_data=calib_data, stage=stage)
 
         if is_fsdp_model(self.trainer.model):

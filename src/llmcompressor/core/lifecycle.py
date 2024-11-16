@@ -119,6 +119,7 @@ class CompressionLifecycle:
         extras = self.state.update(**kwargs)
         extras = self.recipe_container.update(**extras)
 
+        # Compiles recipes to make modifiers
         self._check_compile_recipe()
         self._set_model_layer_prefix()
         mod_data = []
