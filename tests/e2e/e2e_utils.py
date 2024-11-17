@@ -1,10 +1,9 @@
-from test.testing_utils import preprocess_tokenize_dataset
-
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from tests.testing_utils import preprocess_tokenize_dataset
 
 
 def run_oneshot_for_e2e_testing(
@@ -14,7 +13,6 @@ def run_oneshot_for_e2e_testing(
     num_calibration_samples: int,
     max_seq_length: int,
     dataset_id: str,
-    save_dir: str,
     recipe: str,
     dataset_split: str,
     dataset_config: str,
@@ -35,8 +33,7 @@ def run_oneshot_for_e2e_testing(
         oneshot_kwargs["max_seq_length"] = max_seq_length
         oneshot_kwargs["num_calibration_samples"] = num_calibration_samples
 
-    if save_dir is None:
-        save_dir = model.split("/")[1] + f"-{scheme}"
+    save_dir = model.split("/")[1] + f"-{scheme}"
 
     oneshot_kwargs["model"] = loaded_model
     if recipe:
