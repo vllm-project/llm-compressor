@@ -1,4 +1,5 @@
 from datasets import load_dataset
+from loguru import logger
 from transformers import AutoTokenizer
 
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
@@ -81,6 +82,11 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
+logger.info(
+    "Running sample generation. ",
+    "Note: Inference with the quantized kv_cache is not supported. ",
+    "Please use vLLM for inference with the quantized kv_cache.",
+)
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
