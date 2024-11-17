@@ -3,7 +3,7 @@ from test.testing_utils import preprocess_tokenize_dataset
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization import QuantizationModifier, GPTQModifier
+from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 
@@ -19,7 +19,7 @@ def run_oneshot_for_e2e_testing(
     dataset_split: str,
     dataset_config: str,
     scheme: str,
-    quant_type: str
+    quant_type: str,
 ):
     # Load model.
     loaded_model = SparseAutoModelForCausalLM.from_pretrained(
