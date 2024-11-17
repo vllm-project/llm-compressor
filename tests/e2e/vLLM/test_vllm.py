@@ -66,6 +66,7 @@ class TestvLLM(unittest.TestCase):
     dataset_split = None
     recipe = None
     save_dir = None
+    quant_type = None
 
     def setUp(self):
         print("========== RUNNING ==============")
@@ -96,6 +97,7 @@ class TestvLLM(unittest.TestCase):
             dataset_config=self.dataset_config,
             dataset_split=self.dataset_split,
             recipe=self.recipe,
+            quant_type=self.quant_type
         )
 
         print("================= RUNNING vLLM =========================")

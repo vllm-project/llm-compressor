@@ -3,7 +3,7 @@ from test.testing_utils import preprocess_tokenize_dataset
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier, GPTQModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 
@@ -19,6 +19,7 @@ def run_oneshot_for_e2e_testing(
     dataset_split: str,
     dataset_config: str,
     scheme: str,
+    quant_type: str
 ):
     # Load model.
     loaded_model = SparseAutoModelForCausalLM.from_pretrained(
@@ -43,9 +44,14 @@ def run_oneshot_for_e2e_testing(
     else:
         # Test assumes that if a recipe was not provided, using
         # a compatible preset sceme
-        oneshot_kwargs["recipe"] = QuantizationModifier(
-            targets="Linear", scheme=scheme, ignore=["lm_head"]
-        )
+        if quant_type == "GPTQ":
+            oneshot_kwargs["recipe"] = GPTQModifier(
+                targets="Linear", scheme=scheme, ignore=["lm_head"]
+            )
+        else:
+            oneshot_kwargs["recipe"] = QuantizationModifier(
+                targets="Linear", scheme=scheme, ignore=["lm_head"]
+            )
 
     # Apply quantization.
     print("ONESHOT KWARGS", oneshot_kwargs)
