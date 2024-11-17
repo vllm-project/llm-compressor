@@ -3,18 +3,10 @@ import unittest
 from typing import Callable
 
 import pytest
-from datasets import load_dataset
 from parameterized import parameterized, parameterized_class
-from transformers import AutoTokenizer
 
-from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
-from tests.testing_utils import (
-    parse_params,
-    preprocess_tokenize_dataset,
-    requires_gpu,
-    requires_torch,
-)
+from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
+from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
 try:
     from vllm import LLM, SamplingParams
@@ -90,56 +82,29 @@ class TestvLLM(unittest.TestCase):
         ]
 
     def test_vllm(self):
+        # Run vLLM with saved model
         import torch
 
-        # Load model.
-        loaded_model = SparseAutoModelForCausalLM.from_pretrained(
-            self.model, device_map=self.device, torch_dtype="auto"
+        save_dir = run_oneshot_for_e2e_testing(
+            model=self.model,
+            device=self.device,
+            oneshot_kwargs=self.oneshot_kwargs,
+            num_calibration_samples=self.num_calibration_samples,
+            max_seq_length=self.max_seq_length,
+            scheme=self.scheme,
+            dataset_id=self.dataset_id,
+            dataset_config=self.dataset_config,
+            dataset_split=self.dataset_split,
+            recipe=self.recipe,
         )
-        tokenizer = AutoTokenizer.from_pretrained(self.model)
 
-        if self.dataset_id:
-            ds = load_dataset(
-                self.dataset_id, name=self.dataset_config, split=self.dataset_split
-            )
-            ds = ds.shuffle(seed=42).select(range(self.num_calibration_samples))
-            ds = preprocess_tokenize_dataset(ds, tokenizer, self.max_seq_length)
-            self.oneshot_kwargs["dataset"] = ds
-            self.oneshot_kwargs["max_seq_length"] = self.max_seq_length
-            self.oneshot_kwargs["num_calibration_samples"] = (
-                self.num_calibration_samples
-            )
-
-        if self.save_dir is None:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
-
-        self.oneshot_kwargs["model"] = loaded_model
-        if self.recipe:
-            self.oneshot_kwargs["recipe"] = self.recipe
-        else:
-            # Test assumes that if a recipe was not provided, using
-            # a compatible preset sceme
-            self.oneshot_kwargs["recipe"] = QuantizationModifier(
-                targets="Linear", scheme=self.scheme, ignore=["lm_head"]
-            )
-
-        # Apply quantization.
-        print("ONESHOT KWARGS", self.oneshot_kwargs)
-        oneshot(
-            **self.oneshot_kwargs,
-            clear_sparse_session=True,
-            oneshot_device=self.device,
-        )
-        self.oneshot_kwargs["model"].save_pretrained(self.save_dir)
-        tokenizer.save_pretrained(self.save_dir)
-        # Run vLLM with saved model
         print("================= RUNNING vLLM =========================")
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         if "W4A16_2of4" in self.scheme:
             # required by the kernel
-            llm = LLM(model=self.save_dir, dtype=torch.float16)
+            llm = LLM(model=save_dir, dtype=torch.float16)
         else:
-            llm = LLM(model=self.save_dir)
+            llm = LLM(model=save_dir)
         outputs = llm.generate(self.prompts, sampling_params)
         print("================= vLLM GENERATION ======================")
         for output in outputs:
@@ -148,9 +113,7 @@ class TestvLLM(unittest.TestCase):
             generated_text = output.outputs[0].text
             print("PROMPT", prompt)
             print("GENERATED TEXT", generated_text)
-        print("================= UPLOADING TO HUB ======================")
-        self.oneshot_kwargs["model"].push_to_hub(f"nm-testing/{self.save_dir}-e2e")
-        tokenizer.push_to_hub(f"nm-testing/{self.save_dir}-e2e")
+        self.save_dir = save_dir
 
     def tearDown(self):
         if self.save_dir is not None:
