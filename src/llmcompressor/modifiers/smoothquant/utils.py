@@ -33,6 +33,16 @@ MIXTRAL_MAPPINGS: List[LayerMap] = [
         balance_layers=["re:.*gate"], smooth_layers="re:.*post_attention_layernorm"
     ),
 ]
+BLOOM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+    LayerMap(
+        balance_layers=["re:.*query_key_value"],
+        smooth_layers="re:.*input_layernorm",
+    ),
+    LayerMap(
+        balance_layers=["re:.*dense_h_to_4h"],
+        smooth_layers="re:.*post_attention_layernorm",
+    ),
+]
 
 
 # Registry of layer mappings for different architectures
@@ -42,6 +52,7 @@ MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
     "MixtralForCausalLM": MIXTRAL_MAPPINGS,
     "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
+    "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
 }
 
 
