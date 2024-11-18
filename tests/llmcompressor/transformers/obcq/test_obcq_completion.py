@@ -136,14 +136,13 @@ class TestOBCQCompletionGPU(TestOBCQCompletion):
 
     def setUp(self):
         import torch
-
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
         self.model_name = None
         self.output = "./oneshot_output"
 
         self.model_name = self.model
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
 

@@ -13,7 +13,6 @@ from llmcompressor.pytorch.model_load.helpers import (
     get_completed_stages,
     get_session_model,
     save_completed_stages,
-    save_model_and_recipe,
 )
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.recipe import Recipe, StageRunType
@@ -25,11 +24,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
-from llmcompressor.utils.fsdp.helpers import (
-    find_and_move_state_dicts_to_cpu,
-    is_fsdp_model,
-    unwrap_and_export_model,
-)
+from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
 
 class StageRunner:
@@ -170,35 +165,6 @@ class StageRunner:
 
         self.trainer.one_shot(calibration_data=calib_data, stage=stage)
 
-        if is_fsdp_model(self.trainer.model):
-            try:
-                self.trainer.save_model(output_dir=self._output_dir, _is_oneshot=True)
-            except AssertionError:
-                # fallback to this in the case of quantization
-                unwrap_and_export_model(
-                    model=self.trainer.model,
-                    accelerator=self.trainer.accelerator,
-                    output_dir=self._output_dir,
-                    tokenizer=self.tokenizer,
-                )
-                # only allow the main process move the state
-                # dicts to cpu
-                if self.trainer.accelerator.is_main_process:
-                    # assuming quantization is the last step
-                    # we no longer need the original model
-                    # and can safely delete it to save memory
-                    del self.trainer.model
-                    find_and_move_state_dicts_to_cpu(self._output_dir)
-
-        else:
-            save_model_and_recipe(
-                model=self.trainer.model,
-                save_path=self._output_dir,
-                tokenizer=self.tokenizer,
-                save_safetensors=self._training_args.save_safetensors,
-                save_compressed=self._training_args.save_compressed,
-            )
-
     def train(self, checkpoint: str, stage: Optional[str] = None):
         """
         Run trainer's training loop on train_dataset, saving the resulting model to
@@ -292,6 +258,18 @@ class StageRunner:
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
+
+            if (
+                self._training_args.output_dir
+                != TrainingArguments.__dataclass_fields__["output_dir"].default
+            ):
+                save_model_and_recipe(
+                    model=self.trainer.model,
+                    save_path=self._output_dir,
+                    tokenizer=self.tokenizer,
+                    save_safetensors=self._training_args.save_safetensors,
+                    save_compressed=self._training_args.save_compressed,
+                )
 
             # save stage to checkpoint dir
             if self.trainer.accelerator.is_main_process:
