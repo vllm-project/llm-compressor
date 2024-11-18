@@ -18,22 +18,24 @@ import torch
 import transformers
 from huggingface_hub import HUGGINGFACE_CO_URL_HOME, HfFileSystem, hf_hub_download
 from loguru import logger
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import PaddingStrategy
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.utils.fsdp.context import main_process_first_context
 
 __all__ = [
-    "RECIPE_NAME",
-    "detect_last_checkpoint",
-    "TaskNames",
-    "resolve_sequence_length",
     "ALL_TASK_NAMES",
     "create_fake_dataloader",
-    "POSSIBLE_TOKENIZER_FILES",
-    "download_repo_from_huggingface_hub",
+    "detect_last_checkpoint",
     "download_model_directory",
+    "download_repo_from_huggingface_hub",
+    "load_quantized_model_decompressed",
+    "POSSIBLE_TOKENIZER_FILES",
+    "RECIPE_NAME",
+    "resolve_sequence_length",
+    "TaskNames",
 ]
 
 
@@ -490,3 +492,27 @@ def download_model_directory(pretrained_model_name_or_path: str, **kwargs):
         return download_repo_from_huggingface_hub(
             repo_id=pretrained_model_name_or_path, **kwargs
         )
+
+
+def load_quantized_model_decompressed(pretrained_model_name_or_path: str, **kwargs):
+    """
+    Load compressed-tensors quantized AutoModelForCausalLM.pre_trained(...) model
+     with run_compressed=False.
+
+    Used for Linear modules as Linear, not llmcompressor's custom CompressedLinear
+
+    :param pretrained_model_name_or_path: model name (HF stub) or local path
+
+    """
+    config: CompressedTensorsConfig = AutoConfig.from_pretrained(
+        pretrained_model_name_or_path
+    )
+    quant_method = config.quantization_config.get("quant_method", None)
+
+    # Only add run_compressed for compressed-tensors models
+    if quant_method is not None and quant_method == "compressed-tensors":
+        config.quantization_config["run_compressed"] = False
+
+    return AutoModelForCausalLM.from_pretrained(
+        pretrained_model_name_or_path, config=config, **kwargs
+    )
