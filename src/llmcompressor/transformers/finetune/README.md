@@ -101,7 +101,7 @@ accelerate launch
 ```python
 from llmcompressor.transformers import oneshot
 
-model = "Xenova/llama2.c-stories15M"
+model ="Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
 pad_to_max_length = False
@@ -119,7 +119,6 @@ oneshot(
     output_dir=output_dir,
     recipe=recipe,
     overwrite_output_dir=overwrite_output_dir,
-    concatenate_data = concatenate_data,
     pad_to_max_length = pad_to_max_length,
     splits = splits
 )
@@ -141,8 +140,10 @@ of a staged recipe for Llama.
 test_multi.py
 ```python
 from llmcompressor.transformers import apply
+from transformers import AutoModelForCausalLM
 
 model = "../ml-experiments/nlg-text_generation/llama_pretrain-llama_7b-base/dense/training"
+
 dataset_name = "open_platypus"
 concatenate_data = False
 run_stages=True
@@ -167,4 +168,5 @@ apply(
     remove_unused_columns = False,
     splits = splits
 )
+
 ```
