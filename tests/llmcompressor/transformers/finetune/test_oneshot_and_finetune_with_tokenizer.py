@@ -26,9 +26,9 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
 
     def test_oneshot_and_finetune_with_tokenizer(self):
         from datasets import load_dataset
-        from transformers import AutoTokenizer
+        from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        from llmcompressor.transformers import SparseAutoModelForCausalLM, compress
+        from llmcompressor.transformers import compress
 
         self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
@@ -38,8 +38,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         tokenizer = AutoTokenizer.from_pretrained(
             self.model,
         )
-
-        model_loaded = SparseAutoModelForCausalLM.from_pretrained(
+        model_loaded = AutoModelForCausalLM.from_pretrained(
             self.model, device_map="auto"
         )
 
