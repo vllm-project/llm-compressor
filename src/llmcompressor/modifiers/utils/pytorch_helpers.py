@@ -71,18 +71,18 @@ def run_calibration_forward(
         calibration_function if calibration_function else tensors_module_forward
     )
 
-    # move model to optional specified device if it is not already there
-    # TODO: move to accelerate utilities as `get_model_execution_device`
-    offloaded_module = next(
-        (module for module in model.modules() if is_module_offloaded(module)), None
-    )
-    if device is not None and offloaded_module is not None:
+    # move to specified device if specified
+    if device is not None:
         model.to(device)
-    model_device = (
-        model.device
-        if offloaded_module is None
-        else offloaded_module._hf_hook.execution_device
-    )
+        model_device = device
+
+    # start on the cpu if the model is offloaded
+    elif any((m for m in model.modules() if is_module_offloaded(m))):
+        model_device = torch.device("cpu")
+
+    # copy model device if not offloaded
+    else:
+        model_device = model.device
 
     _dataloader = (
         calibration_dataloader
@@ -111,7 +111,7 @@ def run_calibration_forward(
 
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
-        # torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     return intermediates
 
