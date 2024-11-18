@@ -1,3 +1,4 @@
+import logging
 import math
 import shutil
 
@@ -14,9 +15,13 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
+)
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_save_pretrained,
+    patch_tied_tensors_bug,
 )
 
 
@@ -58,9 +63,18 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         clear_sparse_session=False,
     )
 
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    # temporarily set the log level to error, to ignore printing out long missing
+    # and unexpected key error messages (these are EXPECTED for quantized models)
+    transformers_logger = logging.getLogger("transformers.modeling_utils")
+    restore_log_level = transformers_logger.getEffectiveLevel()
+    transformers_logger.setLevel(level=logging.ERROR)
+
+    model = AutoModelForCausalLM.from_pretrained(
         tmp_path / "oneshot_out", torch_dtype=dtype
     )
+
+    # restore transformers logging level now that model shell is loaded
+    transformers_logger.setLevel(level=restore_log_level)
 
     # assert that sample layer has the intended sparsity
     assert math.isclose(
@@ -68,6 +82,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         expected_sparsity,
         rel_tol=1e-3,
     )
+
     inferred_structure = SparsityConfigMetadata.infer_sparsity_structure()
     assert inferred_structure == "0:0"
 
@@ -90,7 +105,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     ] == SparsityConfigMetadata.infer_global_sparsity(model)
     assert sparsity_config["sparsity_structure"] == inferred_structure
 
-    dense_model = SparseAutoModelForCausalLM.from_pretrained(
+    dense_model = AutoModelForCausalLM.from_pretrained(
         tmp_path / "compress_out", torch_dtype="auto"
     )
 
@@ -114,7 +129,7 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     reset_session()
 
     model_path = "Xenova/llama2.c-stories15M"
-    model = SparseAutoModelForCausalLM.from_pretrained(model_path)
+    model = AutoModelForCausalLM.from_pretrained(model_path)
 
     inferred_global_sparsity = SparsityConfigMetadata.infer_global_sparsity(model)
     assert math.isclose(inferred_global_sparsity, 0.0, rel_tol=1e-3)
@@ -142,7 +157,6 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
         ["dense", torch.float32],
         ["dense", torch.float16],
         ["int_quantized", torch.float32],
-        # [True, "int_quantized", torch.float16],
     ],
 )
 def test_quant_model_reload(format, dtype, tmp_path):
@@ -247,7 +261,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     model_path = "Xenova/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         model_path,
         tie_word_embeddings=tie_word_embeddings,
         torch_dtype=torch_dtype,
@@ -256,9 +270,11 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     if offload:
         model = cpu_offload(model)
 
+    patch_tied_tensors_bug(model)
+    modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
 
-    reloaded = SparseAutoModelForCausalLM.from_pretrained(
+    reloaded = AutoModelForCausalLM.from_pretrained(
         save_path, torch_dtype="auto", device_map="cpu"
     )
 
@@ -301,12 +317,14 @@ def test_model_shared_tensors(
     offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
 ):
     # load model
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         "Xenova/llama2.c-stories15M",
         torch_dtype=torch_dtype,
         tie_word_embeddings=tie_word_embeddings,
         device_map=device_map,
     )
+    patch_tied_tensors_bug(model)
+
     if offload:
         model = cpu_offload(model)
 
