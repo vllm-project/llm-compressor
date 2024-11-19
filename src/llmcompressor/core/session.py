@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union
 
+from loguru import logger
+
 from llmcompressor.core.events import EventType
 from llmcompressor.core.helpers import log_model_info, should_log_model_info
 from llmcompressor.core.lifecycle import CompressionLifecycle
@@ -260,12 +262,16 @@ class CompressionSession:
         self.lifecycle.initialized_ = False
         self.lifecycle.finalized = False
 
-    def get_serialized_recipe(self) -> str:
+    def get_serialized_recipe(self) -> Optional[str]:
         """
         :return: serialized string of the current compiled recipe
         """
         recipe = self.lifecycle.recipe_container.compiled_recipe
-        return recipe.yaml()
+
+        if recipe is not None and hasattr(recipe, "yaml"):
+            return recipe.yaml()
+
+        logger.warning("Recipe not found in session - may been reset")
 
     def _log_model_info(self):
         # Log model level logs if cadence reached
