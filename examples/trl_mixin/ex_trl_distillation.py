@@ -72,3 +72,4 @@ trainer = SFTTrainer(
     packing=True,
 )
 trainer.train()
+trainer.save_model()
