@@ -74,7 +74,7 @@ apply(
     dataset=dataset,
     recipe=recipe,
     bf16=False,  # use full precision for training
-    output_dir=output_dir
+    output_dir=output_dir,
     splits=splits,
     max_seq_length=512,
     num_calibration_samples=512,
