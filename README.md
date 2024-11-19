@@ -77,8 +77,8 @@ oneshot(
     recipe=recipe,
     max_seq_length=2048,
     num_calibration_samples=512,
+    output_dir="TinyLlama-1.1B-Chat-v1.0-INT8",
 )
-model.save_pretrained("TinyLlama-1.1B-Chat-v1.0-INT8")
 
 ```
 

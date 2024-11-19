@@ -50,6 +50,5 @@ apply(
     learning_rate=learning_rate,
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
+    output_dir=output_dir,
 )
-
-model.save_pretrained(output_dir)

@@ -70,9 +70,8 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
+    output_dir=SAVE_DIR,
 )
-model.save_pretrained(SAVE_DIR)
-tokenizer.save_pretrained(SAVE_DIR)
 
 print("========== SAMPLE GENERATION ==============")
 SAMPLE_INPUT = ["I love quantization because"]

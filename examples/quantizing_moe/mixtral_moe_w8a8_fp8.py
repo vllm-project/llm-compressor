@@ -26,7 +26,7 @@ MAX_SEQ_LENGTH = 2048
 NUM_CALIBRATION_SAMPLES = 512
 
 # Save location of quantized model
-OUTPUT_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
+SAVE_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
 SAVE_COMPRESSED = True
 
 layers_to_ignore: List[str] = [
@@ -46,9 +46,8 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=SAVE_COMPRESSED,
     overwrite_output_dir=True,
+    output_dir=SAVE_DIR,
 )
-model.save_pretrained(OUTPUT_DIR)
-tokenizer.save_pretrained(OUTPUT_DIR)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

@@ -84,8 +84,8 @@ apply(
     learning_rate=0.0001,
     lr_scheduler_type="cosine",
     warmup_ratio=0.1,
+    output_dir=output_dir
 )
-model.save_pretrained(output_dir)
 
 ```
 
