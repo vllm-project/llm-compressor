@@ -510,7 +510,7 @@ def load_quantized_model_decompressed(pretrained_model_name_or_path: str, **kwar
     quant_method = config.quantization_config.get("quant_method", None)
 
     # Only add run_compressed for compressed-tensors models
-    if quant_method is not None and quant_method == "compressed-tensors":
+    if quant_method == "compressed-tensors":
         config.quantization_config["run_compressed"] = False
 
     return AutoModelForCausalLM.from_pretrained(
