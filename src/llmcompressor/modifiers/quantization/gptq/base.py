@@ -201,11 +201,13 @@ class GPTQModifier(Modifier, HooksMixin):
         for name, module in state.model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 post_hook = partial(self.compress_module, name)
-                self.register_forward_hook(module, post_hook)
+                self.register_hook(module, post_hook, "forward")
 
             if "head" in name:
                 def hook(module: torch.nn.Module, args: Tuple[Any, ...]):
                     raise EarlyStopException(None, None)
+                
+                self.register_hook(module, hook, "forward_pre")
 
         # feed data
         with calibration_forward_context(state.model):
@@ -235,6 +237,7 @@ class GPTQModifier(Modifier, HooksMixin):
         name: str,
         module: torch.nn.Module,
         args: Tuple[torch.Tensor, ...],
+        _output: torch.Tensor,
     ):
         """
         Quantize a module's weight according to the GPTQ algorithm

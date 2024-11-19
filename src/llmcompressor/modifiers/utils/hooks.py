@@ -15,14 +15,11 @@ class HooksMixin(BaseModel):
     Mixin to manage hook registration, disabling, and removal.
     Modifiers should use `self.register_hook(module, hook, hook_type)`
     for hook registration and `self.remove_hooks()` for removal.
-
     Modifiers which implement hooks should register them using
     `self.register_..._hook(module, hook)` rather than the usual
     `module.register_..._hook(hook)`. Modifiers should remove hooks with
     `self.remove_hooks()`.
-
     Hooks can be applied to modules or parameters
-
     Lifecycle:
         - modifier.register_forward_hook(module, hook)
         - with HooksMixin.disable_hooks(): model.forward()
@@ -52,7 +49,6 @@ class HooksMixin(BaseModel):
         """
         Registers a hook on a specified module/parameter with the option to disable it
         with HooksMixin.disable_hooks()
-
         :param target: the module or parameter on which the hook should be registered
         :param hook: the hook to register
         :param hook_type: the type of hook to register corresponding to the

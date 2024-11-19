@@ -2,14 +2,13 @@ from datasets import load_dataset
 from transformers import AutoProcessor, MllamaForConditionalGeneration, LlavaForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot, wrap_hf_model_class
+from llmcompressor.transformers import oneshot
 import os
 
 # Load model.
 #model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 model_id = "mgoin/pixtral-12b"
-model_class = wrap_hf_model_class(LlavaForConditionalGeneration)
-model = model_class.from_pretrained(model_id, device_map="auto", torch_dtype="auto", trust_remote_code=True, _attn_implementation="eager",)
+model = LlavaForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto", _attn_implementation="eager",)
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 print("Loading dataset")

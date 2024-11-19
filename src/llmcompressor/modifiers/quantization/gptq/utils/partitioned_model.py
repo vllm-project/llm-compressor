@@ -180,6 +180,7 @@ class PartitionedModel:
                 return super().is_leaf_module(module, module_qualified_name)
         
         self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
+        #self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
 
         # 2. identify target nodes
         all_target_nodes = get_target_nodes(self.graph, targets)
