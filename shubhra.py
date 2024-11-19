@@ -16,7 +16,7 @@ print("Loading dataset")
 DATASET_ID = "lmms-lab/flickr30k"
 DATASET_SPLIT = "test[:128]"
 
-NUM_CALIBRATION_SAMPLES = 1#128
+NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.

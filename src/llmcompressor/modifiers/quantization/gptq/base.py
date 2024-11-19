@@ -3,7 +3,6 @@ import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-import math
 from compressed_tensors.quantization import (
     QuantizationScheme,
 )
@@ -16,20 +15,16 @@ from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import accumulate_hessian, make_empty_hessian, quantize_weight
 from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import PartitionedModel
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
-from llmcompressor.modifiers.utils.hooks import HooksMixin, LayerCompressorMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException, run_calibration_forward
-from llmcompressor.observers.base import Observer
+from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_batch_dataloader,
 )
-from llmcompressor.utils.fsdp.helpers import delete_offload_parameter, register_offload_parameter, update_offload_parameter
+from llmcompressor.utils.fsdp.helpers import update_offload_parameter
 from llmcompressor.utils.helpers import (
     align_module,
     calibration_forward_context,
     getattr_chain,
-)
-from compressed_tensors.quantization import (
-    fake_quantize,
 )
 
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -213,12 +208,11 @@ class GPTQModifier(Modifier, HooksMixin):
                     raise EarlyStopException(None, None)
 
         # feed data
-        dataloader = create_batch_dataloader(dataloader, batch_size=1)
         with calibration_forward_context(state.model):
             targets = get_no_split_params(state.model)
             partitioned_model = PartitionedModel()
             partitioned_model.init_forward(state.model, targets)
-            partitioned_model.forward_data(dataloader, mask_padding=True)
+            partitioned_model.forward_data(state.data.calib, mask_padding=True)
 
         return True
 
