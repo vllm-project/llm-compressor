@@ -19,9 +19,9 @@ class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
         from llmcompressor.transformers import apply
 
-        splits = {"train": "train[:50%]", "calibration": "train[50%:60%]"}
+        splits = {"train": "train[:30%]", "calibration": "train[30%:40%]"}
         if self.dataset == "ultrachat-200k":
-            splits = {"train": "train_gen[:50%]", "calibration": "train_gen[50%:60%]"}
+            splits = {"train": "train_gen[:30%]", "calibration": "train_gen[30%:40%]"}
 
         apply(
             model=self.model,
@@ -91,13 +91,12 @@ class TestOneshotAndFinetuneGPU(TestOneshotAndFinetune):
 
     def setUp(self):
         import torch
-
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
         self.device = "cuda:0"
         self.output = "./finetune_output"
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
 

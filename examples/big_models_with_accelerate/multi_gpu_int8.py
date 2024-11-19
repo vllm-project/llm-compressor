@@ -59,7 +59,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
 recipe = [
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+    GPTQModifier(
+        targets="Linear", scheme="W8A8", ignore=["lm_head"], dampening_frac=0.1
+    ),
 ]
 
 # 4) Apply algorithms and save in `compressed-tensors` format.

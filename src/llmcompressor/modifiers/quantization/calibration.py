@@ -1,3 +1,5 @@
+from typing import Any, Dict, Optional, Tuple
+
 import torch
 from compressed_tensors.quantization import QuantizationStatus, is_attention_module
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
@@ -57,27 +59,30 @@ def initialize_observer(
         module.register_module(f"{base_name}_observer", observer)
 
 
-def call_observer(module: Module, base_name: str, value: torch.Tensor):
+def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] = None):
     """
-    Call a module's attached input/output observer using a provided value.
-    Update the module's scale and zp using the observer's return
-    values.
+    Call a module's attached input/weight/output observer using a provided value.
+    Update the module's scale and zp using the observer's return values.
 
     :param module: torch.nn.Module
     :param base_name: substring used to fetch the observer, scales, and zp
-    :param value: torch.Tensor to be passed to the observer
+    :param value: torch.Tensor to be passed to the observer for activations. If
+        base_name is "weight", then the module's weight tensor will be used
     """
     offloaded = is_module_offloaded(module)
     if offloaded:
         module._hf_hook.pre_forward(module)
 
-    observer = getattr(module, f"{base_name}_observer")
-    g_idx = getattr(module, "weight_g_idx", None)
-
     if base_name == "weight":
-        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+        value = module.weight
+        g_idx = getattr(module, "weight_g_idx", None)
+    elif value is not None:
+        g_idx = None
     else:
-        updated_scale, updated_zero_point = observer(value)
+        raise ValueError("Must provide a value to observe if not using weight observer")
+
+    observer = getattr(module, f"{base_name}_observer")
+    updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
 
     # update scale and zero point
     update_parameter_data(module, updated_scale, f"{base_name}_scale")
@@ -116,7 +121,7 @@ def update_weight_zp_scale(module: Module):
 
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
-        call_observer(module=module, base_name="weight", value=module.weight)
+        call_observer(module=module, base_name="weight")
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
@@ -141,71 +146,57 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     )
 
 
-def calibrate_input_hook():
+def calibrate_input_hook(module: Module, args: Any):
     """
     Hook to calibrate input activations.
     Will call the observers to update the scales/zp before applying
     input QDQ in the module's forward pass.
     """
-
-    def hook_fn(module: Module, inp):
-        inp = inp[0] if isinstance(inp, tuple) else inp
-        calibrate_activations(module, value=inp, base_name="input")
-
-    return hook_fn
+    args = args[0] if isinstance(args, tuple) else args
+    calibrate_activations(module, value=args, base_name="input")
 
 
-def calibrate_output_hook():
+def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
     Hook to calibrate output activations.
     Will call the observers to update the scales/zp before applying
     output QDQ.
     """
-
-    def hook_fn(module: Module, inp, output: torch.Tensor):
-        calibrate_activations(
-            module,
-            value=output,
-            base_name="output",
-        )
-        output = forward_quantize(
-            module=module,
-            value=output,
-            base_name="output",
-            args=module.quantization_scheme.output_activations,
-        )
-        return output
-
-    return hook_fn
+    calibrate_activations(
+        module,
+        value=output,
+        base_name="output",
+    )
+    output = forward_quantize(
+        module=module,
+        value=output,
+        base_name="output",
+        args=module.quantization_scheme.output_activations,
+    )
+    return output
 
 
-def calibrate_kv_cache_input_hook():
+def calibrate_kv_cache_input_hook(
+    module: Module, args: Any, kwargs: Dict[str, Any]
+) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
     """
     Hook to update inputs to attention layers when running
     kv_cache quantization. Will update the passed in
     kv_cache to singleton QuantizedKVParameterCache.
     """
-
-    def hook_fn(module: Module, args, kwargs):
-        kv_cache = getattr(module, "kv_cache")
-        kwargs["past_key_value"] = kv_cache
-        kwargs["use_cache"] = False
-        return args, kwargs
-
-    return hook_fn
+    kv_cache = getattr(module, "kv_cache")
+    kwargs["past_key_value"] = kv_cache
+    kwargs["use_cache"] = False
+    return args, kwargs
 
 
-def calibrate_kv_cache_output_hook():
+def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Tensor):
     """
     Hook to update k_scale and v_scale parameters when running kv_cache quantization.
     """
-
-    def hook_fn(module: Module, inpt, output: torch.Tensor):
-        kv_cache = getattr(module, "kv_cache")
-        update_parameter_data(module, kv_cache.k_scales[module.layer_idx], "k_scale")
-        update_parameter_data(module, kv_cache.v_scales[module.layer_idx], "v_scale")
-
-    return hook_fn
+    kv_cache = getattr(module, "kv_cache")
+    update_parameter_data(module, kv_cache.k_scales[module.layer_idx], "k_scale")
+    update_parameter_data(module, kv_cache.v_scales[module.layer_idx], "v_scale")
 
 
 def set_unset_kv_cache(module: Module):

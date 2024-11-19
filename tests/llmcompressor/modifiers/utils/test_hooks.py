@@ -1,13 +1,11 @@
 import torch
 
-from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 
 class DummyModel(torch.nn.Module):
     def __init__(self):
         super(DummyModel, self).__init__()
-
 
         self.linear1 = torch.nn.Linear(1, 2)
         self.linear2 = torch.nn.Linear(2, 3)
@@ -20,7 +18,8 @@ class DummyModel(torch.nn.Module):
         x = self.linear3(x)
 
         return x
-    
+
+
 class DummyMod(HooksMixin):
     hook_called: bool = False
 
@@ -37,12 +36,12 @@ class ModB(DummyMod):
 
 def test_register_hook():
     model = DummyModel()
-    
+
     mod_a = ModA()
-    mod_a.register_forward_hook(model.linear1, mod_a.hook)
+    mod_a.register_hook(model.linear1, mod_a.hook, "forward")
 
     mod_b = ModB()
-    mod_b.register_forward_pre_hook(model.linear2, mod_b.hook)
+    mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
 
     model(model.dummy_inputs)
     assert mod_a.hook_called and mod_b.hook_called
@@ -50,12 +49,12 @@ def test_register_hook():
 
 def test_remove_hooks():
     model = DummyModel()
-    
+
     mod_a = ModA()
-    mod_a.register_forward_hook(model.linear1, mod_a.hook)
+    mod_a.register_hook(model.linear1, mod_a.hook, "forward")
 
     mod_b = ModB()
-    mod_b.register_forward_pre_hook(model.linear2, mod_b.hook)
+    mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
     mod_b.remove_hooks()
 
     model(model.dummy_inputs)
@@ -64,12 +63,12 @@ def test_remove_hooks():
 
 def test_disable_hooks():
     model = DummyModel()
-    
+
     mod_a = ModA()
-    mod_a.register_forward_hook(model.linear1, mod_a.hook)
+    mod_a.register_hook(model.linear1, mod_a.hook, "forward")
 
     mod_b = ModB()
-    mod_b.register_forward_pre_hook(model.linear2, mod_b.hook)
+    mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
 
     with HooksMixin.disable_hooks():
         model(model.dummy_inputs)

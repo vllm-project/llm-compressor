@@ -24,6 +24,8 @@ from loguru import logger
 from transformers import (
     AutoConfig,
     AutoProcessor,
+    AutoModelForCausalLM,
+    AutoTokenizer,
     DefaultDataCollator,
     HfArgumentParser,
     set_seed,
@@ -42,11 +44,16 @@ from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_fsdp_model_save_pretrained,
+    modify_save_pretrained,
+    patch_tied_tensors_bug,
+)
 from llmcompressor.transformers.sparsification.sparse_model import (
-    SparseAutoModel,
     get_shared_tokenizer_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
+from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 def train(**kwargs):
@@ -199,21 +206,23 @@ def initialize_model_from_path(
         "trust_remote_code": model_args.trust_remote_code_model,
     }
     # this calls from_pretrained under the hood so should be FSDP safe
-    model = SparseAutoModel.text_generation_from_pretrained(
-        model_name_or_path=model_path,
-        sequence_length=None,  # use model default
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
         **model_kwargs,
     )
+    if "sequence_length" in model_kwargs:
+        model.seqlen = model_kwargs["sequence_length"]
 
     teacher = (
-        SparseAutoModel.text_generation_from_pretrained(
-            model_name_or_path=model_args.distill_teacher,
-            sequence_length=None,  # use model default
+        AutoModelForCausalLM.from_pretrained(
+            model_args.distill_teacher,
             **teacher_kwargs,
         )
         if model_args.distill_teacher is not None
         else None
     )
+    if teacher is not None and "sequence_length" in teacher_kwargs:
+        teacher.seqlen = teacher_kwargs["sequence_length"]
 
     return teacher, model_path, model
 
@@ -302,6 +311,10 @@ def main(
             training_args,
         )
 
+    # patch a shared tensor bug in HF transformers
+    # https://github.com/huggingface/transformers/issues/33689
+    patch_tied_tensors_bug(model)
+
     if teacher is not None:
         teacher.eval()
 
@@ -337,6 +350,13 @@ def main(
         tokenizer=tokenizer,
         data_collator=data_collator,
     )
+
+    # wrap model.save_pretrained
+    if is_fsdp_model(model):
+        modify_fsdp_model_save_pretrained(trainer, tokenizer)
+    else:
+        modify_save_pretrained(model)
+
     stage_runner.trainer = trainer
 
     # alternating Training/One-shot
@@ -348,7 +368,6 @@ def main(
 
         # exit immediately
         return
-
     # Training
     if training_args.do_train:
         checkpoint = None
@@ -369,6 +388,17 @@ def main(
     # Prediction
     if training_args.do_predict:
         stage_runner.predict()
+
+    # save if model was provided as a string or custom output_dir was set
+    if isinstance(model_args.model, str) or (
+        training_args.output_dir
+        != TrainingArguments.__dataclass_fields__["output_dir"].default
+    ):
+        model.save_pretrained(
+            training_args.output_dir, save_compressed=training_args.save_compressed
+        )
+        if tokenizer is not None:
+            tokenizer.save_pretrained(training_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:
