@@ -63,7 +63,8 @@ class QuantizationModifier(Modifier):
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
-    :param targets: list of layer names to quantize if a scheme is provided
+    :param targets: list of layer names to quantize if a scheme is provided. Defaults
+        to Linear layers
     :param disable_quantization_observer_epoch: Epoch to disable updates to the module
         quantization observers. At this point, quantized weights and zero points will
         not be updated. Leave None to not disable observers during QAT. Default is None
@@ -73,7 +74,7 @@ class QuantizationModifier(Modifier):
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
     ignore: List[str] = Field(default_factory=list)
-    targets: Union[str, List[str]] = ["Linear"]
+    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
     disable_quantization_observer_epoch: Optional[float] = None
