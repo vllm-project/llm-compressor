@@ -74,6 +74,7 @@ apply(
     dataset=dataset,
     recipe=recipe,
     bf16=False,  # use full precision for training
+    output_dir=output_dir
     splits=splits,
     max_seq_length=512,
     num_calibration_samples=512,
@@ -84,7 +85,6 @@ apply(
     learning_rate=0.0001,
     lr_scheduler_type="cosine",
     warmup_ratio=0.1,
-    output_dir=output_dir
 )
 
 ```

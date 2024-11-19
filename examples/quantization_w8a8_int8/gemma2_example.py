@@ -58,14 +58,13 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
 
 # 4) Apply quantization and save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-w8a8_int8"
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    output_dir=SAVE_DIR,
+    output_dir=MODEL_ID.split("/")[1] + "-INT8",
 )
 
 # Confirm generations of the quantized model look sane.

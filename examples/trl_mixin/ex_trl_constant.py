@@ -46,6 +46,7 @@ training_args = TrainingArguments(
 )
 
 trainer = SFTTrainer(
+    output_dir=output_dir,
     model=model,
     tokenizer=tokenizer,
     recipe=recipe,
@@ -56,4 +57,3 @@ trainer = SFTTrainer(
     max_seq_length=512,
 )
 trainer.train()
-trainer.save_model(output_dir)
