@@ -114,6 +114,7 @@ def parse_params(
             _parse_configs_dir(config)
     else:
         _parse_configs_dir(configs_directory)
+
     return config_dicts
 
 
