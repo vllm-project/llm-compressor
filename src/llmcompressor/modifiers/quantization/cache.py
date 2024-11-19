@@ -18,12 +18,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from compressed_tensors.quantization.lifecycle import KVCacheScaleType
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from torch import Tensor
-from transformers import DynamicCache as HFDyanmicCache
+from transformers import DynamicCache
 
 from llmcompressor.observers import Observer
 
 
-class QuantizedKVParameterCache(HFDyanmicCache):
+class QuantizedKVParameterCache(DynamicCache):
     """
     Quantized KV cache used in the forward call based on HF's dynamic cache.
     Quantization strategy (tensor, group, channel) set from Quantization arg's strategy
