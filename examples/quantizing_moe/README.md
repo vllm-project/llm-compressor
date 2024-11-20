@@ -65,6 +65,7 @@ oneshot(
     max_seq_length=2048,
     num_calibration_samples=512,
 )
+
 ```
 
 ### Custom Quantization
