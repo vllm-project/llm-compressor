@@ -57,6 +57,8 @@ class HooksMixin(BaseModel):
         :param kwargs: keyword arguments to pass to register hook method
         """
 
+        return None
+
         @wraps(hook)
         def wrapped_hook(*args, **kwargs):
             if HooksMixin._HOOKS_DISABLED:
