@@ -271,7 +271,7 @@ class CompressionSession:
         if recipe is not None and hasattr(recipe, "yaml"):
             return recipe.yaml()
 
-        logger.warning("Recipe not found in session - may been reset")
+        logger.warning("Recipe not found in session - it may have been reset")
 
     def _log_model_info(self):
         # Log model level logs if cadence reached
