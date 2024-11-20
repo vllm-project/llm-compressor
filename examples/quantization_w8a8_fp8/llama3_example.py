@@ -3,7 +3,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
