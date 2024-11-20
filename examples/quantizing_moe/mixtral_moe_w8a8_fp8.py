@@ -1,9 +1,9 @@
 from typing import List
 
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
@@ -14,7 +14,7 @@ device_map = calculate_offload_device_map(
     MODEL_ID, reserve_for_hessians=True, num_gpus=NUM_GPUS, torch_dtype="auto"
 )
 
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map=device_map, torch_dtype="auto"
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -26,7 +26,7 @@ MAX_SEQ_LENGTH = 2048
 NUM_CALIBRATION_SAMPLES = 512
 
 # Save location of quantized model
-OUTPUT_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
+SAVE_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
 SAVE_COMPRESSED = True
 
 layers_to_ignore: List[str] = [
@@ -46,7 +46,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=SAVE_COMPRESSED,
     overwrite_output_dir=True,
-    output_dir=OUTPUT_DIR,
+    output_dir=SAVE_DIR,
 )
 
 # Confirm generations of the quantized model look sane.
