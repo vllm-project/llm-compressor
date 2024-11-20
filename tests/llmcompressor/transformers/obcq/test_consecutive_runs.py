@@ -21,13 +21,14 @@ class TestConsecutiveRuns(unittest.TestCase):
         import math
 
         from llmcompressor.core import active_session
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
+        from llmcompressor.pytorch.model_load.helpers import (
+            get_session_model,
+            initialize_recipe,
+        )
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.transformers import oneshot
-        from llmcompressor.utils.pytorch import qat_active
-        
         from llmcompressor.transformers.utils.helpers import resolve_recipe
-        from llmcompressor.pytorch.model_load.helpers import initialize_recipe
+        from llmcompressor.utils.pytorch import qat_active
 
         # test recipe with 50% sparsity, quantization and smoothquant
         oneshot(
@@ -51,11 +52,11 @@ class TestConsecutiveRuns(unittest.TestCase):
         stages = [stage.group for stage in session_recipe.stages]
         self.assertEqual(len(stages), 1)
         session.reset()
-        
+
         recipe = resolve_recipe(recipe=self.first_recipe, model_path=self.output_first)
         if recipe:
             initialize_recipe(model=first_tiny_model, recipe_path=recipe)
-        
+
         # reload saved model and up sparsity to 0.7
         oneshot(
             model=first_tiny_model,
@@ -78,7 +79,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         session = active_session()
         session_recipe = session.lifecycle.recipe_container.compiled_recipe
         stages = [stage.group for stage in session_recipe.stages]
-        
+
         self.assertEqual(len(stages), 2)
 
         recipe_path = self.output_second / "recipe.yaml"
