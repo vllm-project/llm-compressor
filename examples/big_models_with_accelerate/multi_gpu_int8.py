@@ -1,14 +1,14 @@
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
 
 # 1) Load model (device_map="auto" with shard the model over multiple GPUs!).
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
@@ -59,7 +59,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
 recipe = [
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+    GPTQModifier(
+        targets="Linear", scheme="W8A8", ignore=["lm_head"], dampening_frac=0.1
+    ),
 ]
 
 # 4) Apply algorithms and save in `compressed-tensors` format.
