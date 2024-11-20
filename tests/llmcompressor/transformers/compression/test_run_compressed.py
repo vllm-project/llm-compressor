@@ -9,7 +9,6 @@ from compressed_tensors.quantization import QuantizationStatus
 from parameterized import parameterized_class
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.transformers import SparseAutoModelForCausalLM
 from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
 CONFIG_DIR = "tests/llmcompressor/transformers/compression/run_compressed_configs"
@@ -26,10 +25,14 @@ class TestQuantizationMatches(unittest.TestCase):
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp()
 
-        cls.compressed_model = SparseAutoModelForCausalLM.from_pretrained(
-            cls.model_stub, torch_dtype="auto", device_map="auto", run_compressed=True
+        # TODO: Give option on HFQuantizer to run run_compressed True/False
+        # currently hardcoded to True
+        cls.compressed_model = AutoModelForCausalLM.from_pretrained(
+            cls.model_stub,
+            torch_dtype="auto",
+            device_map="auto",
+            # run_compressed=True, # TODO: Give option on HFQuantizer
         )
-
         # TODO: Use ModelCompressor until decompression is supported through
         # HFQuant/run_compressed can be turned off.
         cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(

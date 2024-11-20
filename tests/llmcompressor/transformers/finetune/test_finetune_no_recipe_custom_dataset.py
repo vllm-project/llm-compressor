@@ -148,15 +148,14 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
 
     def setUp(self):
         import torch
-
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
         self.monkeypatch = pytest.MonkeyPatch()
         self.device = "cuda:0"
         self.output = "./oneshot_output"
         self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
         self.monkeypatch = pytest.MonkeyPatch()
