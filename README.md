@@ -57,6 +57,7 @@ Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
+from transformers import AutoModelForCausalLM
 
 # Select quantization algorithm. In this case, we:
 #   * apply SmoothQuant to make the activations easier to quantize
