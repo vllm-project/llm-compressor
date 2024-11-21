@@ -132,7 +132,6 @@ class TestvLLM(unittest.TestCase):
         logger.debug("ONESHOT KWARGS", self.oneshot_kwargs)
         oneshot(
             **self.oneshot_kwargs,
-            clear_sparse_session=False,
             oneshot_device=self.device,
         )
 
