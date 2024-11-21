@@ -1,4 +1,8 @@
-from accelerate import Accelerator
+try:
+    from accelerate import Accelerator
+except ImportError:
+    Accelerator = None
+
 try:
     from torch.distributed.fsdp import FullyShardedDataParallel
     from torch.distributed.fsdp._common_utils import FSDP_WRAPPED_MODULE, TrainingState
@@ -15,19 +19,18 @@ __all__ = [
 
 
 def summon_full_params_context(model, offload_to_cpu: bool = False):
-    if FullyShardedDataParallel is None:
-        return nullcontext()
+    if FullyShardedDataParallel is not None:
+        # avoid nested summon_full_param context
+        if (
+            hasattr(model, "training_state")
+            and model.training_state is TrainingState.SUMMON_FULL_PARAMS
+        ):
+            return nullcontext()
+        return FullyShardedDataParallel.summon_full_params(
+            model, offload_to_cpu=offload_to_cpu
+        )
 
-    # do not call from within summon_full_param context
-    if (
-        hasattr(model, "training_state")
-        and model.training_state is TrainingState.SUMMON_FULL_PARAMS
-    ):
-        return nullcontext()
-
-    return FullyShardedDataParallel.summon_full_params(
-        model, offload_to_cpu=offload_to_cpu
-    )
+    return nullcontext()
 
 
 def main_process_first_context():
