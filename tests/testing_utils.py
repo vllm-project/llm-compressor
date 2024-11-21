@@ -26,8 +26,29 @@ def compressed_tensors_config_available():
         return False
 
 
+def accelerate_availabe():
+    try:
+        import accelerate  # noqa: F401
+
+        return True
+
+    except ImportError:
+        return False
+
+
+_is_compressed_tensors_config_available = compressed_tensors_config_available()
+_is_accelerate_available = accelerate_availabe()
+
+
 def requires_hf_quantizer():
     return pytest.mark.skipif(
-        not compressed_tensors_config_available(),
+        not _is_compressed_tensors_config_available,
         reason="requires transformers>=4.45 to support CompressedTensorsHfQuantizer",
+    )
+
+
+def requires_accelerate():
+    return pytest.mark.skipif(
+        not _is_accelerate_available,
+        reason="requires accelerate",
     )
