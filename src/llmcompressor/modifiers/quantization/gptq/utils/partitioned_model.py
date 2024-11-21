@@ -210,7 +210,7 @@ def make_placeholders(tracer, model: torch.nn.Module, graph: GraphModule, dummy_
                 break
 
         else:
-            raise ValueError()
+            breakpoint()
 
 
 
@@ -240,6 +240,15 @@ class PartitionedModel:
                 if type(module).__name__ in targets:
                     return True  # Treat as leaf, skip tracing inside this module
                 return super().is_leaf_module(module, module_qualified_name)
+            
+            def to_bool(self, obj: 'Proxy') -> bool:
+                """Called when a proxy object is being converted to a boolean, such as
+                when used in control flow.  Normally we don't know what to do because
+                we don't know the value of the proxy, but a custom tracer can attach more
+                information to the graph node using create_node and can choose to return a value.
+                """
+                breakpoint()
+                return True
                 
         
         with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
@@ -257,7 +266,10 @@ class PartitionedModel:
             print(concrete_args)
             tracer = CustomTracer()
             remove_hook_from_module(self.model, recurse=True)
-            graph: GraphModule = tracer.trace(self.model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
+            #model.to("cuda:0")
+            #graph: GraphModule = tracer.trace(self.model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
+            concrete_args = make_fused_concrete_args(self.model, {})
+            graph: GraphModule = tracer.trace(self.model, dummy_inputs=dummy_input)
             self.graph = torch.fx.GraphModule(self.model, graph)
             self.graph.config = self.model.config
             self.graph.class_for_deserialization = self.model.__class__
@@ -310,7 +322,6 @@ class PartitionedModel:
 
                     inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
                     inputs = tensors_to_device(inputs, model_device)
-                    breakpoint()
                     try:
                         subgraph_output = forward_function(self.model, **inputs)
                     except EarlyStopException:
