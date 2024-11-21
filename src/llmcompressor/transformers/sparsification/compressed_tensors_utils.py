@@ -226,6 +226,7 @@ def patch_tied_tensors_bug(model: torch.nn.Module):
 
     :param model: model to fix
     """
+    return
     if (
         hasattr(model.config, "tie_word_embeddings")
         and not model.config.tie_word_embeddings

@@ -187,8 +187,7 @@ def make_fused_concrete_args(root: torch.nn.Module, dummy_inputs: Dict[str, Any]
     return concrete_args
 
 
-def make_placeholders(model: torch.nn.Module, graph: GraphModule, dummy_inputs: Dict[str, Any]):
-    reversed_dictionary = {v: k for k, v in dummy_inputs.items()}
+def make_placeholders(tracer, model: torch.nn.Module, graph: GraphModule, dummy_inputs: Dict[str, Any]):
     # TODO: this dictionary does not match tensors which have been deep copied
     # in general it's pretty annoying, since tracer.create_args_for_root basically
     # converts kwargs to args and therefore gets rid of any of the names.
@@ -197,14 +196,21 @@ def make_placeholders(model: torch.nn.Module, graph: GraphModule, dummy_inputs: 
 
     # Note, maybe relevant: tracer.create_args_for_root converts kwargs to args using the forward function signature
 
+    # TODO: assumes that all inputs are tensors
     breakpoint()
-    for node in graph.graph.nodes:
-        if node.op == "get_attr" and "tensor_constant" in node.target:
-            name = reversed_dictionary[getattr(model, node.target)]
-            node.target = name
-            node.op = "placeholder"
+    for input_name, input_value in dummy_inputs.items():
+        for tensor_value, name in tracer.tensor_attrs.items():
+            if torch.allclose(input_value, tensor_value):
+                nodes = graph.graph.find_nodes(op="get_attr", target=name)
+                assert len(nodes) == 1
+                node = nodes[0]
+                node.target = input_name
+                node.name = input_name
+                node.op = "placeholder"
+                break
 
-    breakpoint()
+        else:
+            raise ValueError()
 
 
 
@@ -233,22 +239,26 @@ class PartitionedModel:
         self.model = model
         self.targets = targets
 
+    def forward_data(
+        self,
+        dataloader,
+        mask_padding: bool = True,
+        run_twice: bool = False
+    ):
+
+        #from pixtral_code import forward as compiled_forward
+        #compiled_forward(self.model, )
+
         # 1. trace graph
+        targets = self.targets
         class CustomTracer(HFTracer):
             def is_leaf_module(self, module: torch.nn.Module, module_qualified_name: str) -> bool:
                 if type(module).__name__ in targets:
                     return True  # Treat as leaf, skip tracing inside this module
                 return super().is_leaf_module(module, module_qualified_name)
-            
-            def _proxy_placeholder(self, *args, **kwargs):
-                node = super()._proxy_placeholder(*args, **kwargs)
-                return node
-
-                # create a dictionary which maps the arg name to their nodes so we can more
-                # easily create a dictionary from names to nodes so we can identify which ones should be lifted into placeholders
                 
         
-        with HooksMixin.disable_hooks(), calibration_forward_context(model):
+        with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
             #compiled = torch.compile(model, backend=self.partition_graph)
             #compiled(**model.dummy_inputs)
 
@@ -258,33 +268,53 @@ class PartitionedModel:
             #self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
             #self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
 
-            concrete_args = make_fused_concrete_args(model, model.dummy_inputs)
+            #sample_input = next(iter(dataloader))
+            sample_input = self.model.dummy_inputs
+            breakpoint()
+
+            concrete_args = make_fused_concrete_args(self.model, sample_input)
             print(concrete_args)
             tracer = CustomTracer()
-            graph: GraphModule = tracer.trace(model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
-            self.graph = torch.fx.GraphModule(model, graph)
-            self.graph.config = model.config
-            self.graph.class_for_deserialization = model.__class__
-            self.graph.device = model.device
-            make_placeholders(model, self.graph, model.dummy_inputs)
+            graph: GraphModule = tracer.trace(self.model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
+            self.graph = torch.fx.GraphModule(self.model, graph)
+            self.graph.config = self.model.config
+            self.graph.class_for_deserialization = self.model.__class__
+            self.graph.device = self.model.device
+            breakpoint()
+            make_placeholders(tracer, self.model, self.graph, sample_input)
         breakpoint()
 
 
         # 2. identify target nodes
-        all_target_nodes = get_target_nodes(self.graph, targets)
+        all_target_nodes = get_target_nodes(self.graph, self.targets)
 
         # 3. cut into partitions along target nodes
         partitions: List[List[Node]] = topological_partition(self.graph, all_target_nodes)
-        self.subgraphs: List[GraphModule] = partition_graph(model, partitions)
+        self.subgraphs: List[GraphModule] = partition_graph(self.model, partitions)
 
         trace_consumed_names(self.subgraphs)
 
-    def forward_data(
-        self,
-        dataloader,
-        mask_padding: bool = True,
-        run_twice: bool = False
-    ):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         # TODO: give option to skip lm_head
         # 4. perform compression
         model_device = next(self.model.parameters()).device
@@ -316,6 +346,7 @@ class PartitionedModel:
                     inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
                     inputs = tensors_to_device(inputs, model_device)
                     print(inputs)
+                    breakpoint()
                     try:
                         subgraph_output = forward_function(self.model, **inputs)
                     except EarlyStopException:
