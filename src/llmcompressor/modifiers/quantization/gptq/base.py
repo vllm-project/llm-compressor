@@ -196,6 +196,10 @@ class GPTQModifier(Modifier, HooksMixin):
             self._quantization_modifier.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
+        
+        targets = get_no_split_params(state.model)
+        partitioned_model = PartitionedModel()
+        partitioned_model.init_forward(state.model, targets, next(iter(state.data.calib)))
 
         # register hooks
         for name, module in state.model.named_modules():
@@ -211,9 +215,6 @@ class GPTQModifier(Modifier, HooksMixin):
 
         # feed data
         with calibration_forward_context(state.model):
-            targets = get_no_split_params(state.model)
-            partitioned_model = PartitionedModel()
-            partitioned_model.init_forward(state.model, targets)
             partitioned_model.forward_data(state.data.calib, mask_padding=True)
 
         return True

@@ -216,7 +216,6 @@ def make_placeholders(tracer, model: torch.nn.Module, graph: GraphModule, dummy_
 
 class PartitionedModel:
     def __init__(self):
-        self.hook_targets = []
         self.graph = None
         self.subgraphs = []
         self.model = None
@@ -230,22 +229,9 @@ class PartitionedModel:
 
         return graph.forward
 
-    def register_hook(self, func: Callable, targets: List[str]):
-        self.hook_targets.append((func, targets))
-
-    def init_forward(self, model: torch.nn.Module, targets):
+    def init_forward(self, model: torch.nn.Module, targets: List[str], dummy_input: Dict[str, Any]):
         self.model = model
         self.targets = targets
-
-    def forward_data(
-        self,
-        dataloader,
-        mask_padding: bool = True,
-        run_twice: bool = False
-    ):
-
-        #from pixtral_code import forward as compiled_forward
-        #compiled_forward(self.model, )
 
         # 1. trace graph
         targets = self.targets
@@ -267,9 +253,7 @@ class PartitionedModel:
             #self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
 
             #sample_input = next(iter(dataloader))
-            sample_input = self.model.dummy_inputs
-
-            concrete_args = make_fused_concrete_args(self.model, sample_input)
+            concrete_args = make_fused_concrete_args(self.model, dummy_input)
             print(concrete_args)
             tracer = CustomTracer()
             remove_hook_from_module(self.model, recurse=True)
@@ -278,7 +262,7 @@ class PartitionedModel:
             self.graph.config = self.model.config
             self.graph.class_for_deserialization = self.model.__class__
             self.graph.device = self.model.device
-            make_placeholders(tracer, self.model, self.graph, sample_input)
+            make_placeholders(tracer, self.model, self.graph, dummy_input)
 
 
         # 2. identify target nodes
@@ -290,9 +274,12 @@ class PartitionedModel:
 
         trace_consumed_names(self.subgraphs)
 
-
-
-
+    def forward_data(
+        self,
+        dataloader,
+        mask_padding: bool = True,
+        run_twice: bool = False
+    ):
         # TODO: give option to skip lm_head
         # 4. perform compression
         model_device = next(self.model.parameters()).device
@@ -323,6 +310,7 @@ class PartitionedModel:
 
                     inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
                     inputs = tensors_to_device(inputs, model_device)
+                    breakpoint()
                     try:
                         subgraph_output = forward_function(self.model, **inputs)
                     except EarlyStopException:
