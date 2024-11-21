@@ -6,7 +6,7 @@ from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 model = SparseAutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
