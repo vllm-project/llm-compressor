@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import unittest
 from typing import Callable
@@ -9,6 +10,7 @@ from loguru import logger
 from parameterized import parameterized, parameterized_class
 from transformers import AutoTokenizer
 
+from llmcompressor.core import active_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from tests.testing_utils import (
@@ -36,6 +38,13 @@ WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
 CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
 
 HF_MODEL_HUB_NAME = "nm-testing"
+
+EXPECTED_SAVED_FILES = [
+    "config.json",
+    r"^model(?:-\d{5}-of-\d{5})?\.safetensors$",
+    "recipe.yaml",
+    "tokenizer.json",
+]
 
 
 def gen_test_name(testcase_func: Callable, param_num: int, param: dict) -> str:
@@ -135,8 +144,14 @@ class TestvLLM(unittest.TestCase):
             oneshot_device=self.device,
         )
 
+        # check that session contains recipe
+        self._check_session_contains_recipe()
+
         self.oneshot_kwargs["model"].save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
+
+        # check that expected files exist
+        self._check_save_dir_has_expected_files()
 
         # Run vLLM with saved model
         logger.info("================= RUNNING vLLM =========================")
@@ -164,3 +179,35 @@ class TestvLLM(unittest.TestCase):
     def tearDown(self):
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
+
+    def _check_session_contains_recipe(self) -> None:
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        assert recipe_yaml_str is not None
+
+    def _check_save_dir_has_expected_files(self):
+        files = os.listdir(self.save_dir)
+        logger.debug("Saved files: ", files)
+
+        matched_patterns = set()
+
+        for expected in EXPECTED_SAVED_FILES:
+            # Find all files matching the expected pattern
+            matches = [
+                file
+                for file in files
+                if (
+                    re.fullmatch(expected, file)
+                    if expected.startswith("^")
+                    else file == expected
+                )
+            ]
+            if matches is not None:
+                matched_patterns.add(expected)
+
+        assert len(matched_patterns) == len(EXPECTED_SAVED_FILES), (
+            "expected: ",
+            EXPECTED_SAVED_FILES,
+            "\n saved: ",
+            list(matched_patterns),
+        )
