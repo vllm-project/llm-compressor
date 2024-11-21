@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from loguru import logger
@@ -16,6 +16,7 @@ __all__ = [
     "log_model_load",
     "initialize_recipe",
     "save_model_and_recipe",
+    "copy_python_files_from_model_cache",
     "fallback_to_cpu",
     "parse_dtype",
     "get_session_model",
@@ -99,7 +100,6 @@ def save_model_and_recipe(
 ):
     """
     Save a model, tokenizer and the currently loaded recipe to file
-
     :param model: pytorch model to save
     :param save_path: path to save output to
     :param tokenizer: model tokenizer to save
@@ -123,7 +123,7 @@ def save_model_and_recipe(
         fp.write(recipe_yaml_str)
 
     # copy python files from cache dir to save_path if any
-    _copy_python_files_from_model_cache(model, save_path)
+    copy_python_files_from_model_cache(model, save_path)
 
 
 def fallback_to_cpu(device: str) -> str:
@@ -142,17 +142,18 @@ def fallback_to_cpu(device: str) -> str:
     return device
 
 
-def parse_dtype(dtype_arg: str) -> torch.dtype:
+def parse_dtype(dtype_arg: Union[str, torch.dtype]) -> torch.dtype:
     """
-    :param dtype_arg: dtype string to parse
+    :param dtype_arg: dtype or string to parse
     :return: torch.dtype parsed from input string
     """
+    dtype_arg = str(dtype_arg)
     dtype = "auto"  # get precision from model by default
-    if dtype_arg == "half" or dtype_arg == "float16":
+    if dtype_arg in ("half", "float16", "torch.float16"):
         dtype = torch.float16
-    elif dtype_arg == "bfloat16":
+    elif dtype_arg in ("torch.bfloat16", "bfloat16"):
         dtype = torch.bfloat16
-    elif dtype_arg == "full" or dtype_arg == "float32":
+    elif dtype_arg in ("full", "float32", "torch.float32"):
         dtype = torch.float32
 
     return dtype
@@ -212,16 +213,31 @@ def load_safetensors_state_dict(file_path: str) -> Dict[str, torch.Tensor]:
         return {key: f.get_tensor(key) for key in f.keys()}
 
 
-def _copy_python_files_from_model_cache(model: Module, save_path: str):
+def copy_python_files_from_model_cache(model, save_path: str):
     config = model.config
-    cache_dir = None
+    cache_path = None
     if hasattr(config, "_name_or_path"):
         import os
         import shutil
 
-        cache_dir = config._name_or_path
-        for file in os.listdir(cache_dir):
-            full_file_name = os.path.join(cache_dir, file)
+        from huggingface_hub import hf_hub_download
+        from transformers import TRANSFORMERS_CACHE
+        from transformers.utils import http_user_agent
+
+        cache_path = config._name_or_path
+        if not os.path.exists(cache_path):
+            user_agent = http_user_agent()
+            config_file_path = hf_hub_download(
+                repo_id=cache_path,
+                filename="config.json",
+                cache_dir=TRANSFORMERS_CACHE,
+                force_download=False,
+                user_agent=user_agent,
+            )
+            cache_path = os.path.sep.join(config_file_path.split(os.path.sep)[:-1])
+
+        for file in os.listdir(cache_path):
+            full_file_name = os.path.join(cache_path, file)
             if file.endswith(".py") and os.path.isfile(full_file_name):
                 logger.debug(f"Transferring {full_file_name} to {save_path}")
                 shutil.copy(full_file_name, save_path)

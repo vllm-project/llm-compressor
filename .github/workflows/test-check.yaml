@@ -1,151 +1,127 @@
 name: Test Checks
-on: 
+on:
   push:
-    branches:
-      - main
-      - 'release/*'
-  pull_request:
-    branches:
-      - main
-      - 'release/*'
-    types: [opened, synchronize]
 
 env:
   CADENCE: "commit"
   CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
   CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
   CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-  CLEARML_FILES_HOST:  ${{ secrets.CLEARML_FILES_HOST }}
-  CLEARML_API_SECRET_KEY:  ${{ secrets.CLEARML_API_SECRET_KEY }}
+  CLEARML_FILES_HOST: ${{ secrets.CLEARML_FILES_HOST }}
+  CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
-  test-setup:
-    runs-on: ubuntu-22.04
-    outputs:
-      branch: ${{ steps.get-branch.outputs.branch }}
-      base: ${{ steps.base-check.outputs.output }}
-      pytorch: ${{ steps.pytorch-check.outputs.output }}
-      transformers: ${{ steps.transformers-check.outputs.output }}
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      # TODO: for @DanH what is this supposed to be doing?
-      # The way it was being used before was only testing code on main,
-      # not on the current PR. git branch --show current does not work
-      - name: Get current branch
-        id: get-branch
-        run: >
-          (git branch --show-current | grep -E "release/")
-          && echo "::set-output name=branch::$(git branch --show-current)"
-          || echo "::set-output name=branch::main"
+
   base-tests:
     runs-on: ubuntu-22.04
-    needs: test-setup
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+      - name: "⚙️ Install dependencies"
+        run: pip3 install -U pip setuptools && pip3 install .[dev]
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
-          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install compressed-tensors dependencies"
-        run: pip3 install -U pip && pip3 install setuptools compressed-tensors/
+        run: |
+          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
+          pip3 install ./compressed-tensors/
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
-      - name: "⚙️ Install dependencies"
-        run: pip3 install .[dev]
       - name: "🔬 Running base tests"
         run: make test
+
   pytorch-tests:
     runs-on: ubuntu-22.04
-    needs: test-setup
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - name: "⚙️ Install dependencies"
+        run: pip3 install -U pip setuptools && pip3 install .[dev]
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
-          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install compressed-tensors dependencies"
-        run: pip3 install -U pip && pip3 install setuptools compressed-tensors/
+        run: |
+          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
+          pip3 install ./compressed-tensors/
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
-      - name: "⚙️ Install dependencies"
-        run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
         run: |
-          pytest tests/llmcompressor/pytorch -v
+          pytest -v tests/llmcompressor/pytorch
+
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
-    needs: test-setup
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+          python-version: '3.10'
+      - uses: actions/checkout@v4
+      - name: "⚙️ Install dependencies"
+        run: pip3 install -U pip setuptools && pip3 install .[dev]
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
-          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install compressed-tensors dependencies"
-        run: pip3 install -U pip && pip3 install setuptools compressed-tensors/
+        run: |
+          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
+          pip3 install ./compressed-tensors/
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
-      - name: "⚙️ Install dependencies"
-        run: pip3 install .[dev]
       - name: "🔬 Running pytorch tests"
         run: |
-          pytest tests/llmcompressor/pytorch -v
+          pytest -v tests/llmcompressor/pytorch
+
   transformers-tests:
-    runs-on: ubuntu-22.04
-    needs: test-setup
+    runs-on: gcp-k8s-vllm-l4-solo
     steps:
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - uses: actions/checkout@v2
-      - uses: actions/checkout@v2
+          python-version: '3.9'
+      - uses: actions/checkout@v4
+      - name: "⚙️ Install dependencies"
+        run: pip3 install -U pip setuptools && pip3 install .[dev]
+      - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
-          ref: ${{needs.test-setup.outputs.branch}}
       - name: "⚙️ Install compressed-tensors dependencies"
-        run: pip3 install -U pip && pip3 install setuptools compressed-tensors/
+        id: install
+        run: |
+          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
+          pip3 install ./compressed-tensors/
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
-      - name: "⚙️ Install dependencies"
-        id: install
-        run: pip3 install .[dev]
       - name: "🔬 Running transformers tests"
-        if: always() && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/compression -v
+          pytest -v tests/llmcompressor/transformers/compression
       - name: Run Finetune Tests
-        if: always() && steps.install.outcome == 'success'       
+        if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/finetune -m unit
+          pytest -v tests/llmcompressor/transformers/finetune
       - name: Running GPTQ Tests
-        if: always() && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/gptq -v
+          pytest -v tests/llmcompressor/transformers/gptq
       - name: Running ONESHOT Tests
-        if: always() && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest tests/llmcompressor/transformers/oneshot -v
+          pytest -v tests/llmcompressor/transformers/oneshot
       - name: Running Sparsification Tests
-        if: always() && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest tests/llmcompressor/transformers/sparsification -v
-          ptyest tests/llmcompressor/transformers/test_clear_ml.py -v
+          pytest tests/llmcompressor/transformers/test_clear_ml.py -v
       - name: Running OBCQ Tests
-        if: always() && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/obcq -v
+          pytest -v tests/llmcompressor/transformers/obcq
