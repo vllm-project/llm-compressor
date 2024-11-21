@@ -9,6 +9,7 @@ from loguru import logger
 from parameterized import parameterized, parameterized_class
 from transformers import AutoTokenizer
 
+from llmcompressor.core import active_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
 from tests.testing_utils import (
@@ -93,6 +94,7 @@ class TestvLLM(unittest.TestCase):
             "The president of the US is",
             "My name is",
         ]
+        self.session = active_session()
 
     def test_vllm(self):
         import torch
@@ -137,6 +139,9 @@ class TestvLLM(unittest.TestCase):
 
         self.oneshot_kwargs["model"].save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
+
+        # Whole flow is complete reset the session
+        self.session.reset()
 
         # Run vLLM with saved model
         logger.info("================= RUNNING vLLM =========================")
