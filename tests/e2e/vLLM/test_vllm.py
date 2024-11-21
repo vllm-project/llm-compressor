@@ -140,7 +140,7 @@ class TestvLLM(unittest.TestCase):
         self.oneshot_kwargs["model"].save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
 
-        # Whole flow is complete reset the session
+        # Reset after session info is extracted on save -- recipe
         self.session.reset()
 
         # Run vLLM with saved model
