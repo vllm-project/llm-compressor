@@ -10,6 +10,7 @@ from transformers import AutoModel
 from torch.fx import GraphModule, Graph, Node
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.utils.fx import symbolic_trace, HFTracer
+from accelerate.hooks import remove_hook_from_module
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException, apply_pad_mask_to_batch
@@ -197,7 +198,6 @@ def make_placeholders(tracer, model: torch.nn.Module, graph: GraphModule, dummy_
     # Note, maybe relevant: tracer.create_args_for_root converts kwargs to args using the forward function signature
 
     # TODO: assumes that all inputs are tensors
-    breakpoint()
     for input_name, input_value in dummy_inputs.items():
         for tensor_value, name in tracer.tensor_attrs.items():
             if torch.allclose(input_value, tensor_value):
@@ -223,12 +223,10 @@ class PartitionedModel:
 
     def partition_graph(self, graph: GraphModule, inputs: Tuple[Any, ...]):
         print("partition_graph")
-        breakpoint()
 
         partitions = topological_partition(graph, self.targets)
         subgraphs = partition_graph(self.model, partitions)
         self.subgraphs.extend(subgraphs)
-        #breakpoint()
 
         return graph.forward
 
@@ -270,19 +268,17 @@ class PartitionedModel:
 
             #sample_input = next(iter(dataloader))
             sample_input = self.model.dummy_inputs
-            breakpoint()
 
             concrete_args = make_fused_concrete_args(self.model, sample_input)
             print(concrete_args)
             tracer = CustomTracer()
+            remove_hook_from_module(self.model, recurse=True)
             graph: GraphModule = tracer.trace(self.model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
             self.graph = torch.fx.GraphModule(self.model, graph)
             self.graph.config = self.model.config
             self.graph.class_for_deserialization = self.model.__class__
             self.graph.device = self.model.device
-            breakpoint()
             make_placeholders(tracer, self.model, self.graph, sample_input)
-        breakpoint()
 
 
         # 2. identify target nodes
@@ -293,24 +289,6 @@ class PartitionedModel:
         self.subgraphs: List[GraphModule] = partition_graph(self.model, partitions)
 
         trace_consumed_names(self.subgraphs)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -345,8 +323,6 @@ class PartitionedModel:
 
                     inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
                     inputs = tensors_to_device(inputs, model_device)
-                    print(inputs)
-                    breakpoint()
                     try:
                         subgraph_output = forward_function(self.model, **inputs)
                     except EarlyStopException:

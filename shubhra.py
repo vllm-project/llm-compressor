@@ -10,15 +10,15 @@ import os
 #model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 #model = MllamaForConditionalGeneration.from_pretrained(model_id)
 model_id = "mgoin/pixtral-12b"
-model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto", _attn_implementation="eager")
+model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto", device_map="cuda:0", _attn_implementation="eager")
 #model = AutoModel.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct", device_map="auto", torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 print("Loading dataset")
 DATASET_ID = "lmms-lab/flickr30k"
-DATASET_SPLIT = "test[:128]"
+DATASET_SPLIT = "test[:512]"
 
-NUM_CALIBRATION_SAMPLES = 1
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -59,12 +59,12 @@ def tokenize(sample):
 
     # Remove batch dimension from each key
     input_ids = tmp["input_ids"].squeeze(0)
-    #attention_mask = tmp["attention_mask"].squeeze(0)
+    attention_mask = tmp["attention_mask"].squeeze(0)
     #pixel_values = [tmp["pixel_values"][0][0].squeeze(0)]
     
     return {
         "input_ids": torch.LongTensor(input_ids),
-        #"attention_mask": attention_mask,
+        "attention_mask": attention_mask,
         #"pixel_values": pixel_values,
     }
 
