@@ -53,7 +53,7 @@ def test_needs_targets():
 
 def test_defaults():
     targets = ["Linear"]
-    output = QuantizationScheme.default_scheme(targets=targets)
+    output = QuantizationScheme(targets=targets)
     assert output.weights is None
     assert output.input_activations is None
     assert output.output_activations is None
