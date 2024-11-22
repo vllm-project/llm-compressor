@@ -102,6 +102,7 @@ class TestvLLM(unittest.TestCase):
             "The president of the US is",
             "My name is",
         ]
+        self.session = active_session()
 
     def test_vllm(self):
         import torch
@@ -152,6 +153,9 @@ class TestvLLM(unittest.TestCase):
 
         # check that expected files exist
         self._check_save_dir_has_expected_files()
+
+        # Reset after session info is extracted on save -- recipe
+        self.session.reset()
 
         # Run vLLM with saved model
         logger.info("================= RUNNING vLLM =========================")
