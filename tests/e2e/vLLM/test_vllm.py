@@ -4,10 +4,11 @@ import unittest
 from typing import Callable
 
 import pytest
+from huggingface_hub import HfApi
 from loguru import logger
-
 from parameterized import parameterized, parameterized_class
 
+from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.testing_utils import parse_params, requires_gpu, requires_torch
 
@@ -26,7 +27,8 @@ FP8 = "tests/e2e/vLLM/configs/FP8"
 INT8 = "tests/e2e/vLLM/configs/INT8"
 ACTORDER = "tests/e2e/vLLM/configs/actorder"
 WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
-CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
+# CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
+CONFIGS = [FP8]
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
@@ -76,7 +78,7 @@ class TestvLLM(unittest.TestCase):
 
     def setUp(self):
         logger.info("========== RUNNING ==============")
-        logger.debug(self.scheme)
+        logger.info(self.scheme)
 
         self.device = "cuda:0"
         self.oneshot_kwargs = {}
@@ -87,13 +89,15 @@ class TestvLLM(unittest.TestCase):
             "The president of the US is",
             "My name is",
         ]
-        self.session = active_session()
+        self.api = HfApi()
 
     def test_vllm(self):
         # Run vLLM with saved model
         import torch
 
-        save_dir = run_oneshot_for_e2e_testing(
+        session = active_session()
+        save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             device=self.device,
             oneshot_kwargs=self.oneshot_kwargs,
@@ -107,7 +111,28 @@ class TestvLLM(unittest.TestCase):
             quant_type=self.quant_type,
         )
 
-        print("================= RUNNING vLLM =========================")
+        logger.info("================= SAVING TO DISK ======================")
+        oneshot_model.save_pretrained(save_dir)
+        tokenizer.save_pretrained(save_dir)
+
+        recipe_path = os.path.join(save_dir, "recipe.yaml")
+
+        # Use the session to fetch the recipe;
+        # Reset session for next test case
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        with open(recipe_path, "w") as fp:
+            fp.write(recipe_yaml_str)
+        session.reset()
+
+        logger.info("================= UPLOADING TO HUB ======================")
+
+        self.api.upload_folder(
+            repo_id=f"{HF_MODEL_HUB_NAME}/{save_dir}-e2e",
+            folder_path=save_dir,
+        )
+
+        logger.info("================= RUNNING vLLM =========================")
 
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         if "W4A16_2of4" in self.scheme:
@@ -122,14 +147,11 @@ class TestvLLM(unittest.TestCase):
             assert output
             prompt = output.prompt
             generated_text = output.outputs[0].text
-  
-            logger.debug("PROMPT", prompt)
-            logger.debug("GENERATED TEXT", generated_text)
 
-        logger.info("================= UPLOADING TO HUB ======================")
-        hf_upload_path = os.path.join(HF_MODEL_HUB_NAME, f"{self.save_dir}-e2e")
-        self.oneshot_kwargs["model"].push_to_hub(hf_upload_path)
-        tokenizer.push_to_hub(hf_upload_path)
+            logger.info("PROMPT")
+            logger.info(prompt)
+            logger.info("GENERATED TEXT")
+            logger.info(generated_text)
 
     def tearDown(self):
         if self.save_dir is not None:

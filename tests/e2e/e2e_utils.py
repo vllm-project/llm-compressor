@@ -1,8 +1,9 @@
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from loguru import logger
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 from tests.testing_utils import preprocess_tokenize_dataset
 
 
@@ -20,11 +21,11 @@ def run_oneshot_for_e2e_testing(
     quant_type: str,
 ):
     # Load model.
-    loaded_model = SparseAutoModelForCausalLM.from_pretrained(
+    loaded_model = AutoModelForCausalLM.from_pretrained(
         model, device_map=device, torch_dtype="auto"
     )
-    tokenizer = AutoTokenizer.from_pretrained(model)
 
+    tokenizer = AutoTokenizer.from_pretrained(model)
     if dataset_id:
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
         ds = ds.shuffle(seed=42).select(range(num_calibration_samples))
@@ -32,8 +33,6 @@ def run_oneshot_for_e2e_testing(
         oneshot_kwargs["dataset"] = ds
         oneshot_kwargs["max_seq_length"] = max_seq_length
         oneshot_kwargs["num_calibration_samples"] = num_calibration_samples
-
-    save_dir = model.split("/")[1] + f"-{scheme}"
 
     oneshot_kwargs["model"] = loaded_model
     if recipe:
@@ -51,17 +50,9 @@ def run_oneshot_for_e2e_testing(
             )
 
     # Apply quantization.
-    print("ONESHOT KWARGS", oneshot_kwargs)
+    logger.info("ONESHOT KWARGS", oneshot_kwargs)
     oneshot(
         **oneshot_kwargs,
-        clear_sparse_session=True,
         oneshot_device=device,
     )
-    oneshot_kwargs["model"].save_pretrained(save_dir)
-    tokenizer.save_pretrained(save_dir)
-
-    print("================= UPLOADING TO HUB ======================")
-    oneshot_kwargs["model"].push_to_hub(f"nm-testing/{save_dir}-e2e")
-    tokenizer.push_to_hub(f"nm-testing/{save_dir}-e2e")
-
-    return save_dir
+    return oneshot_kwargs["model"], tokenizer
