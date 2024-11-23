@@ -1,13 +1,14 @@
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot, wrap_hf_model_class
+from llmcompressor.transformers import oneshot
 
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 
 # Load model.
-model_class = wrap_hf_model_class(LlavaForConditionalGeneration)
-model = model_class.from_pretrained(MODEL_ID, device_map="auto", torch_dtype="auto")
+model = LlavaForConditionalGeneration.from_pretrained(
+    MODEL_ID, device_map="auto", torch_dtype="auto"
+)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.

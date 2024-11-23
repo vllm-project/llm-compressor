@@ -1,8 +1,11 @@
+import os
 import shutil
 import unittest
 from typing import Callable
 
 import pytest
+from loguru import logger
+
 from parameterized import parameterized, parameterized_class
 
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
@@ -14,6 +17,7 @@ try:
     vllm_installed = True
 except ImportError:
     vllm_installed = False
+    logger.warning("vllm is not installed. This test will be skipped")
 
 # Defines the file paths to the directories containing the test configs
 # for each of the quantization schemes
@@ -23,6 +27,8 @@ INT8 = "tests/e2e/vLLM/configs/INT8"
 ACTORDER = "tests/e2e/vLLM/configs/actorder"
 WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
 CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
+
+HF_MODEL_HUB_NAME = "nm-testing"
 
 
 def gen_test_name(testcase_func: Callable, param_num: int, param: dict) -> str:
@@ -69,8 +75,8 @@ class TestvLLM(unittest.TestCase):
     quant_type = None
 
     def setUp(self):
-        print("========== RUNNING ==============")
-        print(self.scheme)
+        logger.info("========== RUNNING ==============")
+        logger.debug(self.scheme)
 
         self.device = "cuda:0"
         self.oneshot_kwargs = {}
@@ -81,6 +87,7 @@ class TestvLLM(unittest.TestCase):
             "The president of the US is",
             "My name is",
         ]
+        self.session = active_session()
 
     def test_vllm(self):
         # Run vLLM with saved model
@@ -101,6 +108,7 @@ class TestvLLM(unittest.TestCase):
         )
 
         print("================= RUNNING vLLM =========================")
+
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         if "W4A16_2of4" in self.scheme:
             # required by the kernel
@@ -108,14 +116,20 @@ class TestvLLM(unittest.TestCase):
         else:
             llm = LLM(model=save_dir)
         outputs = llm.generate(self.prompts, sampling_params)
-        print("================= vLLM GENERATION ======================")
+
+        logger.info("================= vLLM GENERATION ======================")
         for output in outputs:
             assert output
             prompt = output.prompt
             generated_text = output.outputs[0].text
-            print("PROMPT", prompt)
-            print("GENERATED TEXT", generated_text)
-        self.save_dir = save_dir
+  
+            logger.debug("PROMPT", prompt)
+            logger.debug("GENERATED TEXT", generated_text)
+
+        logger.info("================= UPLOADING TO HUB ======================")
+        hf_upload_path = os.path.join(HF_MODEL_HUB_NAME, f"{self.save_dir}-e2e")
+        self.oneshot_kwargs["model"].push_to_hub(hf_upload_path)
+        tokenizer.push_to_hub(hf_upload_path)
 
     def tearDown(self):
         if self.save_dir is not None:
