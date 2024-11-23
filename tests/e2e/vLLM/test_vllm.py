@@ -33,8 +33,10 @@ WNA16 = "tests/e2e/vLLM/configs/WNA16"
 FP8 = "tests/e2e/vLLM/configs/FP8"
 INT8 = "tests/e2e/vLLM/configs/INT8"
 ACTORDER = "tests/e2e/vLLM/configs/actorder"
+KV_CACHE = "tests/e2e/vLLM/configs/kv_cache"
+
 WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
-CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
+CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4, KV_CACHE]
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
@@ -49,7 +51,6 @@ def gen_test_name(testcase_func: Callable, param_num: int, param: dict) -> str:
             param.get("cadence", "").lower(),
         ]
     )
-
 
 @requires_gpu
 @requires_torch
