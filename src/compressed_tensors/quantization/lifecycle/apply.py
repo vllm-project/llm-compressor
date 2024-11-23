@@ -106,7 +106,8 @@ def apply_quantization_config(
     model: Module, config: Union[QuantizationConfig, None], run_compressed: bool = False
 ) -> OrderedDict:
     """
-    Initializes the model for quantization in-place based on the given config
+    Initializes the model for quantization in-place based on the given config.
+    Optionally coverts quantizable modules to compressed_linear modules
 
     :param model: model to apply quantization config to
     :param config: quantization config

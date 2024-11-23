@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Dict, Tuple
+
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.quantization import (
@@ -53,7 +55,7 @@ class CompressedLinear(Linear):
         )
 
         # get the shape and dtype of compressed parameters
-        compression_params = module.compressor.compression_param_info(
+        compression_params: Dict[str, Tuple] = module.compressor.compression_param_info(
             module.weight.shape, quantization_scheme.weights
         )
 
