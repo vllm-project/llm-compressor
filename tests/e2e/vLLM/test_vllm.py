@@ -27,8 +27,7 @@ FP8 = "tests/e2e/vLLM/configs/FP8"
 INT8 = "tests/e2e/vLLM/configs/INT8"
 ACTORDER = "tests/e2e/vLLM/configs/actorder"
 WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
-# CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
-CONFIGS = [FP8]
+CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
