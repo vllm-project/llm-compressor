@@ -10,7 +10,6 @@ from tests.testing_utils import preprocess_tokenize_dataset
 def run_oneshot_for_e2e_testing(
     model: str,
     device: str,
-    oneshot_kwargs: dict,
     num_calibration_samples: int,
     max_seq_length: int,
     dataset_id: str,
@@ -21,6 +20,7 @@ def run_oneshot_for_e2e_testing(
     quant_type: str,
 ):
     # Load model.
+    oneshot_kwargs = {}
     loaded_model = AutoModelForCausalLM.from_pretrained(
         model, device_map=device, torch_dtype="auto"
     )

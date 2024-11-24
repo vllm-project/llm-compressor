@@ -1,16 +1,15 @@
 import os
 import shutil
-import unittest
-from typing import Callable
+from pathlib import Path
 
 import pytest
+import yaml
 from huggingface_hub import HfApi
 from loguru import logger
-from parameterized import parameterized, parameterized_class
 
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.examples.utils import requires_gpu_count
 
 try:
     from vllm import LLM, SamplingParams
@@ -20,35 +19,13 @@ except ImportError:
     vllm_installed = False
     logger.warning("vllm is not installed. This test will be skipped")
 
-# Defines the file paths to the directories containing the test configs
-# for each of the quantization schemes
-WNA16 = "tests/e2e/vLLM/configs/WNA16"
-FP8 = "tests/e2e/vLLM/configs/FP8"
-INT8 = "tests/e2e/vLLM/configs/INT8"
-ACTORDER = "tests/e2e/vLLM/configs/actorder"
-WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
-CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4]
-
 HF_MODEL_HUB_NAME = "nm-testing"
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 
 
-def gen_test_name(testcase_func: Callable, param_num: int, param: dict) -> str:
-    return "_".join(
-        [
-            testcase_func.__name__,
-            parameterized.to_safe_name(
-                param.get("testconfig_path", "").split("configs/")[-1]
-            ),
-            param.get("cadence", "").lower(),
-        ]
-    )
-
-
-@requires_gpu
-@requires_torch
+@requires_gpu_count(1)
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
-@parameterized_class(parse_params(CONFIGS), class_name_func=gen_test_name)
-class TestvLLM(unittest.TestCase):
+class TestvLLM:
     """
     The following test quantizes a model using a preset scheme or recipe,
     runs the model using vLLM, and then pushes the model to the hub for
@@ -66,21 +43,25 @@ class TestvLLM(unittest.TestCase):
     be used for quantization. Otherwise, the recipe will always be used if given.
     """  # noqa: E501
 
-    model = None
-    scheme = None
-    dataset_id = None
-    dataset_config = None
-    dataset_split = None
-    recipe = None
-    save_dir = None
-    quant_type = None
+    def set_up(self):
+        eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
 
-    def setUp(self):
+        if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
+            pytest.skip("Skipping test; cadence mismatch")
+
+        self.model = eval_config["model"]
+        self.scheme = eval_config.get("scheme")
+        self.dataset_id = eval_config.get("dataset_id")
+        self.dataset_config = eval_config.get("dataset_config")
+        self.dataset_split = eval_config.get("dataset_split")
+        self.recipe = eval_config.get("recipe")
+        self.quant_type = eval_config.get("quant_type")
+
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
 
+        self.save_dir = None
         self.device = "cuda:0"
-        self.oneshot_kwargs = {}
         self.num_calibration_samples = 256
         self.max_seq_length = 2048
         self.prompts = [
@@ -94,12 +75,11 @@ class TestvLLM(unittest.TestCase):
         # Run vLLM with saved model
         import torch
 
-        session = active_session()
-        save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        self.set_up()
+        self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             device=self.device,
-            oneshot_kwargs=self.oneshot_kwargs,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,
             scheme=self.scheme,
@@ -111,10 +91,10 @@ class TestvLLM(unittest.TestCase):
         )
 
         logger.info("================= SAVING TO DISK ======================")
-        oneshot_model.save_pretrained(save_dir)
-        tokenizer.save_pretrained(save_dir)
+        oneshot_model.save_pretrained(self.save_dir)
+        tokenizer.save_pretrained(self.save_dir)
 
-        recipe_path = os.path.join(save_dir, "recipe.yaml")
+        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
         # Use the session to fetch the recipe;
         # Reset session for next test case
@@ -127,8 +107,8 @@ class TestvLLM(unittest.TestCase):
         logger.info("================= UPLOADING TO HUB ======================")
 
         self.api.upload_folder(
-            repo_id=f"{HF_MODEL_HUB_NAME}/{save_dir}-e2e",
-            folder_path=save_dir,
+            repo_id=f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e",
+            folder_path=self.save_dir,
         )
 
         logger.info("================= RUNNING vLLM =========================")
@@ -136,9 +116,9 @@ class TestvLLM(unittest.TestCase):
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         if "W4A16_2of4" in self.scheme:
             # required by the kernel
-            llm = LLM(model=save_dir, dtype=torch.float16)
+            llm = LLM(model=self.save_dir, dtype=torch.float16)
         else:
-            llm = LLM(model=save_dir)
+            llm = LLM(model=self.save_dir)
         outputs = llm.generate(self.prompts, sampling_params)
 
         logger.info("================= vLLM GENERATION ======================")
@@ -151,6 +131,8 @@ class TestvLLM(unittest.TestCase):
             logger.info(prompt)
             logger.info("GENERATED TEXT")
             logger.info(generated_text)
+
+        # self.tearDown()
 
     def tearDown(self):
         if self.save_dir is not None:
