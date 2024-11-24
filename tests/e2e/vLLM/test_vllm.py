@@ -58,11 +58,11 @@ class TestvLLM:
         self.dataset_split = eval_config.get("dataset_split")
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
+        self.save_dir = eval_config.get("save_dir")
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
 
-        self.save_dir = None
         self.device = "cuda:0"
         self.num_calibration_samples = 256
         self.max_seq_length = 2048
@@ -78,7 +78,8 @@ class TestvLLM:
         import torch
 
         self.set_up()
-        self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             device=self.device,
@@ -133,7 +134,7 @@ class TestvLLM:
             logger.info("GENERATED TEXT")
             logger.info(generated_text)
 
-        self.tear_down()
+        #self.tear_down()
 
     def tear_down(self):
         if self.save_dir is not None:
