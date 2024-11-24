@@ -24,8 +24,8 @@ def run_oneshot_for_e2e_testing(
     loaded_model = AutoModelForCausalLM.from_pretrained(
         model, device_map=device, torch_dtype="auto"
     )
-
     tokenizer = AutoTokenizer.from_pretrained(model)
+
     if dataset_id:
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
         ds = ds.shuffle(seed=42).select(range(num_calibration_samples))

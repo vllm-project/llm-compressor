@@ -23,6 +23,8 @@ HF_MODEL_HUB_NAME = "nm-testing"
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 
 
+# Will run each test case in its own process through run_tests.sh
+# emulating vLLM CI testing
 @requires_gpu_count(1)
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
@@ -93,7 +95,6 @@ class TestvLLM:
         logger.info("================= SAVING TO DISK ======================")
         oneshot_model.save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
-
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
         # Use the session to fetch the recipe;
@@ -132,8 +133,8 @@ class TestvLLM:
             logger.info("GENERATED TEXT")
             logger.info(generated_text)
 
-        # self.tearDown()
+        self.tear_down()
 
-    def tearDown(self):
+    def tear_down(self):
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
