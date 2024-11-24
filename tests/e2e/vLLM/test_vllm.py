@@ -134,7 +134,7 @@ class TestvLLM:
             logger.info("GENERATED TEXT")
             logger.info(generated_text)
 
-        #self.tear_down()
+        # self.tear_down()
 
     def tear_down(self):
         if self.save_dir is not None:
