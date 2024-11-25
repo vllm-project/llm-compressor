@@ -13,14 +13,14 @@
 # limitations under the License.
 
 from copy import deepcopy
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 __all__ = [
@@ -47,6 +47,20 @@ class QuantizationScheme(BaseModel):
     input_activations: Optional[QuantizationArgs] = None
     output_activations: Optional[QuantizationArgs] = None
 
+    @model_validator(mode="after")
+    def validate_model_after(model: "QuantizationArgs") -> Dict[str, Any]:
+        inputs = model.input_activations
+        outputs = model.output_activations
+
+        if inputs is not None:
+            if inputs.actorder is not None:
+                raise ValueError("Cannot apply actorder to input activations")
+
+        if outputs is not None:
+            if outputs.actorder is not None:
+                raise ValueError("Cannot apply actorder to output activations")
+
+        return model
 
 """
 Pre-Set Quantization Scheme Args
