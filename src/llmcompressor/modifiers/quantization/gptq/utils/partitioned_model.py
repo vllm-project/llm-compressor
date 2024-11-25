@@ -1,19 +1,21 @@
-
 import contextlib
 import inspect
+from collections import deque
 from typing import Any, Callable, Dict, List, Set, Tuple
 
-import tqdm
 import torch
-from collections import deque
-from transformers import AutoModel
-from torch.fx import GraphModule, Graph, Node
-from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.utils.fx import symbolic_trace, HFTracer
+import tqdm
 from accelerate.hooks import remove_hook_from_module
+from torch.fx import Graph, GraphModule, Node
+from transformers import AutoModel
+from transformers.modeling_outputs import BaseModelOutputWithPast
+from transformers.utils.fx import HFTracer, symbolic_trace
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException, apply_pad_mask_to_batch
+from llmcompressor.modifiers.utils.pytorch_helpers import (
+    EarlyStopException,
+    apply_pad_mask_to_batch,
+)
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
@@ -22,8 +24,8 @@ def get_target_nodes(graph: GraphModule, targets: List[str]):
     target_nodes = []
     for node in graph.graph.nodes:
         if (
-            node.op == "call_module" and
-            type(graph.get_submodule(node.target)).__name__ in targets
+            node.op == "call_module"
+            and type(graph.get_submodule(node.target)).__name__ in targets
         ):
             target_nodes.append(node)
 
@@ -40,16 +42,17 @@ def check_assumption(graph: Graph) -> bool:
             if node not in input_node.users:
                 return False
 
-        if (
-            len(node.users) != len(set(node.users)) or 
-            len(node.all_input_nodes) != len(set(node.all_input_nodes))
+        if len(node.users) != len(set(node.users)) or len(node.all_input_nodes) != len(
+            set(node.all_input_nodes)
         ):
             return False
 
     return True
 
 
-def topological_partition(graph: GraphModule, target_nodes: Set[Node]) -> List[List[Node]]:
+def topological_partition(
+    graph: GraphModule, target_nodes: Set[Node]
+) -> List[List[Node]]:
     # use list representation to maintain topological sorting
     assert check_assumption(graph.graph)
 
@@ -115,7 +118,7 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
         new_input_nodes = {
             input_node
             for node in partition_nodes
-            #if node.op != "get_attr"
+            # if node.op != "get_attr"
             for input_node in node.all_input_nodes
             if input_node not in partition_nodes and input_node.op
         }
@@ -138,12 +141,14 @@ def partition_graph(model: torch.nn.Module, partitions: List[List[Node]]):
         # Save the subgraph for this partition
         subgraph.lint()
         input_names = [node.name for node in subgraph.nodes if node.op == "placeholder"]
-        subgraphs.append({
-            "graph": subgraph,
-            "code": subgraph.python_code("self"),
-            "input_names": input_names,
-            "consumed_names": [],
-        })
+        subgraphs.append(
+            {
+                "graph": subgraph,
+                "code": subgraph.python_code("self"),
+                "input_names": input_names,
+                "consumed_names": [],
+            }
+        )
 
         print([n for n in subgraph.nodes])
         assert check_assumption(subgraph)
@@ -174,8 +179,10 @@ def make_fused_concrete_args(root: torch.nn.Module, dummy_inputs: Dict[str, Any]
         if param.name in dummy_inputs:
             continue
         if param.default is inspect.Parameter.empty:
-            raise ValueError(f"You need to specify a default value for the parameter {param.name}.")
-        
+            raise ValueError(
+                f"You need to specify a default value for the parameter {param.name}."
+            )
+
     concrete_args.update(
         {
             p.name: p.default
@@ -188,7 +195,9 @@ def make_fused_concrete_args(root: torch.nn.Module, dummy_inputs: Dict[str, Any]
     return concrete_args
 
 
-def make_placeholders(tracer, model: torch.nn.Module, graph: GraphModule, dummy_inputs: Dict[str, Any]):
+def make_placeholders(
+    tracer, model: torch.nn.Module, graph: GraphModule, dummy_inputs: Dict[str, Any]
+):
     # TODO: this dictionary does not match tensors which have been deep copied
     # in general it's pretty annoying, since tracer.create_args_for_root basically
     # converts kwargs to args and therefore gets rid of any of the names.
@@ -213,7 +222,6 @@ def make_placeholders(tracer, model: torch.nn.Module, graph: GraphModule, dummy_
             breakpoint()
 
 
-
 class PartitionedModel:
     def __init__(self):
         self.graph = None
@@ -229,19 +237,24 @@ class PartitionedModel:
 
         return graph.forward
 
-    def init_forward(self, model: torch.nn.Module, targets: List[str], dummy_input: Dict[str, Any]):
+    def init_forward(
+        self, model: torch.nn.Module, targets: List[str], dummy_input: Dict[str, Any]
+    ):
         self.model = model
         self.targets = targets
 
         # 1. trace graph
         targets = self.targets
+
         class CustomTracer(HFTracer):
-            def is_leaf_module(self, module: torch.nn.Module, module_qualified_name: str) -> bool:
+            def is_leaf_module(
+                self, module: torch.nn.Module, module_qualified_name: str
+            ) -> bool:
                 if type(module).__name__ in targets:
                     return True  # Treat as leaf, skip tracing inside this module
                 return super().is_leaf_module(module, module_qualified_name)
-            
-            def to_bool(self, obj: 'Proxy') -> bool:
+
+            def to_bool(self, obj: "Proxy") -> bool:
                 """Called when a proxy object is being converted to a boolean, such as
                 when used in control flow.  Normally we don't know what to do because
                 we don't know the value of the proxy, but a custom tracer can attach more
@@ -249,25 +262,24 @@ class PartitionedModel:
                 """
                 breakpoint()
                 return True
-                
-        
+
         with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
-            #compiled = torch.compile(model, backend=self.partition_graph)
-            #compiled(**model.dummy_inputs)
+            # compiled = torch.compile(model, backend=self.partition_graph)
+            # compiled(**model.dummy_inputs)
 
-            #program = torch.export.export(model, tuple(), model.dummy_inputs, strict=False)
-            #program = torch.export.export(model, tuple(), {}, strict=False)  # requires inputs
+            # program = torch.export.export(model, tuple(), model.dummy_inputs, strict=False)
+            # program = torch.export.export(model, tuple(), {}, strict=False)  # requires inputs
 
-            #self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
-            #self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
+            # self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
+            # self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
 
-            #sample_input = next(iter(dataloader))
+            # sample_input = next(iter(dataloader))
             concrete_args = make_fused_concrete_args(self.model, dummy_input)
             print(concrete_args)
             tracer = CustomTracer()
             remove_hook_from_module(self.model, recurse=True)
-            #model.to("cuda:0")
-            #graph: GraphModule = tracer.trace(self.model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
+            # model.to("cuda:0")
+            # graph: GraphModule = tracer.trace(self.model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
             concrete_args = make_fused_concrete_args(self.model, {})
             graph: GraphModule = tracer.trace(self.model, dummy_inputs=dummy_input)
             self.graph = torch.fx.GraphModule(self.model, graph)
@@ -276,21 +288,19 @@ class PartitionedModel:
             self.graph.device = self.model.device
             make_placeholders(tracer, self.model, self.graph, dummy_input)
 
-
         # 2. identify target nodes
         all_target_nodes = get_target_nodes(self.graph, self.targets)
 
         # 3. cut into partitions along target nodes
-        partitions: List[List[Node]] = topological_partition(self.graph, all_target_nodes)
+        partitions: List[List[Node]] = topological_partition(
+            self.graph, all_target_nodes
+        )
         self.subgraphs: List[GraphModule] = partition_graph(self.model, partitions)
 
         trace_consumed_names(self.subgraphs)
 
     def forward_data(
-        self,
-        dataloader,
-        mask_padding: bool = True,
-        run_twice: bool = False
+        self, dataloader, mask_padding: bool = True, run_twice: bool = False
     ):
         # TODO: give option to skip lm_head
         # 4. perform compression
@@ -309,18 +319,24 @@ class PartitionedModel:
             if run_twice:
                 for batch_index in range(len(dataloader)):
                     intermediates = batch_intermediates[batch_index]
-                    inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
+                    inputs = {
+                        input_name: intermediates[input_name]
+                        for input_name in subgraph["input_names"]
+                    }
                     inputs = tensors_to_device(inputs, model_device)
                     try:
                         forward_function(self.model, **inputs)
                     except EarlyStopException:
                         pass
-                
+
             with HooksMixin.disable_hooks() if run_twice else contextlib.nullcontext():
                 for batch_index in range(len(dataloader)):
                     intermediates = batch_intermediates[batch_index]
 
-                    inputs = {input_name: intermediates[input_name] for input_name in subgraph["input_names"]}
+                    inputs = {
+                        input_name: intermediates[input_name]
+                        for input_name in subgraph["input_names"]
+                    }
                     inputs = tensors_to_device(inputs, model_device)
                     try:
                         subgraph_output = forward_function(self.model, **inputs)

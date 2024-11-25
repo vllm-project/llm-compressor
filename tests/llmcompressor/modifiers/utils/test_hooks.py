@@ -28,6 +28,7 @@ class DummyMod(HooksMixin):
     def hook(self, *args, **kwargs):
         self.hook_called = True
 
+
 class ModA(DummyMod):
     pass
 

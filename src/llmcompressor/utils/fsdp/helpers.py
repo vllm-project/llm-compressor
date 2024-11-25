@@ -1,9 +1,9 @@
 import contextlib
-from functools import wraps
 import operator
+import warnings
+from functools import wraps
 from pathlib import Path
 from typing import Optional
-import warnings
 
 from loguru import logger
 
@@ -27,7 +27,12 @@ from llmcompressor.utils.pytorch import set_layer
 
 try:
     from accelerate.hooks import AlignDevicesHook
-    from accelerate.utils import OffloadedWeightsLoader, PrefixedDataset, set_module_tensor_to_device
+    from accelerate.utils import (
+        OffloadedWeightsLoader,
+        PrefixedDataset,
+        set_module_tensor_to_device,
+    )
+
     _has_accelerate = True
 except ImportError:
     _has_accelerate = False
@@ -195,6 +200,7 @@ def get_fsdp_parent(layer_name: str, model: Module) -> Optional[Module]:
 
     return parent
 
+
 # upstream candidate
 def has_offloaded_params(module: torch.nn.Module) -> bool:
     """
@@ -209,9 +215,9 @@ def has_offloaded_params(module: torch.nn.Module) -> bool:
         `False` otherwise.
     """
     return (
-        hasattr(module, "_hf_hook") and
-        isinstance(module._hf_hook, AlignDevicesHook) and
-        module._hf_hook.offload
+        hasattr(module, "_hf_hook")
+        and isinstance(module._hf_hook, AlignDevicesHook)
+        and module._hf_hook.offload
     )
 
 
@@ -245,13 +251,14 @@ def get_execution_device(module: torch.nn.Module) -> torch.device:
 def _infer_offload_device(module: torch.nn.Module) -> torch.device:
     if not has_offloaded_params(module):
         raise ValueError("Cannot infer offload device from non-offloaded module")
-    
+
     first_key = next(module._hf_hook.weights_map.keys(), None)
     if first_key is None:
         raise ValueError("Cannot infer offload device from empty weights map")
 
     prefix_dataset = module._hf_hook.weights_map.dataset
     return prefix_dataset[first_key].device
+
 
 # depreciation candidate
 def get_offloaded_device(module: torch.nn.Module) -> torch.device:
@@ -296,13 +303,15 @@ def update_offload_parameter(
     param = getattr(module, name)
     if data is not None:
         if data.device == "meta":
-            raise ValueError("Cannot copy data from meta device. Consider calling with align_module(module) context")
-    
+            raise ValueError(
+                "Cannot copy data from meta device. Consider calling with align_module(module) context"
+            )
+
         if param.data.dtype != data.dtype:
             print(name)
             print((param.data.dtype, data.dtype))
             warnings.warn("TODO")
-            
+
         param.data.copy_(data)
 
     if has_offloaded_params(module):
@@ -310,23 +319,28 @@ def update_offload_parameter(
 
         # for upstreaming, probably better to modify the weight map types so that they can be written to?
         if isinstance(weights_map, PrefixedDataset):
-            prefix_dict = getattr_chain(module, "module._hf_hook.weights_map.dataset", None)
+            prefix_dict = getattr_chain(
+                module, "module._hf_hook.weights_map.dataset", None
+            )
             if prefix_dict is not None:
                 prefix = module._hf_hook.weights_map.prefix
                 key = f"{prefix}{name}"
 
                 offload_device = (
-                    prefix_dict[key].device if key in prefix_dict
-                    else offload_device if offload_device is not None
+                    prefix_dict[key].device
+                    if key in prefix_dict
+                    else offload_device
+                    if offload_device is not None
                     else _infer_offload_device(module)
                 )
                 prefix_dict[key] = param.data.to(device=offload_device)
-            
+
         if isinstance(weights_map, OffloadedWeightsLoader):
             raise NotImplementedError()
-        
+
         else:
             raise NotImplementedError()
+
 
 # depreciation candidate
 def update_parameter_data(
@@ -339,7 +353,9 @@ def update_parameter_data(
 
 # upstream candidate
 @contextlib.contextmanager
-def align_module(module: torch.nn.Module, execution_device: Optional[torch.device] = None):
+def align_module(
+    module: torch.nn.Module, execution_device: Optional[torch.device] = None
+):
     """
     Moves a module's parameters to the specified execution device.
 
@@ -386,7 +402,6 @@ def align_module(module: torch.nn.Module, execution_device: Optional[torch.devic
         yield
 
 
-
 @contextlib.contextmanager
 def modify_offload_module(
     module: torch.nn.Module,
@@ -427,9 +442,11 @@ def delete_offload_parameter(module: torch.nn.Module, name: str):
             prefix = weights_map.prefix
             if dataset is not None:
                 del dataset[f"{prefix}{name}"]
-            
+
         elif isinstance(weights_map, OffloadedWeightsLoader):
             raise NotImplementedError()
-        
+
         elif weights_map is not None:
-            raise NotImplementedError(f"Cannot delete parameter from weights_map of type {type(weights_map)}")
+            raise NotImplementedError(
+                f"Cannot delete parameter from weights_map of type {type(weights_map)}"
+            )

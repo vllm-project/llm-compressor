@@ -100,7 +100,7 @@ def run_calibration_forward(
             except EarlyStopException as e:
                 # model was stopped early, save last calculated output and
                 # move on to next calibration sample
-                #intermediates.append((e.args, e.kwargs))
+                # intermediates.append((e.args, e.kwargs))
                 pass
 
         # TODO: not ideal, figure out where we aren't freeing memory instead

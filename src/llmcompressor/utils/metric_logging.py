@@ -4,7 +4,7 @@ from typing import List, Tuple
 import torch
 from loguru import logger
 from torch.nn import Module
-g
+
 __all__ = ["get_GPU_memory_usage", "get_layer_size_mb", "CompressionLogger"]
 
 

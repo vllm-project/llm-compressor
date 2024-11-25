@@ -1,8 +1,7 @@
 import math
 from copy import copy
-from typing import Tuple, Union, Optional, Type
+from typing import Optional, Tuple, Type, Union
 
-from llmcompressor.observers.base import Observer
 import torch
 import transformers
 from compressed_tensors.quantization import (
@@ -13,6 +12,7 @@ from compressed_tensors.quantization import (
 )
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
+from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
@@ -21,10 +21,17 @@ GPTQ_PRECISION = torch.float32
 def make_empty_hessian(module: torch.nn.Module):
     weight = module.weight
     num_columns = weight.shape[1]
-    return torch.zeros((num_columns, num_columns), device=weight.device, dtype=GPTQ_PRECISION)
+    return torch.zeros(
+        (num_columns, num_columns), device=weight.device, dtype=GPTQ_PRECISION
+    )
 
 
-def accumulate_hessian(inp: torch.Tensor, module_class: Type[torch.nn.Module], H: Optional[torch.Tensor] = None, num_samples: int = 1) -> Tuple[torch.Tensor, int]:
+def accumulate_hessian(
+    inp: torch.Tensor,
+    module_class: Type[torch.nn.Module],
+    H: Optional[torch.Tensor] = None,
+    num_samples: int = 1,
+) -> Tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -47,7 +54,9 @@ def accumulate_hessian(inp: torch.Tensor, module_class: Type[torch.nn.Module], H
     return H, num_samples
 
 
-def compute_hessian(inp: torch.Tensor, module_class: Type[torch.nn.Module], device) -> torch.Tensor:
+def compute_hessian(
+    inp: torch.Tensor, module_class: Type[torch.nn.Module], device
+) -> torch.Tensor:
     """
     Calculate the hessian with respect to the module inputs
 
@@ -284,7 +293,13 @@ def quantize_weight(
     W = W.reshape(final_shape).to(final_dtype)
 
     loss = torch.sum(losses).item()
-    return loss, W, scale.to(dtype=final_dtype), zero_point.to(dtype=quant_args.pytorch_dtype()), g_idx
+    return (
+        loss,
+        W,
+        scale.to(dtype=final_dtype),
+        zero_point.to(dtype=quant_args.pytorch_dtype()),
+        g_idx,
+    )
 
 
 def _apply_activation_ordering(

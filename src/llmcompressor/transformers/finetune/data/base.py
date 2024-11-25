@@ -59,7 +59,9 @@ class TextGenerationDataset(RegistryMixin):
 
         # configure sequence length
         max_seq_length = data_args.max_seq_length
-        model_max_length = self.tokenizer.model_max_length if self.tokenizer else max_seq_length
+        model_max_length = (
+            self.tokenizer.model_max_length if self.tokenizer else max_seq_length
+        )
         if self.tokenizer and max_seq_length > model_max_length:
             logger.warning(
                 f"The max_seq_length passed ({max_seq_length}) is larger than "

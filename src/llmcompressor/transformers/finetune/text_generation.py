@@ -23,8 +23,8 @@ from pathlib import PosixPath
 from loguru import logger
 from transformers import (
     AutoConfig,
-    AutoProcessor,
     AutoModelForCausalLM,
+    AutoProcessor,
     AutoTokenizer,
     DefaultDataCollator,
     HfArgumentParser,

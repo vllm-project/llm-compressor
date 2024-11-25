@@ -6,7 +6,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-#MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
@@ -23,7 +23,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 285 #2048
+NUM_CALIBRATION_SAMPLES = 285  # 2048
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -58,7 +58,14 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"], update_size=NUM_CALIBRATION_SAMPLES, dampening_frac=0.5)
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    ignore=["lm_head"],
+    update_size=NUM_CALIBRATION_SAMPLES,
+    dampening_frac=0.5,
+    actorder="dynamic",
+)
 
 # Apply algorithms.
 oneshot(

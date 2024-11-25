@@ -1,19 +1,23 @@
-from functools import partial
 import warnings
+from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    QuantizationScheme,
-)
-from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
+from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import accumulate_hessian, make_empty_hessian, quantize_weight
-from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import PartitionedModel
+from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
+from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
+    accumulate_hessian,
+    make_empty_hessian,
+    quantize_weight,
+)
+from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import (
+    PartitionedModel,
+)
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
@@ -26,7 +30,6 @@ from llmcompressor.utils.helpers import (
     calibration_forward_context,
     getattr_chain,
 )
-
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 
@@ -116,7 +119,9 @@ class GPTQModifier(Modifier, HooksMixin):
     disable_quantization_observer_epoch: Optional[float] = None
 
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
-    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=lambda: {})
+    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
+        default_factory=lambda: {}
+    )
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=lambda: {})
 
     @field_validator("sequential_update", mode="before")
@@ -196,10 +201,12 @@ class GPTQModifier(Modifier, HooksMixin):
             self._quantization_modifier.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
-        
+
         targets = get_no_split_params(state.model)
         partitioned_model = PartitionedModel()
-        partitioned_model.init_forward(state.model, targets, next(iter(state.data.calib)))
+        partitioned_model.init_forward(
+            state.model, targets, next(iter(state.data.calib))
+        )
 
         # register hooks
         for name, module in state.model.named_modules():
@@ -208,9 +215,10 @@ class GPTQModifier(Modifier, HooksMixin):
                 self.register_hook(module, post_hook, "forward")
 
             if "head" in name:
+
                 def hook(module: torch.nn.Module, args: Tuple[Any, ...]):
                     raise EarlyStopException(None, None)
-                
+
                 self.register_hook(module, hook, "forward_pre")
 
         # feed data

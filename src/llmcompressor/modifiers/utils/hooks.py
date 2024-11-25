@@ -56,6 +56,7 @@ class HooksMixin(BaseModel):
             Ex. "forward", "forward_pre", "full_backward", "state_dict_post", ""
         :param kwargs: keyword arguments to pass to register hook method
         """
+
         @wraps(hook)
         def wrapped_hook(*args, **kwargs):
             if HooksMixin._HOOKS_DISABLED:

@@ -304,7 +304,7 @@ def tensors_to_device(
     """
     if isinstance(tensors, Tensor):
         return tensors.to(device)
-    
+
     if isinstance(tensors, OrderedDict):
         return OrderedDict(
             [(key, tensors_to_device(tens, device)) for key, tens in tensors.items()]
@@ -318,7 +318,7 @@ def tensors_to_device(
 
     if isinstance(tensors, Iterable):
         return [tensors_to_device(tens, device) for tens in tensors]
-    
+
     return tensors
 
 

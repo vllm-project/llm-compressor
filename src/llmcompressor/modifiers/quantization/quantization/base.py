@@ -209,7 +209,7 @@ class QuantizationModifier(Modifier):
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
         # Add step to attach kv_cache to the model, if present within the config
-        #apply_quantization_config(model, modifier_as_config)
+        # apply_quantization_config(model, modifier_as_config)
         model.apply(set_unset_kv_cache)
         return modifier_as_config
 
