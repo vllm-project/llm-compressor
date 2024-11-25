@@ -9,10 +9,7 @@ from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionW
 from llmcompressor.observers import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils import getattr_chain
-from llmcompressor.utils.metric_logging import (
-    get_GPU_memory_usage,
-    get_layer_size_bytes,
-)
+from llmcompressor.utils.metric_logging import get_GPU_memory_usage, get_layer_size_mb
 
 try:
     import transformers
@@ -353,5 +350,5 @@ class GPTQWrapper(ModuleCompressionWrapper):
 
         patch.log(
             "METRIC",
-            f"Compressed layer size: {get_layer_size_bytes(self.layer)} MB",
+            f"Compressed layer size: {get_layer_size_mb(self.layer)} MB",
         )
