@@ -289,8 +289,12 @@ class QuantizationModifier(Modifier):
         if output_quant:
             # hooks for attn modules if running kv_cache quant
             if is_attention_module_:
-                pre_hook = calibrate_kv_cache_input_hook
-                self.register_hook(module, pre_hook, "forward_pre", with_kwargs=True)
+                self.register_hook(
+                    module,
+                    calibrate_kv_cache_input_hook,
+                    "forward_pre",
+                    with_kwargs=True,
+                )
 
                 self.register_hook(module, calibrate_kv_cache_output_hook, "forward")
 

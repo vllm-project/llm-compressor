@@ -68,7 +68,8 @@ class HooksMixin(BaseModel):
 
             return hook(*args, **kwargs)
 
-        handle = getattr(target, f"register_{hook_type}_hook")(wrapped_hook, **kwargs)
+        register_function = getattr(target, f"register_{hook_type}_hook")
+        handle = register_function(wrapped_hook, **kwargs)
         self._hooks.append(handle)
         logger.debug(f"{self} added {handle}")
 
