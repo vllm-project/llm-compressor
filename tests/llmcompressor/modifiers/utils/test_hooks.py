@@ -4,6 +4,8 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 
 class DummyModel(torch.nn.Module):
+    """Dummy Model for testing hooks"""
+
     def __init__(self):
         super(DummyModel, self).__init__()
 

@@ -191,9 +191,10 @@ def modify_save_pretrained(model: torch.nn.Module):
 
             recipe_path = os.path.join(save_directory, "recipe.yaml")
             session = active_session()
-            recipe_yaml_str = session.get_serialized_recipe()
-            with open(recipe_path, "w") as fp:
-                fp.write(recipe_yaml_str)
+
+            if (recipe_yaml_str := session.get_serialized_recipe()) is not None:
+                with open(recipe_path, "w") as fp:
+                    fp.write(recipe_yaml_str)
 
             # copy python files from cache dir to save_path if any
             copy_python_files_from_model_cache(model, save_directory)

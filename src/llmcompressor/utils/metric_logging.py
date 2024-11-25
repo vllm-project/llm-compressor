@@ -3,8 +3,11 @@ from typing import List, Tuple
 
 import torch
 from loguru import logger
+from torch.nn import Module
 
 __all__ = ["CompressionLogger"]
+
+__all__ = ["get_GPU_memory_usage", "get_layer_size_mb"]
 
 
 def get_GPU_memory_usage() -> List[Tuple]:
@@ -26,7 +29,7 @@ def get_GPU_memory_usage() -> List[Tuple]:
             handle = pynvml.nvmlDeviceGetHandleByIndex(i)
             mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
             memory_usage_percentage = mem_info.used / mem_info.total
-            total_memory_gb = mem_info.total / (1024**3)
+            total_memory_gb = mem_info.total / (1e9)
             usage.append(
                 (memory_usage_percentage, total_memory_gb),
             )
@@ -38,7 +41,7 @@ def get_GPU_memory_usage() -> List[Tuple]:
         return []
 
 
-def get_module_size_bytes(module: torch.nn.Module) -> float:
+def get_layer_size_mb(module: Module) -> float:
     param_size = 0
     buffer_size = 0
 
@@ -49,7 +52,7 @@ def get_module_size_bytes(module: torch.nn.Module) -> float:
         buffer_size += buffer.nelement() * buffer.element_size()
 
     total_size = param_size + buffer_size
-    total_size_mb = total_size / (1024**2)  # Convert bytes to MB
+    total_size_mb = total_size / (1e6)  # Convert bytes to MB
 
     return total_size_mb
 

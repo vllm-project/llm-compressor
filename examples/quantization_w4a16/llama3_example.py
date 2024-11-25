@@ -1,15 +1,15 @@
 from accelerate import cpu_offload
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 # Select model and load it.
 #MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="cuda:0",
     torch_dtype="auto",

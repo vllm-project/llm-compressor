@@ -1,6 +1,6 @@
 quant_stage:
   quant_modifiers:
-    QuantizationModifier:
+    GPTQModifier:
       ignore: [lm_head]
       config_groups:
         group_0:
