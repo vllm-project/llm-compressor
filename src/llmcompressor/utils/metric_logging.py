@@ -4,10 +4,8 @@ from typing import List, Tuple
 import torch
 from loguru import logger
 from torch.nn import Module
-
-__all__ = ["CompressionLogger"]
-
-__all__ = ["get_GPU_memory_usage", "get_layer_size_mb"]
+g
+__all__ = ["get_GPU_memory_usage", "get_layer_size_mb", "CompressionLogger"]
 
 
 def get_GPU_memory_usage() -> List[Tuple]:
