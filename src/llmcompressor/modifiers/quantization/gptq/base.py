@@ -251,15 +251,18 @@ class GPTQModifier(Modifier, HooksMixin):
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
         if module not in self._num_samples:
-            self._hessians[module] = make_empty_hessian(module, device="cpu")
+            #self._hessians[module] = make_empty_hessian(module, device="cpu")
+            self._hessians[module] = make_empty_hessian(module, device=module.weight.device)
             self._num_samples[module] = 0
 
         self._hessians[module], self._num_samples[module] = accumulate_hessian(
             inp,
             type(module),
-            self._hessians[module],
+            #self._hessians[module],
+            self._hessians[module].to(device=module.weight.device),
             self._num_samples[module],
         )
+        self._hessians[module] = self._hessians[module].to(device="cpu")
 
         if self._num_samples[module] >= self.update_size:
             logger.info(f"Quantizing {name}...")
