@@ -1070,9 +1070,7 @@ class DisableKVCache:
 
         # unknown config structure
         else:
-            raise NotImplementedError(
-                f"Cannot find `use_cache` for config of type {type(model.config)}"
-            )
+            raise NotImplementedError(f"Cannot find `use_cache` for {model.config}")
 
         self.restore_value = self.config.use_cache
 
