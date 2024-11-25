@@ -33,14 +33,13 @@ Let's walk through the main steps of the quantization process:
 
 ### 1. Load Model
 
-Load the model using `SparseAutoModelForCausalLM`:
+Load the model using `AutoModelForCausalLM`:
 
 ```python
-from llmcompressor.transformers import SparseAutoModelForCausalLM
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
