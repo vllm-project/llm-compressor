@@ -18,10 +18,10 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 GPTQ_PRECISION = torch.float32
 
 
-def make_empty_hessian(module: torch.nn.Module):
+def make_empty_hessian(module: torch.nn.Module, device: torch.device):
     weight = module.weight
     num_columns = weight.shape[1]
-    return torch.zeros((num_columns, num_columns), device=weight.device, dtype=GPTQ_PRECISION)
+    return torch.zeros((num_columns, num_columns), device=device, dtype=GPTQ_PRECISION)
 
 
 def accumulate_hessian(inp: torch.Tensor, module_class: Type[torch.nn.Module], H: Optional[torch.Tensor] = None, num_samples: int = 1) -> Tuple[torch.Tensor, int]:
@@ -91,7 +91,8 @@ def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
 
 def quantize_weight(
     weight: torch.Tensor,
-    inp: torch.Tensor,
+    #inp: torch.Tensor,
+    H: torch.Tensor,
     quant_args: QuantizationArgs,
     blocksize: int = 128,
     percdamp: float = 0.01,
@@ -103,7 +104,7 @@ def quantize_weight(
 
     TODO
     :param weight: weight being quantized
-    :param inp: module inputs used to calculate hessian
+    #:param inp: module inputs used to calculate hessian
     :param quant_args: quantization arguments used to find quantization parameters
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
@@ -135,7 +136,7 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    H = compute_hessian(inp, module_class, device=weight.device)
+    #H = compute_hessian(inp, module_class, device=weight.device)
 
     if strategy == QuantizationStrategy.GROUP:
         # mapping from column index to group index

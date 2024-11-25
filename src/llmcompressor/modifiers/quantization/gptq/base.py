@@ -13,10 +13,9 @@ from pydantic import Field, PrivateAttr, field_validator
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import accumulate_hessian, make_empty_hessian, quantize_weight
-from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import PartitionedModel
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
+from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException, run_calibration_forward
 from llmcompressor.transformers.finetune.data.data_helpers import (
     create_batch_dataloader,
 )
@@ -197,10 +196,6 @@ class GPTQModifier(Modifier, HooksMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
         
-        targets = get_no_split_params(state.model)
-        partitioned_model = PartitionedModel()
-        partitioned_model.init_forward(state.model, targets, next(iter(state.data.calib)))
-
         # register hooks
         for name, module in state.model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
@@ -214,8 +209,9 @@ class GPTQModifier(Modifier, HooksMixin):
                 self.register_hook(module, hook, "forward_pre")
 
         # feed data
+        breakpoint()
         with calibration_forward_context(state.model):
-            partitioned_model.forward_data(state.data.calib, mask_padding=True)
+            run_calibration_forward(state.model, state.data.calib, mask_padding=True)
 
         return True
 
@@ -254,9 +250,8 @@ class GPTQModifier(Modifier, HooksMixin):
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-        # TODO: attach as parameters to the module to allow them to be offloaded
         if module not in self._num_samples:
-            self._hessians[module] = make_empty_hessian(module)
+            self._hessians[module] = make_empty_hessian(module, device="cpu")
             self._num_samples[module] = 0
 
         self._hessians[module], self._num_samples[module] = accumulate_hessian(
@@ -272,7 +267,8 @@ class GPTQModifier(Modifier, HooksMixin):
             with align_module(module), CompressionLogger(module) as comp_logger:
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                     module.weight.data,
-                    inp,
+                    #inp,
+                    self._hessians[module].to(device=module.weight.device),
                     quant_args,
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
