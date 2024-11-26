@@ -228,15 +228,6 @@ class PartitionedModel:
         self.subgraphs = []
         self.model = None
 
-    def partition_graph(self, graph: GraphModule, inputs: Tuple[Any, ...]):
-        print("partition_graph")
-
-        partitions = topological_partition(graph, self.targets)
-        subgraphs = partition_graph(self.model, partitions)
-        self.subgraphs.extend(subgraphs)
-
-        return graph.forward
-
     def init_forward(
         self, model: torch.nn.Module, targets: List[str], dummy_input: Dict[str, Any]
     ):
@@ -260,7 +251,6 @@ class PartitionedModel:
                 we don't know the value of the proxy, but a custom tracer can attach more
                 information to the graph node using create_node and can choose to return a value.
                 """
-                breakpoint()
                 return True
 
         with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
