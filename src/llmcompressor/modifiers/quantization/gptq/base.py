@@ -16,7 +16,7 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import (
-    PartitionedModel,
+    PartitionedModel
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin

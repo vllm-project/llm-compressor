@@ -24,8 +24,11 @@ from urllib.parse import urlparse
 
 import numpy
 import torch
+<<<<<<< HEAD
 from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization import disable_quantization, enable_quantization
+=======
+>>>>>>> origin
 from loguru import logger
 
 __all__ = [
@@ -1049,6 +1052,18 @@ def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
 
 
 class DisableKVCache:
+    """
+    Temporarily disable the key-value cache for transformer models. Used to prevent
+    excess memory use in one-shot cases where the model only performs the prefill
+    phase and not the generation phase.
+
+    Example:
+    >>> model = AutoModel.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    >>> input = torch.randint(0, 32, size=(1, 32))
+    >>> with DisableKVCache(model):
+    ...     output = model(input)
+    """
+
     def __init__(self, model: torch.nn.Module):
         if hasattr(model.config, "use_cache"):
             self.config = model.config
@@ -1061,9 +1076,7 @@ class DisableKVCache:
 
         # unknown config structure
         else:
-            raise NotImplementedError(
-                f"Cannot find `use_cache` for config of type {type(model.config)}"
-            )
+            raise NotImplementedError(f"Cannot find `use_cache` for {model.config}")
 
         self.restore_value = self.config.use_cache
 
