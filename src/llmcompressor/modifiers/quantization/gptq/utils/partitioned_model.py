@@ -243,14 +243,6 @@ class PartitionedModel:
                     return True  # Treat as leaf, skip tracing inside this module
                 return super().is_leaf_module(module, module_qualified_name)
 
-            def to_bool(self, obj: "Proxy") -> bool:
-                """Called when a proxy object is being converted to a boolean, such as
-                when used in control flow.  Normally we don't know what to do because
-                we don't know the value of the proxy, but a custom tracer can attach more
-                information to the graph node using create_node and can choose to return a value.
-                """
-                return True
-
         with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
             #self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
             self.graph: GraphModule =  torch.fx.GraphModule(model, CustomTracer().trace(model, dummy_inputs=model.dummy_inputs, concrete_args={"use_cache": False}))
