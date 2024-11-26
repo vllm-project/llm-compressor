@@ -7,8 +7,6 @@ import torch
 import tqdm
 from accelerate.hooks import remove_hook_from_module
 from torch.fx import Graph, GraphModule, Node
-from transformers import AutoModel
-from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.utils.fx import HFTracer, symbolic_trace
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -254,29 +252,8 @@ class PartitionedModel:
                 return True
 
         with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
-            # compiled = torch.compile(model, backend=self.partition_graph)
-            # compiled(**model.dummy_inputs)
-
-            # program = torch.export.export(model, tuple(), model.dummy_inputs, strict=False)
-            # program = torch.export.export(model, tuple(), {}, strict=False)  # requires inputs
-
-            # self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
-            # self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
-
-            # sample_input = next(iter(dataloader))
-            concrete_args = make_fused_concrete_args(self.model, dummy_input)
-            print(concrete_args)
-            tracer = CustomTracer()
-            remove_hook_from_module(self.model, recurse=True)
-            # model.to("cuda:0")
-            # graph: GraphModule = tracer.trace(self.model, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False)
-            concrete_args = make_fused_concrete_args(self.model, {})
-            graph: GraphModule = tracer.trace(self.model, dummy_inputs=dummy_input)
-            self.graph = torch.fx.GraphModule(self.model, graph)
-            self.graph.config = self.model.config
-            self.graph.class_for_deserialization = self.model.__class__
-            self.graph.device = self.model.device
-            make_placeholders(tracer, self.model, self.graph, dummy_input)
+            self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
+            #self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
 
         # 2. identify target nodes
         all_target_nodes = get_target_nodes(self.graph, self.targets)
