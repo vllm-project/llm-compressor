@@ -102,6 +102,7 @@ class TextGenerationDataset(RegistryMixin):
     def tokenize_and_process(
         self, raw_dataset: Optional[Dataset] = None, add_labels: Optional[bool] = True
     ) -> Dataset:
+        breakpoint()
         """
         Sets up the raw dataset for finetuning, performs tokenization, concatenates
         entries to max sequence length if desired, and adds labels to each entry
@@ -112,6 +113,15 @@ class TextGenerationDataset(RegistryMixin):
 
         # helper fn for tokenizing text column
         def tokenize_fn(data):
+            """
+            inputs = processor(
+                image,
+                input_text,
+                add_special_tokens=False,
+                return_tensors="pt"
+            ).to(model.device)
+            """
+
             result = self.tokenizer(
                 data[self.text_column],
                 padding=self.padding,

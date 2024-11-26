@@ -24,11 +24,8 @@ from urllib.parse import urlparse
 
 import numpy
 import torch
-<<<<<<< HEAD
 from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization import disable_quantization, enable_quantization
-=======
->>>>>>> origin
 from loguru import logger
 
 __all__ = [
