@@ -64,12 +64,18 @@ def tokenize(sample):
     # Remove batch dimension from each key
     input_ids = tmp["input_ids"].squeeze(0)
     attention_mask = tmp["attention_mask"].squeeze(0)
-    #pixel_values = [tmp["pixel_values"][0][0].squeeze(0)]
+    pixel_values = [tmp["pixel_values"][0][0].squeeze(0)]
+    aspect_ratio_ids = tmp["aspect_ratio_ids"].squeeze(0)
+    aspect_ratio_mask = tmp["aspect_ratio_mask"].squeeze(0)
+    cross_attention_mask = tmp["cross_attention_mask"].squeeze(0)
     
     return {
         "input_ids": torch.LongTensor(input_ids),
         "attention_mask": attention_mask,
-        #"pixel_values": pixel_values,
+        "pixel_values": pixel_values,
+        "aspect_ratio_ids": aspect_ratio_ids,
+        "aspect_ratio_mask": aspect_ratio_mask,
+        "cross_attention_mask": cross_attention_mask,
     }
 
 

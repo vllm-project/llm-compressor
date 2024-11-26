@@ -7,15 +7,8 @@ from llmcompressor.transformers import oneshot
 import os
 
 # Load model.
-model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-#model = MllamaForConditionalGeneration.from_pretrained(model_id)
-#model_id = "mgoin/pixtral-12b"
-#model_id = "Qwen/Qwen2-VL-2B-Instruct"
-
-#model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto", device_map="cuda:0", _attn_implementation="eager")
-#model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
-#model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda:0", torch_dtype="auto")
-model = MllamaForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
+model_id = "Qwen/Qwen2-VL-2B-Instruct"
+model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 print("Loading dataset")
@@ -64,12 +57,14 @@ def tokenize(sample):
     # Remove batch dimension from each key
     input_ids = tmp["input_ids"].squeeze(0)
     attention_mask = tmp["attention_mask"].squeeze(0)
-    #pixel_values = [tmp["pixel_values"][0][0].squeeze(0)]
+    pixel_values = [tmp["pixel_values"][0][0].squeeze(0)]
+    image_grid_thw = tmp["image_grid_thw"].unsqueeze(0)
     
     return {
         "input_ids": torch.LongTensor(input_ids),
         "attention_mask": attention_mask,
-        #"pixel_values": pixel_values,
+        "pixel_values": pixel_values,
+        "image_grid_thw": image_grid_thw,
     }
 
 

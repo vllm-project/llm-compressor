@@ -252,8 +252,12 @@ class PartitionedModel:
                 return True
 
         with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
-            self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
-            #self.graph: GraphModule = CustomTracer().trace(model, dummy_inputs=model.dummy_inputs)
+            #self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
+            self.graph: GraphModule =  torch.fx.GraphModule(model, CustomTracer().trace(model, dummy_inputs=model.dummy_inputs, concrete_args={"use_cache": False}))
+            self.graph.config = model.config
+            self.graph.class_for_deserialization = model.__class__
+            self.graph.device = model.device
+            self.graph: GraphModule
 
         # 2. identify target nodes
         all_target_nodes = get_target_nodes(self.graph, self.targets)
