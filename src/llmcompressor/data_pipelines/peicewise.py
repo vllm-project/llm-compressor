@@ -48,10 +48,7 @@ def run_pipeline(
                         for input_name in subgraph["input_names"]
                     }
                     inputs = tensors_to_device(inputs, model_device)
-                    try:
-                        forward_function(model, **inputs)
-                    except EarlyStopException:
-                        pass
+                    forward_function(model, **inputs)
 
             # if using propagate_error, then this pass does not trigger modifier hooks
             # and is only used for capturing intermediates

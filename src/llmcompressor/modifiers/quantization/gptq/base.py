@@ -214,13 +214,6 @@ class GPTQModifier(Modifier, HooksMixin):
                 post_hook = partial(self.compress_module, name)
                 self.register_hook(module, post_hook, "forward")
 
-            if "head" in name:
-
-                def hook(module: torch.nn.Module, args: Tuple[Any, ...]):
-                    raise EarlyStopException(None, None)
-
-                self.register_hook(module, hook, "forward_pre")
-
         # feed data
         with calibration_forward_context(state.model):
             partitioned_model.forward_data(state.data.calib, mask_padding=True)
