@@ -93,9 +93,11 @@ class NaiveQuantizationCompressor(BaseQuantizationCompressor):
                 args=quantization_args,
                 dtype=quantization_args.pytorch_dtype(),
             )
+        else:
+            quantized_weight = weight
 
-            if device is not None:
-                quantized_weight = quantized_weight.to(device)
+        if device is not None:
+            quantized_weight = quantized_weight.to(device)
 
         return {"weight": quantized_weight}
 

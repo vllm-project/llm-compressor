@@ -94,6 +94,8 @@ class PackedQuantizationCompressor(BaseQuantizationCompressor):
                 args=quantization_args,
                 dtype=torch.int8,
             )
+        else:
+            quantized_weight = weight
 
         packed_weight = pack_to_int32(quantized_weight, quantization_args.num_bits)
         weight_shape = torch.tensor(weight.shape)
