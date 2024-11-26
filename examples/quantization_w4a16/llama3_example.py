@@ -58,7 +58,27 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"], update_size=NUM_CALIBRATION_SAMPLES, dampening_frac=0.5)
+from compressed_tensors.quantization import QuantizationArgs, QuantizationType, QuantizationStrategy, ActivationOrdering, QuantizationScheme
+recipe = GPTQModifier(
+    targets="Linear",
+    config_groups={
+        "config_group": QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(
+                num_bits=4,
+                type=QuantizationType.INT,
+                strategy=QuantizationStrategy.GROUP,
+                group_size=128,
+                symmetric=True,
+                dynamic=False,
+                actorder=ActivationOrdering.GROUP,
+            ),
+        ),
+    },
+    ignore=["lm_head"],
+    update_size=NUM_CALIBRATION_SAMPLES,
+    dampening_frac=0.5
+)
 
 # Apply algorithms.
 oneshot(

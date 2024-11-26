@@ -209,7 +209,6 @@ class GPTQModifier(Modifier, HooksMixin):
                 self.register_hook(module, hook, "forward_pre")
 
         # feed data
-        breakpoint()
         with calibration_forward_context(state.model):
             run_calibration_forward(state.model, state.data.calib, mask_padding=True)
 
