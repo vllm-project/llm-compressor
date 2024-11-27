@@ -486,8 +486,11 @@ class SessionManagerMixIn:
             )
 
         self.save_state()
-        if self.tokenizer is not None:
-            self.tokenizer.save_pretrained(output_dir)
+        processor = self.processing_class if hasattr(self, "processing_class") else self.tokenizer
+        if processor is not None:
+            processor.save_pretrained(output_dir)
+        # if self.tokenizer is not None:
+        #     self.tokenizer.save_pretrained(output_dir)
 
         if not self.recipe:
             return
