@@ -1,5 +1,8 @@
+import warnings
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Union
+
+from pydantic import field_validator
 
 
 @dataclass
@@ -50,6 +53,29 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
             )
         },
     )
+
+    @field_validator("remove_columns", mode="before")
+    def validate_remove_columns(cls, value: bool) -> Union[None, str, List]:
+        if value is not None:
+            warnings.warn(
+                "`remove_columns` argument is no longer supported, please preprocess "
+                "your dataset prior to performing compression, for example:\n\n"
+                "`ds = ds.map(remove_columns=remove_columns)`",
+                DeprecationWarning,
+            )
+
+        return value
+
+    @field_validator("preprocessing_func", mode="before")
+    def validate_preprocessing_func(cls, value: bool) -> Union[None, str, List]:
+        if value is not None:
+            warnings.warn(
+                "`preprocessing_func` argument is no longer supported, please "
+                "preprocess your dataset prior to performing compression",
+                DeprecationWarning,
+            )
+
+        return value
 
 
 @dataclass

@@ -17,10 +17,6 @@ from typing import Dict, List, Union
 from datasets.dataset_dict import Dataset, DatasetDict
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.utils.preprocessing_functions import (
-    PreprocessingFunctionRegistry,
-)
-from llmcompressor.utils import import_from_path
 
 
 @TextGenerationDataset.register(name="custom", alias=["json", "csv"])
@@ -44,7 +40,6 @@ class CustomDataset(TextGenerationDataset):
             split=split,
             tokenizer=tokenizer,
         )
-        self.preprocessing_func = data_args.preprocessing_func
         self.remove_columns = data_args.remove_columns
 
     def get_raw_dataset(self, *_ignore, **__ignore) -> Union[DatasetDict, Dataset]:
@@ -57,26 +52,6 @@ class CustomDataset(TextGenerationDataset):
         else:
             # dataset must be loaded from file or HF Hub
             raw_dataset = super().get_raw_dataset()
-
-        if self.preprocessing_func is not None:
-            if callable(self.preprocessing_func):
-                func = self.preprocessing_func
-            elif ":" in self.preprocessing_func:
-                # load func_name from "/path/to/file.py:func_name"
-                func = import_from_path(self.preprocessing_func)
-            else:
-                # load from the registry
-                func = PreprocessingFunctionRegistry.get_value_from_registry(
-                    name=self.preprocessing_func
-                )
-
-            raw_dataset = self.map(
-                raw_dataset,
-                function=func,
-                batched=False,
-                num_proc=self.data_args.preprocessing_num_workers,
-                desc="Applying custom func to the custom dataset",
-            )
 
         self.remove_columns = (
             self.remove_columns or self.get_remove_columns_from_dataset(raw_dataset)
