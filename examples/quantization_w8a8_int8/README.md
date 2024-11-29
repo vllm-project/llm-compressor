@@ -145,6 +145,9 @@ We can see the resulting scores look good!
 |     |       |strict-match    |     5|exact_match|↑  |0.756|±  |0.0272|
 ```
 
+### Community Discussion ###
+* [(#916) Discuss the use of hyperparameters in the quantization_w8a8_int8 script](https://github.com/vllm-project/llm-compressor/issues/916)
+
 ### Questions or Feature Request?
 
 Please open up an issue on `vllm-project/llm-compressor`
