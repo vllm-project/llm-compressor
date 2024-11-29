@@ -117,6 +117,10 @@ class TestLMEval:
         metrics = results["results"][self.task]
         exact_match_strict = metrics.get("exact_match,strict-match")
         exact_match_flex = metrics.get("exact_match,flexible-extract")
+        logger.info("Exact Match, Strict")
+        logger.info(exact_match_strict)
+        logger.info("Exact Match, Flex")
+        logger.info(exact_match_flex)
         assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
         assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
 
