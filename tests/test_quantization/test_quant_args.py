@@ -83,14 +83,28 @@ def test_actorder():
     # test group inference with actorder
     args = QuantizationArgs(group_size=128, actorder=ActivationOrdering.GROUP)
     assert args.strategy == QuantizationStrategy.GROUP
+    args = QuantizationArgs(group_size=128, actorder=ActivationOrdering.DYNAMIC)
+    assert args.strategy == QuantizationStrategy.GROUP
 
     # test invalid pairings
     with pytest.raises(ValueError):
+        QuantizationArgs(group_size=None, actorder="group")
+    with pytest.raises(ValueError):
         QuantizationArgs(group_size=None, actorder="weight")
+    with pytest.raises(ValueError):
+        QuantizationArgs(group_size=None, actorder="static")
+    with pytest.raises(ValueError):
+        QuantizationArgs(group_size=-1, actorder="group")
     with pytest.raises(ValueError):
         QuantizationArgs(group_size=-1, actorder="weight")
     with pytest.raises(ValueError):
+        QuantizationArgs(group_size=-1, actorder="static")
+    with pytest.raises(ValueError):
+        QuantizationArgs(strategy="tensor", actorder="group")
+    with pytest.raises(ValueError):
         QuantizationArgs(strategy="tensor", actorder="weight")
+    with pytest.raises(ValueError):
+        QuantizationArgs(strategy="tensor", actorder="static")
 
     # test boolean and none defaulting
     assert (
@@ -99,6 +113,38 @@ def test_actorder():
     )
     assert QuantizationArgs(group_size=1, actorder=False).actorder is None
     assert QuantizationArgs(group_size=1, actorder=None).actorder is None
+
+
+def test_actorder_aliases():
+    assert (
+        ActivationOrdering.GROUP
+        == ActivationOrdering.DYNAMIC
+        == ActivationOrdering.GROUP
+    )
+    assert (
+        ActivationOrdering.WEIGHT
+        == ActivationOrdering.STATIC
+        == ActivationOrdering.WEIGHT
+    )
+
+    assert ActivationOrdering.GROUP == "dynamic" == ActivationOrdering.GROUP
+    assert ActivationOrdering.DYNAMIC == "dynamic" == ActivationOrdering.DYNAMIC
+    assert ActivationOrdering.GROUP == "group" == ActivationOrdering.GROUP
+    assert ActivationOrdering.DYNAMIC == "group" == ActivationOrdering.DYNAMIC
+
+    assert ActivationOrdering.WEIGHT == "static" == ActivationOrdering.WEIGHT
+    assert ActivationOrdering.STATIC == "static" == ActivationOrdering.STATIC
+    assert ActivationOrdering.WEIGHT == "weight" == ActivationOrdering.WEIGHT
+    assert ActivationOrdering.STATIC == "weight" == ActivationOrdering.STATIC
+
+    assert ActivationOrdering.WEIGHT != "dynamic" != ActivationOrdering.WEIGHT
+    assert ActivationOrdering.STATIC != "dynamic" != ActivationOrdering.STATIC
+    assert ActivationOrdering.WEIGHT != "group" != ActivationOrdering.WEIGHT
+    assert ActivationOrdering.STATIC != "group" != ActivationOrdering.STATIC
+    assert ActivationOrdering.GROUP != "static" != ActivationOrdering.GROUP
+    assert ActivationOrdering.DYNAMIC != "static" != ActivationOrdering.DYNAMIC
+    assert ActivationOrdering.GROUP != "weight" != ActivationOrdering.GROUP
+    assert ActivationOrdering.DYNAMIC != "weight" != ActivationOrdering.DYNAMIC
 
 
 def test_invalid():

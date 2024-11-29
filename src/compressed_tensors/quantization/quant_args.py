@@ -17,6 +17,7 @@ from enum import Enum
 from typing import Any, Dict, Optional, Union
 
 import torch
+from compressed_tensors.utils import Aliasable
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -53,17 +54,30 @@ class QuantizationStrategy(str, Enum):
     TOKEN = "token"
 
 
-class ActivationOrdering(str, Enum):
+class ActivationOrdering(Aliasable, str, Enum):
     """
     Enum storing strategies for activation ordering
 
     Group: reorder groups and weight\n
-    Weight: only reorder weight, not groups. Slightly lower latency and
-    accuracy compared to group actorder\n
+    Weight: only reorder weight, not groups. Slightly lower accuracy but also lower
+    latency when compared to group actorder\n
+    Dynamic: alias for Group\n
+    Static: alias for Weight\n
     """
 
     GROUP = "group"
     WEIGHT = "weight"
+    # aliases
+    DYNAMIC = "dynamic"
+    STATIC = "static"
+
+    @property
+    @staticmethod
+    def aliases(self) -> Dict[str, str]:
+        return {
+            "dynamic": "group",
+            "static": "weight",
+        }
 
 
 class QuantizationArgs(BaseModel, use_enum_values=True):

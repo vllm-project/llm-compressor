@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
+from abc import abstractmethod
+from typing import Any, Dict, Optional
 
 import torch
 from transformers import AutoConfig
@@ -24,6 +25,7 @@ __all__ = [
     "tensor_follows_mask_structure",
     "replace_module",
     "is_compressed_tensors_config",
+    "Aliasable",
 ]
 
 FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
@@ -119,3 +121,36 @@ def is_compressed_tensors_config(compression_config: Any) -> bool:
         return isinstance(compression_config, CompressedTensorsConfig)
     except ImportError:
         return False
+
+
+class Aliasable:
+    """
+    A mixin for enums to allow aliasing of enum members
+
+    Example:
+    >>> class MyClass(Aliasable, int, Enum):
+    >>>     ...
+    """
+
+    @property
+    @staticmethod
+    @abstractmethod
+    def aliases(self) -> Dict[str, str]:
+        raise NotImplementedError()
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return self.value == other.value or (
+                self.aliases.get(self.value, self.value)
+                == self.aliases.get(other.value, other.value)
+            )
+        else:
+            self_value = self.aliases.get(self.value, self.value)
+            other_value = self.aliases.get(other, other)
+            return self_value == other_value
+
+        return False
+
+    def __hash__(self):
+        canonical_value = self.aliases.get(self.value, self.value)
+        return hash(canonical_value)
