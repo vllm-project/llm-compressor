@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy
 import pytest
 import yaml
-from huggingface_hub import HfApi
 from loguru import logger
 
 from llmcompressor.core import active_session
@@ -20,7 +19,6 @@ except ImportError:
     lm_eval_installed = False
     logger.warning("lm_eval is not installed. This test will be skipped")
 
-HF_MODEL_HUB_NAME = "nm-testing"
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 
 
@@ -74,7 +72,6 @@ class TestLMEval:
         self.device = "cuda:0"
         self.num_calibration_samples = 256
         self.max_seq_length = 2048
-        self.api = HfApi()
 
     def test_lm_eval(self):
         # Run vLLM with saved model
@@ -129,14 +126,6 @@ class TestLMEval:
         logger.info(exact_match_flex)
         assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
         assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
-
-        logger.info("================= UPLOADING TO HUB ======================")
-
-        self.api.upload_folder(
-            repo_id=f"{HF_MODEL_HUB_NAME}/{self.save_dir}-lm-eval",
-            folder_path=self.save_dir,
-        )
-
         self.tear_down()
 
     def tear_down(self):
