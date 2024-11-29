@@ -12,6 +12,4 @@ class WikiTextDataset(TextGenerationDataset):
     """
 
     def __init__(self, data_args, split, tokenizer):
-        super().__init__(
-            text_column="text", data_args=data_args, split=split, tokenizer=tokenizer
-        )
+        super().__init__(data_args=data_args, split=split, tokenizer=tokenizer)

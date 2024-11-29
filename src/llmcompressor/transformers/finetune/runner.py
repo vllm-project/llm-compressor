@@ -1,12 +1,12 @@
 import math
 import os
 import re
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, PreTrainedTokenizerBase
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -56,11 +56,14 @@ class StageRunner:
 
         self.datasets = {}
         self.trainer = None
-        self.tokenizer = None
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = True):
+    def populate_datasets(
+        self,
+        processor: Union["AutoProcessor", PreTrainedTokenizerBase],
+        add_labels: bool = True,
+    ):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
@@ -68,7 +71,7 @@ class StageRunner:
         :param tokenizer: tokenizer to use for dataset tokenization
         """
         if self._data_args.dataset is None:
-            self.tokenizer = self._model_args.tokenizer
+            self.tokenizer = self._model_args.processor
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
                 "weight-only and dynamic quantization"
@@ -93,29 +96,19 @@ class StageRunner:
             splits = {_get_split_name(s): s for s in splits}
 
         # default to custom dataset if dataset provided isn't a string
-        registry_id = self._data_args.dataset
-
-        if not isinstance(registry_id, str):
-            registry_id = "custom"
+        registry_id = (
+            self._data_args.dataset
+            if isinstance(self._data_args.dataset, str)
+            else "custom"
+        )
         for split_name, split_str in splits.items():
             dataset_manager = TextGenerationDataset.load_from_registry(
-                registry_id,
+                name=registry_id,
                 data_args=self._data_args,
                 split=split_str,
-                tokenizer=tokenizer,
+                processor=processor,
             )
-
-            dataset = self._data_args.dataset
-            if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
-                # dataset is already tokenized
-                tokenized_datasets[split_name] = dataset
-            else:
-                # dataset needs to be tokenized
-                raw_dataset = dataset_manager.get_raw_dataset()
-                tokenized_dataset = dataset_manager.tokenize_and_process(
-                    raw_dataset, add_labels=add_labels
-                )
-                tokenized_datasets[split_name] = tokenized_dataset
+            tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
 
         self.datasets = make_dataset_splits(
             tokenized_datasets,
@@ -124,7 +117,6 @@ class StageRunner:
             do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
-        self.tokenizer = tokenizer
 
     def get_dataset_split(self, split_name: str) -> Dataset:
         """

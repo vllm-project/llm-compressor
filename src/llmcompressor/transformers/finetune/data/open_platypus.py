@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from copy import deepcopy
-from typing import Optional
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
@@ -44,39 +43,21 @@ class OpenPlatypusDataset(TextGenerationDataset):
             text_column="text", data_args=data_args, split=split, tokenizer=tokenizer
         )
 
-    def get_raw_dataset(self, cache_dir: Optional[str] = None):
-        """
-        Load the raw dataset from Hugging Face, using cached copy if available.
-        Additionally reformats the entries to fit the alpaca template.
+    def dataset_template(self, sample):
+        if "input" in sample and sample["input"] != "":
+            prompt = self.ALPACA_TEMPLATE["prompt_input"].format(
+                instruction=sample["instruction"], input=sample["input"]
+            )
+        else:
+            prompt = self.ALPACA_TEMPLATE["prompt_no_input"].format(
+                instruction=sample["instruction"]
+            )
 
-        :param cache_dir: disk location to search for cached dataset
-        :return: the requested dataset
-        """
-        raw_dataset = super().get_raw_dataset(cache_dir=cache_dir)
+        text = prompt
+        if "output" in sample:
+            text += sample["output"]
 
-        # helper fn for restructuring each dataset entry using the alpaca template
-        def restructure_fn(sample):
-            if "input" in sample and sample["input"] != "":
-                sample["text"] = self.ALPACA_TEMPLATE["prompt_input"].format(
-                    instruction=sample["instruction"], input=sample["input"]
-                )
-            else:
-                sample["text"] = self.ALPACA_TEMPLATE["prompt_no_input"].format(
-                    instruction=sample["instruction"]
-                )
-
-            sample[self.PROMPT_KEY] = sample["text"]
-            if "output" in sample:
-                sample["text"] += sample["output"]
-            return sample
-
-        raw_dataset = self.map(
-            raw_dataset,
-            function=restructure_fn,
-            batched=False,
-            remove_columns=["input", "output", "instruction", "data_source"],
-            num_proc=self.data_args.preprocessing_num_workers,
-            load_from_cache_file=not self.data_args.overwrite_cache,
-            desc="Restructuring Platypus Dataset",
-        )
-        return raw_dataset
+        return {
+            "text": text,
+            self.PROMPT_KEY: prompt,
+        }

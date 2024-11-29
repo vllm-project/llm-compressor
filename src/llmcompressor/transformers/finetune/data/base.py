@@ -1,9 +1,10 @@
-from typing import Optional, Union
+from functools import cached_property
+from typing import Any, Callable, Union
 
 from compressed_tensors.registry import RegistryMixin
-from datasets import Dataset, IterableDataset
+from datasets import Dataset, DatasetDict, IterableDataset
 from loguru import logger
-from transformers import AutoTokenizer
+from transformers import AutoProcessor
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -11,6 +12,12 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     get_custom_datasets_from_path,
     get_raw_dataset,
 )
+from llmcompressor.transformers.utils.preprocessing_functions import (
+    PreprocessingFunctionRegistry,
+)
+from llmcompressor.utils import import_from_path
+
+DatasetType = Union[Dataset, DatasetDict, IterableDataset]
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -23,63 +30,119 @@ class TextGenerationDataset(RegistryMixin):
     :param tokenizer: tokenizer to use on dataset
     """
 
+    # used to mask out the prompt so prompt tokens do not contribute to training loss
     PROMPT_KEY = "prompt"
+
+    # TODO: not sure how to handle the prompt stuff best. Specifically w.r.t.
+    """
+    dataset = self.processor(**dataset)
+
+    if dataset includes the PROMPT_KEY
+    """
 
     def __init__(
         self,
-        text_column: str,
         data_args: DataTrainingArguments,
         split: str,
-        tokenizer: AutoTokenizer,
+        processor: "AutoProcessor",
     ):
-        self.text_column = text_column
-        self.tokenizer = tokenizer
         self.data_args = data_args
-        self.raw_kwargs = data_args.raw_kwargs or {}
         self.split = split
-        self.dvc_dataset = (
-            True if self.data_args.dvc_data_repository is not None else False
-        )
-        self.custom_dataset = True if self.data_args.dataset_path is not None else False
+        self.processor = processor
 
-        # configure padding
-        if data_args.concatenate_data:
-            self.padding = False
-        elif data_args.pad_to_max_length:
-            self.padding = "max_length"
-        else:
-            self.padding = False
+        # get tokenizer
+        self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
 
-        if self.tokenizer:
-            if not self.tokenizer.pad_token:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
+        # fill in pad token
+        if self.tokenizer.pad_token:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # configure sequence length
         max_seq_length = data_args.max_seq_length
-        model_max_length = tokenizer.model_max_length if tokenizer else max_seq_length
-        if self.tokenizer and max_seq_length > model_max_length:
+        if data_args.max_seq_length > self.tokenizer.model_max_length:
             logger.warning(
                 f"The max_seq_length passed ({max_seq_length}) is larger than "
-                f"the maximum length for the model ({tokenizer.model_max_length}). "
-                f"Using max_seq_length={tokenizer.model_max_length}."
+                f"the maximum length for model ({self.tokenizer.model_max_length}). "
+                f"Using max_seq_length={self.tokenizer.model_max_length}."
             )
-        self.max_seq_length = min(data_args.max_seq_length, model_max_length)
+        self.max_seq_length = min(
+            data_args.max_seq_length, self.tokenizer.model_max_length
+        )
 
-    def get_raw_dataset(self, cache_dir: Optional[str] = None) -> Dataset:
+    def __call__(self, add_labels: bool) -> DatasetType:
+        dataset = self.data_args.dataset
+
+        # load dataset
+        if isinstance(dataset, str):
+            dataset = self.load_dataset()
+
+        # preprocess
+        if self.preprocess is not None:
+            dataset = self.map(
+                dataset,
+                self.preprocess,
+                batched=False,
+                remove_columns=dataset.column_names,
+                num_proc=self.data_args.preprocessing_num_workers,
+                desc="Preprocessing",
+            )
+
+        # tokenize
+        if "input_ids" not in dataset.column_names:
+            dataset = self.map(
+                dataset,
+                self.tokenize,
+                batched=True,
+                remove_columns=dataset.column_names,
+                num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
+                desc="Tokenizing",
+            )
+
+        # postprocess
+
+        if self.data_args.concatenate_data:
+            # group text
+            dataset = self.map(
+                dataset,
+                function=self.group_text,
+                batched=True,
+                num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
+                desc="Concatenating data",
+            )
+
+        if add_labels:
+            # add labels
+            dataset = self.map(
+                dataset,
+                function=self.add_labels,
+                batched=False,  # not compatible with batching, need row lengths
+                num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
+                desc="Adding labels",
+            )
+
+        if self.PROMPT_KEY in dataset:
+            del dataset[self.PROMPT_KEY]
+
+        return dataset
+
+    def load_dataset(self):
         """
         Load the raw dataset from Hugging Face, using cached copy if available
 
         :param cache_dir: disk location to search for cached dataset
         :return: the requested dataset
         """
-        if self.custom_dataset:
-            if self.dvc_dataset:
-                self.raw_kwargs["storage_options"] = {
+        if self.data_args.dataset_path is not None:
+            if self.data_args.dvc_data_repository is not None:
+                self.data_args.raw_kwargs["storage_options"] = {
                     "url": self.data_args.dvc_data_repository
                 }
-                self.raw_kwargs["data_files"] = self.data_args.dataset_path
+                self.data_args.raw_kwargs["data_files"] = self.data_args.dataset_path
             else:
-                self.raw_kwargs["data_files"] = get_custom_datasets_from_path(
+                self.data_args.raw_kwargs["data_files"] = get_custom_datasets_from_path(
                     self.data_args.dataset_path,
                     self.data_args.dataset
                     if hasattr(self.data_args, "dataset")
@@ -88,129 +151,98 @@ class TextGenerationDataset(RegistryMixin):
 
         return get_raw_dataset(
             self.data_args,
-            cache_dir,
+            None,
             split=self.split,
             streaming=self.data_args.streaming,
-            **self.raw_kwargs,
+            **self.data_args.raw_kwargs,
         )
 
-    def tokenize_and_process(
-        self, raw_dataset: Optional[Dataset] = None, add_labels: Optional[bool] = True
-    ) -> Dataset:
-        """
-        Sets up the raw dataset for finetuning, performs tokenization, concatenates
-        entries to max sequence length if desired, and adds labels to each entry
+    @cached_property
+    def preprocess(self) -> Union[Callable[[Any], Any], None]:
+        preprocessing_func = self.data_args.preprocessing_func
 
-        :param raw_dataset: dataset to process
-        :param add_labels: whether to include labels in tokenized output
-        """
+        if callable(preprocessing_func):
+            return preprocessing_func
 
-        # helper fn for tokenizing text column
-        def tokenize_fn(data):
-            result = self.tokenizer(
-                data[self.text_column],
-                padding=self.padding,
+        if isinstance(preprocessing_func, str):
+            if ":" in preprocessing_func:
+                # load func_name from "/path/to/file.py:func_name"
+                return import_from_path(preprocessing_func)
+            else:
+                # load from the registry
+                return PreprocessingFunctionRegistry.get_value_from_registry(
+                    name=preprocessing_func
+                )
+
+        return self.dataset_template
+
+    @property
+    def dataset_template(self) -> Union[Callable[[Any], Any], None]:
+        return None
+
+    def tokenize(self, dataset: DatasetType) -> DatasetType:
+        # manually swap text argument if specified
+        if self.data_args.text_column not in dataset.column_names:
+            dataset["text"] = dataset[self.data_args.text_column]
+
+        # tokenize
+        dataset = self.processor(
+            **dataset,
+            padding=(
+                False
+                if self.data_args.concatenate_data
+                else "max_length"
+                if self.data_args.pad_to_max_length
+                else False
+            ),
+            max_length=self.max_seq_length,
+            truncation=True,
+        )
+
+        # store unpadded prompt so we can mask out correct number of elements
+        # in the labels
+        if self.PROMPT_KEY in dataset:
+            dataset[self.PROMPT_KEY] = self.processor(
+                dataset[self.PROMPT_KEY],
                 max_length=self.max_seq_length,
                 truncation=True,
-            )
-
-            # store unpadded prompt so we can mask out correct number of elements
-            # in the labels
-            if self.PROMPT_KEY in data:
-                result[self.PROMPT_KEY] = self.tokenizer(
-                    data[self.PROMPT_KEY],
-                    max_length=self.max_seq_length,
-                    truncation=True,
-                )["input_ids"]
-
-            return result
-
-        # helper fn for filling to max_sequence_length by concatenating entries
-        def group_text_fn(data):
-            concatenated_data = {k: sum(data[k], []) for k in data.keys()}
-            total_length = len(concatenated_data[list(data.keys())[0]])
-            total_length = (total_length // self.max_seq_length) * self.max_seq_length
-            result = {
-                k: [
-                    t[i : i + self.max_seq_length]
-                    for i in range(0, total_length, self.max_seq_length)
-                ]
-                for k, t in concatenated_data.items()
-            }
-            return result
-
-        # helper fn for adding labels, needed for loss calculation
-        def label_fn(data):
-            # if the dataset uses prompts, mask them out so they don't contribute
-            # to the loss calculation
-            prompt_len = 0
-            if self.PROMPT_KEY in data:
-                prompt_len = len(data[self.PROMPT_KEY])
-            data["labels"] = data["input_ids"].copy()
-            data["labels"][:prompt_len] = [LABELS_MASK_VALUE] * prompt_len
-
-            # mask out padding in the labels as well
-            padding = len(data["attention_mask"]) - sum(data["attention_mask"])
-            if padding > 0:
-                data["labels"][-padding:] = [LABELS_MASK_VALUE] * padding
-            return data
-
-        if raw_dataset is None:
-            raw_dataset = self.get_raw_dataset()
-
-        dataset = self.map(
-            raw_dataset,
-            function=tokenize_fn,
-            batched=True,
-            remove_columns=[self.text_column],
-            num_proc=self.data_args.preprocessing_num_workers,
-            load_from_cache_file=not self.data_args.overwrite_cache,
-            desc="Running tokenizer on dataset",
-        )
-
-        if self.data_args.concatenate_data:
-            dataset = self.map(
-                dataset,
-                function=group_text_fn,
-                batched=True,
-                num_proc=self.data_args.preprocessing_num_workers,
-                load_from_cache_file=not self.data_args.overwrite_cache,
-                desc="Grouping text",
-            )
-
-        if isinstance(dataset, IterableDataset):
-            # so we can get column names from streamed_datasets
-            dataset = dataset._resolve_features()
-
-        column_names = dataset.column_names
-        if isinstance(column_names, dict):
-            column_names = column_names[list(column_names)[0]]
-
-        if add_labels:
-            dataset = self.map(
-                dataset,
-                function=label_fn,
-                batched=False,  # not compatible with batching, need row lengths
-                remove_columns=[self.PROMPT_KEY]
-                if self.PROMPT_KEY in column_names
-                else None,
-                num_proc=self.data_args.preprocessing_num_workers,
-                load_from_cache_file=not self.data_args.overwrite_cache,
-                desc="Adding labels",
-            )
-        else:
-            dataset = self.map(
-                dataset,
-                batched=False,  # not compatible with batching, need row lengths
-                remove_columns=[self.PROMPT_KEY]
-                if self.PROMPT_KEY in column_names
-                else None,
-            )
+            )["input_ids"]
 
         return dataset
 
+    def group_text(self, data):
+        concatenated_data = {k: sum(data[k], []) for k in data.keys()}
+        total_length = len(concatenated_data[list(data.keys())[0]])
+        total_length = (total_length // self.max_seq_length) * self.max_seq_length
+        result = {
+            k: [
+                t[i : i + self.max_seq_length]
+                for i in range(0, total_length, self.max_seq_length)
+            ]
+            for k, t in concatenated_data.items()
+        }
+        return result
+
+    def add_labels(self, data):
+        # if the dataset uses prompts, mask them out so they don't contribute
+        # to the loss calculation
+        prompt_len = 0
+        if self.PROMPT_KEY in data:
+            prompt_len = len(data[self.PROMPT_KEY])
+        data["labels"] = data["input_ids"].copy()
+        data["labels"][:prompt_len] = [LABELS_MASK_VALUE] * prompt_len
+
+        # mask out padding in the labels as well
+        padding = len(data["attention_mask"]) - sum(data["attention_mask"])
+        if padding > 0:
+            data["labels"][-padding:] = [LABELS_MASK_VALUE] * padding
+        return data
+
     def map(
-        self, dataset: Union[Dataset, IterableDataset], **kwargs
+        self,
+        dataset: Union[Dataset, IterableDataset],
+        map_fn: Union[Callable[[Any], Any], None],
+        **kwargs,
     ) -> Union[Dataset, IterableDataset]:
         """
         Wrapper function around Dataset.map and IterableDataset.map, clears invalid
@@ -220,10 +252,18 @@ class TextGenerationDataset(RegistryMixin):
         :param kwargs: args to pass on to map function
         :return: mapped dataset
         """
+        if map_fn is None:
+            return dataset
+
         if isinstance(dataset, IterableDataset):
             # remove arguments that don't apply to streaming
             kwargs.pop("num_proc", None)
             kwargs.pop("load_from_cache_file", None)
             kwargs.pop("desc", None)
 
-        return dataset.map(**kwargs)
+        dataset = dataset.map(map_fn, **kwargs)
+
+        if isinstance(dataset, IterableDataset):
+            dataset = dataset._resolve_features()
+
+        return dataset
