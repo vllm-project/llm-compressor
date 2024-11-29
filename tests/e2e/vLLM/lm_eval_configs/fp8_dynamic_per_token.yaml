@@ -1,4 +1,4 @@
-cadence: "nightly"
+cadence: "weekly"
 model: meta-llama/Meta-Llama-3-8B-Instruct
 scheme: FP8_DYNAMIC
 num_fewshot: 5

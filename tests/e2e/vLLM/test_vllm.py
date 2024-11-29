@@ -13,8 +13,11 @@ from tests.examples.utils import requires_gpu_count
 
 try:
     from vllm import LLM, SamplingParams
-except ImportError as e:
-    raise e
+
+    vllm_installed = True
+except ImportError:
+    vllm_installed = False
+    logger.warning("vllm is not installed. This test will be skipped")
 
 HF_MODEL_HUB_NAME = "nm-testing"
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
@@ -23,6 +26,7 @@ TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
+@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
     The following test quantizes a model using a preset scheme or recipe,
