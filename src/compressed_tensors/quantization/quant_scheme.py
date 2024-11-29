@@ -62,7 +62,6 @@ class QuantizationScheme(BaseModel):
 
         return model
 
-
 """
 Pre-Set Quantization Scheme Args
 """
