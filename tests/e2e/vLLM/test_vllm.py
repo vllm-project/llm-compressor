@@ -33,13 +33,12 @@ class TestvLLM:
     runs the model using vLLM, and then pushes the model to the hub for
     future use. Each test case is focused on a specific quantization type
     (e.g W4A16 with grouped quantization, W4N16 with channel quantization).
-    To add a new test case, a new config has to be added to one of the folders
-    listed in the `CONFIGS` folder. If the test case is for a data type not listed
-    in `CONFIGS`, a new folder can be created and added to the list. The tests
-    run on a cadence defined by the `cadence` field. Each config defines the model
-    to quantize. Optionally, a dataset id and split can be provided for calibration.
-    Finally, all config files must list a scheme. The scheme can be a preset scheme
-    from https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
+    To add a new test case, a new config has to be added to the `configs` folder.
+    The tests run on a cadence defined by the `cadence` field. Each config defines
+    the model to quantize. Optionally, a dataset id and split can be provided for
+    calibration. Finally, all config files must list a scheme. The scheme can be a
+    preset scheme from
+    https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
     or another identifier which can be used for the particular test case. If a recipe
     is not provided, it is assumed that the scheme provided is a preset scheme and will
     be used for quantization. Otherwise, the recipe will always be used if given.
