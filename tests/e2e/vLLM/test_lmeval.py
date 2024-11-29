@@ -2,6 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
+import numpy
 import pytest
 import yaml
 from huggingface_hub import HfApi
@@ -12,7 +13,7 @@ from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 
 try:
-    from vllm import LLM, SamplingParams
+    import lm_eval
 except ImportError as e:
     raise e
 
@@ -23,7 +24,7 @@ TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
-class TestvLLM:
+class TestLMEval:
     """
     The following test quantizes a model using a preset scheme or recipe,
     runs the model using vLLM, and then pushes the model to the hub for
@@ -55,6 +56,11 @@ class TestvLLM:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
+        self.task = eval_config.get("task")
+        self.num_fewshot = eval_config.get("num_fewshot")
+        self.limit = eval_config.get("limit")
+        self.exact_flex = eval_config.get("exact_match,flexible-extract")
+        self.exact_strict = eval_config.get("exact_match,strict-match")
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
@@ -62,17 +68,10 @@ class TestvLLM:
         self.device = "cuda:0"
         self.num_calibration_samples = 256
         self.max_seq_length = 2048
-        self.prompts = [
-            "The capital of France is",
-            "The president of the US is",
-            "My name is",
-        ]
         self.api = HfApi()
 
-    def test_vllm(self):
+    def test_lm_eval(self):
         # Run vLLM with saved model
-        import torch
-
         self.set_up()
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -102,33 +101,31 @@ class TestvLLM:
             fp.write(recipe_yaml_str)
         session.reset()
 
+        logger.info("================= Running LM Eval ======================")
+
+        model_args = f"pretrained={self.save_dir}"
+        results = lm_eval.simple_evaluate(
+            model="hf",
+            model_args=model_args,
+            tasks=[self.task],
+            num_fewshot=self.num_fewshot,
+            limit=self.limit,
+            device="cuda:0",
+            batch_size=100,
+        )
+
+        metrics = results["results"][self.task]
+        exact_match_strict = metrics.get("exact_match,strict-match")
+        exact_match_flex = metrics.get("exact_match,flexible-extract")
+        assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
+        assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
+
         logger.info("================= UPLOADING TO HUB ======================")
 
         self.api.upload_folder(
-            repo_id=f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e",
+            repo_id=f"{HF_MODEL_HUB_NAME}/{self.save_dir}-lm-eval",
             folder_path=self.save_dir,
         )
-
-        logger.info("================= RUNNING vLLM =========================")
-
-        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm = LLM(model=self.save_dir, dtype=torch.float16)
-        else:
-            llm = LLM(model=self.save_dir)
-        outputs = llm.generate(self.prompts, sampling_params)
-
-        logger.info("================= vLLM GENERATION ======================")
-        for output in outputs:
-            assert output
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
-
-            logger.info("PROMPT")
-            logger.info(prompt)
-            logger.info("GENERATED TEXT")
-            logger.info(generated_text)
 
         self.tear_down()
 
