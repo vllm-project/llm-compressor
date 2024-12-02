@@ -137,6 +137,13 @@ def make_dataset_splits(
                 raise ValueError("--do_oneshot requires a calibration dataset")
             calib_split = tokenized_datasets["train"]
 
+        # remove labels from calibration dataset
+        column_names = calib_split.column_names
+        if isinstance(column_names, dict):
+            column_names = sum(column_names.values(), [])
+        if "labels" in column_names:
+            calib_split = calib_split.remove_columns("labels")
+
     split_datasets = {
         "train": train_split,
         "validation": eval_split,

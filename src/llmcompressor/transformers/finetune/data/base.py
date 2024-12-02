@@ -106,7 +106,6 @@ class TextGenerationDataset(RegistryMixin):
 
         # 3. Process
         if self.processor is not None and "input_ids" not in dataset.column_names:
-
             # tokenize/ process
             dataset = self.map(
                 dataset,
