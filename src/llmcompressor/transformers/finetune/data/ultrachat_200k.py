@@ -1,19 +1,8 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from copy import deepcopy
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
+from llmcompressor.utils import Processor
 
 
 @TextGenerationDataset.register(name="ultrachat_200k")
@@ -23,7 +12,7 @@ class UltraChatDataset(TextGenerationDataset):
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
     """
 
     DEFAULT_CHAT_TEMPLATE = (
@@ -39,7 +28,12 @@ class UltraChatDataset(TextGenerationDataset):
         "{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
     )
 
-    def __init__(self, data_args, split, tokenizer):
+    def __init__(
+        self,
+        data_args: DataTrainingArguments,
+        split: str,
+        processor: Processor,
+    ):
         data_args = deepcopy(data_args)
         data_args.dataset = "HuggingFaceH4/ultrachat_200k"
         data_args.text_column = "messages"
@@ -50,7 +44,7 @@ class UltraChatDataset(TextGenerationDataset):
         super().__init__(
             data_args=data_args,
             split=split,
-            tokenizer=tokenizer,
+            processor=processor,
         )
 
         if getattr(self.tokenizer, "chat_template", None) is None:

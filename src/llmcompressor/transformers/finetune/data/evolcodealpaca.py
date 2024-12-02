@@ -1,19 +1,8 @@
-# Copyright (c) 2021 - present / Neuralmagic, Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 from copy import deepcopy
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
+from llmcompressor.utils import Processor
 
 
 @TextGenerationDataset.register(name="evolcodealpaca")
@@ -23,7 +12,7 @@ class EvolCodeAlpacaDataset(TextGenerationDataset):
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
     """
 
     EVOL_ALPACA_TEMPLATE = (
@@ -33,12 +22,17 @@ class EvolCodeAlpacaDataset(TextGenerationDataset):
         "\n\n### Response:\n"
     )
 
-    def __init__(self, data_args, split, tokenizer):
+    def __init__(
+        self,
+        data_args: DataTrainingArguments,
+        split: str,
+        processor: Processor,
+    ):
         data_args = deepcopy(data_args)
         data_args.dataset = "theblackcat102/evol-codealpaca-v1"
         data_args.text_column = "text"
 
-        super().__init__(data_args, split=split, tokenizer=tokenizer)
+        super().__init__(data_args, split=split, processor=processor)
 
     def dataset_template(self, sample):
         prompt = self.EVOL_ALPACA_TEMPLATE.format(instruction=sample["instruction"])

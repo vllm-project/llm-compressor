@@ -32,7 +32,7 @@ from llmcompressor.utils.fsdp.helpers import (
 __all__ = ["modify_save_pretrained", "modify_fsdp_model_save_pretrained"]
 
 
-def modify_fsdp_model_save_pretrained(trainer, tokenizer):
+def modify_fsdp_model_save_pretrained(trainer, processor):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
     supports compression for fsdp model
@@ -77,7 +77,7 @@ def modify_fsdp_model_save_pretrained(trainer, tokenizer):
                     model=trainer.model,
                     accelerator=trainer.accelerator,
                     output_dir=save_directory,
-                    tokenizer=tokenizer,
+                    processor=processor,
                 )
                 # only allow the main process move the state
                 # dicts to cpu

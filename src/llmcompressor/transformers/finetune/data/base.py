@@ -1,10 +1,9 @@
 from functools import cached_property
-from typing import Any, Callable, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, DatasetDict, IterableDataset
 from loguru import logger
-from transformers import AutoProcessor
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -15,7 +14,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
 )
-from llmcompressor.utils import import_from_path
+from llmcompressor.utils import Processor, import_from_path
 
 DatasetType = Union[Dataset, DatasetDict, IterableDataset]
 
@@ -24,10 +23,9 @@ class TextGenerationDataset(RegistryMixin):
     """
     Base class for text datasets, handles tokenization and dataset splits
 
-    :param text_column: name of column corresponding to text in the dataset
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
     """
 
     # used to mask out the prompt so prompt tokens do not contribute to training loss
@@ -44,7 +42,7 @@ class TextGenerationDataset(RegistryMixin):
         self,
         data_args: DataTrainingArguments,
         split: str,
-        processor: "AutoProcessor",
+        processor: Processor,
     ):
         self.data_args = data_args
         self.split = split
@@ -53,31 +51,47 @@ class TextGenerationDataset(RegistryMixin):
         # get tokenizer
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
 
-        # fill in pad token
-        if self.tokenizer.pad_token:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.tokenizer is not None:
+            # fill in pad token
+            if not self.tokenizer.pad_token:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        # configure sequence length
-        max_seq_length = data_args.max_seq_length
-        if data_args.max_seq_length > self.tokenizer.model_max_length:
-            logger.warning(
-                f"The max_seq_length passed ({max_seq_length}) is larger than "
-                f"the maximum length for model ({self.tokenizer.model_max_length}). "
-                f"Using max_seq_length={self.tokenizer.model_max_length}."
+            # configure sequence length
+            max_seq_length = data_args.max_seq_length
+            if data_args.max_seq_length > self.tokenizer.model_max_length:
+                logger.warning(
+                    f"The max_seq_length passed ({max_seq_length}) is larger than "
+                    f"maximum length for model ({self.tokenizer.model_max_length}). "
+                    f"Using max_seq_length={self.tokenizer.model_max_length}."
+                )
+            self.max_seq_length = min(
+                data_args.max_seq_length, self.tokenizer.model_max_length
             )
-        self.max_seq_length = min(
-            data_args.max_seq_length, self.tokenizer.model_max_length
-        )
 
-    def __call__(self, add_labels: bool) -> DatasetType:
+            # configure padding
+            self.padding = (
+                False
+                if self.data_args.concatenate_data
+                else "max_length"
+                if self.data_args.pad_to_max_length
+                else False
+            )
+
+        else:
+            self.max_seq_length = None
+            self.padding = False
+
+    def __call__(self, add_labels: bool = True) -> DatasetType:
         dataset = self.data_args.dataset
 
-        # load dataset
+        # 1. Load
         if isinstance(dataset, str):
+            # load dataset from huggingface or disk
             dataset = self.load_dataset()
 
-        # preprocess
+        # 2. Preprocess
         if self.preprocess is not None:
+            # apply template or preprocessing function
             dataset = self.map(
                 dataset,
                 self.preprocess,
@@ -87,8 +101,13 @@ class TextGenerationDataset(RegistryMixin):
                 desc="Preprocessing",
             )
 
-        # tokenize
-        if "input_ids" not in dataset.column_names:
+        # rename and remove columns match processor kwargs
+        dataset = self.rename_columns(dataset)
+
+        # 3. Process
+        if self.processor is not None and "input_ids" not in dataset.column_names:
+
+            # tokenize/ process
             dataset = self.map(
                 dataset,
                 self.tokenize,
@@ -99,13 +118,12 @@ class TextGenerationDataset(RegistryMixin):
                 desc="Tokenizing",
             )
 
-        # postprocess
-
+        # 4. Postprocess
         if self.data_args.concatenate_data:
-            # group text
+            # postprocess: group text
             dataset = self.map(
                 dataset,
-                function=self.group_text,
+                self.group_text,
                 batched=True,
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
@@ -113,17 +131,17 @@ class TextGenerationDataset(RegistryMixin):
             )
 
         if add_labels:
-            # add labels
+            # postprocess: add labels
             dataset = self.map(
                 dataset,
-                function=self.add_labels,
+                self.add_labels,
                 batched=False,  # not compatible with batching, need row lengths
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Adding labels",
             )
 
-        if self.PROMPT_KEY in dataset:
+        elif self.PROMPT_KEY in dataset.column_names:
             del dataset[self.PROMPT_KEY]
 
         return dataset
@@ -159,6 +177,11 @@ class TextGenerationDataset(RegistryMixin):
 
     @cached_property
     def preprocess(self) -> Union[Callable[[Any], Any], None]:
+        """
+
+        The function must return keys which correspond to tokenizer kwargs, optionally
+        including PROMPT_KEY
+        """
         preprocessing_func = self.data_args.preprocessing_func
 
         if callable(preprocessing_func):
@@ -180,37 +203,39 @@ class TextGenerationDataset(RegistryMixin):
     def dataset_template(self) -> Union[Callable[[Any], Any], None]:
         return None
 
-    def tokenize(self, dataset: DatasetType) -> DatasetType:
-        # manually swap text argument if specified
-        if self.data_args.text_column not in dataset.column_names:
-            dataset["text"] = dataset[self.data_args.text_column]
+    def rename_columns(self, dataset: DatasetType) -> DatasetType:
+        # rename columns to match processor/tokenizer kwargs
+        if (
+            self.data_args.text_column != "text"
+            and self.data_args.text_column in dataset.column_names
+        ):
+            dataset = dataset.rename_column(self.data_args.text_column, "text")
+
+        return dataset
+
+    def tokenize(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        # separate prompt
+        prompt = data.pop(self.PROMPT_KEY, None)
 
         # tokenize
-        dataset = self.processor(
-            **dataset,
-            padding=(
-                False
-                if self.data_args.concatenate_data
-                else "max_length"
-                if self.data_args.pad_to_max_length
-                else False
-            ),
+        data = self.processor(
+            **data,
+            padding=self.padding,
             max_length=self.max_seq_length,
             truncation=True,
         )
 
-        # store unpadded prompt so we can mask out correct number of elements
-        # in the labels
-        if self.PROMPT_KEY in dataset:
-            dataset[self.PROMPT_KEY] = self.processor(
-                dataset[self.PROMPT_KEY],
+        # store unpadded prompt so we can mask out correct number of elements in labels
+        if prompt is not None:
+            data[self.PROMPT_KEY] = self.processor(
+                prompt,
                 max_length=self.max_seq_length,
                 truncation=True,
             )["input_ids"]
 
-        return dataset
+        return data
 
-    def group_text(self, data):
+    def group_text(self, data: Dict[str, Any]) -> Dict[str, Any]:
         concatenated_data = {k: sum(data[k], []) for k in data.keys()}
         total_length = len(concatenated_data[list(data.keys())[0]])
         total_length = (total_length // self.max_seq_length) * self.max_seq_length
@@ -241,18 +266,17 @@ class TextGenerationDataset(RegistryMixin):
     def map(
         self,
         dataset: Union[Dataset, IterableDataset],
-        map_fn: Union[Callable[[Any], Any], None],
+        function: Union[Callable[[Any], Any], None],
+        remove_columns: Optional[Union[str, List[str], Dict[str, List[str]]]] = None,
         **kwargs,
     ) -> Union[Dataset, IterableDataset]:
         """
-        Wrapper function around Dataset.map and IterableDataset.map, clears invalid
-        parameters in the case where streaming is enabled
+        Wrapper function around Dataset.map and IterableDataset.map
 
-        :param dataset: dataset to apply mapping to
-        :param kwargs: args to pass on to map function
-        :return: mapped dataset
+        1. Clears invalid parameters in the case where streaming is enabled
+        2. Skips removing columns which were already removed after mapping
         """
-        if map_fn is None:
+        if function is None:
             return dataset
 
         if isinstance(dataset, IterableDataset):
@@ -261,9 +285,23 @@ class TextGenerationDataset(RegistryMixin):
             kwargs.pop("load_from_cache_file", None)
             kwargs.pop("desc", None)
 
-        dataset = dataset.map(map_fn, **kwargs)
+        dataset = dataset.map(function, **kwargs)
 
         if isinstance(dataset, IterableDataset):
             dataset = dataset._resolve_features()
+
+        if remove_columns is not None:
+            if isinstance(remove_columns, str):
+                remove_columns = [remove_columns]
+
+            dataset_column_names = dataset.column_names
+            if isinstance(dataset_column_names, dict):
+                dataset_column_names = sum(dataset_column_names.values(), [])
+            if isinstance(remove_columns, dict):
+                remove_columns = sum(remove_columns.values(), [])
+
+            dataset = dataset.remove_columns(
+                list(set(dataset_column_names) & set(remove_columns))
+            )
 
         return dataset

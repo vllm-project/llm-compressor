@@ -29,13 +29,13 @@ class TestConcentrationTokenization(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[:5%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
-        raw_dataset = wiki_manager.get_raw_dataset()
+        raw_dataset = wiki_manager.load_dataset()
         self.assertGreater(len(raw_dataset), 0)
         self.assertEqual(raw_dataset.split, "train[:5%]")
         self.assertEqual(raw_dataset.info.config_name, "wikitext-2-raw-v1")
-        tokenized_dataset = wiki_manager.tokenize_and_process(raw_dataset)
+        tokenized_dataset = wiki_manager()
         self.assertIn("input_ids", tokenized_dataset.features)
         self.assertIn("labels", tokenized_dataset.features)
         for i in range(len(tokenized_dataset)):
@@ -61,15 +61,22 @@ class TestNoPaddingTokenization(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[5%:10%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
-        raw_dataset = op_manager.get_raw_dataset()
-        self.assertGreater(len(raw_dataset), 0)
-        ex_item = raw_dataset[0]["text"]
+        dataset = op_manager.load_dataset()  # load
+        dataset = op_manager.map(  # preprocess
+            dataset,
+            op_manager.preprocess,
+            batched=False,
+            num_proc=op_manager.data_args.preprocessing_num_workers,
+        )
+        dataset = op_manager.rename_columns(dataset)  # rename
+        self.assertGreater(len(dataset), 0)
+        ex_item = dataset[0]["text"]
         self.assertIn("Below is an instruction that describes a task", ex_item)
 
-        self.assertEqual(raw_dataset.split, "train[5%:10%]")
-        tokenized_dataset = op_manager.tokenize_and_process(raw_dataset)
+        self.assertEqual(dataset.split, "train[5%:10%]")
+        tokenized_dataset = op_manager()
         self.assertIn("input_ids", tokenized_dataset.features)
         self.assertIn("labels", tokenized_dataset.features)
         print(tokenized_dataset[0]["input_ids"])
@@ -96,7 +103,7 @@ class TestMaxSeqLenClipped(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[80%:]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
 
         self.assertEqual(
@@ -125,17 +132,17 @@ class TestDatasetKwargsAndPercent(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[5%:10%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
-        raw_dataset_a = c4_manager_a.get_raw_dataset()
+        raw_dataset_a = c4_manager_a.load_dataset()
 
         c4_manager_b = TextGenerationDataset.load_from_registry(
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[5%:15%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
-        raw_dataset_b = c4_manager_b.get_raw_dataset()
+        raw_dataset_b = c4_manager_b.load_dataset()
 
         self.assertEqual(len(raw_dataset_b), 2 * len(raw_dataset_a))
 
@@ -164,14 +171,14 @@ class TestDatasets(unittest.TestCase):
             data_args.dataset,
             data_args=data_args,
             split=split,
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
-        raw_dataset = manager.get_raw_dataset()
+        raw_dataset = manager.load_dataset()
         self.assertGreater(len(raw_dataset), 0)
         self.assertEqual(raw_dataset.split, split)
         self.assertEqual(raw_dataset.info.config_name, dataset_config)
 
-        tokenized_dataset = manager.tokenize_and_process(raw_dataset)
+        tokenized_dataset = manager()
         self.assertIn("input_ids", tokenized_dataset.features)
         self.assertIn("labels", tokenized_dataset.features)
         for i in range(len(tokenized_dataset)):
@@ -204,13 +211,13 @@ class TestEvol(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[:2%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
-        raw_dataset = evol_manager.get_raw_dataset()
+        raw_dataset = evol_manager.load_dataset()
         self.assertGreater(len(raw_dataset), 0)
         self.assertEqual(raw_dataset.split, "train[:2%]")
 
-        tokenized_dataset = evol_manager.tokenize_and_process(raw_dataset)
+        tokenized_dataset = evol_manager()
         self.assertIn("input_ids", tokenized_dataset.features)
         self.assertIn("labels", tokenized_dataset.features)
         for i in range(len(tokenized_dataset)):
@@ -238,11 +245,10 @@ class TestStreamLoading(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
 
-        raw_dataset = manager.get_raw_dataset()
-        processed = manager.tokenize_and_process(raw_dataset)
+        processed = manager()
         self.assertIsInstance(processed, IterableDataset)
         with pytest.raises(TypeError):
             # in streaming mode we don't know the length of the dataset
@@ -276,7 +282,7 @@ class TestSplitLoading(unittest.TestCase):
         stage_runner = StageRunner(
             model_args=model_args, data_args=data_args, training_args=training_args
         )
-        stage_runner.populate_datasets(tokenizer=self.tiny_llama_tokenizer)
+        stage_runner.populate_datasets(processor=self.tiny_llama_tokenizer)
 
         train_dataset = stage_runner.get_dataset_split("train")
         assert train_dataset is not None
@@ -320,7 +326,7 @@ class TestTokenizationDataset(unittest.TestCase):
             ),
             training_args=TrainingArguments(do_oneshot=True),
         )
-        stage_runner.populate_datasets(tokenizer=None)
+        stage_runner.populate_datasets(processor=None)
         calib_dataset = stage_runner.get_dataset_split("calibration")
         self.assertEqual(len(calib_dataset), self.num_calib_samples)
         data_cols = calib_dataset.column_names

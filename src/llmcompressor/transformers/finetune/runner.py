@@ -1,12 +1,11 @@
 import math
 import os
 import re
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
-from transformers import AutoProcessor, PreTrainedTokenizerBase
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -24,6 +23,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.utils import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
 
@@ -61,17 +61,18 @@ class StageRunner:
 
     def populate_datasets(
         self,
-        processor: Union["AutoProcessor", PreTrainedTokenizerBase],
+        processor: Processor,
         add_labels: bool = True,
     ):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
 
-        :param tokenizer: tokenizer to use for dataset tokenization
+        :param processor: processor or tokenizer to use for dataset tokenization
+        :param add_labels: if True, add labels column to dataset splits
         """
         if self._data_args.dataset is None:
-            self.tokenizer = self._model_args.processor
+            self.processor = self._model_args.processor
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
                 "weight-only and dynamic quantization"
@@ -258,7 +259,7 @@ class StageRunner:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
-                    tokenizer=self.tokenizer,
+                    processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._training_args.save_compressed,
                 )
