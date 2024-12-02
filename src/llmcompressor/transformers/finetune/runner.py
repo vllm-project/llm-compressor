@@ -59,11 +59,7 @@ class StageRunner:
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(
-        self,
-        processor: Processor,
-        add_labels: bool = True,
-    ):
+    def populate_datasets(self, processor: Processor, add_labels: bool = True):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
@@ -104,7 +100,7 @@ class StageRunner:
         )
         for split_name, split_str in splits.items():
             dataset_manager = TextGenerationDataset.load_from_registry(
-                name=registry_id,
+                registry_id,
                 data_args=self._data_args,
                 split=split_str,
                 processor=processor,

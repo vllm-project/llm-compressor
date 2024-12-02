@@ -1,7 +1,7 @@
 from copy import deepcopy
 
+from llmcompressor.transformers.finetune.data import DataTrainingArguments as DataArgs
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.utils import Processor
 
 
@@ -17,12 +17,7 @@ class CNNDailyMailDataset(TextGenerationDataset):
 
     SAMPLE_TEMPLATE = "Article:\n{article}\n\n### Summarization:\n{highlights}\n"
 
-    def __init__(
-        self,
-        data_args: DataTrainingArguments,
-        split: str,
-        processor: Processor,
-    ):
+    def __init__(self, data_args: DataArgs, split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "cnn_dailymail"
         data_args.dataset_config_name = "3.0.0"

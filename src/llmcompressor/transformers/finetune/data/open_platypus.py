@@ -13,8 +13,8 @@
 # limitations under the License.
 from copy import deepcopy
 
+from llmcompressor.transformers.finetune.data import DataTrainingArguments as DataArgs
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.utils import Processor
 
 
@@ -38,12 +38,7 @@ class OpenPlatypusDataset(TextGenerationDataset):
         "instruction}\n\n### Response:\n",
     }
 
-    def __init__(
-        self,
-        data_args: DataTrainingArguments,
-        split: str,
-        processor: Processor,
-    ):
+    def __init__(self, data_args: DataArgs, split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "garage-bAInd/Open-Platypus"
         data_args.text_column = "text"

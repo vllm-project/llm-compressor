@@ -1,7 +1,7 @@
 from copy import deepcopy
 
+from llmcompressor.transformers.finetune.data import DataTrainingArguments as DataArgs
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.utils import Processor
 
 
@@ -17,12 +17,7 @@ class GSM8KDataset(TextGenerationDataset):
 
     GSM_TEMPLATE = "Question: {question}\nAnswer:"
 
-    def __init__(
-        self,
-        data_args: DataTrainingArguments,
-        split: str,
-        processor: Processor,
-    ):
+    def __init__(self, data_args: DataArgs, split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "gsm8k"
         data_args.text_column = "text"
