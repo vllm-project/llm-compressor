@@ -20,13 +20,14 @@ except ImportError:
     logger.warning("vllm is not installed. This test will be skipped")
 
 HF_MODEL_HUB_NAME = "nm-testing"
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
 TEST_DATA_FILE_NAME = TEST_DATA_FILE.split("configs/")[-1]
 
 
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
+@pytest.mark.skipif(not TEST_DATA_FILE, reason="must set TEST_DATA_FILE env var")
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
