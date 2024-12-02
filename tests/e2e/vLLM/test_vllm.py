@@ -1,6 +1,7 @@
 import os
 import shutil
 from pathlib import Path
+from typing import Callable
 
 import pytest
 import yaml
@@ -75,10 +76,11 @@ class TestvLLM:
         ]
         self.api = HfApi()
 
-    @pytest.mark.parametrize("", "", ids=[TEST_DATA_FILE_NAME])
-    def test_vllm(self):
+    def test_vllm(self, record_property: Callable[[str, object], None]):
         # Run vLLM with saved model
         import torch
+
+        record_property("TEST_DATA_FILE", TEST_DATA_FILE)
 
         self.set_up()
         if not self.save_dir:
