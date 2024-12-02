@@ -9,7 +9,7 @@ from collections import OrderedDict
 from contextlib import suppress
 from enum import Enum
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import TYPE_CHECKING, Iterable, List, Optional
 from typing import OrderedDict as OrderedDictType
 from typing import Tuple, Union
 
@@ -23,6 +23,10 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import PaddingStrategy
 
 from llmcompressor.utils.fsdp.context import main_process_first_context
+
+if TYPE_CHECKING:
+    from llmcompressor.transformers import ModelArguments, TrainingArguments
+
 
 __all__ = [
     "RECIPE_NAME",
