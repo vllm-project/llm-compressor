@@ -84,14 +84,12 @@ class TextGenerationDataset(RegistryMixin):
     def __call__(self, add_labels: bool = True) -> DatasetType:
         dataset = self.data_args.dataset
 
-        # 1. Load
         if isinstance(dataset, str):
-            # load dataset from huggingface or disk
+            # load dataset: load from huggingface or disk
             dataset = self.load_dataset()
 
-        # 2. Preprocess
         if self.preprocess is not None:
-            # apply template or preprocessing function
+            # preprocess: apply template or preprocessing function
             dataset = self.map(
                 dataset,
                 self.preprocess,
@@ -104,7 +102,6 @@ class TextGenerationDataset(RegistryMixin):
         # rename and remove columns match processor kwargs
         dataset = self.rename_columns(dataset)
 
-        # 3. Process
         if self.processor is not None and "input_ids" not in dataset.column_names:
             # tokenize/ process
             dataset = self.map(
@@ -117,7 +114,6 @@ class TextGenerationDataset(RegistryMixin):
                 desc="Tokenizing",
             )
 
-        # 4. Postprocess
         if self.data_args.concatenate_data:
             # postprocess: group text
             dataset = self.map(
@@ -141,7 +137,7 @@ class TextGenerationDataset(RegistryMixin):
             )
 
         elif self.PROMPT_KEY in dataset.column_names:
-            del dataset[self.PROMPT_KEY]
+            dataset.remove_columns(self.PROMPT_KEY)
 
         return dataset
 

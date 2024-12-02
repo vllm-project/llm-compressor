@@ -1,6 +1,13 @@
-from typing import Any, Union
+from typing import Union
 
-from transformers import PreTrainedTokenizer
+from transformers import (
+    BaseImageProcessor,
+    FeatureExtractionMixin,
+    PreTrainedTokenizer,
+    ProcessorMixin,
+)
 
 # Tokenizer or Processor. Processors do not inherit from a unified base class
-Processor = Union[PreTrainedTokenizer, Any]
+Processor = Union[
+    PreTrainedTokenizer, BaseImageProcessor, FeatureExtractionMixin, ProcessorMixin
+]

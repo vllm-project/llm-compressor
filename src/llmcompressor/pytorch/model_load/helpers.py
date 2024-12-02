@@ -100,7 +100,8 @@ def save_model_and_recipe(
     save_compressed: bool = False,
 ):
     """
-    Save a model, tokenizer and the currently loaded recipe to file
+    Save a model, processor and the currently loaded recipe to file
+
     :param model: pytorch model to save
     :param save_path: path to save output to
     :param processor: model processor or tokenizer to save

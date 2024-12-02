@@ -37,6 +37,7 @@ __all__ = [
 ]
 
 
+# TODO: update these files to reflect processors
 class TaskNames(Enum):
     mlm = {"masked-language-modeling", "mlm"}
     qa = {"question-answering", "qa"}

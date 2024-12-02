@@ -49,7 +49,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
-    get_shared_tokenizer_src,
+    get_shared_processor_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
@@ -228,7 +228,7 @@ def initialize_model_from_path(
 
 def initialize_processor_from_path(model_args, model, teacher):
     processor_src = model_args.processor
-    processor_src = processor_src or get_shared_tokenizer_src(model, teacher)
+    processor_src = processor_src or get_shared_processor_src(model, teacher)
     processor = AutoProcessor.from_pretrained(
         processor_src,
         cache_dir=model_args.cache_dir,
