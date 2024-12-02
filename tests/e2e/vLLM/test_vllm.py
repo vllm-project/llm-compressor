@@ -22,7 +22,12 @@ except ImportError:
 
 HF_MODEL_HUB_NAME = "nm-testing"
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
-TEST_DATA_FILE_NAME = TEST_DATA_FILE.split("configs/")[-1]
+
+
+@pytest.fixture
+def record_config_file(record_testsuite_property: Callable[[str, object], None]):
+    test_data_file_name = TEST_DATA_FILE.split("configs/")[-1]
+    record_testsuite_property("TEST_DATA_FILE_NAME", test_data_file_name)
 
 
 # Will run each test case in its own process through run_tests.sh
@@ -76,11 +81,10 @@ class TestvLLM:
         ]
         self.api = HfApi()
 
-    def test_vllm(self, record_property: Callable[[str, object], None]):
+    @pytest.mark.usefixtures("record_config_file")
+    def test_vllm(self):
         # Run vLLM with saved model
         import torch
-
-        record_property("TEST_DATA_FILE", TEST_DATA_FILE)
 
         self.set_up()
         if not self.save_dir:
