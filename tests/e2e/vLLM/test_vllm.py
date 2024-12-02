@@ -33,7 +33,6 @@ def record_config_file(record_testsuite_property: Callable[[str, object], None])
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
-@pytest.mark.skipif(not TEST_DATA_FILE, reason="must set TEST_DATA_FILE env var")
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
