@@ -1,8 +1,11 @@
 from copy import deepcopy
+from typing import TYPE_CHECKING
 
-from llmcompressor.transformers.finetune.data import DataTrainingArguments as DataArgs
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.utils import Processor
+
+if TYPE_CHECKING:
+    from llmcompressor.transformers import DataTrainingArguments as DataArgs
 
 
 @TextGenerationDataset.register(name="gsm8k")
@@ -17,7 +20,7 @@ class GSM8KDataset(TextGenerationDataset):
 
     GSM_TEMPLATE = "Question: {question}\nAnswer:"
 
-    def __init__(self, data_args: DataArgs, split: str, processor: Processor):
+    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "gsm8k"
         data_args.text_column = "text"

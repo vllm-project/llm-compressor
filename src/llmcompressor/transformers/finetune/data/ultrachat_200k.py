@@ -1,8 +1,11 @@
 from copy import deepcopy
+from typing import TYPE_CHECKING
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.utils import Processor
+
+if TYPE_CHECKING:
+    from llmcompressor.transformers import DataTrainingArguments as DataArgs
 
 
 @TextGenerationDataset.register(name="ultrachat_200k")
@@ -28,12 +31,7 @@ class UltraChatDataset(TextGenerationDataset):
         "{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
     )
 
-    def __init__(
-        self,
-        data_args: DataTrainingArguments,
-        split: str,
-        processor: Processor,
-    ):
+    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "HuggingFaceH4/ultrachat_200k"
         data_args.text_column = "messages"

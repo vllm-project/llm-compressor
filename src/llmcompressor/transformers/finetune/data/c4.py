@@ -1,8 +1,11 @@
 from copy import deepcopy
+from typing import TYPE_CHECKING
 
-from llmcompressor.transformers.finetune.data import DataTrainingArguments as DataArgs
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.utils import Processor
+
+if TYPE_CHECKING:
+    from llmcompressor.transformers import DataTrainingArguments as DataArgs
 
 
 @TextGenerationDataset.register(name="c4")
@@ -15,7 +18,7 @@ class C4Dataset(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
-    def __init__(self, data_args: DataArgs, split: str, processor: Processor):
+    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "allenai/c4"
         data_args.text_column = "text"
