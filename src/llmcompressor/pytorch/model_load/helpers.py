@@ -9,6 +9,7 @@ from torch.nn import Module
 
 from llmcompressor.core import active_session, create_session, pre_initialize_structure
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
+from llmcompressor.transformers import DEFAULT_RECIPE_NAME
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
@@ -23,8 +24,6 @@ __all__ = [
     "get_completed_stages",
     "save_completed_stages",
 ]
-
-RECIPE_FILE_NAME = "recipe.yaml"
 
 
 def log_model_load(
@@ -116,7 +115,7 @@ def save_model_and_recipe(
 
     logger.info("Saving output to {}".format(os.path.abspath(save_path)))
 
-    recipe_path = os.path.join(save_path, RECIPE_FILE_NAME)
+    recipe_path = os.path.join(save_path, DEFAULT_RECIPE_NAME)
     session = active_session()
     recipe_yaml_str = session.get_serialized_recipe()
     with open(recipe_path, "w") as fp:
