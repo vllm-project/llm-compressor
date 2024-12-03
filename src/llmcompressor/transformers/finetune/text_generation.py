@@ -25,8 +25,8 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoProcessor,
-    DefaultDataCollator,
     HfArgumentParser,
+    PreTrainedModel,
     set_seed,
 )
 
@@ -52,6 +52,7 @@ from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_processor_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
+from llmcompressor.utils import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
@@ -226,7 +227,9 @@ def initialize_model_from_path(
     return teacher, model_path, model
 
 
-def initialize_processor_from_path(model_args, model, teacher):
+def initialize_processor_from_path(
+    model_args: ModelArguments, model: PreTrainedModel, teacher: PreTrainedModel
+) -> Processor:
     processor_src = model_args.processor
     processor_src = processor_src or get_shared_processor_src(model, teacher)
     processor = AutoProcessor.from_pretrained(
@@ -335,7 +338,6 @@ def main(
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     # Initialize our Trainer
-    data_collator = DefaultDataCollator()
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
@@ -346,7 +348,7 @@ def main(
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
         processing_class=processor,
-        data_collator=data_collator,
+        data_collator=data_args.data_collator,
     )
 
     # wrap model.save_pretrained

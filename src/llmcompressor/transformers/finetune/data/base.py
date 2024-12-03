@@ -21,7 +21,13 @@ DatasetType = Union[Dataset, DatasetDict, IterableDataset]
 
 class TextGenerationDataset(RegistryMixin):
     """
-    Base class for text datasets, handles tokenization and dataset splits
+    Base class for text datasets. Applies the following transformations to a dataset
+    in order to prepare the dataset to be loaded by a dataloader
+
+    1. Load dataset from huggingface or local cache
+    2. Preprocess dataset according to preprocess function or chat/dataset template
+    3. Tokenize dataset using model tokenizer/processor
+    4. Apply post processing such as grouping text and/or adding labels for finetuning
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
@@ -30,13 +36,6 @@ class TextGenerationDataset(RegistryMixin):
 
     # used to mask out the prompt so prompt tokens do not contribute to training loss
     PROMPT_KEY = "prompt"
-
-    # TODO: not sure how to handle the prompt stuff best. Specifically w.r.t.
-    """
-    dataset = self.processor(**dataset)
-
-    if dataset includes the PROMPT_KEY
-    """
 
     def __init__(
         self,
@@ -102,7 +101,7 @@ class TextGenerationDataset(RegistryMixin):
         # rename and remove columns match processor kwargs
         dataset = self.rename_columns(dataset)
 
-        if self.processor is not None and "input_ids" not in dataset.column_names:
+        if "input_ids" not in dataset.column_names:
             # tokenize/ process
             dataset = self.map(
                 dataset,
