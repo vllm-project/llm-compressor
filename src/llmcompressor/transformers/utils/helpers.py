@@ -22,8 +22,8 @@ RECIPE_FILE_NAME = "recipe.yaml"
 
 
 def detect_last_checkpoint(
-    training_args: "TrainingArguments",  # noqa 821
-    model_args: Optional["ModelArguments"] = None,  # noqa 821
+    training_args: "TrainingArguments",
+    model_args: Optional["ModelArguments"] = None,
 ):
     last_checkpoint = None
     if (
