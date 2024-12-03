@@ -31,13 +31,6 @@ class TextGenerationDataset(RegistryMixin):
     # used to mask out the prompt so prompt tokens do not contribute to training loss
     PROMPT_KEY = "prompt"
 
-    # TODO: not sure how to handle the prompt stuff best. Specifically w.r.t.
-    """
-    dataset = self.processor(**dataset)
-
-    if dataset includes the PROMPT_KEY
-    """
-
     def __init__(
         self,
         data_args: DataTrainingArguments,
@@ -102,7 +95,7 @@ class TextGenerationDataset(RegistryMixin):
         # rename and remove columns match processor kwargs
         dataset = self.rename_columns(dataset)
 
-        if self.processor is not None and "input_ids" not in dataset.column_names:
+        if "input_ids" not in dataset.column_names:
             # tokenize/ process
             dataset = self.map(
                 dataset,

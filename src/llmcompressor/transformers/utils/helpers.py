@@ -12,9 +12,6 @@ from transformers.trainer_utils import get_last_checkpoint
 if TYPE_CHECKING:
     from llmcompressor.transformers import ModelArguments, TrainingArguments
 
-if TYPE_CHECKING:
-    from llmcompressor.transformers import ModelArguments, TrainingArguments
-
 
 __all__ = [
     "RECIPE_FILE_NAME",

@@ -36,8 +36,8 @@ class Flickr30K(TextGenerationDataset):
         super().__init__(data_args=data_args, split=split, processor=processor)
 
         if (
-            self.tokenizer is not None and
-            getattr(self.tokenizer, "chat_template", None) is None
+            self.tokenizer is not None
+            and getattr(self.tokenizer, "chat_template", None) is None
         ):
             # note that since tokenizer is a member of processor,
             # this change affects processor.apply_chat_template
