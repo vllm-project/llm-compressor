@@ -9,7 +9,7 @@
 **✨ Read the announcement blog [here](https://neuralmagic.com/blog/llm-compressor-is-here-faster-inference-with-vllm/)! ✨**
 
 <p align="center">
-   <img alt="LLM Compressor Flow" src="https://github.com/user-attachments/assets/91c1f391-8c9a-4b20-80c2-20ffb9ad78b4" width="80%" />
+   <img alt="LLM Compressor Flow" src="https://github.com/user-attachments/assets/adf07594-6487-48ae-af62-d9555046d51b" width="80%" />
 </p>
 
 ### Supported Formats
@@ -57,6 +57,7 @@ Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
+from transformers import AutoModelForCausalLM
 
 # Select quantization algorithm. In this case, we:
 #   * apply SmoothQuant to make the activations easier to quantize

@@ -3,11 +3,9 @@ import unittest
 
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from parameterized import parameterized_class
+from transformers import AutoModelForCausalLM
 
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
-from llmcompressor.transformers.sparsification.sparse_model import (
-    SparseAutoModelForCausalLM,
-)
 from tests.testing_utils import requires_torch
 
 recipe_str = """
@@ -84,8 +82,7 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
             oneshot_device=self.device,
             num_calibration_samples=9,
         )
-
-        model_loaded = SparseAutoModelForCausalLM.from_pretrained(
+        model_loaded = AutoModelForCausalLM.from_pretrained(
             self.output, device_map=self.device
         )
 

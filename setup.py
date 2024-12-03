@@ -58,7 +58,7 @@ setup(
         "torch>=1.7.0",
         "transformers>4.0,<5.0",
         "datasets",
-        "accelerate>=0.20.3",
+        "accelerate>=0.20.3,!=1.1.0",
         "pynvml==11.5.3",
         "compressed-tensors"
         if version_info.build_type == "release"
