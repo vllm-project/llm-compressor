@@ -11,3 +11,4 @@ from .open_platypus import OpenPlatypusDataset
 from .ptb import PtbDataset
 from .ultrachat_200k import UltraChatDataset
 from .wikitext import WikiTextDataset
+from .flickr_30k import Flickr30K
