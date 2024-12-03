@@ -9,7 +9,6 @@ from torch.nn import Module
 
 from llmcompressor.core import active_session, create_session, pre_initialize_structure
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
-from llmcompressor.transformers import DEFAULT_RECIPE_NAME
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
@@ -105,6 +104,8 @@ def save_model_and_recipe(
     :param save_safetensors: whether to save as safetensors or pickle (bin)
     :param save_compressed: whether to compress sparse weights on disk
     """
+    # avoid circular import
+    from llmcompressor.transformers.utils.helpers import RECIPE_FILE_NAME
 
     model.save_pretrained(
         save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
@@ -115,7 +116,7 @@ def save_model_and_recipe(
 
     logger.info("Saving output to {}".format(os.path.abspath(save_path)))
 
-    recipe_path = os.path.join(save_path, DEFAULT_RECIPE_NAME)
+    recipe_path = os.path.join(save_path, RECIPE_FILE_NAME)
     session = active_session()
     recipe_yaml_str = session.get_serialized_recipe()
     with open(recipe_path, "w") as fp:

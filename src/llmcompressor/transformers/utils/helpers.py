@@ -13,11 +13,11 @@ if TYPE_CHECKING:
     from llmcompressor.transformers import ModelArguments, TrainingArguments
 
 __all__ = [
-    "DEFAULT_RECIPE_NAME",
+    "RECIPE_FILE_NAME",
     "detect_last_checkpoint",
 ]
 
-DEFAULT_RECIPE_NAME = "recipe.yaml"
+RECIPE_FILE_NAME = "recipe.yaml"
 
 
 def detect_last_checkpoint(
