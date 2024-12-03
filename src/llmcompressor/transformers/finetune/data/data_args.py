@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
+
+from transformers import DefaultDataCollator
 
 
 @dataclass
@@ -51,6 +53,14 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
                 "For custom datasets only. Either a function to apply to the dataset, "
                 "a path to a function definition of the form /path/to/file.py:func"
             )
+        },
+    )
+
+    data_collator: Callable[[Any], Any] = field(
+        default=DefaultDataCollator(),
+        metadata={
+            "help": "For custom datasets only. The function to used to form a batch "
+            "from the dataset"
         },
     )
 

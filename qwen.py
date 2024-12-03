@@ -60,7 +60,7 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-def collate_fn(batch):
+def data_collator(batch):
     assert len(batch) == 1
     return {
         "input_ids": torch.LongTensor(batch[0]["input_ids"]),
@@ -68,13 +68,6 @@ def collate_fn(batch):
         "pixel_values": torch.tensor(batch[0]["pixel_values"]),  # torch.Size([14308, 1176])
         "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
     }
-
-
-from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers.finetune.data.data_helpers import format_calibration_data
-one_sample = next(iter(format_calibration_data(ds, collate_fn=collate_fn)))
-batch = tensors_to_device(one_sample, "cuda:0")
-model(**batch)
 
 print("Setting up quantization params")
 # Configure the quantization algorithm and scheme.
@@ -102,6 +95,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     output_dir=save_path,
+    data_collator=data_collator,
 )
 
 #processor.save_pretrained(save_path)
