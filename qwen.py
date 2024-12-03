@@ -24,52 +24,57 @@ ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 print("Preprocessing samples")
 def preprocess(example):
+    """
+    Preprocesses a single example from the dataset.
+    """
+    # Example messages structure
     messages = [
-        [
-            {
-                "role": "user", 
-                "content": [
-                    {"type": "image"},
-                    {"type": "text", "text": "What does the image show?"}
-                ]
-            }
-        ],
+        {
+            "role": "user", 
+            "content": [
+                {"type": "image"}, 
+                {"type": "text", "text": "What does the image show?"}
+            ]
+        }
     ]
     return {
-        "text": processor.apply_chat_template(
+        "text": [processor.apply_chat_template(
             messages,
             add_generation_prompt=True,
-        ),
+        )],
     }
 
-ds = ds.map(preprocess)
+ds = ds.map(preprocess, remove_columns=["caption", "sentids", "img_id", "filename"])
 
 
 # Tokenize inputs.
 def tokenize(sample):
-    tmp = processor(
-        sample["image"], 
-        sample["text"], 
+    image = sample.pop("image")
+    return processor(
+        **sample,
+        images=[image],
         add_special_tokens=False, 
         return_tensors="pt"
     )
 
-    # Remove batch dimension from each key
-    input_ids = tmp["input_ids"].squeeze(0)
-    attention_mask = tmp["attention_mask"].squeeze(0)
-    pixel_values = [tmp["pixel_values"][0][0].squeeze(0)]
-    image_grid_thw = tmp["image_grid_thw"].unsqueeze(0)
-    
+
+ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+def collate_fn(batch):
+    assert len(batch) == 1
     return {
-        "input_ids": torch.LongTensor(input_ids),
-        "attention_mask": attention_mask,
-        "pixel_values": pixel_values,
-        "image_grid_thw": image_grid_thw,
+        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
+        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
+        "pixel_values": torch.tensor(batch[0]["pixel_values"]),  # torch.Size([14308, 1176])
+        "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
     }
 
 
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
+from llmcompressor.pytorch.utils import tensors_to_device
+from llmcompressor.transformers.finetune.data.data_helpers import format_calibration_data
+one_sample = next(iter(format_calibration_data(ds, collate_fn=collate_fn)))
+batch = tensors_to_device(one_sample, "cuda:0")
+model(**batch)
 
 print("Setting up quantization params")
 # Configure the quantization algorithm and scheme.

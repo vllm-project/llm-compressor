@@ -98,5 +98,5 @@ class CompressionLogger:
                     ),
                 )
 
-        compressed_size = get_module_size_bytes(self.module)
+        compressed_size = get_layer_size_mb(self.module)
         patch.log("METRIC", f"Compressed module size: {compressed_size} MB")

@@ -25,7 +25,6 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoProcessor,
-    AutoTokenizer,
     DefaultDataCollator,
     HfArgumentParser,
     set_seed,
@@ -50,7 +49,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
-    get_shared_tokenizer_src,
+    get_shared_processor_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
@@ -227,19 +226,19 @@ def initialize_model_from_path(
     return teacher, model_path, model
 
 
-def initialize_tokenizer_from_path(model_args, model, teacher):
-    tokenizer_src = model_args.tokenizer
-    tokenizer_src = tokenizer_src or get_shared_tokenizer_src(model, teacher)
-    tokenizer = AutoProcessor.from_pretrained(
-        tokenizer_src,
-        # cache_dir=model_args.cache_dir,
-        # use_fast=True,
-        # revision=model_args.model_revision,
-        # use_auth_token=True if model_args.use_auth_token else None,
+def initialize_processor_from_path(model_args, model, teacher):
+    processor_src = model_args.processor
+    processor_src = processor_src or get_shared_processor_src(model, teacher)
+    processor = AutoProcessor.from_pretrained(
+        processor_src,
+        cache_dir=model_args.cache_dir,
+        use_fast=True,
+        revision=model_args.model_revision,
+        use_auth_token=True if model_args.use_auth_token else None,
         trust_remote_code=model_args.trust_remote_code_model,
     )
 
-    return tokenizer
+    return processor
 
 
 def main(
@@ -300,11 +299,9 @@ def main(
     # Detecting last checkpoint.
     last_checkpoint = None
     teacher = model_args.distill_teacher
-    model = model_args.model
-    # Load tokenizer
-    # distill TODO: support for different tokenizer for teacher?
-    tokenizer = model_args.tokenizer
+    # distill TODO: support for different processor for teacher?
 
+    model = model_args.model
     if isinstance(model, str) or isinstance(model, PosixPath):
         (teacher, _model_path, model) = initialize_model_from_path(
             model_args,
@@ -318,8 +315,9 @@ def main(
     if teacher is not None:
         teacher.eval()
 
-    if isinstance(tokenizer, str) or tokenizer is None:
-        tokenizer = initialize_tokenizer_from_path(model_args, model, teacher)
+    processor = model_args.processor
+    if isinstance(processor, str) or processor is None:
+        processor = initialize_processor_from_path(model_args, model, teacher)
 
     pre_initialize_structure(model=model)
 
@@ -331,7 +329,7 @@ def main(
         model_args=model_args, data_args=data_args, training_args=training_args
     )
     add_labels = training_args.do_train or training_args.run_stages
-    stage_runner.populate_datasets(tokenizer=tokenizer, add_labels=add_labels)
+    stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
     train_dataset = stage_runner.get_dataset_split("train")
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
@@ -347,13 +345,13 @@ def main(
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=processor,
         data_collator=data_collator,
     )
 
     # wrap model.save_pretrained
     if is_fsdp_model(model):
-        modify_fsdp_model_save_pretrained(trainer, tokenizer)
+        modify_fsdp_model_save_pretrained(trainer, processor)
     else:
         modify_save_pretrained(model)
 
@@ -397,8 +395,8 @@ def main(
         model.save_pretrained(
             training_args.output_dir, save_compressed=training_args.save_compressed
         )
-        if tokenizer is not None:
-            tokenizer.save_pretrained(training_args.output_dir)
+        if processor is not None:
+            processor.save_pretrained(training_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:

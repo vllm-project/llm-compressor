@@ -9,6 +9,7 @@ from torch.nn import Module
 
 from llmcompressor.core import active_session, create_session, pre_initialize_structure
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
+from llmcompressor.utils import Processor
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
@@ -23,8 +24,6 @@ __all__ = [
     "get_completed_stages",
     "save_completed_stages",
 ]
-
-RECIPE_FILE_NAME = "recipe.yaml"
 
 
 def log_model_load(
@@ -94,25 +93,28 @@ def initialize_recipe(model: Module, recipe_path: str):
 def save_model_and_recipe(
     model: Module,
     save_path: str,
-    tokenizer: Optional[Any] = None,
+    processor: Optional[Processor] = None,
     save_safetensors: bool = False,
     save_compressed: bool = False,
 ):
     """
-    Save a model, tokenizer and the currently loaded recipe to file
+    Save a model, processor and the currently loaded recipe to file
+
     :param model: pytorch model to save
     :param save_path: path to save output to
-    :param tokenizer: model tokenizer to save
+    :param processor: model processor or tokenizer to save
     :param save_safetensors: whether to save as safetensors or pickle (bin)
     :param save_compressed: whether to compress sparse weights on disk
     """
+    # avoid circular import
+    from llmcompressor.transformers.utils.helpers import RECIPE_FILE_NAME
 
     model.save_pretrained(
         save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
     )
 
-    if tokenizer is not None:
-        tokenizer.save_pretrained(save_path)
+    if processor is not None:
+        processor.save_pretrained(save_path)
 
     logger.info("Saving output to {}".format(os.path.abspath(save_path)))
 

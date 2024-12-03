@@ -79,6 +79,19 @@ def format_calibration_data(
     :param accelerator: optional accelerator for if preparing in FSDP mode
     :return: list of trimmed calibration data tensors
     """
+    if True:
+        def collate_fn(batch):
+            assert len(batch) == 1
+            return {
+                "input_ids": torch.LongTensor(batch[0]["input_ids"]),
+                "attention_mask": torch.tensor(batch[0]["attention_mask"]),
+                "pixel_values": torch.tensor(batch[0]["pixel_values"]),  # torch.Size([14308, 1176])
+                "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
+            }
+
+
+
+
     safe_calibration_samples = len(tokenized_dataset)
     if num_calibration_samples is not None:
         safe_calibration_samples = min(len(tokenized_dataset), num_calibration_samples)
@@ -178,6 +191,13 @@ def make_dataset_splits(
             if "train" not in tokenized_datasets:
                 raise ValueError("--do_oneshot requires a calibration dataset")
             calib_split = tokenized_datasets["train"]
+
+        # remove labels from calibration dataset
+        column_names = calib_split.column_names
+        if isinstance(column_names, dict):
+            column_names = sum(column_names.values(), [])
+        if "labels" in column_names:
+            calib_split = calib_split.remove_columns("labels")
 
     split_datasets = {
         "train": train_split,

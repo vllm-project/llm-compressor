@@ -28,11 +28,15 @@ class ModelArguments:
             "help": "Pretrained config name or path if not the same as model_name"
         },
     )
+    # TODO: depreciate
     tokenizer: Optional[str] = field(
         default=None,
         metadata={
             "help": "Pretrained tokenizer name or path if not the same as model_name"
         },
+    )
+    processor: Optional[str] = field(
+        default=None,
     )
     cache_dir: Optional[str] = field(
         default=None,
