@@ -8,6 +8,7 @@ import torch
 import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
+    CompressionFormat,
     ModelCompressor,
     SparsityCompressionConfig,
     is_module_offloaded,
@@ -272,13 +273,20 @@ def get_model_compressor(
     if state_dict is None:
         state_dict = get_state_dict_offloaded_model(model)
 
+    sparsity_stucture = SparsityConfigMetadata.infer_sparsity_structure(model)
+    quantization_format = infer_quantization_format(
+        model=model,
+        quantization_format=quantization_format,
+        save_compressed=save_compressed,
+        sparsity_structure=sparsity_stucture,
+    )
+    is_marlin = quantization_format == CompressionFormat.marlin_24.value
+
     if sparsity_config is not None:
         sparsity_config.global_sparsity = SparsityConfigMetadata.infer_global_sparsity(
             model, state_dict=state_dict
         )
-        sparsity_config.sparsity_structure = (
-            SparsityConfigMetadata.infer_sparsity_structure()
-        )
+        sparsity_config.sparsity_structure = sparsity_stucture
     elif not skip_compression_stats:
         # try to infer a sparsity config from the model if none is provided
         logger.info(
@@ -288,15 +296,12 @@ def get_model_compressor(
             "skip_compression_stats=True"
         )
         sparsity_config = SparsityConfigMetadata.from_pretrained(
-            model, state_dict=state_dict, compress=save_compressed
+            model,
+            state_dict=state_dict,
+            compress=save_compressed,
+            is_marlin=is_marlin,
         )
 
-    quantization_format = infer_quantization_format(
-        model=model,
-        quantization_format=quantization_format,
-        save_compressed=save_compressed,
-        sparsity_config=sparsity_config,
-    )
     return ModelCompressor.from_pretrained_model(
         model,
         sparsity_config=sparsity_config,
