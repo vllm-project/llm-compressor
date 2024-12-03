@@ -486,7 +486,7 @@ class SessionManagerMixIn:
             )
 
         self.save_state()
-        processor = self.processing_class if hasattr(self, "processing_class") else self.tokenizer
+        processor = getattr(self, "processing_class", self.tokenizer)
         if processor is not None:
             processor.save_pretrained(output_dir)
         # if self.tokenizer is not None:
