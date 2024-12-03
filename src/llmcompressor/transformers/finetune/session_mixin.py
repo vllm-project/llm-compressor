@@ -24,8 +24,9 @@ from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
 )
-from llmcompressor.pytorch.model_load.helpers import RECIPE_FILE_NAME, get_session_model
+from llmcompressor.pytorch.model_load.helpers import get_session_model
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
+from llmcompressor.transformers import DEFAULT_RECIPE_NAME
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
@@ -495,7 +496,7 @@ class SessionManagerMixIn:
         if self.accelerator.is_main_process:
             # save recipe, will contain modifiers from the model's original recipe as
             # well as those added from self.recipe
-            recipe_path = os.path.join(output_dir, RECIPE_FILE_NAME)
+            recipe_path = os.path.join(output_dir, DEFAULT_RECIPE_NAME)
             session = active_session()
             recipe_yaml_str = session.get_serialized_recipe()
             with open(recipe_path, "w") as fp:
