@@ -1,9 +1,6 @@
 from typing import Dict, Optional
 
-from compressed_tensors import (
-    CompressionFormat,
-    SparsityCompressionConfig,
-)
+from compressed_tensors import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.config import SparsityStructure
 from torch import Tensor
 from torch.nn import Module
