@@ -21,7 +21,13 @@ DatasetType = Union[Dataset, DatasetDict, IterableDataset]
 
 class TextGenerationDataset(RegistryMixin):
     """
-    Base class for text datasets, handles tokenization and dataset splits
+    Base class for text datasets. Applies the following transformations to a dataset
+    in order to prepare the dataset to be loaded by a dataloader
+
+    1. Load dataset from huggingface or local cache
+    2. Preprocess dataset according to preprocess function or chat/dataset template
+    3. Tokenize dataset using model tokenizer/processor
+    4. Apply post processing such as grouping text and/or adding labels for finetuning
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
