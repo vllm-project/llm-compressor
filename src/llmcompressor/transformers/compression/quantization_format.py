@@ -37,8 +37,7 @@ def infer_quantization_format(
     if save_compressed:
         weight_args, input_args = _get_unique_quant_args(model)
         is_24_structure = (
-            SparsityStructure(sparsity_structure).value
-            == SparsityStructure.TWO_FOUR.value
+            SparsityStructure(sparsity_structure) == SparsityStructure.TWO_FOUR
         )
         is_weight_only = len(input_args) == 0 and len(weight_args) > 0
 
