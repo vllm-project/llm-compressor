@@ -1,7 +1,10 @@
 from typing import Dict, Optional
 
-from compressed_tensors import CompressionFormat, SparsityCompressionConfig
-from compressed_tensors.quantization.utils import is_model_quantized
+from compressed_tensors import (
+    CompressionFormat,
+    SparsityCompressionConfig,
+)
+from compressed_tensors.config import SparsityStructure
 from torch import Tensor
 from torch.nn import Module
 
@@ -20,7 +23,7 @@ class SparsityConfigMetadata:
     metadata from the model
     """
 
-    SPARSITY_THRESHOLD: float = 0.4
+    SPARSITY_THRESHOLD: float = 0.5
 
     @staticmethod
     def infer_global_sparsity(
@@ -67,13 +70,14 @@ class SparsityConfigMetadata:
         if model and sparsity_structure is None:
             sparsity_structure = infer_sparsity_structure_from_model(model)
 
-        return sparsity_structure or "unstructured"
+        return SparsityStructure(sparsity_structure).value
 
     @staticmethod
     def from_pretrained(
         model: Module,
         state_dict: Optional[Dict[str, Tensor]] = None,
         compress: bool = False,
+        is_marlin: bool = False,
     ) -> Optional["SparsityCompressionConfig"]:
         """
         Determines compression type and informational parameters for a given model
@@ -82,6 +86,7 @@ class SparsityConfigMetadata:
         :param state_dict: optional state_dict to replace that in model, used for
         gathering global FSDP model info
         :param compress: whether or not to compress the model on disk
+        :param is_marlin: whether or not marlin compression is being used
         :return: compression config inferred from the model
         """
 
@@ -95,11 +100,15 @@ class SparsityConfigMetadata:
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
             model=model
         )
-        if is_model_quantized(model):
-            # compressing a sparse quantized model is not supported yet
+        if is_marlin:
+            # sparse compressor should be dense for marlin
+            # compression
             format = CompressionFormat.dense.value
-        elif compress:
-            format = CompressionFormat.sparse_bitmask.value
+        if compress:
+            if sparsity_structure == SparsityStructure.TWO_FOUR.value:
+                format = CompressionFormat.sparse_24.value
+            else:
+                format = CompressionFormat.sparse_bitmask.value
         else:
             format = CompressionFormat.dense.value
 
