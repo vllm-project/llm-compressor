@@ -8,13 +8,6 @@ import os
 
 # Load model.
 model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-#model = MllamaForConditionalGeneration.from_pretrained(model_id)
-#model_id = "mgoin/pixtral-12b"
-#model_id = "Qwen/Qwen2-VL-2B-Instruct"
-
-#model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto", device_map="cuda:0", _attn_implementation="eager")
-#model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
-#model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda:0", torch_dtype="auto")
 model = MllamaForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
@@ -78,12 +71,7 @@ def data_collator(batch):
 
 
 print("Setting up quantization params")
-# Configure the quantization algorithm and scheme.
-# In this case, we:
-#   * quantize the weights to fp8 with per channel via ptq
-#   * quantize the activations to fp8 with dynamic per token
-#ignore=["re:.*lm_head", "re:model.vision_embed_tokens.*"]
-#ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*", "re:language_model.*cross_attn.*"],
+# CHANGE THIS IF YOU WANT TO QUANTIZE THE VISION TOWER
 ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"]
 
 recipe = [
