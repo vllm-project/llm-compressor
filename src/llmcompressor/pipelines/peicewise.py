@@ -1,13 +1,20 @@
 import contextlib
-import torch
 
+import torch
 from datasets import Dataset
 
 from llmcompressor.core.session_functions import initialize
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
 from llmcompressor.recipe.recipe import Recipe
-from llmcompressor.utils.helpers import calibration_forward_context, trace_subgraphs, get_targets, get_model_device, tensors_to_device, create_dataloader
+from llmcompressor.utils.helpers import (
+    calibration_forward_context,
+    create_dataloader,
+    get_model_device,
+    get_targets,
+    tensors_to_device,
+    trace_subgraphs,
+)
 
 
 def run_pipeline(
@@ -26,7 +33,9 @@ def run_pipeline(
 
     # create dataloader
     model_device = get_model_device(model)
-    dataloader = create_dataloader(dataset, batch_size=..., mask_padding=True, model_device=model_device)
+    dataloader = create_dataloader(
+        dataset, batch_size=..., mask_padding=True, model_device=model_device
+    )
 
     with calibration_forward_context(model):
         # prepare intermediates cache

@@ -52,7 +52,7 @@ from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_processor_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
-from llmcompressor.utils import Processor
+from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 

@@ -8,7 +8,9 @@ from llmcompressor.transformers import oneshot
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
+model = Qwen2VLForConditionalGeneration.from_pretrained(
+    model_id, device_map="auto", torch_dtype="auto"
+)
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
@@ -16,6 +18,7 @@ DATASET_ID = "flickr30k"
 DATASET_SPLIT = "test[:3]"
 NUM_CALIBRATION_SAMPLES = 1
 MAX_SEQUENCE_LENGTH = 2048
+
 
 # TODO: define real collators in utils
 def data_collator(batch):
@@ -29,6 +32,7 @@ def data_collator(batch):
         "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
     }
 
+
 # Recipe
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -36,6 +40,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     QuantizationType,
 )
+
 recipe = GPTQModifier(
     targets="Linear",
     config_groups={

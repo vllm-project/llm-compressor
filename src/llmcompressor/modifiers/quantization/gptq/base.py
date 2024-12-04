@@ -17,7 +17,7 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import (
-    PartitionedModel
+    PartitionedModel,
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -305,7 +305,6 @@ class GPTQModifier(Modifier, HooksMixin):
 
         if self.offload_hessians:
             self._hessians[module] = self._hessians[module].to(device=device)
-        
 
     def _build_quant_modifier(self):
         """

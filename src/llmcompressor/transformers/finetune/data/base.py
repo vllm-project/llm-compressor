@@ -1,7 +1,7 @@
-import torch
 from functools import cached_property
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import torch
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
 from loguru import logger
@@ -15,8 +15,8 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
 )
+from llmcompressor.typing import DatasetType, Processor
 from llmcompressor.utils import import_from_path
-from llmcompressor.utils.typing import DatasetType, Processor
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -46,8 +46,8 @@ class TextGenerationDataset(RegistryMixin):
         self.data_args = data_args
         self.split = split
         self.processor = processor
-        #from transformers import AutoProcessor
-        #self.processor = AutoProcessor.from_pretrained("meta-llama/Llama-3.2-11B-Vision-Instruct", trust_remote_code=True)
+        # from transformers import AutoProcessor
+        # self.processor = AutoProcessor.from_pretrained("meta-llama/Llama-3.2-11B-Vision-Instruct", trust_remote_code=True)
 
         # get tokenizer
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
@@ -110,8 +110,8 @@ class TextGenerationDataset(RegistryMixin):
                 self.tokenize,
                 batched=False,  # batching is not well supported for vision processors
                 keep_in_memory=True,  # bug occurs when not batched and not in memory,
-                                      # subsequent ds.map calls are always batched,
-                                      # regardless of `batched` argument
+                # subsequent ds.map calls are always batched,
+                # regardless of `batched` argument
                 remove_columns=dataset.column_names,
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,

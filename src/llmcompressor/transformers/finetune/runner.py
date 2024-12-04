@@ -23,7 +23,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
-from llmcompressor.utils import Processor
+from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
 

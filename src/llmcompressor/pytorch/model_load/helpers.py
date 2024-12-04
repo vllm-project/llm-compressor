@@ -9,7 +9,7 @@ from torch.nn import Module
 
 from llmcompressor.core import active_session, create_session, pre_initialize_structure
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
-from llmcompressor.utils import Processor
+from llmcompressor.typing import Processor
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
 

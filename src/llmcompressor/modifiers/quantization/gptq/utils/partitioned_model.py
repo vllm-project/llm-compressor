@@ -208,8 +208,16 @@ class PartitionedModel:
 
                 concrete_args[parameter.name] = value
 
-            #self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
-            self.graph: GraphModule =  torch.fx.GraphModule(model, CustomTracer().trace(model, dummy_inputs=model.dummy_inputs, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False))
+            # self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
+            self.graph: GraphModule = torch.fx.GraphModule(
+                model,
+                CustomTracer().trace(
+                    model,
+                    dummy_inputs=model.dummy_inputs,
+                    concrete_args=concrete_args,
+                    complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
+                ),
+            )
             self.graph.config = model.config
             self.graph.class_for_deserialization = model.__class__
             self.graph.device = model.device
