@@ -57,11 +57,9 @@ class Flickr30K(TextGenerationDataset):
             }
         ]
         return {
-            "text": [
-                self.processor.apply_chat_template(
-                    messages,
-                    add_generation_prompt=True,
-                )
-            ],
+            "text": self.processor.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+            ),
             "images": sample["image"],
         }
