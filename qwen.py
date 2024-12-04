@@ -79,7 +79,7 @@ ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"]
 
 recipe = [
     # SmoothQuantModifier(smoothing_strength=0.8, ignore=ignore),
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=ignore, update_size=NUM_CALIBRATION_SAMPLES),
+    GPTQModifier(targets="Linear", scheme="W8A8", ignore=ignore, update_size=NUM_CALIBRATION_SAMPLES, offload_hessians=False),
 ]
 
 save_name = model_id.split("/")[1] + "-W8A8"

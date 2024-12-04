@@ -1,3 +1,4 @@
+import contextlib
 import warnings
 from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -103,14 +104,16 @@ class GPTQModifier(Modifier, HooksMixin):
         and activation 8 bit quantization on the Linear layers.
     """
 
+    # gptq modifier arguments
     sequential_update: bool = True  # DEPRECIATED
     update_size: int = 1
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
     quantize: Union[bool, Dict] = True
+    offload_hessians: bool = False
 
-    # arguments used for quant modifier
+    # arguments used for attached quant modifier
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     targets: Union[str, List[str], None] = None
@@ -118,11 +121,10 @@ class GPTQModifier(Modifier, HooksMixin):
     num_calibration_steps: Optional[int] = None
     disable_quantization_observer_epoch: Optional[float] = None
 
+    # private variables
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
-    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
-        default_factory=lambda: {}
-    )
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=lambda: {})
+    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -250,26 +252,27 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :return: total loss from applying weight quantization to this module
         """
-
         # Assume that first argument is the input
         inp = args[0]
         quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-        # TODO: attach as parameters to the module to allow them to be offloaded
+        # Initialize hessian if not present
         if module not in self._num_samples:
             self._hessians[module] = make_empty_hessian(module)
             self._num_samples[module] = 0
 
-        self._hessians[module], self._num_samples[module] = accumulate_hessian(
-            inp,
-            type(module),
-            self._hessians[module],
-            self._num_samples[module],
-        )
+        # Accumulate hessian with input with optional offloading
+        with self._maybe_offload_hessians(module):
+            self._hessians[module], self._num_samples[module] = accumulate_hessian(
+                inp,
+                type(module),
+                self._hessians[module],
+                self._num_samples[module],
+            )
 
+        # After enough samples are accumulated, perform quantization
         if self._num_samples[module] >= self.update_size:
-            logger.info(f"Quantizing {name}...")
-            logger.info(f"Using {self._num_samples[module]} accumulated samples")
+            logger.info(f"Quantizing {name} using {self._num_samples[module]} samples")
             with align_module(module), CompressionLogger(module) as comp_logger:
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                     module.weight.data,
@@ -280,8 +283,7 @@ class GPTQModifier(Modifier, HooksMixin):
                     module_class=type(module),
                 )
 
-                module.weight -= module.weight
-                module.weight += quantized_weight
+                module.weight += quantized_weight - module.weight  # Future: FSDP
                 update_offload_parameter(module, "weight")
                 update_offload_parameter(module, "weight_scale", scale)
                 update_offload_parameter(module, "weight_zero_point", zero_point)
@@ -292,6 +294,18 @@ class GPTQModifier(Modifier, HooksMixin):
                 del self._num_samples[module]
 
                 comp_logger.set_loss(loss)
+
+    @contextlib.contextmanager
+    def _maybe_offload_hessians(self, module: torch.nn.Module):
+        if self.offload_hessians:
+            device = self._hessians[module].device
+            self._hessians[module] = self._hessians[module].to(device="cpu")
+
+        yield
+
+        if self.offload_hessians:
+            self._hessians[module] = self._hessians[module].to(device=device)
+        
 
     def _build_quant_modifier(self):
         """
