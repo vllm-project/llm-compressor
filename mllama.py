@@ -7,8 +7,15 @@ from llmcompressor.transformers import oneshot
 import os
 
 # Load model.
-model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
+model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
+#model = MllamaForConditionalGeneration.from_pretrained(model_id)
+#model_id = "mgoin/pixtral-12b"
+#model_id = "Qwen/Qwen2-VL-2B-Instruct"
+
+#model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto", device_map="cuda:0", _attn_implementation="eager")
+#model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
+#model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda:0", torch_dtype="auto")
+model = MllamaForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 print("Loading dataset")
@@ -24,24 +31,22 @@ ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 print("Preprocessing samples")
 def preprocess(example):
-    """
-    Preprocesses a single example from the dataset.
-    """
-    # Example messages structure
     messages = [
-        {
-            "role": "user", 
-            "content": [
-                {"type": "image"}, 
-                {"type": "text", "text": "What does the image show?"}
-            ]
-        }
+        [
+            {
+                "role": "user", 
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "What does the image show?"}
+                ]
+            }
+        ],
     ]
     return {
-        "text": [processor.apply_chat_template(
+        "text": processor.apply_chat_template(
             messages,
             add_generation_prompt=True,
-        )],
+        ),
     }
 
 ds = ds.map(preprocess, remove_columns=["caption", "sentids", "img_id", "filename"])
@@ -51,8 +56,8 @@ ds = ds.map(preprocess, remove_columns=["caption", "sentids", "img_id", "filenam
 def tokenize(sample):
     image = sample.pop("image")
     return processor(
-        **sample,
-        images=[image],
+        **sample, 
+        images=[image], 
         add_special_tokens=False, 
         return_tensors="pt"
     )
@@ -65,8 +70,12 @@ def data_collator(batch):
         "input_ids": torch.LongTensor(batch[0]["input_ids"]),
         "attention_mask": torch.tensor(batch[0]["attention_mask"]),
         "pixel_values": torch.tensor(batch[0]["pixel_values"]),
-        "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
+        "aspect_ratio_ids": torch.tensor(batch[0]["aspect_ratio_ids"]),
+        "aspect_ratio_mask": torch.tensor(batch[0]["aspect_ratio_mask"]),
+        "cross_attention_mask": torch.tensor(batch[0]["cross_attention_mask"]),
     }
+
+
 
 print("Setting up quantization params")
 # Configure the quantization algorithm and scheme.
