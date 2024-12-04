@@ -41,7 +41,7 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
     remove_columns: Union[None, str, List] = field(
         default=None,
         metadata={
-            "help": "For custom datasets only. Column names to remove after "
+            "help": "This argument is depreciated. Column names to remove after "
             "preprocessing custom datasets"
         },
     )
@@ -51,6 +51,8 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
         metadata={
             "help": (
                 "For custom datasets only. Either a function to apply to the dataset, "
+                "a function name defined in "
+                "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
                 "a path to a function definition of the form /path/to/file.py:func"
             )
         },

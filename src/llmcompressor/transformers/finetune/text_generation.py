@@ -18,6 +18,7 @@
 # neuralmagic: no copyright
 
 import os
+import warnings
 from pathlib import PosixPath
 
 from loguru import logger
@@ -118,6 +119,8 @@ def parse_args(**kwargs):
         * model_args in src/llmcompressor/transformers/finetune/model_args.py
         * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
         * training_args in src/llmcompressor/transformers/finetune/training_args.py
+
+    Throws depreciation warnings
     """
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments)
@@ -134,6 +137,14 @@ def parse_args(**kwargs):
                 key, value = recipe_arg.split("=")
                 arg_dict[key] = value
             training_args.recipe_args = arg_dict
+
+    # raise depreciation warnings
+    if data_args.remove_columns is not None:
+        warnings.warn(
+            "`remove_columns` argument is depreciated, when processing non-tokenized "
+            "datasets, all columns not returned by preprocessing_fn will be removed",
+            DeprecationWarning
+        )
 
     return model_args, data_args, training_args
 

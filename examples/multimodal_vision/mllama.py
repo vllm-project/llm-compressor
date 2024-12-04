@@ -1,13 +1,16 @@
+import os
+
 import torch
 from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-import os
 
 # Load model.
 model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-model = MllamaForConditionalGeneration.from_pretrained(model_id, device_map="auto", torch_dtype="auto")
+model = MllamaForConditionalGeneration.from_pretrained(
+    model_id, device_map="auto", torch_dtype="auto"
+)
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
@@ -15,6 +18,7 @@ DATASET_ID = "flickr30k"
 DATASET_SPLIT = "test[:512]"
 NUM_CALIBRATION_SAMPLES = 1
 MAX_SEQUENCE_LENGTH = 2048
+
 
 # TODO: define real collators in utils
 def data_collator(batch):
@@ -32,7 +36,12 @@ def data_collator(batch):
 # Recipe
 recipe = [
     # SmoothQuantModifier(smoothing_strength=0.8, ignore=ignore),
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"], update_size=NUM_CALIBRATION_SAMPLES),
+    GPTQModifier(
+        targets="Linear",
+        scheme="W8A8",
+        ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
+        update_size=NUM_CALIBRATION_SAMPLES,
+    ),
 ]
 
 # Perform oneshot
