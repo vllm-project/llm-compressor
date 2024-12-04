@@ -168,58 +168,6 @@ def trace_consumed_names(subgraphs: List[Dict[str, Any]]):
             assert False
 
 
-def make_fused_concrete_args(root: torch.nn.Module, dummy_inputs: Dict[str, Any]):
-    sig = inspect.signature(root.forward if isinstance(root, torch.nn.Module) else root)
-
-    concrete_args = {}
-
-    for param in sig.parameters.values():
-        if param.name in dummy_inputs:
-            continue
-        if param.default is inspect.Parameter.empty:
-            raise ValueError(
-                f"You need to specify a default value for the parameter {param.name}."
-            )
-
-    concrete_args.update(
-        {
-            p.name: p.default
-            for p in sig.parameters.values()
-            if (p.name not in dummy_inputs and p.name not in concrete_args)
-        }
-    )
-    concrete_args.update(dummy_inputs)
-
-    return concrete_args
-
-
-def make_placeholders(
-    tracer, model: torch.nn.Module, graph: GraphModule, dummy_inputs: Dict[str, Any]
-):
-    # TODO: this dictionary does not match tensors which have been deep copied
-    # in general it's pretty annoying, since tracer.create_args_for_root basically
-    # converts kwargs to args and therefore gets rid of any of the names.
-
-    # maybe instead of caching by kwargs, we cache by arg tuples? Not sure
-
-    # Note, maybe relevant: tracer.create_args_for_root converts kwargs to args using the forward function signature
-
-    # TODO: assumes that all inputs are tensors
-    for input_name, input_value in dummy_inputs.items():
-        for tensor_value, name in tracer.tensor_attrs.items():
-            if torch.allclose(input_value, tensor_value):
-                nodes = graph.graph.find_nodes(op="get_attr", target=name)
-                assert len(nodes) == 1
-                node = nodes[0]
-                node.target = input_name
-                node.name = input_name
-                node.op = "placeholder"
-                break
-
-        else:
-            breakpoint()
-
-
 class PartitionedModel:
     def __init__(self):
         self.graph = None
@@ -244,8 +192,24 @@ class PartitionedModel:
                 return super().is_leaf_module(module, module_qualified_name)
 
         with HooksMixin.disable_hooks(), calibration_forward_context(self.model):
+            sig = inspect.signature(self.model.forward)
+            concrete_args = {}
+            for parameter in sig.parameters.values():
+                if parameter.name in model.dummy_inputs:
+                    continue
+                if parameter.kind == inspect._ParameterKind.VAR_POSITIONAL:
+                    value = list()
+                elif parameter.kind == inspect._ParameterKind.VAR_KEYWORD:
+                    value = dict()
+                elif parameter.name == "use_cache":
+                    value = False
+                else:
+                    value = parameter.default
+
+                concrete_args[parameter.name] = value
+
             #self.graph: GraphModule = symbolic_trace(model, disable_check=True, tracer_cls=CustomTracer)
-            self.graph: GraphModule =  torch.fx.GraphModule(model, CustomTracer().trace(model, dummy_inputs=model.dummy_inputs, concrete_args={"use_cache": False}))
+            self.graph: GraphModule =  torch.fx.GraphModule(model, CustomTracer().trace(model, dummy_inputs=model.dummy_inputs, concrete_args=concrete_args, complete_concrete_args_with_inputs_not_in_dummy_inputs=False))
             self.graph.config = model.config
             self.graph.class_for_deserialization = model.__class__
             self.graph.device = model.device
