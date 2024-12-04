@@ -1,13 +1,20 @@
 import unittest
 
 import pytest
+import torch
 from datasets import IterableDataset, load_dataset
 from parameterized import parameterized
 
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
+from llmcompressor.transformers import (
+    DataTrainingArguments,
+    ModelArguments,
+    TextGenerationDataset,
+    TrainingArguments,
+)
+from llmcompressor.transformers.finetune.data.data_helpers import (
+    format_calibration_data,
+)
 from llmcompressor.transformers.finetune.runner import StageRunner
-from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from tests.testing_utils import requires_torch
 
 
@@ -270,8 +277,6 @@ class TestSplitLoading(unittest.TestCase):
         [["train"], ["train[60%:]"], [{"train": "train[:20%]"}], [None]]
     )
     def test_split_loading(self, split_def):
-        from llmcompressor.transformers.finetune.model_args import ModelArguments
-
         data_args = DataTrainingArguments(
             dataset="open_platypus",
             splits=split_def,
@@ -301,12 +306,6 @@ class TestTokenizationDataset(unittest.TestCase):
         self.dataset = dataset.shuffle(seed=42).select(range(self.num_calib_samples))
 
     def test_load_tokenized_data(self):
-        import torch
-
-        from llmcompressor.transformers.finetune.data.data_helpers import (
-            format_calibration_data,
-        )
-
         def preprocess(sample):
             concat_text = "INPUT: " + sample.get("input", "")
             concat_text += "INSTRUCTIONS: " + sample.get("instruction", "")

@@ -1,8 +1,9 @@
+import torch
 from functools import cached_property
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from compressed_tensors.registry import RegistryMixin
-from datasets import Dataset, DatasetDict, IterableDataset
+from datasets import Dataset, IterableDataset
 from loguru import logger
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
@@ -14,9 +15,8 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
 )
-from llmcompressor.utils import Processor, import_from_path
-
-DatasetType = Union[Dataset, DatasetDict, IterableDataset]
+from llmcompressor.utils import import_from_path
+from llmcompressor.utils.typing import DatasetType, Processor
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -46,6 +46,8 @@ class TextGenerationDataset(RegistryMixin):
         self.data_args = data_args
         self.split = split
         self.processor = processor
+        #from transformers import AutoProcessor
+        #self.processor = AutoProcessor.from_pretrained("meta-llama/Llama-3.2-11B-Vision-Instruct", trust_remote_code=True)
 
         # get tokenizer
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
@@ -106,7 +108,10 @@ class TextGenerationDataset(RegistryMixin):
             dataset = self.map(
                 dataset,
                 self.tokenize,
-                batched=True,
+                batched=False,  # batching is not well supported for vision processors
+                keep_in_memory=True,  # bug occurs when not batched and not in memory,
+                                      # subsequent ds.map calls are always batched,
+                                      # regardless of `batched` argument
                 remove_columns=dataset.column_names,
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
@@ -172,7 +177,6 @@ class TextGenerationDataset(RegistryMixin):
     @cached_property
     def preprocess(self) -> Union[Callable[[Any], Any], None]:
         """
-
         The function must return keys which correspond to tokenizer kwargs, optionally
         including PROMPT_KEY
         """
@@ -260,7 +264,7 @@ class TextGenerationDataset(RegistryMixin):
     def map(
         self,
         dataset: Union[Dataset, IterableDataset],
-        function: Union[Callable[[Any], Any], None],
+        function: Callable[[Any], Any],
         remove_columns: Optional[Union[str, List[str], Dict[str, List[str]]]] = None,
         **kwargs,
     ) -> Union[Dataset, IterableDataset]:
@@ -270,14 +274,12 @@ class TextGenerationDataset(RegistryMixin):
         1. Clears invalid parameters in the case where streaming is enabled
         2. Skips removing columns which were already removed after mapping
         """
-        if function is None:
-            return dataset
-
         if isinstance(dataset, IterableDataset):
             # remove arguments that don't apply to streaming
             kwargs.pop("num_proc", None)
             kwargs.pop("load_from_cache_file", None)
             kwargs.pop("desc", None)
+            kwargs.pop("keep_in_memory", None)
 
         dataset = dataset.map(function, **kwargs)
 
