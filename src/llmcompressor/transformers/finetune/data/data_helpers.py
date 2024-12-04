@@ -9,7 +9,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers.data import default_data_collator
 
-from llmcompressor.utils.typing import DatasetType
+from llmcompressor.typing import DatasetType
 
 LOGGER = logging.getLogger(__name__)
 LABELS_MASK_VALUE = -100
@@ -136,12 +136,12 @@ def get_raw_dataset(
 
 
 def make_dataset_splits(
-    datasets: Dict[str, Any],
+    datasets: Dict[str, DatasetType],
     do_train: bool = False,
     do_eval: bool = False,
     do_predict: bool = False,
     do_oneshot: bool = False,
-) -> Dict[str, Dataset]:
+) -> Dict[str, DatasetType]:
     """
     Restructures the datasets dictionary based on what tasks will be run
     (train, eval, predict)
