@@ -47,15 +47,21 @@ class Flickr30K(TextGenerationDataset):
         if self.processor is None:
             raise ValueError("TODO")
 
-        breakpoint()
-
-        messages = sample["messages"]
-        if messages[0]["role"] != "system":
-            messages.insert(0, {"role": "system", "content": ""})
-
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "What does the image show?"},
+                ],
+            }
+        ]
         return {
-            "text": self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            ),
-            "image": sample["image"],
+            "text": [
+                self.processor.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                )
+            ],
+            "images": sample["image"],
         }

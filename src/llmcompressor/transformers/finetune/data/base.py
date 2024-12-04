@@ -2,7 +2,7 @@ from functools import cached_property
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from compressed_tensors.registry import RegistryMixin
-from datasets import Dataset, DatasetDict, IterableDataset
+from datasets import Dataset, IterableDataset
 from loguru import logger
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
@@ -14,9 +14,8 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
 )
-from llmcompressor.utils import Processor, import_from_path
-
-DatasetType = Union[Dataset, DatasetDict, IterableDataset]
+from llmcompressor.utils import import_from_path
+from llmcompressor.utils.typing import DatasetType, Processor
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -106,7 +105,7 @@ class TextGenerationDataset(RegistryMixin):
             dataset = self.map(
                 dataset,
                 self.tokenize,
-                batched=True,
+                batched=False,
                 remove_columns=dataset.column_names,
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
@@ -172,7 +171,6 @@ class TextGenerationDataset(RegistryMixin):
     @cached_property
     def preprocess(self) -> Union[Callable[[Any], Any], None]:
         """
-
         The function must return keys which correspond to tokenizer kwargs, optionally
         including PROMPT_KEY
         """
@@ -217,6 +215,7 @@ class TextGenerationDataset(RegistryMixin):
             padding=self.padding,
             max_length=self.max_seq_length,
             truncation=True,
+            return_tensors="pt",
         )
 
         # store unpadded prompt so we can mask out correct number of elements in labels
