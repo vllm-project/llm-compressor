@@ -44,9 +44,6 @@ class Flickr30K(TextGenerationDataset):
             self.tokenizer.chat_template = self.DEFAULT_CHAT_TEMPLATE
 
     def dataset_template(self, sample):
-        if self.processor is None:
-            raise ValueError("TODO")
-
         messages = [
             {
                 "role": "user",
