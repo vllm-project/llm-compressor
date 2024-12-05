@@ -28,9 +28,6 @@ def data_collator(batch):
         "input_ids": torch.LongTensor(batch[0]["input_ids"]),
         "attention_mask": torch.tensor(batch[0]["attention_mask"]),
         "pixel_values": torch.tensor(batch[0]["pixel_values"]),
-        "aspect_ratio_ids": torch.tensor(batch[0]["aspect_ratio_ids"]),
-        "aspect_ratio_mask": torch.tensor(batch[0]["aspect_ratio_mask"]),
-        "cross_attention_mask": torch.tensor(batch[0]["cross_attention_mask"]),
     }
 
 
