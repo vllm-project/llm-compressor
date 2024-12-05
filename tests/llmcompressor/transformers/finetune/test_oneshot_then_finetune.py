@@ -26,6 +26,11 @@ class TestOneshotThenFinetune(unittest.TestCase):
         from llmcompressor.core import create_session
         from llmcompressor.transformers import oneshot, train
 
+        raise Exception(
+            "This test is not supported until we can decompress sparse"
+            "models/turn off run_compressed through transformers"
+        )
+
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map="auto"
@@ -56,6 +61,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
         distill_teacher = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map="auto"
         )
+
         dataset = "open_platypus"
         concatenate_data = False
         output_dir = self.output / "finetune_out"
@@ -77,6 +83,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
 
         # test reloading checkpoint and final model
         model = AutoModelForCausalLM.from_pretrained(output_dir, device_map="auto")
+
         with create_session():
             train(
                 model=model,
