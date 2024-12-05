@@ -4,6 +4,7 @@ Common functions for interfacing with python primitives and directories/files.
 """
 
 import ast
+import contextlib
 import errno
 import fnmatch
 import glob
@@ -18,11 +19,13 @@ import warnings
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
 import torch
+from compressed_tensors import is_module_offloaded
+from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
 
 __all__ = [
@@ -1080,3 +1083,68 @@ class DisableKVCache:
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb):
         self.config.use_cache = self.restore_value
+
+
+@contextlib.contextmanager
+def DisableQuantization(model: torch.nn.Module):
+    """
+    Disable quantization from QuantizationModifier
+    """
+    model.apply(disable_quantization)
+    yield
+    model.apply(enable_quantization)
+
+
+@contextlib.contextmanager
+def calibration_forward_context(model: torch.nn.Module):
+    """
+    Context in which all calibration forward passes should occur.
+
+    - Remove gradient calculations
+    - Disable the KV cache
+    - Disable quantization from QuantizationModifier
+    """
+    model.eval()
+
+    with (
+        torch.no_grad(),
+        DisableKVCache(model),
+        DisableQuantization(model),
+    ):
+        yield
+
+
+@contextlib.contextmanager
+def align_module(module: torch.nn.Module, device: Optional[torch.device] = None):
+    """
+    Move an offloaded module's parameters to device or module execution device
+
+    :param module: module with parameters to align
+    :param device: optional device to move parameters to, if None is provided then
+        module execution device will be used
+    """
+    if is_module_offloaded(module):
+        if device is not None:
+            original_device = module._hf_hook.execution_device
+            module._hf_hook.execution_device = device
+
+        module._hf_hook.pre_forward(module)
+        yield
+        module._hf_hook.post_forward(module, torch.tensor([]))
+
+        if device is not None:
+            module._hf_hook.execution_device = original_device
+
+    elif device is not None:
+        devices = {}
+        for name, param in module.named_parameters(recurse=False):
+            devices[name] = param.device
+            setattr(module, name, param.to(device))
+
+        yield
+
+        for name, param_device in module.named_parameters:
+            setattr(module, name, param.to(param_device))
+
+    else:
+        yield

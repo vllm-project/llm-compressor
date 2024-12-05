@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -121,7 +122,8 @@ class WandaPruningModifier(Modifier):
                 "Inferring layer-wise sparsities from "
                 f"{len(dataloader) if dataloader else 0} calibration samples..."
             )
-            self.sparsity = self._infer_layer_sparsity(dataloader)
+            activations = self._get_activations(dataloader)
+            self.sparsity = self._infer_layer_sparsity(activations)
         self._validate_layerwise_sparsity()
 
         for idx, (name, layer) in enumerate(self.compressible_layers_.items()):
@@ -224,19 +226,17 @@ class WandaPruningModifier(Modifier):
 
         self.prunen_, self.prunem_ = list(map(int, self.mask_structure.split(":")))
 
-    def _infer_layer_sparsity(self, calibration_dataloader):
-        acts = _get_activations(self.model, calibration_dataloader)
+    def _infer_layer_sparsity(self, activations):
         wanda = {}
         for name, layer in self.compressible_layers_.items():
             prunable_layers = get_prunable_layers(layer)
             z = [
-                m.weight.abs() * acts[f"{name}.{n}"].unsqueeze(0)
+                m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)
                 for n, m in prunable_layers.items()
             ]
             wanda[name] = torch.cat([item.flatten().cpu() for item in z])
 
-        acts = None
-        del acts
+        del activations
         torch.cuda.empty_cache()
 
         outlier_ratios = {}
@@ -268,36 +268,34 @@ class WandaPruningModifier(Modifier):
             logger.info(f"Sparsity for {k}: {sparsities[k]}")
         return sparsities
 
+    @torch.no_grad()
+    def _get_activations(self, data_loader, nsamples=128):
+        self.model.eval()
+        acts = {}
 
-@torch.no_grad()
-def _get_activations(model, data_loader, nsamples=128):
-    import functools
+        def save_acts(module, input, name):
+            if isinstance(input, tuple):
+                input = input[0]
+            if name not in acts:
+                acts[name] = (
+                    1.0 / nsamples * input.detach().pow(2).sum(dim=(0, 1)).sqrt()
+                )
+            else:
+                acts[name] += (
+                    1.0 / nsamples * input.detach().pow(2).sum(dim=(0, 1)).sqrt()
+                )
 
-    model.eval()
-    acts = {}
+        for name, mod in self.model.named_modules():
+            if isinstance(mod, torch.nn.Linear) and "lm_head" not in name:
+                self.register_hook(mod, partial(save_acts, name=name), "forward_pre")
 
-    def save_acts(module, input, name):
-        if isinstance(input, tuple):
-            input = input[0]
-        if name not in acts:
-            acts[name] = 1.0 / nsamples * input.detach().pow(2).sum(dim=(0, 1)).sqrt()
-        else:
-            acts[name] += 1.0 / nsamples * input.detach().pow(2).sum(dim=(0, 1)).sqrt()
+        device = next(self.model.parameters()).device
+        for batch in tqdm(data_loader):
+            batch = {k: v.to(device) for k, v in batch.items()}
+            self.model(**batch)
+            batch = None
+        torch.cuda.empty_cache()
 
-    hooks = []
-    for name, mod in model.named_modules():
-        if isinstance(mod, torch.nn.Linear) and "lm_head" not in name:
-            hooks.append(
-                mod.register_forward_pre_hook(functools.partial(save_acts, name=name))
-            )
-    device = next(model.parameters()).device
-    for batch in tqdm(data_loader):
-        batch = {k: v.to(device) for k, v in batch.items()}
-        model(**batch)
-        batch = None
-    torch.cuda.empty_cache()
+        self.remove_hooks()
 
-    for h in hooks:
-        h.remove()
-
-    return acts
+        return acts

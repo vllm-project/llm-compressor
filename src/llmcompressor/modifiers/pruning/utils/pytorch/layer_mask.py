@@ -2,11 +2,10 @@ from dataclasses import dataclass
 from typing import Dict
 
 import torch
-from pydantic import BaseModel
 from torch.nn import Parameter
-from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.core import ModelParameterizedLayer
+from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 __all__ = ["LayerParamMasking", "param_mask_name"]
 
@@ -39,11 +38,9 @@ class ParameterizedLayerMaskSettings:
     use_hooks: bool = False
 
 
-class LayerParamMasking(BaseModel):
+class LayerParamMasking(HooksMixin):
     _mask_settings: Dict[str, ParameterizedLayerMaskSettings] = {}
     _masked_layer_params: Dict[str, ModelParameterizedLayer] = {}
-    _forward_hooks: Dict[str, RemovableHandle] = {}
-    _backward_hooks: Dict[str, RemovableHandle] = {}
     enabled_: bool = False
 
     def add_mask(
@@ -100,12 +97,8 @@ class LayerParamMasking(BaseModel):
 
                 return gradients
 
-            self._forward_hooks[layer_param_name] = (
-                parameterized_layer.layer.register_forward_hook(_forward_hook_fn)
-            )
-            self._backward_hooks[layer_param_name] = (
-                parameterized_layer.param.register_hook(_backward_hook_fn)
-            )
+            self.register_hook(parameterized_layer.layer, _forward_hook_fn, "forward")
+            self.register_hook(parameterized_layer.param, _backward_hook_fn, "")
 
     def update_mask(
         self,
@@ -131,11 +124,7 @@ class LayerParamMasking(BaseModel):
         del self._mask_settings[layer_param_name]
 
         if mask_settings.use_hooks:
-            self._forward_hooks[layer_param_name].remove()
-            self._backward_hooks[layer_param_name].remove()
-
-            del self._forward_hooks[layer_param_name]
-            del self._backward_hooks[layer_param_name]
+            self.remove_hooks()
 
     def apply_mask_weight(self, layer_param_name: str):
         if not self.enabled_:

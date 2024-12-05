@@ -26,6 +26,8 @@ class EarlyStopException(Exception):
     """
 
     def __init__(self, args: Tuple, kwargs: Dict):
+        if args is None:
+            return
         self.args = tensors_to_device(args, "cpu")
         self.kwargs = kwargs
 
@@ -39,7 +41,7 @@ def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.T
     :param batch: batch to apply padding to if it exists
     :return: batch with padding zeroed out in the input_ids
     """
-    batch["input_ids"] = batch["input_ids"] * batch["attention_mask"]
+    batch["input_ids"].masked_fill_(batch["attention_mask"] == 0, 0)
     return batch
 
 
@@ -98,7 +100,8 @@ def run_calibration_forward(
             except EarlyStopException as e:
                 # model was stopped early, save last calculated output and
                 # move on to next calibration sample
-                intermediates.append((e.args, e.kwargs))
+                # intermediates.append((e.args, e.kwargs))
+                pass
 
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass
