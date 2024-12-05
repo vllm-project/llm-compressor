@@ -23,6 +23,7 @@ from torch.nn import Module
 
 from llmcompressor.core.state import State
 from llmcompressor.pytorch.model_load.helpers import save_model_and_recipe
+from llmcompressor.typing import Processor
 from llmcompressor.utils.pytorch import set_layer
 
 try:
@@ -91,7 +92,7 @@ def set_wrapped_model(state: State, wrapped_model: Module):
         state.model = wrapped_model
 
 
-def unwrap_and_export_model(model, accelerator, output_dir, processor):
+def unwrap_and_export_model(model, accelerator, output_dir: str, processor: Processor):
     """
     Recursively unwraps an FSDP model, then saves the unwrapped model and the
     currently active recipe to disk

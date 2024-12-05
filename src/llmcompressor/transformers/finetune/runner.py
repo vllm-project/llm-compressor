@@ -38,7 +38,7 @@ class StageRunner:
         - set_trainer()
         - train() / evaluate() / predict()
 
-    :param model_args: Arguments pertaining to model/config/tokenizer
+    :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows
     :param training_args: Arguments pertaining to training loop configuration
     :model: unwrapped model to run flows on
