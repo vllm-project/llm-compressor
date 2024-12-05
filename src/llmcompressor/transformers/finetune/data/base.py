@@ -46,8 +46,6 @@ class TextGenerationDataset(RegistryMixin):
         self.data_args = data_args
         self.split = split
         self.processor = processor
-        # from transformers import AutoProcessor
-        # self.processor = AutoProcessor.from_pretrained("meta-llama/Llama-3.2-11B-Vision-Instruct", trust_remote_code=True)
 
         # get tokenizer
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
@@ -286,6 +284,7 @@ class TextGenerationDataset(RegistryMixin):
         if isinstance(dataset, IterableDataset):
             dataset = dataset._resolve_features()
 
+        # remove columns which are present, skip removing those which are not
         if remove_columns is not None:
             if isinstance(remove_columns, str):
                 remove_columns = [remove_columns]

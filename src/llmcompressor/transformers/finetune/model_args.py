@@ -37,6 +37,9 @@ class ModelArguments:
     )
     processor: Optional[str] = field(
         default=None,
+        metadata={
+            "help": "Pretrained processor name or path if not the same as model_name"
+        },
     )
     cache_dir: Optional[str] = field(
         default=None,
