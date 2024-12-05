@@ -13,6 +13,7 @@ GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/spar
 
 @requires_torch
 @pytest.mark.integration
+@pytest.mark.filterwarnings("ignore::UserWarning")
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestSparsities(unittest.TestCase):
     model = None
@@ -61,6 +62,7 @@ class TestSparsities(unittest.TestCase):
 @requires_gpu
 @requires_torch
 @pytest.mark.integration
+@pytest.mark.filterwarnings("ignore::UserWarning")
 @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
 class TestSparsitiesGPU(unittest.TestCase):
     model = None

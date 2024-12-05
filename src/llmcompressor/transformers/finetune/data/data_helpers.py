@@ -117,7 +117,7 @@ def make_dataset_splits(
     if "all" in datasets and len(datasets) == 1:
         datasets = datasets.get("all")
         if isinstance(datasets, Dataset):
-            datasets = {"train": datasets}
+            datasets = {"train": datasets, "calibration": datasets}  # shallow copy
 
     train_split = eval_split = predict_split = calib_split = None
 
