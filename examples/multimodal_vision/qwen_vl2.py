@@ -1,6 +1,12 @@
 import os
 
 import torch
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStrategy,
+    QuantizationType,
+)
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
@@ -34,13 +40,6 @@ def data_collator(batch):
 
 
 # Recipe
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationScheme,
-    QuantizationStrategy,
-    QuantizationType,
-)
-
 recipe = GPTQModifier(
     targets="Linear",
     config_groups={

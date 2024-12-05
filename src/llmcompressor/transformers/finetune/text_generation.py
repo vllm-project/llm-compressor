@@ -143,8 +143,15 @@ def parse_args(**kwargs):
         warnings.warn(
             "`remove_columns` argument is depreciated, when processing non-tokenized "
             "datasets, all columns not returned by preprocessing_fn will be removed",
-            DeprecationWarning
+            DeprecationWarning,
         )
+
+    # silently assign tokenizer to processor
+    if model_args.tokenizer:
+        if model_args.processor:
+            raise ValueError("Cannot use both a tokenizer and processor")
+        model_args.processor = model_args.tokenizer
+    model_args.tokenizer = None
 
     return model_args, data_args, training_args
 
