@@ -3,6 +3,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
+from datasets.formatting.formatting import LazyRow
 from loguru import logger
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
@@ -14,8 +15,8 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
 )
+from llmcompressor.typing import DatasetType, Processor
 from llmcompressor.utils import import_from_path
-from llmcompressor.typing import Processor, DatasetType
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -172,7 +173,7 @@ class TextGenerationDataset(RegistryMixin):
         )
 
     @cached_property
-    def preprocess(self) -> Union[Callable[[Any], Any], None]:
+    def preprocess(self) -> Union[Callable[[LazyRow], Any], None]:
         """
         The function must return keys which correspond to tokenizer kwargs, optionally
         including PROMPT_KEY
@@ -208,7 +209,7 @@ class TextGenerationDataset(RegistryMixin):
 
         return dataset
 
-    def tokenize(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def tokenize(self, data: LazyRow) -> Dict[str, Any]:
         # separate prompt
         prompt = data.pop(self.PROMPT_KEY, None)
 
@@ -230,7 +231,7 @@ class TextGenerationDataset(RegistryMixin):
 
         return data
 
-    def group_text(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def group_text(self, data: LazyRow) -> Dict[str, Any]:
         concatenated_data = {k: sum(data[k], []) for k in data.keys()}
         total_length = len(concatenated_data[list(data.keys())[0]])
         total_length = (total_length // self.max_seq_length) * self.max_seq_length
@@ -243,7 +244,12 @@ class TextGenerationDataset(RegistryMixin):
         }
         return result
 
-    def add_labels(self, data):
+    def add_labels(self, data: LazyRow) -> LazyRow:
+        if "pixel_values" in data:
+            raise NotImplementedError(
+                "Label masking for vision datasets has not been implemented yet"
+            )
+
         # if the dataset uses prompts, mask them out so they don't contribute
         # to the loss calculation
         prompt_len = 0
