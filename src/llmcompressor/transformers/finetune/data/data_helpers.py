@@ -1,11 +1,14 @@
 import logging
 import os
+import warnings
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from datasets import Dataset, load_dataset
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers.data import default_data_collator
+
+from llmcompressor.typing import DatasetType
 
 LOGGER = logging.getLogger(__name__)
 LABELS_MASK_VALUE = -100
@@ -92,17 +95,17 @@ def get_raw_dataset(
 
 
 def make_dataset_splits(
-    tokenized_datasets: Dict[str, Any],
+    datasets: Dict[str, DatasetType],
     do_train: bool = False,
     do_eval: bool = False,
     do_predict: bool = False,
     do_oneshot: bool = False,
-) -> Dict[str, Dataset]:
+) -> Dict[str, DatasetType]:
     """
     Restructures the datasets dictionary based on what tasks will be run
     (train, eval, predict)
 
-    :param tokenized_datasets: dictionary of processed datasets
+    :param datasets: dictionary of processed datasets
     :param do_train: Whether to store the train dataset
     :param do_eval: Whether to store the validation dataset
     :param do_predict: Whether to store the test dataset
@@ -111,31 +114,39 @@ def make_dataset_splits(
     """
 
     # handles case where all splits are contained in a single dataset
-    if "all" in tokenized_datasets and len(tokenized_datasets) == 1:
-        tokenized_datasets = tokenized_datasets.get("all")
-        if isinstance(tokenized_datasets, Dataset):
-            tokenized_datasets = {"train": tokenized_datasets}
+    if "all" in datasets and len(datasets) == 1:
+        datasets = datasets.get("all")
+        if isinstance(datasets, Dataset):
+            datasets = {"train": datasets}
 
     train_split = eval_split = predict_split = calib_split = None
 
     if do_train:
-        if "train" not in tokenized_datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_split = tokenized_datasets["train"]
+        train_split = _get_split_with_fallbacks(
+            datasets, "train", ["train"], strict=True
+        )
     if do_eval:
-        if "validation" not in tokenized_datasets:
-            raise ValueError("--do_eval requires a validation dataset")
-        eval_split = tokenized_datasets["validation"]
+        eval_split = _get_split_with_fallbacks(
+            datasets, "evaluation", ["validation", "test"], strict=True
+        )
     if do_predict:
-        if "test" not in tokenized_datasets:
-            raise ValueError("--do_predict requires a test dataset")
-        predict_split = tokenized_datasets["test"]
+        predict_split = _get_split_with_fallbacks(
+            datasets, "prediction", ["test", "validation"], strict=True
+        )
     if do_oneshot:
-        calib_split = tokenized_datasets.get("calibration")
-        if calib_split is None:
-            if "train" not in tokenized_datasets:
-                raise ValueError("--do_oneshot requires a calibration dataset")
-            calib_split = tokenized_datasets["train"]
+        calib_split = _get_split_with_fallbacks(
+            datasets,
+            "oneshot",
+            ["calibration", "train", "test", "validation"],
+            strict=False,
+        )
+
+        # remove labels from calibration dataset
+        column_names = calib_split.column_names
+        if isinstance(column_names, dict):
+            column_names = sum(column_names.values(), [])
+        if "labels" in column_names:
+            calib_split = calib_split.remove_columns("labels")
 
     split_datasets = {
         "train": train_split,
@@ -243,3 +254,34 @@ def transform_dataset_keys(data_files: Dict[str, Any]):
             transform_dataset_key(dataset_key)
 
     return data_files
+
+
+def _get_split_with_fallbacks(
+    datasets: Dict[str, DatasetType],
+    task: str,
+    fallbacks: List[str],
+    strict: bool = True,
+) -> DatasetType:
+    assert len(fallbacks) > 0
+    if len(datasets) <= 0:
+        raise ValueError("Cannot get retrieve data from dataset with no splits")
+
+    # check first choice
+    first_choice = fallbacks[0]
+    if first_choice in datasets:
+        return datasets[first_choice]
+
+    # last fallback is first available split
+    if not strict:
+        fallbacks.append(next(iter(datasets.keys())))
+
+    # check fallbacks
+    for fallback in fallbacks[1:]:
+        if fallback in datasets:
+            warnings.warn(
+                f"{task} expects a {first_choice} dataset split, "
+                f"falling back to {fallback}"
+            )
+            return datasets[fallback]
+
+    raise ValueError(f"{task} expects at least one of {fallbacks} dataset splits")
