@@ -32,17 +32,17 @@ class CustomDataset(TextGenerationDataset):
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
         Can also be set to None to load all the splits
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
 
     """
 
-    def __init__(self, data_args, split, tokenizer):
+    def __init__(self, data_args, split, processor):
         data_args = deepcopy(data_args)
         super().__init__(
             text_column=data_args.text_column,
             data_args=data_args,
             split=split,
-            tokenizer=tokenizer,
+            processor=processor,
         )
         self.preprocessing_func = data_args.preprocessing_func
         self.remove_columns = data_args.remove_columns

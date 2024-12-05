@@ -9,7 +9,7 @@ from typing import List, Optional, Union
 
 import yaml
 from datasets import Dataset
-from transformers import AutoTokenizer
+from transformers import PreTrainedTokenizer
 
 from tests.data import CustomTestConfig, TestConfig
 
@@ -130,7 +130,7 @@ def run_cli_command(cmd: List[str], cwd: Optional[Union[str, Path]] = None):
 
 
 def preprocess_tokenize_dataset(
-    ds: Dataset, tokenizer: AutoTokenizer, max_seq_length: int
+    ds: Dataset, tokenizer: PreTrainedTokenizer, max_seq_length: int
 ) -> Dataset:
     """
     Helper function to preprocess and tokenize a dataset according to presets
