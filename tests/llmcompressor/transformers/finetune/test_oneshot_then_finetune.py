@@ -5,11 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.testing_utils import requires_torch
-
 
 @pytest.mark.unit
-@requires_torch
 @pytest.mark.skipif(
     "CADENCE" in os.environ
     and (os.environ["CADENCE"] == "weekly" or os.environ["CADENCE"] == "nightly"),
