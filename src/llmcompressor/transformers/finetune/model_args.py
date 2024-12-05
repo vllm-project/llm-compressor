@@ -28,7 +28,6 @@ class ModelArguments:
             "help": "Pretrained config name or path if not the same as model_name"
         },
     )
-    # TODO: depreciate
     tokenizer: Optional[str] = field(
         default=None,
         metadata={

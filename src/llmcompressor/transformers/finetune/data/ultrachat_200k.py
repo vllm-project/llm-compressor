@@ -50,9 +50,6 @@ class UltraChatDataset(TextGenerationDataset):
             self.tokenizer.chat_template = self.DEFAULT_CHAT_TEMPLATE
 
     def dataset_template(self, sample):
-        if self.processor is None:
-            raise ValueError("TODO")
-
         messages = sample["messages"]
         if messages[0]["role"] != "system":
             messages.insert(0, {"role": "system", "content": ""})
