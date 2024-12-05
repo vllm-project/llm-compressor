@@ -10,7 +10,7 @@ class CustomDataset(TextGenerationDataset):
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
         Can also be set to None to load all the splits
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
 
     """
 

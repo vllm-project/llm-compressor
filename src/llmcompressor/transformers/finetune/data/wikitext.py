@@ -2,7 +2,7 @@ from copy import deepcopy
 from typing import TYPE_CHECKING
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.utils import Processor
+from llmcompressor.typing import Processor
 
 if TYPE_CHECKING:
     from llmcompressor.transformers import DataTrainingArguments as DataArgs

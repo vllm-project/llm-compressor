@@ -15,7 +15,7 @@ from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
 )
 from llmcompressor.utils import import_from_path
-from llmcompressor.utils.typing import DatasetType, Processor
+from llmcompressor.typing import Processor, DatasetType
 
 
 class TextGenerationDataset(RegistryMixin):
