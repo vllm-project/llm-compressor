@@ -25,6 +25,7 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoProcessor,
+    DefaultDataCollator,
     HfArgumentParser,
     PreTrainedModel,
     set_seed,
@@ -345,6 +346,7 @@ def main(
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     # Initialize our Trainer
+    data_collator = DefaultDataCollator()
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
@@ -355,7 +357,7 @@ def main(
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
         processing_class=processor,
-        data_collator=data_args.data_collator,
+        data_collator=data_collator,
     )
 
     # wrap model.save_pretrained
