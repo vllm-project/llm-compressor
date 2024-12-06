@@ -65,15 +65,14 @@ def quantize_weight(
     blocksize: int = 128,
     percdamp: float = 0.01,
     module_class: Type[torch.nn.Module] = torch.nn.Linear,
-    weight_original: Optional[torch.Tensor] = None,
 ) -> Tuple[float, torch.Tensor, torch.Tensor, Union[torch.Tensor, None], torch.Tensor]:
     """
     Quantize a module weight according to the GPTQ algorithm
 
-    TODO
     :param weight: weight being quantized
-    :param inp: module inputs used to calculate hessian
     :param quant_args: quantization arguments used to find quantization parameters
+    :param hessian: preaccumulated hessian for quantization
+    :param inp: module inputs used to calculate hessian. Incompatible with `hessian` arg
     :param blocksize: chunk size of quantization updates
     :param percdamp: dampening factor on hessian diagonal
     :param module_class: class of module, likely torch.nn.Linear
@@ -91,9 +90,6 @@ def quantize_weight(
         quantization_args=quant_args,
         averaging_constant=1.0,  # ignore moving average
     )
-
-    if weight_original is not None:
-        raise NotImplementedError()
 
     # standardize shape and dtype
     if module_class == torch.nn.Conv2d:
