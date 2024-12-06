@@ -40,7 +40,12 @@ def run_pipeline(
         ]
         batch_outputs = [None for _ in range(len(dataloader))]
 
-        for subgraph_index, subgraph in enumerate(subgraphs):
+        num_subgraphs = len(subgraphs)
+        for index, subgraph in enumerate(subgraphs):
+            # prepare tqdm description texts
+            unc_desc = f"(Partition {index + 1}/{num_subgraphs}): Uncompressed forward"
+            comp_desc = f"(Partition {index + 1}/{num_subgraphs}): Compressed forward"
+
             # compile subgraph forward function
             code = subgraph.graph.python_code("self")
             exec(code.src, code.globals)
@@ -48,8 +53,7 @@ def run_pipeline(
 
             if propagate_error:
                 # do an preliminary pass to trigger modifier hooks
-                desc = f"(Partition {subgraph_index}): Uncompressed forward"
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
+                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=unc_desc):
                     intermediates = batch_intermediates[batch_index]
                     inputs = {
                         input_name: intermediates[input_name]
@@ -62,11 +66,7 @@ def run_pipeline(
             # and is only used for capturing intermediates
             # otherwise, this pass triggers modifier hooks and captures intermediates
             with HooksMixin.disable_hooks() if propagate_error else nullcontext():
-                desc = (
-                    f"(Partition {subgraph_index}): Compressed forward"
-                    if propagate_error
-                    else f"(Partition {subgraph_index}): Uncompressed forward"
-                )
+                desc = comp_desc if propagate_error else unc_desc
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
                     intermediates = batch_intermediates[batch_index]
 
@@ -81,7 +81,7 @@ def run_pipeline(
                     for consumed_name in subgraph.consumed_names:
                         del intermediates[consumed_name]
 
-                    if subgraph_index < len(subgraphs) - 1:
+                    if index < len(subgraphs) - 1:
                         intermediates.update(subgraph_output)
                     else:
                         batch_outputs[batch_index] = subgraph_output
