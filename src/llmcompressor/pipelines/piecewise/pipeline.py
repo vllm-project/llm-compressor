@@ -31,7 +31,12 @@ def run_pipeline(
     # FUTURE: apply recipe to model
     # initialize(recipe, model)
 
-    model_device = next(model.parameters()).device
+    # TODO: revisit
+    device_map = getattr(model, "hf_device_map", None)
+    if device_map is not None:
+        model_device = next(iter(device_map.values()))
+    else:
+        model_device = model.device
 
     with calibration_forward_context(model):
         # prepare intermediates cache

@@ -3,13 +3,14 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Dict, List, Set
 
+from compressed_tensors.utils import disable_hf_hook
 from torch.fx import Graph, GraphModule, Node
 from torch.nn import Module
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.recipe import Recipe
-from llmcompressor.utils.helpers import calibration_forward_context, disable_hf_hook
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
 
@@ -151,6 +152,7 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     while len(queue) > 0:
         node = queue.popleft()
 
+        # TODO: test swapping with below
         # guarantee targets are assigned to disjoint partitions
         if node in target_nodes:
             partition_index += 1

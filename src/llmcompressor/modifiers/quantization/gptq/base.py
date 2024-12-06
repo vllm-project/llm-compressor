@@ -5,6 +5,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.utils import (
+    align_module_device,
+    get_execution_device,
+    getattr_chain,
+    update_offload_parameter,
+)
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
@@ -19,8 +25,6 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.piecewise import run_pipeline
-from llmcompressor.utils.fsdp.helpers import update_offload_parameter
-from llmcompressor.utils.helpers import align_module, getattr_chain
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import qat_active
 
@@ -240,7 +244,9 @@ class GPTQModifier(Modifier, HooksMixin):
 
         # Initialize hessian if not present
         if module not in self._num_samples:
-            init_device = "cpu" if self.offload_hessians else module.weight.device
+            init_device = (
+                "cpu" if self.offload_hessians else get_execution_device(module)
+            )
             self._hessians[module] = make_empty_hessian(module, device=init_device)
             self._num_samples[module] = 0
 
@@ -257,7 +263,7 @@ class GPTQModifier(Modifier, HooksMixin):
         if self._num_samples[module] >= self.update_size:
             logger.info(f"Quantizing {name} using {self._num_samples[module]} samples")
             with (
-                align_module(module),
+                align_module_device(module),
                 self._maybe_onload_hessians(module),
                 CompressionLogger(module) as comp_logger,
             ):
@@ -271,7 +277,7 @@ class GPTQModifier(Modifier, HooksMixin):
                 )
 
                 module.weight += quantized_weight - module.weight  # Future: FSDP
-                update_offload_parameter(module, "weight")
+                update_offload_parameter(module, "weight", module.weight.data)
                 update_offload_parameter(module, "weight_scale", scale)
                 update_offload_parameter(module, "weight_zero_point", zero_point)
                 if g_idx is not None:
@@ -285,7 +291,7 @@ class GPTQModifier(Modifier, HooksMixin):
     @contextlib.contextmanager
     def _maybe_onload_hessians(self, module: torch.nn.Module):
         if self.offload_hessians:
-            device = module.weight.device
+            device = get_execution_device(module)
             self._hessians[module] = self._hessians[module].to(device=device)
 
         yield

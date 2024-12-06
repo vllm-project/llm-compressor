@@ -19,14 +19,11 @@ import warnings
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
 import torch
-from accelerate.hooks import add_hook_to_module, remove_hook_from_module
-from accelerate.utils import PrefixedDataset
-from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
 
@@ -1114,66 +1111,3 @@ def calibration_forward_context(model: torch.nn.Module):
         DisableQuantization(model),
     ):
         yield
-
-
-@contextlib.contextmanager
-def align_module(module: torch.nn.Module, device: Optional[torch.device] = None):
-    """
-    Move an offloaded module's parameters to device or module execution device
-
-    :param module: module with parameters to align
-    :param device: optional device to move parameters to, if None is provided then
-        module execution device will be used
-    """
-    if is_module_offloaded(module):
-        if device is not None:
-            original_device = module._hf_hook.execution_device
-            module._hf_hook.execution_device = device
-
-        module._hf_hook.pre_forward(module)
-        yield
-        module._hf_hook.post_forward(module, torch.tensor([]))
-
-        if device is not None:
-            module._hf_hook.execution_device = original_device
-
-    elif device is not None:
-        devices = {}
-        for name, param in module.named_parameters(recurse=False):
-            devices[name] = param.device
-            setattr(module, name, param.to(device))
-
-        yield
-
-        for name, param_device in module.named_parameters:
-            setattr(module, name, param.to(param_device))
-
-    else:
-        yield
-
-
-@contextlib.contextmanager
-def disable_hf_hook(module: torch.nn.Module, recurse: bool = False):
-    hook = module._hf_hook
-    prefix_dict = module._hf_hook.weights_map
-    new_prefix = {}
-
-    # recreate the prefix dict (since it is immutable)
-    # and add quantization parameters
-    if prefix_dict is not None:
-        for key, data in module.named_parameters():
-            if key not in prefix_dict:
-                new_prefix[f"{prefix_dict.prefix}{key}"] = data
-            else:
-                new_prefix[f"{prefix_dict.prefix}{key}"] = prefix_dict[key]
-        prefix_dict = PrefixedDataset(new_prefix, prefix_dict.prefix)
-
-    # removing the AlignDevicesHook also moves the module to the original device
-    remove_hook_from_module(module, recurse=recurse)
-
-    yield
-
-    # we need to re-add the hook for offloading now that we've wrapped forward
-    add_hook_to_module(module, hook)
-    if prefix_dict is not None:
-        module._hf_hook.weights_map = prefix_dict
