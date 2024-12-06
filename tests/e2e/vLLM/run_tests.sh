@@ -13,6 +13,7 @@ do
 
     export TEST_DATA_FILE="$MODEL_CONFIG"
     pytest \
+        -r a \
         --capture=tee-sys \
         --junitxml="test-results/e2e-$(date +%s).xml" \
         "$PWD/tests/e2e/vLLM/test_vllm.py" || LOCAL_SUCCESS=$?
