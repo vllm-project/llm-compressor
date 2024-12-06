@@ -24,6 +24,8 @@ from urllib.parse import urlparse
 
 import numpy
 import torch
+from accelerate.hooks import add_hook_to_module, remove_hook_from_module
+from accelerate.utils import PrefixedDataset
 from compressed_tensors import is_module_offloaded
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
@@ -1148,3 +1150,30 @@ def align_module(module: torch.nn.Module, device: Optional[torch.device] = None)
 
     else:
         yield
+
+
+@contextlib.contextmanager
+def disable_hf_hook(module: torch.nn.Module, recurse: bool = False):
+    hook = module._hf_hook
+    prefix_dict = module._hf_hook.weights_map
+    new_prefix = {}
+
+    # recreate the prefix dict (since it is immutable)
+    # and add quantization parameters
+    if prefix_dict is not None:
+        for key, data in module.named_parameters():
+            if key not in prefix_dict:
+                new_prefix[f"{prefix_dict.prefix}{key}"] = data
+            else:
+                new_prefix[f"{prefix_dict.prefix}{key}"] = prefix_dict[key]
+        prefix_dict = PrefixedDataset(new_prefix, prefix_dict.prefix)
+
+    # removing the AlignDevicesHook also moves the module to the original device
+    remove_hook_from_module(module, recurse=recurse)
+
+    yield
+
+    # we need to re-add the hook for offloading now that we've wrapped forward
+    add_hook_to_module(module, hook)
+    if prefix_dict is not None:
+        module._hf_hook.weights_map = prefix_dict

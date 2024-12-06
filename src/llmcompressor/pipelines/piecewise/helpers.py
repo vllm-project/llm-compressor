@@ -9,7 +9,7 @@ from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.recipe import Recipe
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import calibration_forward_context, disable_hf_hook
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
 
@@ -44,7 +44,11 @@ def trace_subgraphs(
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
-    with calibration_forward_context(model), HooksMixin.disable_hooks():
+    with (
+        calibration_forward_context(model),
+        HooksMixin.disable_hooks(),
+        disable_hf_hook(model, recurse=True),
+    ):
         graph = GraphModule(
             model,
             tracer.trace(

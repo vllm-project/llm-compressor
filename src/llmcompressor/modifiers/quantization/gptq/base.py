@@ -291,7 +291,8 @@ class GPTQModifier(Modifier, HooksMixin):
         yield
 
         if self.offload_hessians:
-            self._hessians[module] = self._hessians[module].to(device="cpu")
+            if module in self._hessians:  # may have been deleted in context
+                self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def _build_quant_modifier(self):
         """
