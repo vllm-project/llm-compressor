@@ -10,7 +10,7 @@ from llmcompressor.transformers import oneshot
 # Load model.
 model_id = "mgoin/pixtral-12b"
 model = TracableLlavaForConditionalGeneration.from_pretrained(
-    model_id, device_map="auto", torch_dtype="auto"
+    model_id, device_map="balanced", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 

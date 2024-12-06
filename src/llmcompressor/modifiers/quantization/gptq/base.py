@@ -227,7 +227,7 @@ class GPTQModifier(Modifier, HooksMixin):
                 propagate_error=True,
             )
         else:
-            self.offload_hessians = True
+            # self.offload_hessians = True
             run_basic(state.model, state.data.calib)
 
         return True
