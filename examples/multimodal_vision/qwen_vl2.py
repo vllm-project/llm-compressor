@@ -57,7 +57,6 @@ recipe = GPTQModifier(
         ),
     },
     ignore=["re:.*lm_head"],
-    update_size=NUM_CALIBRATION_SAMPLES,
     dampening_frac=0.5,
 )
 

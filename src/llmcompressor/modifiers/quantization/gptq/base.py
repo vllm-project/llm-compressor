@@ -24,7 +24,8 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.piecewise import run_pipeline
+from llmcompressor.pipelines.basic import run_pipeline as run_basic
+from llmcompressor.pipelines.piecewise import run_pipeline as run_piecewise
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import (
     get_layers,
@@ -217,9 +218,14 @@ class GPTQModifier(Modifier, HooksMixin):
         if self._update_size is None:
             self._update_size = len(state.data.calib)
 
-        run_pipeline(
-            state.model, self.sequential_targets, state.data.calib, propagate_error=True
-        )
+        # run_pipeline(
+        #     state.model, self.sequential_targets, state.data.calib, propagate_error=True
+        # )
+
+        self.offload_hessians = True
+        run_basic(state.model, state.data.calib)
+
+        
 
         return True
 
