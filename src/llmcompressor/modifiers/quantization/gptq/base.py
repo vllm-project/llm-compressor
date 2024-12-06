@@ -74,7 +74,7 @@ class GPTQModifier(Modifier, HooksMixin):
 
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
-    
+
     :param block_size: Used to determine number of columns to compress in one pass
     :param quantize: Set to True to quantize using an existing quantization modifier,
         or pass in the configuration for a quantization modifier if one does not
@@ -218,14 +218,17 @@ class GPTQModifier(Modifier, HooksMixin):
         if self._update_size is None:
             self._update_size = len(state.data.calib)
 
-        # run_pipeline(
-        #     state.model, self.sequential_targets, state.data.calib, propagate_error=True
-        # )
-
-        self.offload_hessians = True
-        run_basic(state.model, state.data.calib)
-
-        
+        # infer pipeline
+        if "pixel_values" not in state.data.calib.dataset.column_names:
+            run_piecewise(
+                state.model,
+                self.sequential_targets,
+                state.data.calib,
+                propagate_error=True,
+            )
+        else:
+            self.offload_hessians = True
+            run_basic(state.model, state.data.calib)
 
         return True
 
@@ -284,6 +287,7 @@ class GPTQModifier(Modifier, HooksMixin):
         if self._num_samples[module] >= self._update_size:
             logger.info(f"Quantizing {name} using {self._num_samples[module]} samples")
             with (
+                torch.no_grad(),
                 align_module_device(module),
                 self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,

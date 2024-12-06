@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 # Oneshot arguments
 DATASET_ID = "flickr30k"
 DATASET_SPLIT = "test[:512]"
-NUM_CALIBRATION_SAMPLES = 1
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 
@@ -27,7 +27,7 @@ def data_collator(batch):
     return {
         "input_ids": torch.LongTensor(batch[0]["input_ids"]),
         "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-        "pixel_values": torch.tensor(batch[0]["pixel_values"]),
+        "pixel_values": torch.tensor(batch[0]["pixel_values"])[0],
     }
 
 
