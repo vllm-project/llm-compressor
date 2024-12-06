@@ -71,10 +71,9 @@ class GPTQModifier(Modifier, HooksMixin):
     |                    actorder: False
 
 
-    :param sequential_update: Whether or not to update weights sequentially by layer.
-        This option is depreciated and setting to False is no longer supported
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
+    
     :param block_size: Used to determine number of columns to compress in one pass
     :param quantize: Set to True to quantize using an existing quantization modifier,
         or pass in the configuration for a quantization modifier if one does not
@@ -104,7 +103,6 @@ class GPTQModifier(Modifier, HooksMixin):
 
     # gptq modifier arguments
     sequential_update: bool = True  # DEPRECIATED
-    update_size: int = 512
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -123,6 +121,7 @@ class GPTQModifier(Modifier, HooksMixin):
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _update_size: Optional[int] = PrivateAttr(default=None)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -214,6 +213,10 @@ class GPTQModifier(Modifier, HooksMixin):
         elif isinstance(self.sequential_targets, str):
             self.sequential_targets = get_layers(self.sequential_targets, self.model)
 
+        # infer update size
+        if self._update_size is None:
+            self._update_size = len(state.data.calib)
+
         run_pipeline(
             state.model, self.sequential_targets, state.data.calib, propagate_error=True
         )
@@ -263,7 +266,7 @@ class GPTQModifier(Modifier, HooksMixin):
             self._num_samples[module] = 0
 
         # Accumulate hessian with input with optional offloading
-        with self._maybe_onload_hessians(module):
+        with self._maybe_onload_hessian(module):
             self._hessians[module], self._num_samples[module] = accumulate_hessian(
                 inp,
                 type(module),
@@ -272,11 +275,11 @@ class GPTQModifier(Modifier, HooksMixin):
             )
 
         # After enough samples are accumulated, perform quantization
-        if self._num_samples[module] >= self.update_size:
+        if self._num_samples[module] >= self._update_size:
             logger.info(f"Quantizing {name} using {self._num_samples[module]} samples")
             with (
                 align_module_device(module),
-                self._maybe_onload_hessians(module),
+                self._maybe_onload_hessian(module),
                 CompressionLogger(module) as comp_logger,
             ):
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
@@ -301,7 +304,7 @@ class GPTQModifier(Modifier, HooksMixin):
                 comp_logger.set_loss(loss)
 
     @contextlib.contextmanager
-    def _maybe_onload_hessians(self, module: torch.nn.Module):
+    def _maybe_onload_hessian(self, module: torch.nn.Module):
         if self.offload_hessians:
             device = get_execution_device(module)
             self._hessians[module] = self._hessians[module].to(device=device)
