@@ -26,7 +26,7 @@ from llmcompressor.modifiers.quantization.quantization.base import QuantizationM
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.piecewise import run_pipeline
 from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import qat_active
+from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 
 __all__ = ["GPTQModifier"]
 
@@ -204,7 +204,15 @@ class GPTQModifier(Modifier, HooksMixin):
                 post_hook = partial(self.compress_module, name)
                 self.register_hook(module, post_hook, "forward")
 
-        run_pipeline(state.model, None, state.data.calib, propagate_error=True)
+        # infer sequential targets
+        if self.sequential_targets is None:
+            self.sequential_targets = get_no_split_params(state.model)
+        elif isinstance(self.sequential_targets, str):
+            self.sequential_targets = [self.sequential_targets]
+
+        run_pipeline(
+            state.model, self.sequential_targets, state.data.calib, propagate_error=True
+        )
 
         return True
 

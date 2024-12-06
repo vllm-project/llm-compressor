@@ -9,9 +9,7 @@ from torch.nn import Module
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.recipe import Recipe
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_no_split_params
 
 
 @dataclass
@@ -21,20 +19,17 @@ class Subgraph:
     consumed_names: List[str]
 
 
-__all__ = ["get_compression_targets", "trace_subgraphs"]
+__all__ = ["infer_sequential_targets", "trace_subgraphs"]
 
 
-def get_compression_targets(model: Module, recipe: Recipe) -> Set[Module]:
+def infer_sequential_targets(model: Module, targets: List[str]) -> Set[Module]:
     """
-    TODO: true sequential
+    Future: infer from recipe
 
     List of modules which are guaranteed to be split into different partitions and
     whose inner operations will not be traced
     """
-    no_split_params = get_no_split_params(model)
-    return set(
-        module for module in model.modules() if type(module).__name__ in no_split_params
-    )
+    return set(module for module in model.modules() if type(module).__name__ in targets)
 
 
 def trace_subgraphs(
