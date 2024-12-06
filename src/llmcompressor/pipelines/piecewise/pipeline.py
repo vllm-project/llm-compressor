@@ -43,8 +43,8 @@ def run_pipeline(
         num_subgraphs = len(subgraphs)
         for index, subgraph in enumerate(subgraphs):
             # prepare tqdm description texts
-            unc_desc = f"(Partition {index + 1}/{num_subgraphs}): Uncompressed forward"
-            comp_desc = f"(Partition {index + 1}/{num_subgraphs}): Compressed forward"
+            uncomp_desc = f"({index + 1}/{num_subgraphs}): Calibrating"
+            comp_desc = f"({index + 1}/{num_subgraphs}): Propagate"
 
             # compile subgraph forward function
             code = subgraph.graph.python_code("self")
@@ -53,7 +53,7 @@ def run_pipeline(
 
             if propagate_error:
                 # do an preliminary pass to trigger modifier hooks
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=unc_desc):
+                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=uncomp_desc):
                     intermediates = batch_intermediates[batch_index]
                     inputs = {
                         input_name: intermediates[input_name]
@@ -66,7 +66,7 @@ def run_pipeline(
             # and is only used for capturing intermediates
             # otherwise, this pass triggers modifier hooks and captures intermediates
             with HooksMixin.disable_hooks() if propagate_error else nullcontext():
-                desc = comp_desc if propagate_error else unc_desc
+                desc = comp_desc if propagate_error else uncomp_desc
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
                     intermediates = batch_intermediates[batch_index]
 
