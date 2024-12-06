@@ -17,13 +17,16 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
 
+__all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
 
-def make_empty_hessian(module: torch.nn.Module):
+
+def make_empty_hessian(
+    module: torch.nn.Module, device: Optional[torch.device] = None
+) -> torch.Tensor:
     weight = module.weight
     num_columns = weight.shape[1]
-    return torch.zeros(
-        (num_columns, num_columns), device=weight.device, dtype=GPTQ_PRECISION
-    )
+    device = device if device is not None else weight.device
+    return torch.zeros((num_columns, num_columns), device=device, dtype=GPTQ_PRECISION)
 
 
 def accumulate_hessian(
@@ -54,54 +57,11 @@ def accumulate_hessian(
     return H, num_samples
 
 
-def compute_hessian(
-    inp: torch.Tensor, module_class: Type[torch.nn.Module], device
-) -> torch.Tensor:
-    """
-    Calculate the hessian with respect to the module inputs
-
-    :param inp: module inputs
-    :param module_class: class of module, likely torch.nn.Linear
-    :return: hessian w.r.t. module inputs
-    """
-    inp = inp.to(device=device)
-    if len(inp.shape) == 2:
-        inp = inp.unsqueeze(0)
-
-    nsamples = inp.shape[0]  # note this is the number of dataset samples, not
-    # multiplied by the sequence length
-
-    if module_class in (torch.nn.Linear, transformers.Conv1D):
-        if len(inp.shape) == 3:
-            inp = inp.reshape((-1, inp.shape[-1]))
-        inp = inp.t()
-
-    inp = inp.to(dtype=GPTQ_PRECISION)
-    inp = math.sqrt(2 / nsamples) * inp
-    return inp.matmul(inp.t())
-
-
-def invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
-    """
-    Performs in-place inversion of the hessian in order to save memory
-
-    :param H: hessian being inverted
-    :param percdamp: dampening factor on hessian diagonal
-    :return: inverted hessian
-    """
-    damp = percdamp * torch.mean(torch.diag(H))
-    diag = torch.arange(H.shape[0], device=H.device)
-    H[diag, diag] += damp
-    H = torch.linalg.cholesky(H)
-    H = torch.cholesky_inverse(H)
-    H = torch.linalg.cholesky(H, upper=True)
-    return H
-
-
 def quantize_weight(
     weight: torch.Tensor,
-    inp: torch.Tensor,
     quant_args: QuantizationArgs,
+    hessian: Optional[torch.Tensor] = None,
+    inp: Optional[torch.Tensor] = None,
     blocksize: int = 128,
     percdamp: float = 0.01,
     module_class: Type[torch.nn.Module] = torch.nn.Linear,
@@ -144,7 +104,15 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    H = compute_hessian(inp, module_class, device=weight.device)
+    # compute hessian
+    if inp is not None:
+        if hessian is not None:
+            raise ValueError("Must pass either inp or hessian, but not both")
+        H = _compute_hessian(inp, module_class, device=weight.device)
+    elif hessian is not None:
+        H = hessian
+    else:
+        raise ValueError("Must pass either inp or hessian")
 
     if strategy == QuantizationStrategy.GROUP:
         # mapping from column index to group index
@@ -191,7 +159,7 @@ def quantize_weight(
 
     # compute inverse hessian in place to save memory
     # TODO: check in place
-    Hinv = invert_hessian(H, percdamp)
+    Hinv = _invert_hessian(H, percdamp)
 
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
@@ -300,6 +268,50 @@ def quantize_weight(
         zero_point.to(dtype=quant_args.pytorch_dtype()),
         g_idx,
     )
+
+
+def _invert_hessian(H: torch.Tensor, percdamp: float) -> torch.Tensor:
+    """
+    Performs in-place inversion of the hessian in order to save memory
+
+    :param H: hessian being inverted
+    :param percdamp: dampening factor on hessian diagonal
+    :return: inverted hessian
+    """
+    damp = percdamp * torch.mean(torch.diag(H))
+    diag = torch.arange(H.shape[0], device=H.device)
+    H[diag, diag] += damp
+    H = torch.linalg.cholesky(H)
+    H = torch.cholesky_inverse(H)
+    H = torch.linalg.cholesky(H, upper=True)
+    return H
+
+
+def _compute_hessian(
+    inp: torch.Tensor, module_class: Type[torch.nn.Module], device
+) -> torch.Tensor:
+    """
+    Calculate the hessian with respect to the module inputs
+
+    :param inp: module inputs
+    :param module_class: class of module, likely torch.nn.Linear
+    :return: hessian w.r.t. module inputs
+    """
+    inp = inp.to(device=device)
+    if len(inp.shape) == 2:
+        inp = inp.unsqueeze(0)
+
+    nsamples = inp.shape[0]  # note this is the number of dataset samples, not
+    # multiplied by the sequence length
+
+    if module_class in (torch.nn.Linear, transformers.Conv1D):
+        if len(inp.shape) == 3:
+            inp = inp.reshape((-1, inp.shape[-1]))
+        inp = inp.t()
+
+    inp = inp.to(dtype=GPTQ_PRECISION)
+    inp = math.sqrt(2 / nsamples) * inp
+    return inp.matmul(inp.t())
 
 
 def _apply_activation_ordering(

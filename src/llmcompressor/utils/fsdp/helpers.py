@@ -222,6 +222,7 @@ def has_offloaded_params(module: torch.nn.Module) -> bool:
     )
 
 
+# TODO: define in compressed tensors
 # depreciation candidate
 @wraps(has_offloaded_params)
 def is_module_offloaded(module: torch.nn.Module) -> bool:
@@ -305,7 +306,8 @@ def update_offload_parameter(
     if data is not None:
         if data.device == "meta":
             raise ValueError(
-                "Cannot copy data from meta device. Consider calling with align_module(module) context"
+                "Cannot copy data from meta device. Consider calling with "
+                "align_module(module) context"
             )
 
         if param.data.dtype != data.dtype:
@@ -318,7 +320,8 @@ def update_offload_parameter(
     if has_offloaded_params(module):
         weights_map = module._hf_hook.weights_map
 
-        # for upstreaming, probably better to modify the weight map types so that they can be written to?
+        # for upstreaming, probably better to modify the weight
+        # map types so that they can be written to?
         if isinstance(weights_map, PrefixedDataset):
             prefix_dict = getattr_chain(
                 module, "module._hf_hook.weights_map.dataset", None
@@ -366,7 +369,8 @@ def align_module(
             module's execution device within the context.
 
     Yields:
-        None: Yields control while the module's parameters are aligned to the execution device.
+        None: Yields control while the module's parameters are
+        aligned to the execution device.
     """
     if has_offloaded_params(module):
         if execution_device is not None:
@@ -437,7 +441,8 @@ def delete_offload_parameter(module: torch.nn.Module, name: str):
     if has_offloaded_params(module):
         weights_map = module._hf_hook.weights_map
 
-        # for upstreaming, probably better to modify the weight map types so that they can be written to?
+        # for upstreaming, probably better to modify the
+        # weight map types so that they can be written to?
         if isinstance(weights_map, PrefixedDataset):
             dataset = weights_map.dataset
             prefix = weights_map.prefix

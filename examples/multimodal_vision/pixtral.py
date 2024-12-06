@@ -2,9 +2,9 @@ import os
 
 import torch
 from transformers import AutoProcessor
-from llmcompressor.pytorch.tracing.llava import TracableLlavaForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.pytorch.tracing.llava import TracableLlavaForConditionalGeneration
 from llmcompressor.transformers import oneshot
 
 # Load model.

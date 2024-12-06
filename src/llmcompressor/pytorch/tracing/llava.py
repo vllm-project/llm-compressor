@@ -1,5 +1,6 @@
-from typing import Optional, List, Union, Tuple
+# flake8: noqa
 from functools import wraps
+from typing import List, Optional, Tuple, Union
 
 import torch
 from transformers import LlavaForConditionalGeneration

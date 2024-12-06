@@ -16,23 +16,13 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.gptq.utils.partitioned_model import (
-    PartitionedModel,
-)
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import EarlyStopException
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    create_batch_dataloader,
-)
+from llmcompressor.pipelines.piecewise import run_pipeline
 from llmcompressor.utils.fsdp.helpers import update_offload_parameter
-from llmcompressor.utils.helpers import (
-    align_module,
-    calibration_forward_context,
-    getattr_chain,
-)
+from llmcompressor.utils.helpers import align_module, getattr_chain
 from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
+from llmcompressor.utils.pytorch.module import qat_active
 
 __all__ = ["GPTQModifier"]
 
@@ -106,7 +96,7 @@ class GPTQModifier(Modifier, HooksMixin):
 
     # gptq modifier arguments
     sequential_update: bool = True  # DEPRECIATED
-    update_size: int = 1
+    update_size: int = 512
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -204,21 +194,13 @@ class GPTQModifier(Modifier, HooksMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
-        targets = get_no_split_params(state.model)
-        partitioned_model = PartitionedModel()
-        partitioned_model.init_forward(
-            state.model, targets, next(iter(state.data.calib))
-        )
-
         # register hooks
         for name, module in state.model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 post_hook = partial(self.compress_module, name)
                 self.register_hook(module, post_hook, "forward")
 
-        # feed data
-        with calibration_forward_context(state.model):
-            partitioned_model.forward_data(state.data.calib, mask_padding=True)
+        run_pipeline(state.model, None, state.data.calib, propagate_error=True)
 
         return True
 
@@ -258,11 +240,12 @@ class GPTQModifier(Modifier, HooksMixin):
 
         # Initialize hessian if not present
         if module not in self._num_samples:
-            self._hessians[module] = make_empty_hessian(module)
+            init_device = "cpu" if self.offload_hessians else module.weight.device
+            self._hessians[module] = make_empty_hessian(module, device=init_device)
             self._num_samples[module] = 0
 
         # Accumulate hessian with input with optional offloading
-        with self._maybe_offload_hessians(module):
+        with self._maybe_onload_hessians(module):
             self._hessians[module], self._num_samples[module] = accumulate_hessian(
                 inp,
                 type(module),
@@ -273,11 +256,15 @@ class GPTQModifier(Modifier, HooksMixin):
         # After enough samples are accumulated, perform quantization
         if self._num_samples[module] >= self.update_size:
             logger.info(f"Quantizing {name} using {self._num_samples[module]} samples")
-            with align_module(module), CompressionLogger(module) as comp_logger:
+            with (
+                align_module(module),
+                self._maybe_onload_hessians(module),
+                CompressionLogger(module) as comp_logger,
+            ):
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
-                    module.weight.data,
-                    inp,
-                    quant_args,
+                    weight=module.weight.data,
+                    quant_args=quant_args,
+                    hessian=self._hessians[module],
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                     module_class=type(module),
@@ -296,15 +283,15 @@ class GPTQModifier(Modifier, HooksMixin):
                 comp_logger.set_loss(loss)
 
     @contextlib.contextmanager
-    def _maybe_offload_hessians(self, module: torch.nn.Module):
+    def _maybe_onload_hessians(self, module: torch.nn.Module):
         if self.offload_hessians:
-            device = self._hessians[module].device
-            self._hessians[module] = self._hessians[module].to(device="cpu")
+            device = module.weight.device
+            self._hessians[module] = self._hessians[module].to(device=device)
 
         yield
 
         if self.offload_hessians:
-            self._hessians[module] = self._hessians[module].to(device=device)
+            self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def _build_quant_modifier(self):
         """

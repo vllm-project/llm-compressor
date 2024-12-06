@@ -1,7 +1,6 @@
 from functools import cached_property
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import torch
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
 from datasets.formatting.formatting import LazyRow
