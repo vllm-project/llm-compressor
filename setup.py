@@ -71,7 +71,7 @@ setup(
             "pytest-mock>=3.6.0",
             "pytest-rerunfailures>=13.0",
             "parameterized",
-            "lm_eval",
+            "lm_eval==0.4.5",
             # example test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
