@@ -1,0 +1,8 @@
+cadence: "weekly"
+model: meta-llama/Meta-Llama-3-8B-Instruct
+scheme: FP8_DYNAMIC
+num_fewshot: 5
+limit: 1000
+task: "gsm8k"
+exact_match,flexible-extract: 0.753
+exact_match,strict-match: 0.753
