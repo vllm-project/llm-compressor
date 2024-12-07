@@ -6,7 +6,7 @@ import pytest
 import yaml
 from parameterized import parameterized_class
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
 GPU_CONFIGS_DIRECTORY = (
@@ -83,7 +83,6 @@ class TestConsecutiveRuns(unittest.TestCase):
         shutil.rmtree(self.output)
 
 
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestConsecutiveRunsSmall(TestConsecutiveRuns):
@@ -106,7 +105,6 @@ class TestConsecutiveRunsSmall(TestConsecutiveRuns):
 
 # TODO: @Satrat and @dsikka, revisit if we want these nightly or weekly
 @requires_gpu
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
 class TestConsecutiveRunsGPU(TestConsecutiveRuns):
