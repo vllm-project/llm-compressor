@@ -219,10 +219,11 @@ class GPTQModifier(Modifier, HooksMixin):
             self._update_size = len(state.data.calib)
 
         # infer pipeline
-        if "pixel_values" not in state.data.calib.dataset.column_names:
+        if True:  # if "pixel_values" not in state.data.calib.dataset.column_names:
             run_piecewise(
                 state.model,
                 self.sequential_targets,
+                self.ignore,
                 state.data.calib,
                 propagate_error=True,
             )

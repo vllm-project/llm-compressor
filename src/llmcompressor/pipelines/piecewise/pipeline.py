@@ -19,13 +19,14 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    targets: List[str],  # FUTURE: replace with recipe
+    sequential_targets: List[str],  # FUTURE: replace with recipe inference
+    ignore: List[str],
     dataloader: torch.utils.data.DataLoader,
     propagate_error: bool,
 ):
     # trace subgraphs
     sample_input = next(iter(dataloader))
-    targets = infer_sequential_targets(model, targets)
+    targets = infer_sequential_targets(model, sequential_targets, ignore)
     subgraphs = trace_subgraphs(model, sample_input, targets)
 
     # FUTURE: apply recipe to model
@@ -64,6 +65,10 @@ def run_pipeline(
                         input_name: intermediates[input_name]
                         for input_name in subgraph.input_names
                     }
+                    # TODO: put on first device from
+                    # subgraph.graph.find_nodes(op="call_module")
+                    # since find_nodes is topologically sorted
+                    # or get execution device of GraphModule, recursively
                     inputs = tensors_to_device(inputs, model_device)
                     forward_function(model, **inputs)
 

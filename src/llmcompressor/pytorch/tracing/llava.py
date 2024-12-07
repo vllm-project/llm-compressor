@@ -120,7 +120,9 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
             n_image_tokens = (input_ids == self.config.image_token_index).sum().item()
             n_image_features = image_features.shape[0] * image_features.shape[1]
 
-            if n_image_tokens != n_image_features:
+            # NOT TRACABLE, instead always use n_image_tokens != n_image_features = False
+            #if n_image_tokens != n_image_features:
+            if False:
                 raise ValueError(
                     f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
                 )

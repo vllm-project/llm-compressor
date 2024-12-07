@@ -3,6 +3,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Dict, List, Set
 
+from compressed_tensors import has_offloaded_params
+from compressed_tensors.quantization import find_name_or_class_matches
 from compressed_tensors.utils import disable_hf_hook
 from torch.fx import Graph, GraphModule, Node
 from torch.nn import Module
@@ -22,21 +24,31 @@ class Subgraph:
 __all__ = ["infer_sequential_targets", "trace_subgraphs"]
 
 
-def infer_sequential_targets(model: Module, targets: List[str]) -> Set[Module]:
+def infer_sequential_targets(
+    model: Module, sequential_targets: List[str], ignore: List[str]
+) -> Set[Module]:
     """
     Future: infer from recipe
 
     List of modules which are guaranteed to be split into different partitions and
     whose inner operations will not be traced
     """
-    return set(module for module in model.modules() if type(module).__name__ in targets)
+    targets_names = sequential_targets + ignore
+
+    sequential_targets = set(
+        module
+        for name, module in model.named_modules()
+        if find_name_or_class_matches(name, module, targets_names)
+    )
+
+    return sequential_targets
 
 
 def trace_subgraphs(
     model: Module, sample_input: Dict[str, Any], targets: Set[Module]
 ) -> List[Subgraph]:
     # initialize arguments
-    tracer = get_tracer(targets)
+    tracer = get_tracer(model, targets)
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
@@ -70,11 +82,20 @@ def trace_subgraphs(
     return subgraphs
 
 
-def get_tracer(targets: List[Module]) -> HFTracer:
+def get_tracer(model: Module, targets: List[Module]) -> HFTracer:
+    offloaded_modules = set(
+        module for module in model.modules() if has_offloaded_params(module)
+    )
+
     class PiecewiseTracer(HFTracer):
+        # Treat as leaf, skip tracing inside this module
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
             if module in targets:
-                return True  # Treat as leaf, skip tracing inside this module
+                return True
+
+            if module in offloaded_modules:
+                return True
+
             return super().is_leaf_module(module, module_qualified_name)
 
     return PiecewiseTracer()
