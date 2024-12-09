@@ -19,19 +19,9 @@ except ImportError:
     vllm_installed = False
     logger.warning("vllm is not installed. This test will be skipped")
 
-# Defines the file paths to the directories containing the test configs
-# for each of the quantization schemes
-WNA16 = "tests/e2e/vLLM/configs/WNA16"
-FP8 = "tests/e2e/vLLM/configs/FP8"
-INT8 = "tests/e2e/vLLM/configs/INT8"
-ACTORDER = "tests/e2e/vLLM/configs/actorder"
-KV_CACHE = "tests/e2e/vLLM/configs/kv_cache"
-WNA16_2of4 = "tests/e2e/vLLM/configs/WNA16_2of4"
-
-CONFIGS = [WNA16, FP8, INT8, ACTORDER, WNA16_2of4, KV_CACHE]
-
 HF_MODEL_HUB_NAME = "nm-testing"
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+
 
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
