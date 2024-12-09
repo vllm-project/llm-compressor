@@ -24,6 +24,22 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     propagate_error: bool,
 ):
+    """
+    Run a sequential data pipeline. First, the model is partitioned into subgraphs
+    according to `sequential_targets`. Then, data passes through each subgraph
+    sequentially. If `propagate_error` is enabled, then data is passed through each
+    subgraph twice, once to trigger calibration hooks, then a second time in order to
+    capture activations after quantization has occurred through the hooks.
+
+    In order to reduce memory requirements
+    1. Data is passed through each subgraph with batch size 1
+    2. The intermediate activations between each subgraph are offloaded onto the CPU
+
+    This pipeline requires that the model be tracable with respect to data from the
+    data loader. This may be an issue for vision language models with vision datasets,
+    due to specialized input processing in the model. In the event that tracing fails,
+    a torch.fx.proxy.TraceError will be raised.
+    """
     # trace subgraphs
     sample_input = next(iter(dataloader))
     targets = infer_sequential_targets(model, sequential_targets, ignore)
