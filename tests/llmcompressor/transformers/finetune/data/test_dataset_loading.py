@@ -8,7 +8,6 @@ from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
-from tests.testing_utils import requires_torch
 
 
 @pytest.mark.unit
@@ -283,7 +282,6 @@ class TestSplitLoading(unittest.TestCase):
         self.assertIsInstance(train_dataset[0], dict)
 
 
-@requires_torch
 @pytest.mark.unit
 class TestTokenizationDataset(unittest.TestCase):
     @pytest.fixture(autouse=True)

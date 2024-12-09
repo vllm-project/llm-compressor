@@ -6,14 +6,13 @@ from compressed_tensors.utils import tensor_follows_mask_structure
 from parameterized import parameterized_class
 
 from llmcompressor.core import reset_session
-from tests.testing_utils import parse_params, requires_torch
+from tests.testing_utils import parse_params
 
 MASK_STRUCTURE_CONFIGS_DIRECTORY = (
     "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/mask_structure"
 )
 
 
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(MASK_STRUCTURE_CONFIGS_DIRECTORY))
 class TestMaskStructurePreserved(unittest.TestCase):

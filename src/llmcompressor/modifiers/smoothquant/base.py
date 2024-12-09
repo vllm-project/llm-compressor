@@ -99,7 +99,6 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    hooks_: Optional[List] = None
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
 
@@ -127,7 +126,6 @@ class SmoothQuantModifier(Modifier):
         self.scales_ = {}
 
         calibration_dataloader = state.data.calib
-        self.hooks_ = []
 
         self._setup_scale_hooks()
         self._calibrate(state.model, calibration_dataloader)
@@ -228,7 +226,7 @@ class SmoothQuantModifier(Modifier):
         for mapping in self.resolved_mappings_:
             name = mapping.smooth_name
             layer = mapping.smooth_layer
-            self.hooks_.append(layer.register_forward_hook(create_hook_fn(name)))
+            self.register_hook(layer, create_hook_fn(name), "forward")
 
     @torch.no_grad()
     def _calibrate(self, model: Module, calibration_dataloader: List):
@@ -255,9 +253,7 @@ class SmoothQuantModifier(Modifier):
         )
 
         # remove the hooks now that we are done calibrating
-        for hook in self.hooks_:
-            hook.remove()
-        del self.hooks_
+        self.remove_hooks()
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module):

@@ -4,13 +4,12 @@ import unittest
 import pytest
 from parameterized import parameterized_class
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_tokenizer"
 
 
 @pytest.mark.integration
-@requires_torch
 @requires_gpu
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):

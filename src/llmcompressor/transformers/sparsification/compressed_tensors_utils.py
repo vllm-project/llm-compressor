@@ -24,6 +24,7 @@ from llmcompressor.transformers.compression.quantization_format import (
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
+from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.utils.fsdp.helpers import (
     find_and_move_state_dicts_to_cpu,
     unwrap_and_export_model,
@@ -189,11 +190,12 @@ def modify_save_pretrained(model: torch.nn.Module):
                 )
                 compressor.update_config(save_directory)
 
-            recipe_path = os.path.join(save_directory, "recipe.yaml")
+            recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
             session = active_session()
-            recipe_yaml_str = session.get_serialized_recipe()
-            with open(recipe_path, "w") as fp:
-                fp.write(recipe_yaml_str)
+
+            if (recipe_yaml_str := session.get_serialized_recipe()) is not None:
+                with open(recipe_path, "w") as fp:
+                    fp.write(recipe_yaml_str)
 
             # copy python files from cache dir to save_path if any
             copy_python_files_from_model_cache(model, save_directory)
