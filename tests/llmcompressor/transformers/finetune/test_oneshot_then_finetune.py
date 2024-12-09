@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.testing_utils import requires_torch
 
 
@@ -88,6 +89,77 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 concatenate_data=concatenate_data,
                 splits=splits,
                 max_steps=max_steps,
+                resume_from_checkpoint=True,  # use last checkpoint
+            )
+
+    def test_quantization_then_finetune(self):
+        from transformers import AutoModelForCausalLM
+
+        from llmcompressor.core import create_session
+        from llmcompressor.transformers import oneshot, train
+
+        recipe = QuantizationModifier(
+            targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
+        )
+
+        model = AutoModelForCausalLM.from_pretrained(
+            "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+            device_map="auto",
+        )
+        dataset = "open_platypus"
+        concatenate_data = False
+        num_calibration_samples = 64
+        output_dir = self.output / "oneshot_out"
+        splits = {"calibration": "train[:10%]"}
+
+        with create_session():
+            oneshot(
+                model=model,
+                dataset=dataset,
+                output_dir=output_dir,
+                num_calibration_samples=num_calibration_samples,
+                recipe=recipe,
+                concatenate_data=concatenate_data,
+                splits=splits,
+            )
+
+        from transformers.utils.quantization_config import CompressedTensorsConfig
+
+        quantization_config = CompressedTensorsConfig(run_compressed=False)
+        model = AutoModelForCausalLM.from_pretrained(
+            output_dir,
+            device_map="auto",
+            quantization_config=quantization_config,
+        )
+        dataset = "open_platypus"
+        concatenate_data = False
+        output_dir = self.output / "finetune_out"
+        splits = {"calibration": "train[:10%]", "train": "train[:10%]"}
+
+        with create_session():
+            train(
+                model=model,
+                dataset=dataset,
+                output_dir=output_dir,
+                num_calibration_samples=num_calibration_samples,
+                recipe=recipe,
+                concatenate_data=concatenate_data,
+                splits=splits,
+            )
+
+        # test reloading checkpoint and final model
+        model = AutoModelForCausalLM.from_pretrained(
+            output_dir, device_map="auto", quantization_config=quantization_config
+        )
+        with create_session():
+            train(
+                model=model,
+                dataset=dataset,
+                output_dir=output_dir,
+                num_calibration_samples=num_calibration_samples,
+                recipe=recipe,
+                concatenate_data=concatenate_data,
+                splits=splits,
                 resume_from_checkpoint=True,  # use last checkpoint
             )
 
