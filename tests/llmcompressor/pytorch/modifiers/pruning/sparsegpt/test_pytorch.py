@@ -13,11 +13,9 @@ from tests.llmcompressor.modifiers.conf import (
     setup_modifier_factory,
 )
 from tests.llmcompressor.pytorch.helpers import LinearNet
-from tests.testing_utils import requires_torch
 
 
 @pytest.mark.unit
-@requires_torch
 class TestInvalidLayerwiseRecipesRaiseExceptions(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
@@ -45,7 +43,6 @@ class TestInvalidLayerwiseRecipesRaiseExceptions(unittest.TestCase):
 
 
 @pytest.mark.unit
-@requires_torch
 class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
@@ -66,7 +63,6 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
 
 
 @pytest.mark.unit
-@requires_torch
 class TestCreateDefaultQuantModifier(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
@@ -91,7 +87,6 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
 
 
 @pytest.mark.unit
-@requires_torch
 class TestSetQuantIfModifierAlreadyExists(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()

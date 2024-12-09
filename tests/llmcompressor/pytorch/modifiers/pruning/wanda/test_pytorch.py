@@ -4,11 +4,9 @@ import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
-from tests.testing_utils import requires_torch
 
 
 @pytest.mark.unit
-@requires_torch
 class TestWandaPytorchIsRegistered(unittest.TestCase):
     def setUp(self):
         self.kwargs = dict(
