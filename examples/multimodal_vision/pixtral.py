@@ -38,6 +38,7 @@ recipe = [
         targets="Linear",
         scheme="W8A8",
         ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        sequential_targets=["MistralDecoderLayer"],
     ),
 ]
 
@@ -58,6 +59,7 @@ oneshot(
     data_collator=data_collator,
 )
 
+model.save_pretrained(save_path)
 processor.save_pretrained(save_path)
 
 # Confirm generations of the quantized model look sane.

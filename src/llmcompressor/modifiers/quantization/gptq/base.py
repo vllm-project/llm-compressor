@@ -1,4 +1,5 @@
 import contextlib
+import traceback
 import warnings
 from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -220,15 +221,26 @@ class GPTQModifier(Modifier, HooksMixin):
 
         # infer pipeline
         if "pixel_values" not in state.data.calib.dataset.column_names:
-            run_piecewise(
-                state.model,
-                self.sequential_targets,
-                self.ignore,
-                state.data.calib,
-                propagate_error=True,
-            )
+            try:
+                run_piecewise(
+                    state.model,
+                    self.sequential_targets,
+                    self.ignore,
+                    state.data.calib,
+                    propagate_error=True,
+                )
+
+            except torch.fx.proxy.TraceError:
+                print(traceback.format_exc())
+                warnings.warn(
+                    "Failed to trace model graph, using non-sequential "
+                    "pipeline with `offload_hessians = True`"
+                )
+                self.offload_hessians = True
+                run_basic(state.model, state.data.calib)
+
         else:
-            # self.offload_hessians = True
+            warnings.warn("Cannot use sequential pipeline with vision datasets")
             run_basic(state.model, state.data.calib)
 
         return True

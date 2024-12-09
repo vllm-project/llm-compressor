@@ -41,8 +41,9 @@ def run_pipeline(
 
     with calibration_forward_context(model):
         # prepare intermediates cache
+        desc = "Preparing intermediates cache"
         batch_intermediates = [
-            apply_pad_mask_to_batch(batch) for batch in iter(dataloader)
+            apply_pad_mask_to_batch(batch) for batch in tqdm.tqdm(dataloader, desc=desc)
         ]
         batch_outputs = [None for _ in range(len(dataloader))]
 
