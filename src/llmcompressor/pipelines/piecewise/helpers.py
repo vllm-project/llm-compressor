@@ -12,7 +12,7 @@ from torch.nn import Module
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import calibration_forward_context, getattr_chain
 
 
 @dataclass
@@ -57,7 +57,7 @@ def trace_subgraphs(
     with (
         calibration_forward_context(model),
         HooksMixin.disable_hooks(),
-        disable_hf_hook(model, recurse=True),
+        # disable_hf_hook(model, recurse=True),
     ):
         graph = GraphModule(
             model,
@@ -238,11 +238,14 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
             graph.output(output_dict)
 
         # find input device for subgraph
-        # note find_nodes is topologically sorted
-        modules = graph.find_nodes(op="call_module")
+        # note: find_nodes is topologically sorted
+        modules = [
+            getattr_chain(model, node.target)
+            for node in graph.find_nodes(op="call_module")
+        ]
         first_offloaded = next((m for m in modules if has_offloaded_params(m)), None)
         input_device = (
-            first_offloaded.execution_device
+            torch.device(first_offloaded._hf_hook.execution_device)
             if first_offloaded is not None
             else model.device
         )
