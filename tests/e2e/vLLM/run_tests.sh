@@ -12,7 +12,11 @@ process_model_config() {
     
     echo "=== RUNNING MODEL: $MODEL_CONFIG ==="
     export TEST_DATA_FILE=${MODEL_CONFIG}
-    pytest -s $PWD/tests/e2e/vLLM/test_vllm.py || LOCAL_SUCCESS=$?
+    pytest \
+        --capture=tee-sys \
+        --junitxml="test-results/e2e-$(date +%s).xml" \
+        "$PWD/tests/e2e/vLLM/test_vllm.py" || LOCAL_SUCCESS=$?
+
     if [[ $LOCAL_SUCCESS == 0 ]]; then
         echo "=== PASSED MODEL: ${MODEL_CONFIG} ==="
     else
