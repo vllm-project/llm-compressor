@@ -24,8 +24,6 @@ __all__ = [
     "save_completed_stages",
 ]
 
-RECIPE_FILE_NAME = "recipe.yaml"
-
 
 def log_model_load(
     model: Module, model_name_or_path: str, model_type: str, delayed_load: bool
@@ -106,6 +104,8 @@ def save_model_and_recipe(
     :param save_safetensors: whether to save as safetensors or pickle (bin)
     :param save_compressed: whether to compress sparse weights on disk
     """
+    # avoid circular import
+    from llmcompressor.transformers.utils.helpers import RECIPE_FILE_NAME
 
     model.save_pretrained(
         save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
