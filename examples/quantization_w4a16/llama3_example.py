@@ -1,4 +1,3 @@
-from accelerate.big_modeling import cpu_offload
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -6,15 +5,13 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    # device_map="auto",
-    device_map="cuda:0",
+    device_map="auto",
     torch_dtype="auto",
 )
-cpu_offload(model)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
@@ -58,9 +55,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(
-    targets="Linear", scheme="W4A16", ignore=["lm_head"], offload_hessians=False
-)
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
 oneshot(

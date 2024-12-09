@@ -32,13 +32,6 @@ def run_pipeline(
     # FUTURE: apply recipe to model
     # initialize(recipe, model)
 
-    # TODO: revisit
-    device_map = getattr(model, "hf_device_map", None)
-    if device_map is not None:
-        model_device = next(iter(device_map.values()))
-    else:
-        model_device = model.device
-
     with calibration_forward_context(model):
         # prepare intermediates cache
         desc = "Preparing intermediates cache"
@@ -66,11 +59,7 @@ def run_pipeline(
                         input_name: intermediates[input_name]
                         for input_name in subgraph.input_names
                     }
-                    # TODO: put on first device from
-                    # subgraph.graph.find_nodes(op="call_module")
-                    # since find_nodes is topologically sorted
-                    # or get execution device of GraphModule, recursively
-                    inputs = tensors_to_device(inputs, model_device)
+                    inputs = tensors_to_device(inputs, subgraph.input_device)
                     forward_function(model, **inputs)
 
             # if using propagate_error, then this pass does not trigger modifier hooks
@@ -85,7 +74,7 @@ def run_pipeline(
                         input_name: intermediates[input_name]
                         for input_name in subgraph.input_names
                     }
-                    inputs = tensors_to_device(inputs, model_device)
+                    inputs = tensors_to_device(inputs, subgraph.input_device)
                     subgraph_output = forward_function(model, **inputs)
                     subgraph_output = tensors_to_device(subgraph_output, "cpu")
 
