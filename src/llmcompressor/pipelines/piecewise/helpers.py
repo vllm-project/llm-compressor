@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Set
 import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
-from compressed_tensors.utils import disable_hf_hook
 from torch.fx import Graph, GraphModule, Node
 from torch.nn import Module
 from transformers.utils.fx import HFTracer
@@ -92,13 +91,11 @@ def get_tracer(model: Module, targets: List[Module]) -> HFTracer:
     class PiecewiseTracer(HFTracer):
         # Treat as leaf, skip tracing inside this module
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            if module in targets:
-                return True
-
-            if module in offloaded_modules:
-                return True
-
-            return super().is_leaf_module(module, module_qualified_name)
+            return (
+                module in targets
+                or module in offloaded_modules
+                or super().is_leaf_module(module, module_qualified_name)
+            )
 
     return PiecewiseTracer()
 
