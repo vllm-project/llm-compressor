@@ -186,16 +186,15 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     # a perfect solution would involve implicitly consolodating partition indices so
     # that each node is assigned to the maximum partition possible (in order to delay
     # execution as long as possible), but this covers the most costly case (get_attr)
-    for node in graph.graph.nodes:
-        if node.op == "get_attr":
-            user_partitions = []
-            for user in node.users:
-                for index in range(len(partitions)):
-                    if user in partitions[index]:
-                        user_partitions.append(index)
-                        break
-            partition_index = min(user_partitions)
-            partitions[partition_index].insert(0, node)
+    for node in graph.graph.find_nodes(op="get_attr"):
+        user_partitions = []
+        for user in node.users:
+            for index in range(len(partitions)):
+                if user in partitions[index]:
+                    user_partitions.append(index)
+                    break
+        partition_index = min(user_partitions)
+        partitions[partition_index].insert(0, node)
 
     assert set().union(*partitions) == set(graph.graph.nodes)
     return partitions
