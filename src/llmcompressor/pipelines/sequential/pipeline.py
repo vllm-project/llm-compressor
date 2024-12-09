@@ -7,7 +7,7 @@ import tqdm
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
-from llmcompressor.pipelines.piecewise.helpers import (
+from llmcompressor.pipelines.sequential.helpers import (
     infer_sequential_targets,
     trace_subgraphs,
 )

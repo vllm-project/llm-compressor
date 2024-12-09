@@ -26,7 +26,7 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.piecewise import run_pipeline as run_piecewise
+from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import (
     get_layers,
@@ -222,7 +222,7 @@ class GPTQModifier(Modifier, HooksMixin):
         # infer pipeline
         if "pixel_values" not in state.data.calib.dataset.column_names:
             try:
-                run_piecewise(
+                run_sequential(
                     state.model,
                     self.sequential_targets,
                     self.ignore,
