@@ -32,7 +32,7 @@ def _prep_for_input_quant_calibration(module: torch.nn.Module):
     if not quantization_scheme:
         return
 
-    module.register_forward_pre_hook(calibrate_input_hook())
+    module.register_forward_pre_hook(calibrate_input_hook)
     module.quantization_status = QuantizationStatus.CALIBRATION
 
 
