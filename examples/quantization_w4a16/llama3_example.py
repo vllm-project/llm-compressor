@@ -1,3 +1,4 @@
+from accelerate import cpu_offload
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -10,8 +11,10 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
+    # device_map="cuda:0",
     torch_dtype="auto",
 )
+# cpu_offload(model)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
@@ -20,7 +23,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 1  # 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
