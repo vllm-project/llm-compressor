@@ -270,10 +270,6 @@ class LifecycleCallbacks:
         return cls.event(EventType.OPTIM_POST_STEP, **kwargs)
 
     @classmethod
-    def sub_batch_end(cls, **kwargs) -> ModifiedState:
-        cls.event(EventType.SUB_BATCH_END, **kwargs)
-
-    @classmethod
     def batch_end(cls, **kwargs) -> ModifiedState:
         """
         Invoke a batch end event for the active session

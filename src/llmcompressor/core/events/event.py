@@ -45,7 +45,6 @@ class EventType(Enum):
     # batch lifecycle
     BATCH_START = "batch_start"
     LOSS_CALCULATED = "loss_calculated"
-    SUB_BATCH_END = "sub_batch_end"
     BATCH_END = "batch_end"
 
     # step lifecycle
@@ -75,8 +74,6 @@ class EventType(Enum):
             return 120
         elif self == EventType.OPTIM_POST_STEP:
             return 130
-        elif self == EventType.SUB_BATCH_END:
-            return 135
         elif self == EventType.BATCH_END:
             return 140
         else:
