@@ -3,7 +3,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
@@ -22,14 +23,25 @@ recipe = QuantizationModifier(
 # Apply quantization.
 oneshot(model=model, recipe=recipe)
 
-# Confirm generations of the quantized model look sane.
-print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
-print("==========================================")
+# # Confirm generations of the quantized model look sane.
+# print("========== SAMPLE GENERATION ==============")
+# input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+# output = model.generate(input_ids, max_new_tokens=20)
+# print(tokenizer.decode(output[0]))
+# print("==========================================")
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
+
+from transformers import AutoModelForCausalLM
+from transformers.utils.quantization_config import CompressedTensorsConfig
+
+quantization_config = CompressedTensorsConfig(run_compressed=False)
+
+breakpoint()
+
+model = AutoModelForCausalLM.from_pretrained(
+    SAVE_DIR, quantization_config=quantization_config, device_map="auto"
+)
