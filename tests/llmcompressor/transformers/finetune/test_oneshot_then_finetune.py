@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 
 import pytest
+from transformers import AutoModelForCausalLM
+
+from llmcompressor.core import create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.transformers import oneshot, train
+
 
 @pytest.mark.unit
 @pytest.mark.skipif(
@@ -18,11 +23,6 @@ class TestOneshotThenFinetune(unittest.TestCase):
         self.output = Path("./finetune_output")
 
     def test_oneshot_then_finetune(self):
-        from transformers import AutoModelForCausalLM
-
-        from llmcompressor.core import create_session
-        from llmcompressor.transformers import oneshot, train
-
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map="auto"
@@ -89,11 +89,6 @@ class TestOneshotThenFinetune(unittest.TestCase):
             )
 
     def test_quantization_then_finetune(self):
-        from transformers import AutoModelForCausalLM
-
-        from llmcompressor.core import create_session
-        from llmcompressor.transformers import oneshot, train
-
         recipe = QuantizationModifier(
             targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
         )
