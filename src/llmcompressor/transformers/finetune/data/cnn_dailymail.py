@@ -24,18 +24,18 @@ class CNNDailyMailDataset(TextGenerationDataset):
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
     """
 
     SAMPLE_TEMPLATE = "Article:\n{article}\n\n### Summarization:\n{highlights}\n"
 
-    def __init__(self, data_args, split, tokenizer):
+    def __init__(self, data_args, split, processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "cnn_dailymail"
         data_args.dataset_config_name = "3.0.0"
 
         super().__init__(
-            text_column="text", data_args=data_args, split=split, tokenizer=tokenizer
+            text_column="text", data_args=data_args, split=split, processor=processor
         )
 
     def get_raw_dataset(self, cache_dir: Optional[str] = None):

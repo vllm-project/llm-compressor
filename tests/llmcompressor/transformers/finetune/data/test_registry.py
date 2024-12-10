@@ -16,7 +16,7 @@ def test_c4_initializes(tiny_llama_tokenizer):
         data_args.dataset,
         data_args=data_args,
         split=None,
-        tokenizer=tiny_llama_tokenizer,
+        processor=tiny_llama_tokenizer,
     )
     assert isinstance(c4_manager, TextGenerationDataset)
     assert isinstance(c4_manager, C4Dataset)
@@ -34,7 +34,7 @@ def test_wikitext_initializes(tiny_llama_tokenizer):
         data_args.dataset,
         data_args=data_args,
         split=None,
-        tokenizer=tiny_llama_tokenizer,
+        processor=tiny_llama_tokenizer,
     )
     assert isinstance(wiki_manager, TextGenerationDataset)
     assert isinstance(wiki_manager, WikiTextDataset)
@@ -50,7 +50,7 @@ def test_open_platypus_initializes(tiny_llama_tokenizer):
         data_args.dataset,
         data_args=data_args,
         split=None,
-        tokenizer=tiny_llama_tokenizer,
+        processor=tiny_llama_tokenizer,
     )
     assert isinstance(op_manager, TextGenerationDataset)
     assert isinstance(op_manager, OpenPlatypusDataset)

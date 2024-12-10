@@ -28,7 +28,7 @@ class TestConcentrationTokenization(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[:5%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
         raw_dataset = wiki_manager.get_raw_dataset()
         self.assertGreater(len(raw_dataset), 0)
@@ -60,7 +60,7 @@ class TestNoPaddingTokenization(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[5%:10%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
         raw_dataset = op_manager.get_raw_dataset()
         self.assertGreater(len(raw_dataset), 0)
@@ -95,7 +95,7 @@ class TestMaxSeqLenClipped(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[80%:]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
 
         self.assertEqual(
@@ -124,7 +124,7 @@ class TestDatasetKwargsAndPercent(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[5%:10%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
         raw_dataset_a = c4_manager_a.get_raw_dataset()
 
@@ -132,7 +132,7 @@ class TestDatasetKwargsAndPercent(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[5%:15%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
         raw_dataset_b = c4_manager_b.get_raw_dataset()
 
@@ -163,7 +163,7 @@ class TestDatasets(unittest.TestCase):
             data_args.dataset,
             data_args=data_args,
             split=split,
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
         raw_dataset = manager.get_raw_dataset()
         self.assertGreater(len(raw_dataset), 0)
@@ -203,7 +203,7 @@ class TestEvol(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train[:2%]",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
         raw_dataset = evol_manager.get_raw_dataset()
         self.assertGreater(len(raw_dataset), 0)
@@ -237,7 +237,7 @@ class TestStreamLoading(unittest.TestCase):
             self.data_args.dataset,
             data_args=self.data_args,
             split="train",
-            tokenizer=self.tiny_llama_tokenizer,
+            processor=self.tiny_llama_tokenizer,
         )
 
         raw_dataset = manager.get_raw_dataset()
@@ -275,7 +275,7 @@ class TestSplitLoading(unittest.TestCase):
         stage_runner = StageRunner(
             model_args=model_args, data_args=data_args, training_args=training_args
         )
-        stage_runner.populate_datasets(tokenizer=self.tiny_llama_tokenizer)
+        stage_runner.populate_datasets(processor=self.tiny_llama_tokenizer)
 
         train_dataset = stage_runner.get_dataset_split("train")
         assert train_dataset is not None
@@ -318,7 +318,7 @@ class TestTokenizationDataset(unittest.TestCase):
             ),
             training_args=TrainingArguments(do_oneshot=True),
         )
-        stage_runner.populate_datasets(tokenizer=None)
+        stage_runner.populate_datasets(processor=None)
         calib_dataset = stage_runner.get_dataset_split("calibration")
         self.assertEqual(len(calib_dataset), self.num_calib_samples)
         data_cols = calib_dataset.column_names
