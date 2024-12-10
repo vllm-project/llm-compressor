@@ -120,7 +120,7 @@ class GPTQModifier(Modifier, HooksMixin):
     disable_quantization_observer_epoch: Optional[float] = None
 
     # private variables
-    _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr()
+    _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr(default=None)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
     _update_size: Optional[int] = PrivateAttr(default=None)
