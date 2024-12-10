@@ -154,7 +154,6 @@ def quantize_weight(
     W[:, dead] = 0
 
     # compute inverse hessian in place to save memory
-    # TODO: check in place
     Hinv = _invert_hessian(H, percdamp)
 
     # See section 3.4 of https://arxiv.org/abs/2203.07259

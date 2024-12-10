@@ -56,7 +56,6 @@ def trace_subgraphs(
     with (
         calibration_forward_context(model),
         HooksMixin.disable_hooks(),
-        # disable_hf_hook(model, recurse=True),
     ):
         graph = GraphModule(
             model,
@@ -239,12 +238,18 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
             getattr_chain(model, node.target)
             for node in graph.find_nodes(op="call_module")
         ]
-        first_offloaded = next((m for m in modules if has_offloaded_params(m)), None)
-        input_device = (
-            torch.device(first_offloaded._hf_hook.execution_device)
-            if first_offloaded is not None
-            else model.device
-        )
+        if len(modules) > 0:
+            first_offloaded = next(
+                (m for m in modules if has_offloaded_params(m)), None
+            )
+            input_device = (
+                torch.device(first_offloaded._hf_hook.execution_device)
+                if first_offloaded is not None
+                else next(modules[0].parameters()).device
+            )
+
+        else:
+            input_device = model.device
 
         # save the subgraph for this partition
         graph.lint()
@@ -264,7 +269,6 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
 
 
 def trace_consumed_names(subgraphs: List[Dict[str, Any]]):
-    # TODO: update consumed names as new partitions are appended
     # populate consumed_names according to when inputs are last used
     # in order to vacate the `intermediates` cache and save memory
     all_input_names = set().union(*(subgraph.input_names for subgraph in subgraphs))

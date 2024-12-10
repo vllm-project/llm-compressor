@@ -76,8 +76,6 @@ def run_pipeline(
                         input_name: intermediates[input_name]
                         for input_name in subgraph.input_names
                     }
-                    # graph_module = torch.fx.GraphModule(model, subgraph.graph)
-                    # breakpoint()
                     inputs = tensors_to_device(inputs, subgraph.input_device)
                     forward_function(model, **inputs)
 

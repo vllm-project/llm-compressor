@@ -101,7 +101,6 @@ def run_calibration_forward(
                 # model was stopped early, save last calculated output and
                 # move on to next calibration sample
                 intermediates.append((e.args, e.kwargs))
-                pass
 
         # TODO: not ideal, figure out where we aren't freeing memory instead
         # currently without this we run OOM on the 2nd forward pass

@@ -115,7 +115,7 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 position_ids = torch.sum(attention_mask, dim=1).unsqueeze(-1) - 1
                 cache_position = torch.arange(attention_mask.shape[1], device=attention_mask.device)[-target_length:]
 
-        # TODO: @raushan retain only the new behavior after v4.47
+        # @raushan retain only the new behavior after v4.47
         elif image_features is not None:
             n_image_tokens = (input_ids == self.config.image_token_index).sum().item()
             n_image_features = image_features.shape[0] * image_features.shape[1]
