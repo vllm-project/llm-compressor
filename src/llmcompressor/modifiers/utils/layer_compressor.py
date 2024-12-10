@@ -4,7 +4,6 @@ from typing import Dict, Tuple
 import torch
 from compressed_tensors import get_execution_device
 from loguru import logger
-from torch.nn import Module
 from tqdm import tqdm
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
@@ -14,8 +13,7 @@ from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
 )
-from llmcompressor.utils.pytorch import set_layer
-from llmcompressor.utils.pytorch.module import get_prunable_layers
+from llmcompressor.utils.pytorch.module import get_prunable_layers, set_layer
 
 __all__ = ["LayerCompressor"]
 
@@ -45,8 +43,8 @@ class LayerCompressor:
     def __init__(
         self,
         module_compressor_class: ModuleCompressionWrapper,
-        model: Module,
-        layer: Module,
+        model: torch.nn.Module,
+        layer: torch.nn.Module,
         layer_index: int,
         name: str,
         args: Dict,
