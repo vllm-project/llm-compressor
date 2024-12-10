@@ -6,11 +6,9 @@ from torch.nn import Linear
 from llmcompressor.core import State
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from tests.llmcompressor.pytorch.helpers import LinearNet
-from tests.testing_utils import requires_torch
 
 
 @pytest.mark.unit
-@requires_torch
 class TestSmoothQuantMapping(unittest.TestCase):
     def setUp(self):
         self.model = LinearNet()

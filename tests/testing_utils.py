@@ -37,10 +37,6 @@ def is_gpu_available():
         return False
 
 
-def requires_torch(test_case):
-    return unittest.skipUnless(is_torch_available(), "test requires PyTorch")(test_case)
-
-
 def requires_gpu(test_case):
     return unittest.skipUnless(is_gpu_available(), "test requires GPU")(test_case)
 

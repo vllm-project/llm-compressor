@@ -24,8 +24,9 @@ from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
 )
-from llmcompressor.pytorch.model_load.helpers import RECIPE_FILE_NAME, get_session_model
+from llmcompressor.pytorch.model_load.helpers import get_session_model
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
+from llmcompressor.transformers import RECIPE_FILE_NAME
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
