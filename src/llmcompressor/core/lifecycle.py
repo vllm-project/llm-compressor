@@ -311,6 +311,7 @@ class CompressionLifecycle:
             event_type,
         )
 
+    # TODO:
     def _set_model_layer_prefix(self):
         compiled_recipe = self.recipe_container.compiled_recipe
         if (

@@ -11,7 +11,6 @@ from pydantic import Field, model_validator
 from llmcompressor.modifiers import Modifier, StageModifiers
 from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
-from llmcompressor.recipe.metadata import RecipeMetaData
 from llmcompressor.recipe.stage import RecipeStage
 
 __all__ = ["Recipe", "RecipeTuple"]
@@ -204,9 +203,6 @@ class Recipe(RecipeBase):
         simplified.args = RecipeArgs(args)
         simplified.stages = stages
         simplified.evaluate(args=args, shift=shift)
-        simplified.metadata = (
-            recipe.metadata if isinstance(recipe, Recipe) else recipe.recipe.metadata
-        )
 
         return simplified
 
@@ -257,14 +253,12 @@ class Recipe(RecipeBase):
             combined.version = simplified.version
             combined.stages.extend(simplified.stages)
             combined.args.update(simplified.args)
-            combined.combine_metadata(simplified.metadata)
 
         return combined
 
     version: str = None
     args: RecipeArgs = Field(default_factory=RecipeArgs)
     stages: List[RecipeStage] = Field(default_factory=list)
-    metadata: RecipeMetaData = None
     args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
 
     def calculate_start(self) -> int:
@@ -469,22 +463,6 @@ class Recipe(RecipeBase):
 
         return stages
 
-    def combine_metadata(self, metadata: Optional[RecipeMetaData]):
-        """
-        Combines the metadata of the recipe with the supplied metadata
-        If the recipe already has metadata, the supplied metadata will
-        be used to update missing metadata
-
-        :param metadata: The metadata to combine with the recipe
-        """
-        if metadata is None:
-            return
-
-        if self.metadata is None:
-            self.metadata = metadata
-        else:
-            self.metadata.update_missing_metadata(metadata)
-
     def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """
         :return: A dictionary representation of the recipe
@@ -542,7 +520,7 @@ class Recipe(RecipeBase):
         yaml_recipe_dict = {}
 
         # populate recipe level attributes
-        recipe_level_attributes = ["version", "args", "metadata"]
+        recipe_level_attributes = ["version", "args"]
 
         for attribute in recipe_level_attributes:
             if attribute_value := original_recipe_dict.get(attribute):

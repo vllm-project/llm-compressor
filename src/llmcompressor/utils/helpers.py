@@ -28,9 +28,6 @@ from loguru import logger
 __all__ = [
     "ALL_TOKEN",
     "ALL_PRUNABLE_TOKEN",
-    "FROM_PARAM_TOKEN",
-    "RECIPE_METADATA_KEY",
-    "FRAMEWORK_METADATA_KEY",
     "ROOT_PATH",
     "flatten_iterable",
     "convert_to_bool",
@@ -66,9 +63,6 @@ __all__ = [
 
 ALL_TOKEN = "__ALL__"
 ALL_PRUNABLE_TOKEN = "__ALL_PRUNABLE__"
-FROM_PARAM_TOKEN = "__FROM_PARAM__"
-RECIPE_METADATA_KEY = "__metadata__"
-FRAMEWORK_METADATA_KEY = "framework_metadata"
 ROOT_PATH = Path(__file__).resolve().parents[1]
 
 ##############################
