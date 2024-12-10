@@ -11,7 +11,6 @@ while getopts "c:t:" OPT; do
         TEST="$OPTARG"
         ;;
     \? )
-        usage
         exit 1
         ;;
   esac
