@@ -4,14 +4,13 @@ import unittest
 import pytest
 from parameterized import parameterized_class
 
-from tests.testing_utils import parse_params, requires_torch, run_cli_command
+from tests.testing_utils import parse_params, run_cli_command
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/oneshot/oneshot_configs"
 
 
 @pytest.mark.smoke
 @pytest.mark.integration
-@requires_torch
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneShotCli(unittest.TestCase):
     model = None
