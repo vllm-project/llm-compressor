@@ -54,9 +54,9 @@ config = {
 def _prep_for_calibration(module: torch.nn.Module):
     if is_attention_module(module):
         module.register_forward_pre_hook(
-            calibrate_kv_cache_input_hook(), with_kwargs=True
+            calibrate_kv_cache_input_hook, with_kwargs=True
         )
-        module.register_forward_hook(calibrate_kv_cache_output_hook())
+        module.register_forward_hook(calibrate_kv_cache_output_hook)
     module.quantization_status = QuantizationStatus.CALIBRATION
 
 

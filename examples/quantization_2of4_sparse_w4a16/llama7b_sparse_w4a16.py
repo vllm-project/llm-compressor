@@ -1,4 +1,5 @@
 import torch
+from loguru import logger
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.transformers import apply
@@ -51,4 +52,8 @@ apply(
     learning_rate=learning_rate,
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
+)
+logger.info(
+    "Note: vLLM requires the dtype=torch.float16 when running the ",
+    "compressed marlin-24 model",
 )
