@@ -148,14 +148,13 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     while len(queue) > 0:
         node = queue.popleft()
 
-        # TODO: test swapping with below
+        # assign to partition
+        partitions[partition_index].append(node)
+
         # guarantee targets are assigned to disjoint partitions
         if node in target_nodes:
             partition_index += 1
             partitions.append([])
-
-        # assign to partition
-        partitions[partition_index].append(node)
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition
