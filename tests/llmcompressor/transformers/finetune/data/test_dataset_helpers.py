@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import pytest
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
@@ -48,8 +50,30 @@ def test_separate_datasets():
     assert split_datasets.get("validation") is not None
     assert split_datasets.get("test") is None
 
+
+@pytest.mark.unit
+def test_datasets_fallbacks():
+    # strict splits
+    mock_datasets = {"calibration": Mock(ds_name="calibration_ds", column_names=[])}
     with pytest.raises(ValueError):
-        # fails due to no test split specified
-        split_datasets = make_dataset_splits(
-            datasets, do_train=True, do_eval=True, do_predict=True
+        _ = make_dataset_splits(mock_datasets, do_train=True)
+    with pytest.raises(ValueError):
+        _ = make_dataset_splits(mock_datasets, do_eval=True)
+    with pytest.raises(ValueError):
+        _ = make_dataset_splits(mock_datasets, do_predict=True)
+
+    # validation, predict, and oneshot fallbacks
+    mock_datasets = {"test": Mock(ds_name="test_ds", column_names=[])}
+    with pytest.warns(UserWarning):
+        split_ds = make_dataset_splits(
+            mock_datasets, do_eval=True, do_predict=True, do_oneshot=True
         )
+    assert split_ds.get("validation").ds_name == "test_ds"
+    assert split_ds.get("test").ds_name == "test_ds"
+    assert split_ds.get("calibration").ds_name == "test_ds"
+
+    # oneshot will take any dataset
+    mock_datasets = {"custom_split": Mock(ds_name="custom_ds", column_names=[])}
+    with pytest.warns(UserWarning):
+        split_ds = make_dataset_splits(mock_datasets, do_oneshot=True)
+    assert split_ds.get("calibration").ds_name == "custom_ds"
