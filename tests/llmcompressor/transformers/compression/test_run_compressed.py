@@ -30,7 +30,7 @@ class TestQuantizationMatches(unittest.TestCase):
             quantization_config=quantization_config,
         )
 
-        cls.non_comp_model = AutoModelForCausalLM.from_pretrained(
+        cls.base_model = AutoModelForCausalLM.from_pretrained(
             cls.uncompressed_model_stub,
             torch_dtype=cls.decompressed_model.dtype,
             device_map=cls.decompressed_model.device,
@@ -52,7 +52,7 @@ class TestQuantizationMatches(unittest.TestCase):
             self.decompressed_model.generate(**inputs, max_length=50)
         )
         uncompressed_output = self.tokenizer.batch_decode(
-            self.non_comp_model.generate(**inputs, max_length=50)
+            self.base_model.generate(**inputs, max_length=50)
         )
 
         for idx in range(len(SAMPLE_INPUT)):
@@ -62,5 +62,5 @@ class TestQuantizationMatches(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
-        del cls.non_comp_model
+        del cls.base_model
         torch.cuda.empty_cache()
