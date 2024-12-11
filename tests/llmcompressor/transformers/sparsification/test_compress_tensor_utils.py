@@ -12,6 +12,7 @@ from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
 from transformers import AutoConfig, AutoModelForCausalLM
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
@@ -69,8 +70,11 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     restore_log_level = transformers_logger.getEffectiveLevel()
     transformers_logger.setLevel(level=logging.ERROR)
 
+    quantization_config = CompressedTensorsConfig(run_compressed=False)
     model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype
+        tmp_path / "oneshot_out",
+        torch_dtype=dtype,
+        quantization_config=quantization_config,
     )
 
     # restore transformers logging level now that model shell is loaded
