@@ -69,7 +69,7 @@ def is_model_quantized_from_path(path: str):
     if config is not None:
         if hasattr(config, "quantization_config"):
             return True
-        return False
+    return False
 
 
 def resolve_recipe(
