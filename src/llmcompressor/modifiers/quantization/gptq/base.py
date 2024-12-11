@@ -306,25 +306,22 @@ class GPTQModifier(Modifier, HooksMixin):
                 CompressionLogger(module) as comp_logger,
             ):
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
-                    weight=module.weight.data,
+                    module=module,
                     quant_args=quant_args,
-                    hessian=self._hessians[module],
+                    hessians_dict=self._hessians,
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
-                    module_class=type(module),
                 )
-
-                module.weight += quantized_weight - module.weight  # Future: FSDP
-                update_offload_parameter(module, "weight", module.weight.data)
-                update_offload_parameter(module, "weight_scale", scale)
-                update_offload_parameter(module, "weight_zero_point", zero_point)
-                if g_idx is not None:
-                    update_offload_parameter(module, "weight_g_idx", g_idx)
-
-                del self._hessians[module]
-                del self._num_samples[module]
-
                 comp_logger.set_loss(loss)
+
+            update_offload_parameter(module, "weight", quantized_weight)
+            update_offload_parameter(module, "weight_scale", scale)
+            update_offload_parameter(module, "weight_zero_point", zero_point)
+            if g_idx is not None:
+                update_offload_parameter(module, "weight_g_idx", g_idx)
+
+            # self._hessians[module] already deleted by quantize_weight
+            del self._num_samples[module]
 
     @contextlib.contextmanager
     def _maybe_onload_hessian(self, module: torch.nn.Module):
