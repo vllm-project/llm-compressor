@@ -105,15 +105,18 @@ class ModuleSparsificationInfo:
         """
         :return: number of parameters across quantized layers
         """
-        return sum(
-            torch.numel(self.trainable_params[f"{name}.weight"])
-            + (
-                torch.numel(self.trainable_params[f"{name}.bias"])
-                if hasattr(layer, "bias") and layer.bias is not None
-                else 0
+        num_params = 0
+        for name, layer in get_quantized_layers(self.module):
+            num_param = torch.numel(
+                self.trainable_params.get(f"{name}.weight", torch.tensor([]))
             )
-            for (name, layer) in get_quantized_layers(self.module)
-        )
+            if num_param is None:
+                logger.warning(f"{name} is not recognized in trainable_params")
+                continue
+            if hasattr(layer, "bias") and layer.bias is not None:
+                num_params += layer.bias
+
+        return num_params
 
     @property
     def params_quantized_percent(self) -> float:
