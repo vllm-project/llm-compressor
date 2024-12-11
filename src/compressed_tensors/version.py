@@ -17,7 +17,7 @@ Functionality for storing and setting the version info for SparseML
 """
 
 
-version_base = "0.8.0"
+version_base = "0.8.1"
 is_release = True  # change to True to set the generated version as a release version
 
 
