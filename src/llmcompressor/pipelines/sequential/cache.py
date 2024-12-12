@@ -5,8 +5,6 @@ from typing import Any, Dict, List, Union
 import torch
 import tqdm
 
-from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
-
 
 @dataclass
 class IntermediateValue:
@@ -34,15 +32,20 @@ class IntermediatesCache:
         mask_padding: bool = True,
         offload_device: torch.device = "cpu",
     ):
-        batch_intermediates = []
-        for batch in tqdm.tqdm(dataloader, desc="Preparing intermediates cache"):
-            if mask_padding and "attention_mask" in batch:
-                batch = apply_pad_mask_to_batch(batch)
-            batch = {
-                key: IntermediateValue(value=value, device=model_device)
+        batch_intermediates = [
+            {
+                key: (
+                    IntermediateValue(
+                        value=value.masked_fill_(batch["attention_mask"] == 0, 0),
+                        device=model_device,
+                    )
+                    if mask_padding and key == "input_ids"
+                    else IntermediateValue(value=value, device=model_device)
+                )
                 for key, value in batch.items()
             }
-            batch_intermediates.append(batch)
+            for batch in tqdm.tqdm(dataloader, desc="Preparing intermediates cache")
+        ]
 
         return cls(batch_intermediates, offload_device)
 
