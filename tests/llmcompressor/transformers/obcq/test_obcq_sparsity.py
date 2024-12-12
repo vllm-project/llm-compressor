@@ -5,13 +5,12 @@ import unittest
 import pytest
 from parameterized import parameterized_class
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/sparse"
 GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/sparse/gpu"
 
 
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestSparsities(unittest.TestCase):
@@ -59,7 +58,6 @@ class TestSparsities(unittest.TestCase):
 
 # TODO: @Satrat and @dsikka, revisit if we want these nightly or weekly
 @requires_gpu
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
 class TestSparsitiesGPU(unittest.TestCase):
@@ -71,12 +69,11 @@ class TestSparsitiesGPU(unittest.TestCase):
 
     def setUp(self):
         import torch
-
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
         self.output = "./oneshot_output"
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
 

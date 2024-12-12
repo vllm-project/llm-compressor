@@ -73,7 +73,7 @@ class Recipe(RecipeBase):
     @classmethod
     def create_instance(
         cls,
-        path_or_modifiers: Union[str, Modifier, List[Modifier]],
+        path_or_modifiers: Union[str, Modifier, List[Modifier], "Recipe"],
         modifier_group_name: Optional[str] = None,
     ) -> "Recipe":
         """
@@ -574,7 +574,7 @@ class Recipe(RecipeBase):
 @dataclass
 class RecipeTuple:
     """
-    A simple dataclass to hold a recipe, it's target_stages, and override_args
+    A simple dataclass to hold a recipe, its target_stages, and override_args
 
     :param recipe: The Recipe instance to hold
     :param target_stages: The stages to target when simplifying the recipe

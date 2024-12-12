@@ -2,20 +2,16 @@ import unittest
 
 import pytest
 
-from tests.testing_utils import requires_torch
-
 
 @pytest.mark.integration
-@requires_torch
 class TestLMHead(unittest.TestCase):
     def setUp(self):
         import torch
-
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map=self.device
         )
         self.kwargs = {

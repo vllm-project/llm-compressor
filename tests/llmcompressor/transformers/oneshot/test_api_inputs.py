@@ -5,7 +5,7 @@ import pytest
 from parameterized import parameterized_class
 
 from tests.llmcompressor.transformers.oneshot.dataset_processing import get_data_utils
-from tests.testing_utils import parse_params, requires_torch
+from tests.testing_utils import parse_params
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/oneshot/oneshot_configs"
 
@@ -15,7 +15,6 @@ CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/oneshot/oneshot_configs"
 
 @pytest.mark.smoke
 @pytest.mark.integration
-@requires_torch
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneShotInputs(unittest.TestCase):
     model = None
@@ -25,12 +24,10 @@ class TestOneShotInputs(unittest.TestCase):
     tokenize = None
 
     def setUp(self):
-        from transformers import AutoTokenizer
-
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model)
-        self.model = SparseAutoModelForCausalLM.from_pretrained(self.model)
+        self.model = AutoModelForCausalLM.from_pretrained(self.model)
         self.output = "./oneshot_output"
         self.kwargs = {"dataset_config_name": self.dataset_config_name}
 

@@ -14,13 +14,13 @@
 To enable `accelerate` features with `llmcompressor`, simple insert `device_map` in `from_pretrained` during model load.
 
 ```python
-from llmcompressor.transformers import SparseAutoModelForCausalLM
+from transformers import AutoModelForCausalLM
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # device_map="auto" triggers usage of accelerate
 # if > 1 GPU, the model will be sharded across the GPUs
 # if not enough GPU memory to fit the model, parameters are offloaded to the CPU
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype="auto")
 ```
 
@@ -29,17 +29,17 @@ will work properly out of the box for basic quantization with `QuantizationModif
 even for CPU offloaded models. 
 
 To enable CPU offloading for second-order quantization methods such as GPTQ, we need to 
-allocate additional memory upfront when computing the device map. Note that this 
-device map will only compatible with `GPTQModifier(sequential_update=True, ...)`
+allocate additional memory upfront when computing the device map. Not doing so risks
+potentially going out-of-memory.
 
 ```python
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
-from llmcompressor.transformers import SparseAutoModelForCausalLM,
+from transformers import AutoModelForCausalLM
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # Load model, reserving memory in the device map for sequential GPTQ (adjust num_gpus as needed)
 device_map = calculate_offload_device_map(MODEL_ID, reserve_for_hessians=True, num_gpus=1)
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map=device_map,
     torch_dtype="auto",
@@ -48,12 +48,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 
 ### Practical Advice
 
-When working with `accelerate`, it is important to keep in mind that CPU offloading and naive pipeline-parallelism will slow down forward passes through the model. As a result, we need to take care to ensure that the quantization methods used fit well with the offloading scheme as methods that require many forward passes though the model will be slowed down.
-
-General rules of thumb:
-- CPU offloading is best used with data-free quantization methods (e.g. PTQ with `FP8_DYNAMIC`)
-- Multi-GPU is fast enough to be used with calibration data-based methods with `sequential_update=False`
-- It is possible to use Multi-GPU with `sequential_update=True` to save GPU memory, but the runtime will be slower
+When working with `accelerate`, it is important to keep in mind that CPU offloading and naive pipeline-parallelism will slow down forward passes through the model. As a result, we need to take care to ensure that the quantization methods used fit well with the offloading scheme as methods that require many forward passes though the model will be slowed down. If more gpu memory is not available, consider reducing the precision of the loaded model to a lower-width dtype such as `torch.bfloat16`.
 
 ## Examples
 
@@ -66,7 +61,7 @@ We will show working examples for each use case:
 Install `llmcompressor`:
 
 ```bash
-pip install llmcompressor==0.1.0
+pip install llmcompressor
 ```
 
 ### CPU Offloading: `FP8` Quantization with `PTQ`

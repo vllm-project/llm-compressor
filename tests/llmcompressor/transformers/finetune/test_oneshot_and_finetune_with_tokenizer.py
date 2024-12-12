@@ -4,13 +4,12 @@ import unittest
 import pytest
 from parameterized import parameterized_class
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_tokenizer"
 
 
 @pytest.mark.integration
-@requires_torch
 @requires_gpu
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
@@ -20,12 +19,17 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
 
     def setUp(self):
         self.output = "./finetune_output"
+        # finetune workflows in general seem to have trouble with multi-gpus
+        # use just one atm
+        self.monkeypatch = pytest.MonkeyPatch()
 
     def test_oneshot_and_finetune_with_tokenizer(self):
         from datasets import load_dataset
-        from transformers import AutoTokenizer
+        from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        from llmcompressor.transformers import SparseAutoModelForCausalLM, compress
+        from llmcompressor.transformers import compress
+
+        self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
         recipe_str = (
             "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"
@@ -33,9 +37,8 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         tokenizer = AutoTokenizer.from_pretrained(
             self.model,
         )
-        device = "cuda:0"
-        model_loaded = SparseAutoModelForCausalLM.from_pretrained(
-            self.model, device_map=device
+        model_loaded = AutoModelForCausalLM.from_pretrained(
+            self.model, device_map="auto"
         )
 
         dataset_loaded = load_dataset(
@@ -60,5 +63,12 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             tokenizer=tokenizer,
         )
 
+        input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+            "cuda"
+        )
+        output = model_loaded.generate(input_ids, max_new_tokens=100)
+        print(tokenizer.decode(output[0]))
+
     def tearDown(self):
         shutil.rmtree(self.output)
+        self.monkeypatch.undo()

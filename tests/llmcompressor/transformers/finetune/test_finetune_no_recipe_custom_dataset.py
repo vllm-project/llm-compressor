@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from parameterized import parameterized_class
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_custom"
 GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_custom/gpu"
@@ -109,9 +109,9 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.output)
+        self.monkeypatch.undo()
 
 
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneshotCustomDatasetSmall(TestFinetuneNoRecipeCustomDataset):
@@ -122,14 +122,20 @@ class TestOneshotCustomDatasetSmall(TestFinetuneNoRecipeCustomDataset):
     def setUp(self):
         import torch
 
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.monkeypatch = pytest.MonkeyPatch()
+
+        if torch.cuda.is_available():
+            self.device = "cuda:0"
+            self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+        else:
+            self.device = "cpu"
+
         self.output = "./oneshot_output"
 
     def test_oneshot_then_finetune_small(self):
         self._test_finetune_wout_recipe_custom_dataset()
 
 
-@requires_torch
 @requires_gpu
 @pytest.mark.integration
 @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
@@ -140,15 +146,17 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
 
     def setUp(self):
         import torch
+        from transformers import AutoModelForCausalLM
 
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
-
+        self.monkeypatch = pytest.MonkeyPatch()
         self.device = "cuda:0"
         self.output = "./oneshot_output"
+        self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
+        self.monkeypatch = pytest.MonkeyPatch()
 
     def test_oneshot_then_finetune_gpu(self):
         self._test_finetune_wout_recipe_custom_dataset()

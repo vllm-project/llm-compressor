@@ -1,7 +1,6 @@
 quant_stage:
   quant_modifiers:
-    QuantizationModifier:
-      sequential_update: false
+    GPTQModifier:
       ignore: [lm_head]
       config_groups:
         group_0:

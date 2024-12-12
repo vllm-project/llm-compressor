@@ -37,10 +37,6 @@ def is_gpu_available():
         return False
 
 
-def requires_torch(test_case):
-    return unittest.skipUnless(is_torch_available(), "test requires PyTorch")(test_case)
-
-
 def requires_gpu(test_case):
     return unittest.skipUnless(is_gpu_available(), "test requires GPU")(test_case)
 
@@ -81,9 +77,12 @@ def parse_params(
         ), f"Config_directory {current_config_dir} is not a directory"
 
         for file in os.listdir(current_config_dir):
-            config = _load_yaml(os.path.join(current_config_dir, file))
+            config_path = os.path.join(current_config_dir, file)
+            config = _load_yaml(config_path)
             if not config:
                 continue
+
+            config["testconfig_path"] = config_path
 
             cadence = os.environ.get("CADENCE", "commit")
             expected_cadence = config.get("cadence")
@@ -111,6 +110,7 @@ def parse_params(
             _parse_configs_dir(config)
     else:
         _parse_configs_dir(configs_directory)
+
     return config_dicts
 
 

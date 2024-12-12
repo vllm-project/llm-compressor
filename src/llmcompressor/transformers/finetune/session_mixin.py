@@ -2,7 +2,7 @@ import inspect
 import math
 import os
 from dataclasses import asdict
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from loguru import logger
@@ -21,8 +21,12 @@ from llmcompressor.core import (
     pre_initialize_structure,
 )
 from llmcompressor.metrics import LoggerManager
-from llmcompressor.pytorch.model_load.helpers import RECIPE_FILE_NAME, get_session_model
+from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
+    KDModelWrapper,
+)
+from llmcompressor.pytorch.model_load.helpers import get_session_model
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
+from llmcompressor.transformers import RECIPE_FILE_NAME
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
@@ -30,6 +34,10 @@ from llmcompressor.transformers.finetune.callbacks import (
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
+
+if TYPE_CHECKING:
+    from llmcompressor.transformers import DataTrainingArguments
+
 
 __all__ = [
     "SessionManagerMixIn",
@@ -60,7 +68,7 @@ class SessionManagerMixIn:
         self,
         recipe: Optional[str] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional["DataTrainingArguments"] = None,  # noqa: F821
+        data_args: Optional["DataTrainingArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):
@@ -242,10 +250,15 @@ class SessionManagerMixIn:
 
         # TODO: we don't currently have a LR scheduler in the new modifier framework
         self._check_super_defined("create_scheduler")
-        return super().create_scheduler(num_training_steps, optimizer)
+        return super().create_scheduler(
+            num_training_steps=num_training_steps, optimizer=optimizer
+        )
 
     def training_step(
-        self, model: Module, inputs: Dict[str, Union[torch.Tensor, Any]]
+        self,
+        model: torch.nn.Module,
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        num_items_in_batch: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Overrides the Trainer's training step to trigger the batch_start callback to
@@ -258,12 +271,18 @@ class SessionManagerMixIn:
         self._check_super_defined("training_step")
 
         callbacks.batch_start(batch_data=inputs)
-        model_outputs = super().training_step(model, inputs)
+        model_outputs = super().training_step(
+            model=model, inputs=inputs, num_items_in_batch=num_items_in_batch
+        )
 
         return model_outputs
 
     def compute_loss(
-        self, model: Module, inputs: Dict[str, Any], return_outputs: bool = False
+        self,
+        model: Module,
+        inputs: Dict[str, Any],
+        return_outputs: bool = False,
+        num_items_in_batch: Optional[int] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
         """
         Override for the compute_loss to factor trigger callbacks and filter columns
@@ -279,7 +298,12 @@ class SessionManagerMixIn:
 
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
-        loss = super().compute_loss(model, inputs, return_outputs=return_outputs)
+        loss = super().compute_loss(
+            model=model,
+            inputs=inputs,
+            return_outputs=return_outputs,
+            num_items_in_batch=num_items_in_batch,
+        )
 
         # take the mean across multiple GPUs
         # this is done outside the compute_loss function in the parent, replicating it
@@ -325,7 +349,10 @@ class SessionManagerMixIn:
         inputs = {k: inputs[k] for k in inputs if k in self._model_signature_columns}
 
         model_outputs = super().prediction_step(
-            model, inputs, prediction_loss_only, ignore_keys
+            model=model,
+            inputs=inputs,
+            prediction_loss_only=prediction_loss_only,
+            ignore_keys=ignore_keys,
         )
         return model_outputs
 
@@ -341,13 +368,25 @@ class SessionManagerMixIn:
         :param kwargs: keyword args to pass to super().train()
         :return: the output from super.train()
         """
+
+        # lifecycle
         checkpoint, epoch = self._calculate_checkpoint_info(kwargs)
         self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
+
+        # do not save checkpoints as compressed
+        original_save_compressed = self.args.save_compressed
+        self.args.save_compressed = False
+
+        # train with accelerator
         self.accelerator.wait_for_everyone()
         output = super().train(*args, **kwargs)
         self.accelerator.wait_for_everyone()
-        self.finalize_session()
 
+        # restore original setting for saving final model
+        self.args.save_compressed = original_save_compressed
+
+        # lifecycle
+        self.finalize_session()
         self.accelerator.wait_for_everyone()
 
         # log model sparsity
@@ -414,9 +453,7 @@ class SessionManagerMixIn:
         # self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
 
-    def save_model(
-        self, output_dir: Optional[str] = None, _internal_call=False, _is_oneshot=False
-    ):
+    def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """
         Override of the save_model function and expects it to exist in the parent.
         Calls into super() to save the model and additionally saves any recipes
@@ -429,6 +466,10 @@ class SessionManagerMixIn:
 
         if output_dir is None:
             output_dir = self.args.output_dir
+
+        # knowledge distillation requires making wrappers transparent during
+        if isinstance(self.model, KDModelWrapper):
+            self.model.prepare_for_save()
 
         if not is_fsdp_model(self.model):
             self.model.save_pretrained(
@@ -466,6 +507,9 @@ class SessionManagerMixIn:
             )
 
         self.accelerator.wait_for_everyone()
+
+        if isinstance(self.model, KDModelWrapper):
+            self.model.finish_save()
 
     def maybe_log_model_sparsification(self):
         """

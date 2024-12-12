@@ -58,7 +58,7 @@ setup(
         "torch>=1.7.0",
         "transformers>4.0,<5.0",
         "datasets",
-        "accelerate>=0.20.3",
+        "accelerate>=0.20.3,!=1.1.0",
         "pynvml==11.5.3",
         "compressed-tensors"
         if version_info.build_type == "release"
@@ -71,6 +71,7 @@ setup(
             "pytest-mock>=3.6.0",
             "pytest-rerunfailures>=13.0",
             "parameterized",
+            "lm_eval==0.4.5",
             # example test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",

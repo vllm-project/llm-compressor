@@ -3,11 +3,11 @@ import shutil
 import unittest
 
 import pytest
-from compressed_tensors.compressors.model_compressor import ModelCompressor
+from compressed_tensors.compressors import ModelCompressor
 from parameterized import parameterized_class
 from transformers import AutoConfig
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_oneshot_configs"
 GPU_CONFIGS_DIRECTORY = (
@@ -19,9 +19,9 @@ class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
         from llmcompressor.transformers import apply
 
-        splits = {"train": "train[:50%]", "calibration": "train[50%:60%]"}
+        splits = {"train": "train[:30%]", "calibration": "train[30%:40%]"}
         if self.dataset == "ultrachat-200k":
-            splits = {"train": "train_gen[:50%]", "calibration": "train_gen[50%:60%]"}
+            splits = {"train": "train_gen[:30%]", "calibration": "train_gen[30%:40%]"}
 
         apply(
             model=self.model,
@@ -56,7 +56,6 @@ class TestOneshotAndFinetune(unittest.TestCase):
         shutil.rmtree(self.output)
 
 
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
@@ -77,7 +76,6 @@ class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
         self._test_oneshot_and_finetune()
 
 
-@requires_torch
 @requires_gpu
 @pytest.mark.integration
 @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
@@ -91,13 +89,12 @@ class TestOneshotAndFinetuneGPU(TestOneshotAndFinetune):
 
     def setUp(self):
         import torch
-
-        from llmcompressor.transformers import SparseAutoModelForCausalLM
+        from transformers import AutoModelForCausalLM
 
         self.device = "cuda:0"
         self.output = "./finetune_output"
 
-        self.model = SparseAutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
 

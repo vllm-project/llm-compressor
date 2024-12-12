@@ -1,13 +1,13 @@
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
@@ -57,13 +57,12 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * apply SmoothQuant to make the activations easier to quantize
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
-# Note: set sequential_update: true in the recipe to reduce memory
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
 ]
 
-# Apply algorithms.
+# Apply algorithms and save to output_dir
 oneshot(
     model=model,
     dataset=ds,

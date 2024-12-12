@@ -1,8 +1,6 @@
 import time
 
-from compressed_tensors.quantization.lifecycle.forward import (
-    maybe_calibrate_or_quantize,
-)
+from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 
 from llmcompressor.modifiers.utils.compression_wrapper import ModuleCompressionWrapper
 from llmcompressor.utils import getattr_chain
@@ -40,7 +38,10 @@ class SparseGptWrapper(ModuleCompressionWrapper):
 
         # for Hessian calculation
         self.register_buffer(
-            "H", torch.zeros((self.columns, self.columns), device=self.dev)
+            "H",
+            torch.zeros(
+                (self.columns, self.columns), device=self.dev, dtype=torch.float32
+            ),
         )
 
     def add_batch(self, inp: torch.Tensor, out: torch.Tensor):
@@ -61,7 +62,8 @@ class SparseGptWrapper(ModuleCompressionWrapper):
             inp = inp.t()
         self.H *= self.nsamples / (self.nsamples + tmp)
         self.nsamples += tmp
-        inp = math.sqrt(2 / self.nsamples) * inp.float()
+        inp = inp.to(dtype=self.H.dtype)
+        inp = math.sqrt(2 / self.nsamples) * inp
         self.H += inp.matmul(inp.t()).to(self.dev)
 
     def compress(
@@ -91,7 +93,7 @@ class SparseGptWrapper(ModuleCompressionWrapper):
         args_loc = "quantization_scheme.weights"
         weight_quant_args = getattr_chain(self.layer, args_loc, None)
         if weight_quant_args is not None:
-            W = maybe_calibrate_or_quantize(self.layer, W, "weight", weight_quant_args)
+            W = forward_quantize(self.layer, W, "weight", weight_quant_args)
 
         if isinstance(self.layer, nn.Conv2d):
             W = W.flatten(1)
@@ -209,7 +211,7 @@ class SparseGptWrapper(ModuleCompressionWrapper):
             W = W.t()
         W = W.reshape(final_shape).to(final_dtype)
         if weight_quant_args is not None:
-            W = maybe_calibrate_or_quantize(self.layer, W, "weight", weight_quant_args)
+            W = forward_quantize(self.layer, W, "weight", weight_quant_args)
 
         # This is a bit hacky, but FSDP updates only work if we change the weight in
         # place, clone() or direct assignment won't work

@@ -4,7 +4,6 @@ test_stage:
       smoothing_strength: 0.6
     GPTQModifier:
       block_size: 128
-      sequential_update: False
       percdamp: 0.01
       config_groups:
         group_0:

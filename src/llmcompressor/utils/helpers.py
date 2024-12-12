@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
+import torch
 from loguru import logger
 
 __all__ = [
@@ -59,6 +60,7 @@ __all__ = [
     "is_package_available",
     "import_from_path",
     "getattr_chain",
+    "DisableKVCache",
 ]
 
 
@@ -1041,3 +1043,40 @@ def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
         res = getattr(res, attr_name)
 
     return res
+
+
+class DisableKVCache:
+    """
+    Temporarily disable the key-value cache for transformer models. Used to prevent
+    excess memory use in one-shot cases where the model only performs the prefill
+    phase and not the generation phase.
+
+    Example:
+    >>> model = AutoModel.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+    >>> input = torch.randint(0, 32, size=(1, 32))
+    >>> with DisableKVCache(model):
+    ...     output = model(input)
+    """
+
+    def __init__(self, model: torch.nn.Module):
+        if hasattr(model.config, "use_cache"):
+            self.config = model.config
+
+        # MllamaConfig
+        elif hasattr(model.config, "text_config") and hasattr(
+            model.config.text_config, "use_cache"
+        ):
+            self.config = model.config.text_config
+
+        # unknown config structure
+        else:
+            raise NotImplementedError(f"Cannot find `use_cache` for {model.config}")
+
+        self.restore_value = self.config.use_cache
+
+    def __enter__(self):
+        self.restore_value = self.config.use_cache
+        self.config.use_cache = False
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        self.config.use_cache = self.restore_value

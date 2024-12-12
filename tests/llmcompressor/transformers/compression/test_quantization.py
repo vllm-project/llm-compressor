@@ -8,18 +8,17 @@ import torch
 from compressed_tensors.quantization.utils import is_module_quantized
 from parameterized import parameterized_class
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, DefaultDataCollator
+from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/compression/configs"
 
 
-@requires_torch
 @requires_gpu
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
@@ -37,15 +36,16 @@ class TestQuantizationMatches(unittest.TestCase):
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp()
 
-        cls.model = SparseAutoModelForCausalLM.from_pretrained(
+        cls.model = AutoModelForCausalLM.from_pretrained(
             cls.model_stub, torch_dtype=cls.weight_dtype, device_map="cuda:0"
         )
-        cls._run_oneshot(
+        model = cls._run_oneshot(
             cls.model,
             cls.new_recipe,
             cls.dataset,
             os.path.join(cls.test_dir, cls.output),
         )
+        cls.session_model = model
 
     @classmethod
     def tearDownClass(cls):
@@ -68,10 +68,14 @@ class TestQuantizationMatches(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=recipe,
             pad_to_max_length=pad_to_max_length,
-            clear_sparse_session=True,
+            clear_sparse_session=False,
             splits={"calibration": "train_gen[:5%]"},
             save_compressed=False,
         )
+        from llmcompressor.pytorch.model_load.helpers import get_session_model
+
+        # note: get_session_model() is None outside of function scope
+        return get_session_model()
 
     def _get_quant_info(self, model):
         quant_info_weights = {}
@@ -96,7 +100,7 @@ class TestQuantizationMatches(unittest.TestCase):
         return quant_info_weights, quant_info_inputs
 
     def test_quantization_reload(self):
-        model_reloaded = SparseAutoModelForCausalLM.from_pretrained(
+        model_reloaded = AutoModelForCausalLM.from_pretrained(
             os.path.join(self.test_dir, self.output),
             torch_dtype="auto",
             device_map="cuda:0",
