@@ -236,7 +236,7 @@ def calculate_offload_device_map(
 
         reserved_memory = 0
         if reserve_for_hessians:
-            reserved_memory = hessian_memory_requirements(dummy_model) * 2
+            reserved_memory = hessian_memory_requirements(dummy_model)
         reserved_memory += quantization_memory_requirement(dummy_model)
 
         memory_limits = {
