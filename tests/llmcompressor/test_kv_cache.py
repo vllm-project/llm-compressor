@@ -4,13 +4,13 @@ import tempfile
 import pytest
 import torch
 from compressed_tensors.compressors import ModelCompressor
-from compressed_tensors.quantization.cache import KVCacheScaleType
+from compressed_tensors.quantization.lifecycle import KVCacheScaleType
 from compressed_tensors.quantization.utils.helpers import iter_named_quantizable_modules
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.core import reset_session
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 
 MODEL_IDS = [
     "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
@@ -83,7 +83,7 @@ def test_kv_cache_config_format(oneshot_fixture):
 
 def test_kv_cache_model_state_dict_attr(oneshot_fixture):
     for output_dir, _ in oneshot_fixture.items():
-        model = SparseAutoModelForCausalLM.from_pretrained(output_dir)
+        model = AutoModelForCausalLM.from_pretrained(output_dir)
 
         counts = 0
         for name, submodule in iter_named_quantizable_modules(
@@ -99,7 +99,7 @@ def test_kv_cache_model_state_dict_attr(oneshot_fixture):
 
 def test_kv_cache_model_populate_kv_scales_only(tmp_path):
     MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         device_map="cuda:0" if torch.cuda.is_available() else "cpu",
         torch_dtype="auto",
@@ -187,7 +187,7 @@ def test_kv_cache_model_populate_kv_scales_only(tmp_path):
     # check for vllm loading
     assert quant_config.quant_method == "compressed-tensors"
 
-    model = SparseAutoModelForCausalLM.from_pretrained(output_dir)
+    model = AutoModelForCausalLM.from_pretrained(output_dir)
 
     counts = 0
     for name, submodule in iter_named_quantizable_modules(
@@ -203,7 +203,7 @@ def test_kv_cache_model_populate_kv_scales_only(tmp_path):
 
 def test_kv_cache_with_gptq(tmp_path):
     MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    model = SparseAutoModelForCausalLM.from_pretrained(
+    model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         device_map="cuda:0" if torch.cuda.is_available() else "cpu",
         torch_dtype="auto",
@@ -298,7 +298,7 @@ def test_kv_cache_with_gptq(tmp_path):
     assert scheme.dynamic == kv_cache_dynamic
     assert scheme.symmetric == kv_cache_symmetric
 
-    model = SparseAutoModelForCausalLM.from_pretrained(output_dir)
+    model = AutoModelForCausalLM.from_pretrained(output_dir)
 
     counts = 0
     for name, submodule in iter_named_quantizable_modules(
