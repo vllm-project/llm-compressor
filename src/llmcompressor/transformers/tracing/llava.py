@@ -1,4 +1,20 @@
 # flake8: noqa
+# coding=utf-8
+# Copyright 2023 the HuggingFace Inc. team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""PyTorch Llava model."""
+
 from functools import wraps
 from typing import List, Optional, Tuple, Union
 
@@ -27,13 +43,23 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
         cache_position: Optional[torch.LongTensor] = None,
         num_logits_to_keep: int = 0,
     ) -> Union[Tuple, LlavaCausalLMOutputWithPast]:
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        output_attentions = (
+            output_attentions
+            if output_attentions is not None
+            else self.config.output_attentions
         )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        output_hidden_states = (
+            output_hidden_states
+            if output_hidden_states is not None
+            else self.config.output_hidden_states
+        )
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
         vision_feature_layer = (
-            vision_feature_layer if vision_feature_layer is not None else self.config.vision_feature_layer
+            vision_feature_layer
+            if vision_feature_layer is not None
+            else self.config.vision_feature_layer
         )
         vision_feature_select_strategy = (
             vision_feature_select_strategy
@@ -42,7 +68,9 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
+            raise ValueError(
+                "You must specify exactly one of input_ids or inputs_embeds"
+            )
 
         if pixel_values is not None and inputs_embeds is not None:
             raise ValueError(
@@ -56,7 +84,7 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
             # if the number of image tokens is more than image embeddings seq length, then prob we expanded it in processing
             # not very reliable, but we don't expect one to actually pass 500+ images for one prompt
             # In case we're in decoding stage, legacy behavior is checked by presence of pixel values even if use_cache=True
-            
+
             # NOT TRACABLE, instead always use legacy_processing = False
             # legacy_processing = (
             #     (input_ids == self.config.image_token_index).sum(1).max() < self.config.image_seq_length
@@ -79,17 +107,23 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
             )
             # prefill stage vs decoding stage (legacy behavior copied)
             if input_ids.shape[1] != 1:
-                inputs_embeds, attention_mask, labels, position_ids = self._merge_input_ids_with_image_features(
-                    image_features, inputs_embeds, input_ids, attention_mask, labels
+                inputs_embeds, attention_mask, labels, position_ids = (
+                    self._merge_input_ids_with_image_features(
+                        image_features, inputs_embeds, input_ids, attention_mask, labels
+                    )
                 )
-                cache_position = torch.arange(attention_mask.shape[1], device=attention_mask.device)
+                cache_position = torch.arange(
+                    attention_mask.shape[1], device=attention_mask.device
+                )
             else:
                 # Retrieve the first layer to inspect the logits and mask out the hidden states
                 # that are set to 0
                 first_layer_past_key_value = past_key_values[0][0][:, :, :, 0]
 
                 # Sum all dimensions of head_dim (-2) to avoid random errors such as: https://github.com/huggingface/transformers/pull/28032#issuecomment-1863691941
-                batch_index, non_attended_tokens = torch.where(first_layer_past_key_value.float().sum(-2) == 0)
+                batch_index, non_attended_tokens = torch.where(
+                    first_layer_past_key_value.float().sum(-2) == 0
+                )
 
                 # Get the target length
                 target_length = input_ids.shape[1]
@@ -111,9 +145,13 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 # Zero-out the places where we don't need to attend
                 extended_attention_mask[new_batch_index, new_non_attended_tokens] = 0
 
-                attention_mask = torch.cat((extended_attention_mask, attention_mask[:, -target_length:]), dim=1)
+                attention_mask = torch.cat(
+                    (extended_attention_mask, attention_mask[:, -target_length:]), dim=1
+                )
                 position_ids = torch.sum(attention_mask, dim=1).unsqueeze(-1) - 1
-                cache_position = torch.arange(attention_mask.shape[1], device=attention_mask.device)[-target_length:]
+                cache_position = torch.arange(
+                    attention_mask.shape[1], device=attention_mask.device
+                )[-target_length:]
 
         # @raushan retain only the new behavior after v4.47
         elif image_features is not None:
@@ -121,7 +159,7 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
             n_image_features = image_features.shape[0] * image_features.shape[1]
 
             # NOT TRACABLE, instead always use n_image_tokens != n_image_features = False
-            #if n_image_tokens != n_image_features:
+            # if n_image_tokens != n_image_features:
             if False:
                 raise ValueError(
                     f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
@@ -132,8 +170,12 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 .expand_as(inputs_embeds)
                 .to(inputs_embeds.device)
             )
-            image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
-            inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
+            image_features = image_features.to(
+                inputs_embeds.device, inputs_embeds.dtype
+            )
+            inputs_embeds = inputs_embeds.masked_scatter(
+                special_image_mask, image_features
+            )
 
         outputs = self.language_model(
             attention_mask=attention_mask,
@@ -156,16 +198,23 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
             if attention_mask is not None:
                 # we use the input attention mask to shift the logits and labels, because it is 2D.
                 # we also crop attn mask in case it is longer, which happens in PrefixTuning with peft
-                shift_attention_mask = attention_mask[:, -(logits.shape[1] - 1) :].to(logits.device)
-                shift_logits = logits[..., :-1, :][shift_attention_mask.to(logits.device) != 0].contiguous()
-                shift_labels = labels[..., 1:][shift_attention_mask.to(labels.device) != 0].contiguous()
+                shift_attention_mask = attention_mask[:, -(logits.shape[1] - 1) :].to(
+                    logits.device
+                )
+                shift_logits = logits[..., :-1, :][
+                    shift_attention_mask.to(logits.device) != 0
+                ].contiguous()
+                shift_labels = labels[..., 1:][
+                    shift_attention_mask.to(labels.device) != 0
+                ].contiguous()
             else:
                 shift_logits = logits[..., :-1, :].contiguous()
                 shift_labels = labels[..., 1:].contiguous()
             # Flatten the tokens
             loss_fct = torch.nn.CrossEntropyLoss()
             loss = loss_fct(
-                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1).to(shift_logits.device)
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_labels.view(-1).to(shift_logits.device),
             )
 
         if not return_dict:

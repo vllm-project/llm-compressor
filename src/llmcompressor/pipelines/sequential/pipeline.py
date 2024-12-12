@@ -77,11 +77,11 @@ def run_pipeline(
                 desc = prop_desc if propagate_error else calib_desc
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    subgraph_output = forward_function(model, **inputs)
+                    output = forward_function(model, **inputs)
                     del inputs
 
                     if subgraph_index < len(subgraphs) - 1:
-                        intermediates.update(batch_index, subgraph_output)
+                        intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
                     else:
-                        model_outputs[batch_index] = subgraph_output
+                        model_outputs[batch_index] = output

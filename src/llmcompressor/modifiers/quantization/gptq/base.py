@@ -27,6 +27,7 @@ from llmcompressor.modifiers.quantization.quantization.base import QuantizationM
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
+from llmcompressor.transformers import tracing
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import (
     get_layers,
@@ -220,7 +221,10 @@ class GPTQModifier(Modifier, HooksMixin):
             self._update_size = len(state.data.calib)
 
         # infer pipeline
-        if "pixel_values" not in state.data.calib.dataset.column_names:
+        if (
+            state.model.__class__.__name__ in tracing.__all__
+            or "pixel_values" not in state.data.calib.dataset.column_names
+        ):
             try:
                 run_sequential(
                     state.model,

@@ -107,6 +107,10 @@ def format_calibration_data(
     if accelerator:
         calib_dataloader = accelerator.prepare(calib_dataloader)
 
+    # sample = next(iter(calib_dataloader))
+    # print({k: [torch.tensor(s).shape for s in sample[k]] for k in sample})
+    # breakpoint()
+
     return calib_dataloader
 
 

@@ -1,14 +1,16 @@
 import os
 
 import torch
-from transformers import AutoProcessor, MllamaForConditionalGeneration
+from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.pytorch.data_collator import DataCollator
 from llmcompressor.transformers import oneshot
+from llmcompressor.transformers.tracing import TracableMllamaForConditionalGeneration
 
 # Load model.
 model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-model = MllamaForConditionalGeneration.from_pretrained(
+model = TracableMllamaForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
@@ -16,7 +18,7 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 # Oneshot arguments
 DATASET_ID = "flickr30k"
 DATASET_SPLIT = "test[:512]"
-NUM_CALIBRATION_SAMPLES = 1
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 
@@ -58,6 +60,7 @@ oneshot(
     trust_remote_code_model=True,
     output_dir=save_path,
     data_collator=data_collator,
+    # data_collator=DataCollator(),
 )
 
 processor.save_pretrained(save_path)

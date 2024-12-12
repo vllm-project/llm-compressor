@@ -85,7 +85,7 @@ def trace_subgraphs(
     return subgraphs
 
 
-def get_tracer(model: Module, targets: List[Module]) -> HFTracer:
+def get_tracer(model: Module, sequential_targets: List[Module]) -> HFTracer:
     offloaded_modules = set(
         module for module in model.modules() if has_offloaded_params(module)
     )
@@ -94,7 +94,7 @@ def get_tracer(model: Module, targets: List[Module]) -> HFTracer:
         # Treat as leaf, skip tracing inside this module
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
             return (
-                module in targets
+                module in sequential_targets
                 or module in offloaded_modules
                 or super().is_leaf_module(module, module_qualified_name)
             )

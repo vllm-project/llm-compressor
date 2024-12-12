@@ -4,8 +4,9 @@ import torch
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.pytorch.tracing.llava import TracableLlavaForConditionalGeneration
+from llmcompressor.pytorch.data_collator import DataCollator
 from llmcompressor.transformers import oneshot
+from llmcompressor.transformers.tracing import TracableLlavaForConditionalGeneration
 
 # Load model.
 model_id = "mgoin/pixtral-12b"
@@ -56,7 +57,8 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     output_dir=save_path,
-    data_collator=data_collator,
+    # data_collator=data_collator,
+    data_collator=DataCollator(),
 )
 
 model.save_pretrained(save_path)
