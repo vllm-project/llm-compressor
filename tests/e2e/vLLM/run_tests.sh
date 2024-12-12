@@ -25,6 +25,7 @@ do
 
     export TEST_DATA_FILE="$MODEL_CONFIG"
     pytest \
+        -r a \
         --capture=tee-sys \
         --junitxml="test-results/e2e-$(date +%s).xml" \
         "$TEST" || LOCAL_SUCCESS=$?
