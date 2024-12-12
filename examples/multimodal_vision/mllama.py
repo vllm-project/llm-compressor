@@ -17,8 +17,8 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
-DATASET_SPLIT = "test[:512]"
-NUM_CALIBRATION_SAMPLES = 512
+DATASET_SPLIT = "test[:1]"
+NUM_CALIBRATION_SAMPLES = 1
 MAX_SEQUENCE_LENGTH = 2048
 
 
@@ -42,6 +42,7 @@ recipe = [
         targets="Linear",
         scheme="W8A8",
         ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
+        dampening_frac=100.0,
     ),
 ]
 
@@ -64,6 +65,7 @@ oneshot(
 )
 
 processor.save_pretrained(save_path)
+model.save_pretrained(save_path)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
