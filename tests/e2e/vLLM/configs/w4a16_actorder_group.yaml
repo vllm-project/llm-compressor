@@ -1,0 +1,9 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+recipe: tests/e2e/vLLM/recipes/actorder/recipe_w4a16_actorder_group.yaml
+dataset_id: openai/gsm8k
+dataset_config: main
+dataset_split: train
+scheme: W4A16_actorder_group
+save_dir: TinyLlama-1.1B-Chat-v1.0-actorder-group
