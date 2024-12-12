@@ -1,16 +1,15 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Optional
-
-from pydantic import BaseModel
 
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
 from llmcompressor.modifiers.interface import ModifierInterface
+from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 __all__ = ["Modifier"]
 
 
-class Modifier(BaseModel, ModifierInterface, ABC):
+class Modifier(ModifierInterface, HooksMixin):
     """
     A base class for all modifiers to inherit from.
     Modifiers are used to modify the training process for a model.
