@@ -3,7 +3,6 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Dict, List, Set
 
-import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from torch.fx import Graph, GraphModule, Node
@@ -11,15 +10,19 @@ from torch.nn import Module
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context, getattr_chain
+from llmcompressor.utils.helpers import calibration_forward_context
 
 
 @dataclass
 class Subgraph:
     graph: Graph
-    input_names: List[str]
-    consumed_names: List[str]
-    input_device: torch.device
+    input_names: Set[str]
+    consumed_names: Set[str]
+
+    def compile_forward(self):
+        code = self.graph.python_code("self")
+        exec(code.src, code.globals)
+        return code.globals.get("forward")
 
 
 __all__ = ["infer_sequential_targets", "trace_subgraphs"]
@@ -213,34 +216,14 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
             }
             graph.output(output_dict)
 
-        # find input device for subgraph
-        # note: find_nodes is topologically sorted
-        modules = [
-            getattr_chain(model, node.target)
-            for node in graph.find_nodes(op="call_module")
-        ]
-        if len(modules) > 0:
-            first_offloaded = next(
-                (m for m in modules if has_offloaded_params(m)), None
-            )
-            input_device = (
-                torch.device(first_offloaded._hf_hook.execution_device)
-                if first_offloaded is not None
-                else next(modules[0].parameters()).device
-            )
-
-        else:
-            input_device = model.device
-
         # save the subgraph for this partition
         graph.lint()
-        input_names = [node.name for node in graph.nodes if node.op == "placeholder"]
+        input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
         subgraphs.append(
             Subgraph(
                 graph=graph,
                 input_names=input_names,
-                consumed_names=[],  # populated later
-                input_device=input_device,
+                consumed_names=set(),  # populated later
             )
         )
 
@@ -256,7 +239,7 @@ def trace_consumed_names(subgraphs: List[Dict[str, Any]]):
     for input_name in all_input_names:
         for subgraph in reversed(subgraphs):
             if input_name in subgraph.input_names:
-                subgraph.consumed_names.append(input_name)
+                subgraph.consumed_names.add(input_name)
                 break
         else:
             assert False

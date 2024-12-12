@@ -137,8 +137,7 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     max_total_hessian_elems = max(total_hessian_elems.values())
     overall_max_column_size = max(max_column_size.values())
     bytes_per_weight = 32 // 8  # hessians are float32
-    # allocate enough space for out of place operations
-    inverse_reserved = overall_max_column_size * overall_max_column_size * 2
+    inverse_reserved = overall_max_column_size * overall_max_column_size
     return (max_total_hessian_elems + inverse_reserved) * bytes_per_weight
 
 
