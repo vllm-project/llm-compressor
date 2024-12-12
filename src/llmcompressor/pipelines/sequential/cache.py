@@ -1,5 +1,5 @@
 import warnings
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Dict, List, Union
 
 import torch
@@ -79,10 +79,16 @@ class IntermediatesCache:
 
         if isinstance(value, torch.Tensor):
             return value.to(device=device)
-        
+
+        elif is_dataclass(value):
+            for key, v in asdict(value):
+                setattr(value, key, self._onload_value(v))
+
+            return value
+
         elif isinstance(value, tuple):
             return tuple(self._onload_value(v) for v in value)
-        
+
         else:
             return value
 
@@ -91,20 +97,17 @@ class IntermediatesCache:
             return IntermediateValue(
                 value=value.to(device=self.offload_device), device=value.device
             )
-        
+
+        elif is_dataclass(value):
+            for key, v in asdict(value):
+                setattr(value, key, self._offload_value(v))
+
+            return IntermediateValue(value=value, device=None)
+
         if isinstance(value, tuple):
             return IntermediateValue(
                 value=tuple(self._offload_value(v) for v in value), device=None
             )
-        
-        # if isinstance(value, MutableMapping):
-        #     offloaded_value = 
-        #     for key in value:
-        #         self._offload_value(value[key])
-
-        #     return IntermediateValue(
-        #         value=self._offload_value(v) for k, v in value.items()), device=None
-        #     )
 
         else:
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
