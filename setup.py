@@ -60,7 +60,7 @@ setup(
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml==11.5.3",
-        "compressed-tensors"
+        "compressed-tensors==0.8.1"
         if version_info.build_type == "release"
         else "compressed-tensors-nightly",
     ],
@@ -71,6 +71,7 @@ setup(
             "pytest-mock>=3.6.0",
             "pytest-rerunfailures>=13.0",
             "parameterized",
+            "lm_eval==0.4.5",
             # example test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
