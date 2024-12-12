@@ -3,6 +3,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 """
 This example covers how to load a quantized model using AutoModelForCausalLM.
 
+On load, Linear modules will be loaded as CompressedLinear modules, which is a compressed
+representation in size. 
+
 During inference, each layer will be decompressed as needed before the forward pass.
 This saves memory as only a single layer is ever uncompressed at a time, but increases
 runtime as we need to decompress each layer before running the forward pass
@@ -19,6 +22,8 @@ SAMPLE_INPUT = [
     "def fibonacci(n):",
 ]
 
+# compressed_model's Linear modules are replaced as CompressedLinear module, which
+# is smaller in size than Linear modules
 compressed_model = AutoModelForCausalLM.from_pretrained(
     MODEL_STUB,
     torch_dtype="auto",
