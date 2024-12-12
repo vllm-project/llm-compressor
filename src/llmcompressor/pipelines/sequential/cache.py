@@ -8,7 +8,7 @@ import tqdm
 
 @dataclass
 class IntermediateValue:
-    value: Any
+    value: Union[torch.Tensor, "IntermediateValue", Any]
     device: Union[torch.device, None]
 
 
@@ -77,12 +77,12 @@ class IntermediatesCache:
         value = intermediate.value
         device = intermediate.device
 
-        if device is not None:
-            if isinstance(value, torch.Tensor):
-                return value.to(device=device)
-            else:
-                raise NotImplementedError("Intermediates")
-
+        if isinstance(value, torch.Tensor):
+            return value.to(device=device)
+        
+        elif isinstance(value, tuple):
+            return tuple(self._onload_value(v) for v in value)
+        
         else:
             return value
 
@@ -91,6 +91,20 @@ class IntermediatesCache:
             return IntermediateValue(
                 value=value.to(device=self.offload_device), device=value.device
             )
+        
+        if isinstance(value, tuple):
+            return IntermediateValue(
+                value=tuple(self._offload_value(v) for v in value), device=None
+            )
+        
+        # if isinstance(value, MutableMapping):
+        #     offloaded_value = 
+        #     for key in value:
+        #         self._offload_value(value[key])
+
+        #     return IntermediateValue(
+        #         value=self._offload_value(v) for k, v in value.items()), device=None
+        #     )
 
         else:
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
