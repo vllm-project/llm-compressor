@@ -60,7 +60,7 @@ setup(
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml==11.5.3",
-        "compressed-tensors==0.8.1"
+        "compressed-tensors"
         if version_info.build_type == "release"
         else "compressed-tensors-nightly",
     ],
