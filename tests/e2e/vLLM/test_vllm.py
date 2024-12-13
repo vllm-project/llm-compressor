@@ -119,9 +119,6 @@ class TestvLLM:
         # check that expected files exist
         self._check_save_dir_has_expected_files()
 
-        # Reset after session info is extracted on save -- recipe
-        self.session.reset()
-
         # Use the session to fetch the recipe;
         # Reset session for next test case
         session = active_session()
