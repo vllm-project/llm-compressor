@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 import torch
+from accelerate import init_empty_weights
 from compressed_tensors.quantization.lifecycle import KVCacheScaleType
 from compressed_tensors.quantization.utils.helpers import iter_named_quantizable_modules
 from datasets import load_dataset
@@ -93,7 +94,8 @@ class TestKVCache(unittest.TestCase):
 
     def test_kv_cache_model_state_dict_attr(self):
         for output_dir in self.model_args.keys():
-            model = AutoModelForCausalLM.from_pretrained(output_dir)
+            with init_empty_weights():
+                model = AutoModelForCausalLM.from_pretrained(output_dir)
 
             counts = 0
             for name, submodule in iter_named_quantizable_modules(
@@ -203,8 +205,8 @@ class TestGPTQKVCache(unittest.TestCase):
 
         # Check for vllm loading
         self.assertEqual(quant_config["quant_method"], "compressed-tensors")
-
-        model = AutoModelForCausalLM.from_pretrained(output_dir)
+        with init_empty_weights():
+            model = AutoModelForCausalLM.from_pretrained(output_dir)
 
         counts = 0
         for name, submodule in iter_named_quantizable_modules(
