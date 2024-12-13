@@ -1,5 +1,5 @@
 import warnings
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Dict, List, Union
 
 import torch
@@ -81,13 +81,17 @@ class IntermediatesCache:
             return value.to(device=device)
 
         elif is_dataclass(value):
-            for key, v in asdict(value):
-                setattr(value, key, self._onload_value(v))
+            for field in fields(value):  # `asdict` is recursive, not applicable here
+                v = getattr(value, field.name)
+                setattr(value, field.name, self._onload_value(v))
 
             return value
 
         elif isinstance(value, tuple):
             return tuple(self._onload_value(v) for v in value)
+
+        elif isinstance(value, (int, str, float, bool)) or value is None:
+            return value
 
         else:
             return value
@@ -99,8 +103,9 @@ class IntermediatesCache:
             )
 
         elif is_dataclass(value):
-            for key, v in asdict(value):
-                setattr(value, key, self._offload_value(v))
+            for field in fields(value):  # `asdict` is recursive, not applicable here
+                v = getattr(value, field.name)
+                setattr(value, field.name, self._offload_value(v))
 
             return IntermediateValue(value=value, device=None)
 
@@ -108,6 +113,9 @@ class IntermediatesCache:
             return IntermediateValue(
                 value=tuple(self._offload_value(v) for v in value), device=None
             )
+
+        if isinstance(value, (int, str, float, bool)) or value is None:
+            return IntermediateValue(value=value, device=None)
 
         else:
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
