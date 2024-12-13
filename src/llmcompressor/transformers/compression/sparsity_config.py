@@ -103,7 +103,7 @@ class SparsityConfigMetadata:
             format = CompressionFormat.dense.value
         if compress:
             format = (
-                CompressionFormat.sparse_24_bytemask.value
+                CompressionFormat.sparse_24_bitmask.value
                 if sparsity_structure == SparsityStructure.TWO_FOUR.value
                 else CompressionFormat.sparse_bitmask.value
             )
