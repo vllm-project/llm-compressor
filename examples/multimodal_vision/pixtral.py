@@ -62,9 +62,6 @@ oneshot(
     # data_collator=DataCollator(),
 )
 
-model.save_pretrained(save_path)
-processor.save_pretrained(save_path)
-
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
