@@ -4,7 +4,8 @@ import torch
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.pytorch.data_collator import DataCollator
+
+# from llmcompressor.pytorch.data_collator import DataCollator
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TracableLlavaForConditionalGeneration
 
@@ -40,7 +41,6 @@ recipe = [
         scheme="W8A8",
         ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
         sequential_targets=["MistralDecoderLayer"],
-        dampening_frac=100.0,
     ),
 ]
 
