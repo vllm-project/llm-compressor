@@ -36,7 +36,7 @@ class IntermediatesCache:
             {
                 key: (
                     IntermediateValue(
-                        value=value.masked_fill_(batch["attention_mask"] == 0, 0),
+                        value=cls._mask_padding(value, batch["attention_mask"]),
                         device=model_device,
                     )
                     if mask_padding and key == "input_ids"
@@ -112,3 +112,13 @@ class IntermediatesCache:
         else:
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
             return IntermediateValue(value=value, device=None)
+
+    @staticmethod
+    def _mask_padding(
+        input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> torch.Tensor:
+        if attention_mask.dim() == 4:
+            # some attention masks, such as those from pixtral, are are 4d
+            attention_mask = attention_mask[0, 0, 0].unsqueeze(0)
+
+        return input_ids.masked_fill_(torch.logical_not(attention_mask), 0)

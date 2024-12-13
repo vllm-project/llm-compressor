@@ -40,6 +40,7 @@ recipe = [
         scheme="W8A8",
         ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
         sequential_targets=["MistralDecoderLayer"],
+        dampening_frac=100.0,
     ),
 ]
 

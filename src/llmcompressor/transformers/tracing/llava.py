@@ -19,11 +19,37 @@ from functools import wraps
 from typing import List, Optional, Tuple, Union
 
 import torch
-from transformers import LlavaForConditionalGeneration
-from transformers.models.llava.modeling_llava import LlavaCausalLMOutputWithPast, logger
+from transformers import AutoModel, AutoModelForCausalLM, LlavaForConditionalGeneration
+from transformers.models.llava.configuration_llava import LlavaConfig
+from transformers.models.llava.modeling_llava import (
+    LlavaCausalLMOutputWithPast,
+    LlavaMultiModalProjector,
+    logger,
+)
+from transformers.models.mistral.configuration_mistral import MistralConfig
+
+from .mistral import TracableMistralForCausalLM
 
 
 class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
+    def __init__(self, config: LlavaConfig):
+        super().__init__(config)
+        self.vision_tower = AutoModel.from_config(config.vision_config)
+
+        self.multi_modal_projector = LlavaMultiModalProjector(config)
+        self.vocab_size = config.text_config.vocab_size
+
+        # NOT TRACABLE: Must use TracableMistralForCausalLM which wraps untracable function
+        if isinstance(config.text_config, MistralConfig):
+            self.language_model = TracableMistralForCausalLM(config.text_config)
+        else:
+            self.language_model = AutoModelForCausalLM.from_config(config.text_config)
+
+        self.pad_token_id = (
+            self.config.pad_token_id if self.config.pad_token_id is not None else -1
+        )
+        self.post_init()
+
     @wraps(LlavaForConditionalGeneration.forward)
     def forward(
         self,

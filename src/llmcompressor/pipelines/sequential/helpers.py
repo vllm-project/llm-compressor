@@ -6,8 +6,10 @@ from typing import Any, Dict, List, Set
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from torch.fx import Graph, GraphModule, Node
+from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
+from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -80,6 +82,14 @@ def get_tracer(
     )
 
     class PiecewiseTracer(HFTracer):
+        def create_arg(self, a: Any) -> Argument:
+            if isinstance(a, PretrainedConfig):
+                kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
+                return self.create_node("call_function", a.__class__, (), kwargs)
+
+            else:
+                return super().create_arg(a)
+
         # Treat as leaf, skip tracing inside this module
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
             return (
