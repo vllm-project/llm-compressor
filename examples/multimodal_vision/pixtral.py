@@ -11,7 +11,7 @@ from llmcompressor.transformers.tracing import TracableLlavaForConditionalGenera
 # Load model.
 model_id = "mgoin/pixtral-12b"
 model = TracableLlavaForConditionalGeneration.from_pretrained(
-    model_id, device_map="balanced", torch_dtype="auto"
+    model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
@@ -57,8 +57,8 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     output_dir=save_path,
-    # data_collator=data_collator,
-    data_collator=DataCollator(),
+    data_collator=data_collator,
+    # data_collator=DataCollator(),
 )
 
 model.save_pretrained(save_path)

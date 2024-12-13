@@ -42,7 +42,6 @@ recipe = [
         targets="Linear",
         scheme="W8A8",
         ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
-        dampening_frac=100.0,
     ),
 ]
 

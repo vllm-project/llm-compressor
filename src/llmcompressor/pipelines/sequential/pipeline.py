@@ -8,10 +8,7 @@ from compressed_tensors.utils import get_execution_device
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import (
-    infer_sequential_targets,
-    trace_subgraphs,
-)
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.utils.helpers import calibration_forward_context
 
 __all__ = ["run_pipeline"]
@@ -42,8 +39,7 @@ def run_pipeline(
     """
     # trace subgraphs
     sample_input = next(iter(dataloader))
-    targets = infer_sequential_targets(model, sequential_targets, ignore)
-    subgraphs = trace_subgraphs(model, sample_input, targets)
+    subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
     # FUTURE: apply recipe to model
     # initialize(recipe, model)

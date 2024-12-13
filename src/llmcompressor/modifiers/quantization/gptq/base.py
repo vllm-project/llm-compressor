@@ -29,11 +29,7 @@ from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.transformers import tracing
 from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import (
-    get_layers,
-    get_no_split_params,
-    qat_active,
-)
+from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 
 __all__ = ["GPTQModifier"]
 
@@ -213,8 +209,8 @@ class GPTQModifier(Modifier, HooksMixin):
         # infer sequential targets
         if self.sequential_targets is None:
             self.sequential_targets = get_no_split_params(state.model)
-        elif isinstance(self.sequential_targets, str):
-            self.sequential_targets = get_layers(self.sequential_targets, self.model)
+        if isinstance(self.sequential_targets, str):
+            self.sequential_targets = [self.sequential_targets]
 
         # infer update size
         if self._update_size is None:

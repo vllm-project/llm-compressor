@@ -7,10 +7,13 @@ from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from torch.fx import Graph, GraphModule, Node
 from torch.nn import Module
+from transformers import PreTrainedModel
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context
+
+__all__ = ["trace_subgraphs", "Subgraph"]
 
 
 @dataclass
@@ -25,34 +28,18 @@ class Subgraph:
         return code.globals.get("forward")
 
 
-__all__ = ["infer_sequential_targets", "trace_subgraphs"]
-
-
-def infer_sequential_targets(
-    model: Module, sequential_targets: List[str], ignore: List[str]
-) -> Set[Module]:
-    """
-    Future: infer from recipe
-
-    List of modules which are guaranteed to be split into different partitions and
-    whose inner operations will not be traced
-    """
-    targets_names = sequential_targets + ignore
-
-    sequential_targets = set(
-        module
-        for name, module in model.named_modules()
-        if find_name_or_class_matches(name, module, targets_names)
-    )
-
-    return sequential_targets
-
-
 def trace_subgraphs(
-    model: Module, sample_input: Dict[str, Any], targets: Set[Module]
+    model: PreTrainedModel,
+    sample_input: Dict[str, Any],
+    sequential_targets: List[str],
+    ignore: List[str],
 ) -> List[Subgraph]:
+    # find modules
+    sequential_targets = match_modules(model, sequential_targets)
+    ignore = match_modules(model, ignore)
+
     # initialize arguments
-    tracer = get_tracer(model, targets)
+    tracer = get_tracer(model, sequential_targets, ignore)
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
@@ -78,14 +65,16 @@ def trace_subgraphs(
     graph.device = model.device
 
     # perform subgraph partition
-    partitions = topological_partition(graph, targets)
+    partitions = topological_partition(graph, sequential_targets)
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
 
     return subgraphs
 
 
-def get_tracer(model: Module, sequential_targets: List[Module]) -> HFTracer:
+def get_tracer(
+    model: Module, sequential_targets: Set[Module], ignore: Set[Module]
+) -> HFTracer:
     offloaded_modules = set(
         module for module in model.modules() if has_offloaded_params(module)
     )
@@ -96,6 +85,7 @@ def get_tracer(model: Module, sequential_targets: List[Module]) -> HFTracer:
             return (
                 module in sequential_targets
                 or module in offloaded_modules
+                or module in ignore
                 or super().is_leaf_module(module, module_qualified_name)
             )
 
@@ -261,3 +251,11 @@ def check_assumption(graph: Graph) -> bool:
             return False
 
     return True
+
+
+def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
+    return set(
+        module
+        for name, module in model.named_modules()
+        if find_name_or_class_matches(name, module, target_names)
+    )
