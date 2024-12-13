@@ -38,16 +38,6 @@ class GPTQModifier(Modifier, HooksMixin):
     """
     Modifier for applying the one-shot OBCQ algorithm to a model
 
-    Lifecycle:
-        - on_initialize
-            - initialize_compression()
-                - compressible_layers()
-                - LayerCompressor.pre_compress()
-            - apply_compression()
-                - run_calibration_forward()
-                - LayerCompressor.compress()
-                - LayerCompressor.post_compress()
-                - LayerCompressor.revert_layer_wrappers()
     | Sample yaml:
     | test_stage:
     |    obcq_modifiers:
