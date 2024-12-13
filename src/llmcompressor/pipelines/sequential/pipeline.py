@@ -48,7 +48,6 @@ def run_pipeline(
         # prepare intermediates cache
         model_device = get_execution_device(model)
         intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
-        model_outputs = [dict() for _ in range(len(dataloader))]
 
         num_subgraphs = len(subgraphs)
         for subgraph_index, subgraph in enumerate(subgraphs):
@@ -64,7 +63,6 @@ def run_pipeline(
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
                     forward_function(model, **inputs)
-                    del inputs
 
             # if using propagate_error, then this pass does not trigger modifier hooks
             # and is only used for capturing intermediates
@@ -74,10 +72,7 @@ def run_pipeline(
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
                     output = forward_function(model, **inputs)
-                    del inputs
 
                     if subgraph_index < len(subgraphs) - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
-                    else:
-                        model_outputs[batch_index] = output
