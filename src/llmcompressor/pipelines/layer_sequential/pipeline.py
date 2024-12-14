@@ -4,12 +4,10 @@ from typing import List
 import torch
 import torch.utils.data.dataloader
 import tqdm
-from compressed_tensors.utils import get_execution_device
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.fake_sequential.helpers import (
-    compute_first_layer_intermediates,
+from llmcompressor.pipelines.layer_sequential.helpers import (
+    capture_first_layer_intermediates,
     match_modules,
     to_next_layer_kwargs,
 )
@@ -32,7 +30,7 @@ def run_pipeline(
     # initialize(recipe, model)
 
     with calibration_forward_context(model):
-        intermediates = compute_first_layer_intermediates(model, layers, dataloader)
+        intermediates = capture_first_layer_intermediates(model, layers, dataloader)
 
         num_layers = len(layers)
         for layer_index, layer in enumerate(layers):

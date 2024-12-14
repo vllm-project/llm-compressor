@@ -1,7 +1,7 @@
 import contextlib
 import inspect
 from dataclasses import dataclass
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Tuple
 
 import torch
 import tqdm
@@ -15,7 +15,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
-__all__ = ["match_modules", "compute_first_layer_intermediates"]
+__all__ = ["match_modules", "capture_first_layer_intermediates", "to_next_layer_kwargs"]
 
 
 def match_modules(model: Module, target_names: List[str]) -> List[Module]:
@@ -29,7 +29,7 @@ def match_modules(model: Module, target_names: List[str]) -> List[Module]:
     return [layer for _name, layer in names_layers]
 
 
-def compute_first_layer_intermediates(
+def capture_first_layer_intermediates(
     model: Module,
     layers: List[Module],
     dataloader: DataLoader,
@@ -81,9 +81,10 @@ def early_stop_hook(module: Module):
 
     handle = module.register_forward_pre_hook(trigger_early_stop_fn, with_kwargs=True)
 
-    yield
-
-    handle.remove()
+    try:
+        yield
+    finally:
+        handle.remove()
 
 
 @dataclass
