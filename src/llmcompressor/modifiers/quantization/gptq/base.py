@@ -218,15 +218,13 @@ class GPTQModifier(Modifier, HooksMixin):
             )
             return True
 
-        # failure to trace
-        except torch.fx.proxy.TraceError:
-            model_name = state.model.__class__.__name__
-            column_names = state.data.calib.dataset.column_names
-            warnings.warn(
-                f"Failed to trace {model_name} with dataset {column_names}. "
-                "Falling back to layer_sequential pipeline"
-            )
+        except Exception as exception:
+            if isinstance(exception, torch.fx.proxy.TraceError):
+                model_name = state.model.__class__.__name__
+                column_names = state.data.calib.dataset.column_names
+                warnings.warn(f"Failed to trace {model_name} with {column_names}")
 
+            warnings.warn("Falling back to layer_sequential pipeline")
             try:
                 run_layer_sequential(
                     state.model,
