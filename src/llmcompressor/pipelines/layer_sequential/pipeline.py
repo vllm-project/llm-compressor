@@ -66,8 +66,8 @@ def run_pipeline(
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
                     inputs = intermediates.fetch(batch_index)
                     output = layer(**inputs)
-                    output = to_next_layer_kwargs(output, layers[layer_index + 1])
 
                     if layer_index < num_layers - 1:
+                        output = to_next_layer_kwargs(output, layers[layer_index + 1])
                         intermediates.delete(batch_index)
                         intermediates.update(batch_index, output)
