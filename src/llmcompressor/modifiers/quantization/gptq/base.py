@@ -208,6 +208,8 @@ class GPTQModifier(Modifier, HooksMixin):
             self._update_size = len(state.data.calib)
 
         # infer pipeline
+        model_name = state.model.__class__.__name__
+        column_names = state.data.calib.dataset.column_names
         try:
             run_sequential(
                 state.model,
@@ -220,8 +222,6 @@ class GPTQModifier(Modifier, HooksMixin):
 
         except Exception as exception:
             if isinstance(exception, torch.fx.proxy.TraceError):
-                model_name = state.model.__class__.__name__
-                column_names = state.data.calib.dataset.column_names
                 warnings.warn(f"Failed to trace {model_name} with {column_names}")
 
             warnings.warn("Falling back to layer_sequential pipeline")
@@ -234,12 +234,13 @@ class GPTQModifier(Modifier, HooksMixin):
                 )
                 return True
 
-            # failure to match kwargs
-            except TypeError:
+            except Exception as exception:
+                if isinstance(exception, TypeError):
+                    warnings.warn(f"{model_name} fails layer-wise assumptions")
+
                 warnings.warn(
-                    f"{model_name} does not conform to layer-wise architecture "
-                    "assumptions. Falling back to basic pipeline, which requires extra "
-                    "memory and may result in decreased accuracy"
+                    "Falling back to basic pipeline, which requires extra memory and "
+                    "may result in decreased accuracy"
                 )
                 run_basic(state.model, state.data.calib)
                 return True
