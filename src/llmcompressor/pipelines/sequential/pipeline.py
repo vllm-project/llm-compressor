@@ -7,7 +7,7 @@ import tqdm
 from compressed_tensors.utils import get_execution_device
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.sequential.cache import IntermediatesCache
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.utils.helpers import calibration_forward_context
 
@@ -73,6 +73,6 @@ def run_pipeline(
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
                     output = forward_function(model, **inputs)
 
-                    if subgraph_index < len(subgraphs) - 1:
+                    if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)

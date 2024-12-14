@@ -1,6 +1,6 @@
 import warnings
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 import tqdm
@@ -23,6 +23,11 @@ class IntermediatesCache:
     ):
         self.batch_intermediates = batch_intermediates
         self.offload_device = offload_device
+
+    @classmethod
+    def empty(cls, num_batches: int, offload_device: torch.device):
+        batch_intermediates = [{} for _ in range(num_batches)]
+        return cls(batch_intermediates, offload_device)
 
     @classmethod
     def from_dataloader(
@@ -49,27 +54,27 @@ class IntermediatesCache:
 
         return cls(batch_intermediates, offload_device)
 
-    def fetch(self, batch_index: int, input_names: List[str]) -> Dict[str, Any]:
+    def fetch(
+        self, batch_index: int, input_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         intermediates = self.batch_intermediates[batch_index]
 
         return {
             key: self._onload_value(subgraph_input)
             for key, subgraph_input in intermediates.items()
-            if key in input_names
+            if input_names is None or key in input_names
         }
 
-    def update(self, batch_index: int, outputs: Dict[str, Any]):
-        # assume that all model intermediates are tensors
-        assert (isinstance(value, torch.Tensor) for value in outputs.values())
-
-        intermediates = {
-            key: self._offload_value(value) for key, value in outputs.items()
-        }
-
+    def update(self, batch_index: int, values: Dict[str, Any]):
+        intermediates = {k: self._offload_value(v) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
-    def delete(self, batch_index: int, consumed_names: List[str]):
+    def delete(self, batch_index: int, consumed_names: Optional[List[str]] = None):
         intermediates = self.batch_intermediates[batch_index]
+
+        if consumed_names is None:
+            consumed_names = list(intermediates.keys())
+
         for name in consumed_names:
             del intermediates[name]
 

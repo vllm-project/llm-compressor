@@ -4,10 +4,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, StackDataset
 
-from llmcompressor.pipelines.sequential.cache import (
-    IntermediatesCache,
-    IntermediateValue,
-)
+from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
 
 
 @pytest.fixture
