@@ -22,7 +22,21 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     propagate_error: bool,
 ):
-    """ """
+    """
+    Run a layer-wise sequential data pipeline.
+    1. Layers are identified according to `sequential_targets`
+    2. A hook is attached to the first layer. This hook raises an exception which is
+        then caught and used to capture the input arguments to the first layer
+    3. The inputs to the first layer are used to calibrate the first layer, and the
+        output of the previous layer is used as inputs to calibrate the next layer
+
+    This pipeline requires that the model have distinct layers defined in its
+    architecture and that the outputs of the previous layer are exactly the inputs
+    to the next layer. This is violated by encoder-decoder architectures among others.
+
+    If your model architecture violates these assumptions, consider using the sequential
+    pipeline (see llmcompressor.pipelines.sequential)
+    """
     # find layers
     layers = match_modules(model, sequential_targets)
 
