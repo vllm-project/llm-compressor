@@ -1,5 +1,4 @@
 import contextlib
-import traceback
 import warnings
 from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -26,8 +25,10 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
+from llmcompressor.pipelines.layer_sequential import (
+    run_pipeline as run_layer_sequential,
+)
 from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
-from llmcompressor.transformers import tracing
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 
@@ -207,33 +208,43 @@ class GPTQModifier(Modifier, HooksMixin):
             self._update_size = len(state.data.calib)
 
         # infer pipeline
-        if (
-            state.model.__class__.__name__ in tracing.__all__
-            or "pixel_values" not in state.data.calib.dataset.column_names
-        ):
+        try:
+            run_sequential(
+                state.model,
+                self.sequential_targets,
+                self.ignore,
+                state.data.calib,
+                propagate_error=True,
+            )
+            return True
+
+        # failure to trace
+        except torch.fx.proxy.TraceError:
+            model_name = state.model.__class__.__name__
+            column_names = state.data.calib.dataset.column_names
+            warnings.warn(
+                f"Failed to trace {model_name} with dataset {column_names}. "
+                "Falling back to layer_sequential pipeline"
+            )
+
             try:
-                run_sequential(
+                run_layer_sequential(
                     state.model,
                     self.sequential_targets,
-                    self.ignore,
                     state.data.calib,
                     propagate_error=True,
                 )
+                return True
 
-            except torch.fx.proxy.TraceError:
-                print(traceback.format_exc())
+            # failure to match kwargs
+            except TypeError:
                 warnings.warn(
-                    "Failed to trace model graph, using non-sequential "
-                    "pipeline with `offload_hessians = True`"
+                    f"{model_name} does not conform to layer-wise architecture "
+                    "assumptions. Falling back to basic pipeline, which requires extra "
+                    "memory and may result in decreased accuracy"
                 )
-                self.offload_hessians = True
                 run_basic(state.model, state.data.calib)
-
-        else:
-            warnings.warn("Cannot use sequential pipeline with vision datasets")
-            run_basic(state.model, state.data.calib)
-
-        return True
+                return True
 
     def on_finalize(self, state: "State", **kwargs) -> bool:
         """
