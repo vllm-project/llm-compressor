@@ -1,6 +1,6 @@
 cadence: "weekly"
 model: meta-llama/Meta-Llama-3-8B-Instruct
-scheme: INT8
+scheme: INT8_static_per_tensor
 recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_static_per_tensor_act.yaml
 num_fewshot: 5
 limit: 250
