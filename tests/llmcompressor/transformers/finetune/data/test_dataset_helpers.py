@@ -72,7 +72,18 @@ def test_datasets_fallbacks():
     assert split_ds.get("test").ds_name == "test_ds"
     assert split_ds.get("calibration").ds_name == "test_ds"
 
-    # oneshot will take any dataset
+    # oneshot takes train without warning
+    mock_datasets = {"train": Mock(ds_name="train_ds", column_names=[])}
+    split_ds = make_dataset_splits(mock_datasets, do_oneshot=True)
+    assert split_ds.get("calibration").ds_name == "train_ds"
+
+    # oneshot takes test with warning
+    mock_datasets = {"test": Mock(ds_name="test_ds", column_names=[])}
+    with pytest.warns(UserWarning):
+        split_ds = make_dataset_splits(mock_datasets, do_oneshot=True)
+    assert split_ds.get("calibration").ds_name == "test_ds"
+
+    # oneshot takes custom splits with warning
     mock_datasets = {"custom_split": Mock(ds_name="custom_ds", column_names=[])}
     with pytest.warns(UserWarning):
         split_ds = make_dataset_splits(mock_datasets, do_oneshot=True)
