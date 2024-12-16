@@ -283,7 +283,7 @@ def _get_split_with_fallbacks(
             warnings.warn(
                 f"{task} expects one of {preferred} dataset split, "
                 f"falling back to {fallback}. Use "
-                f'splits={{"{preferred[0]}": "{fallback}"}} to silence this warning'
+                f'`splits={{"{preferred[0]}": "{fallback}"}}` to silence this warning'
             )
             return datasets[fallback]
 
