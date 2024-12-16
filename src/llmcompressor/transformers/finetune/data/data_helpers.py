@@ -264,6 +264,7 @@ def _get_split_with_fallbacks(
     fallbacks: List[str] = [],
     strict: bool = True,
 ) -> DatasetType:
+    assert len(preferred) > 0
     if len(datasets) <= 0:
         raise ValueError("Cannot get retrieve data from dataset with no splits")
 
@@ -281,7 +282,8 @@ def _get_split_with_fallbacks(
         if fallback in datasets:
             warnings.warn(
                 f"{task} expects one of {preferred} dataset split, "
-                f"falling back to {fallback}"
+                f"falling back to {fallback}. Use "
+                f'splits={{"{preferred[0]}": "{fallback}"}} to silence this warning'
             )
             return datasets[fallback]
 
