@@ -7,13 +7,13 @@ from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-MODEL_ID = "mistralai/Mistral-Nemo-Instruct-2407"
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # adjust based off number of desired GPUs
 # reserve_for_hessians=True reserves memory which is required by
 # GPTQModifier and SparseGPTModifier
 device_map = calculate_offload_device_map(
-    MODEL_ID, num_gpus=2, reserve_for_hessians=True, torch_dtype=torch.bfloat16
+    MODEL_ID, num_gpus=1, reserve_for_hessians=True, torch_dtype=torch.bfloat16
 )
 
 model = AutoModelForCausalLM.from_pretrained(
