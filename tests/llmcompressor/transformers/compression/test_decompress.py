@@ -12,12 +12,17 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIG_DIR = "tests/llmcompressor/transformers/compression/run_compressed_configs"
+CONFIG_DIR = "tests/llmcompressor/transformers/compression/decompression_configs"
 
 
 @requires_gpu
 @parameterized_class(parse_params(CONFIG_DIR))
 class TestQuantizationMatches(unittest.TestCase):
+    """
+    Test the decompression, which copies the attrs of compressed_model_stub's
+    safetensors to skeleton_model_stub and decompresses. Ex. fp4 -> fp16
+    """
+
     compressed_model_stub = None
     skeleton_model_stub = None
 
