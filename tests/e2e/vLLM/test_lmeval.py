@@ -68,7 +68,7 @@ class TestLMEval:
         logger.info(self.scheme)
 
         self.device = "cuda:0"
-        self.num_calibration_samples = 256
+        self.num_calibration_samples = 512
         self.max_seq_length = 2048
 
     def test_lm_eval(self):

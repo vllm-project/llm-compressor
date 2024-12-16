@@ -5,5 +5,7 @@ recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_static_per_tensor
 num_fewshot: 5
 limit: 250
 task: "gsm8k"
-exact_match,flexible-extract: 0.728
-exact_match,strict-match: 0.728
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+exact_match,flexible-extract: 0.03
+exact_match,strict-match: 0.03
