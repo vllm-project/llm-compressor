@@ -16,10 +16,6 @@ MAX_SEQUENCE_LENGTH = 512
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
-KV_CACHE_GPTQ_CONFIGS_DIRECTORY = (
-    "tests/llmcompressor/transformers/kv_cache/configs/gptq_kv_cache"
-)
-
 MODEL_IDS = [
     "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     "microsoft/Phi-3-mini-4k-instruct",
