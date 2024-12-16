@@ -15,8 +15,16 @@ CONFIG_DIR = "tests/llmcompressor/transformers/compression/run_compressed_config
 @requires_gpu
 @parameterized_class(parse_params(CONFIG_DIR))
 class TestQuantizationMatches(unittest.TestCase):
-    compressed_model_stub = None
-    uncompressed_model_stub = None
+    """
+    Test the run_compressed input arg to AutoModelForCausalLM, where HFQuantizer is
+    responsible for decompressing if model is compressed.
+
+    Diagram flow https://tinyurl.com/2ynb6wbu
+
+    """
+
+    compressed_model_stub = None  # model was compressed on save
+    uncompressed_model_stub = None  # model was not compressed on save
 
     @classmethod
     def setUpClass(cls):
@@ -30,7 +38,7 @@ class TestQuantizationMatches(unittest.TestCase):
             quantization_config=quantization_config,
         )
 
-        cls.base_model = AutoModelForCausalLM.from_pretrained(
+        cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
             cls.uncompressed_model_stub,
             torch_dtype=cls.decompressed_model.dtype,
             device_map=cls.decompressed_model.device,
@@ -52,7 +60,7 @@ class TestQuantizationMatches(unittest.TestCase):
             self.decompressed_model.generate(**inputs, max_length=50)
         )
         uncompressed_output = self.tokenizer.batch_decode(
-            self.base_model.generate(**inputs, max_length=50)
+            self.uncompressed_model.generate(**inputs, max_length=50)
         )
 
         for idx in range(len(SAMPLE_INPUT)):
