@@ -56,6 +56,7 @@ class StageRunner:
 
         self.datasets = {}
         self.trainer = None
+        self.processor = None
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
