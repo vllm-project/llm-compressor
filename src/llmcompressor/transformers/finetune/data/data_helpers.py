@@ -162,7 +162,7 @@ def make_dataset_splits(
     if "all" in datasets and len(datasets) == 1:
         datasets = datasets.get("all")
         if isinstance(datasets, Dataset):
-            datasets = {"train": datasets}
+            datasets = {"train": datasets, "calibration": datasets}  # shallow copy
 
     train_split = eval_split = predict_split = calib_split = None
 
@@ -172,17 +172,18 @@ def make_dataset_splits(
         )
     if do_eval:
         eval_split = _get_split_with_fallbacks(
-            datasets, "evaluation", ["validation", "test"], strict=True
+            datasets, "evaluation", ["validation"], ["test"], strict=True
         )
     if do_predict:
         predict_split = _get_split_with_fallbacks(
-            datasets, "prediction", ["test", "validation"], strict=True
+            datasets, "prediction", ["test"], ["validation"], strict=True
         )
     if do_oneshot:
         calib_split = _get_split_with_fallbacks(
             datasets,
             "oneshot",
-            ["calibration", "train", "test", "validation"],
+            ["calibration", "train"],
+            ["test", "validation"],
             strict=False,
         )
 
@@ -304,28 +305,30 @@ def transform_dataset_keys(data_files: Dict[str, Any]):
 def _get_split_with_fallbacks(
     datasets: Dict[str, DatasetType],
     task: str,
-    fallbacks: List[str],
+    preferred: List[str],
+    fallbacks: List[str] = [],
     strict: bool = True,
 ) -> DatasetType:
-    assert len(fallbacks) > 0
+    assert len(preferred) > 0
     if len(datasets) <= 0:
         raise ValueError("Cannot get retrieve data from dataset with no splits")
 
-    # check first choice
-    first_choice = fallbacks[0]
-    if first_choice in datasets:
-        return datasets[first_choice]
+    # check preferred names (without warning)
+    for pref in preferred:
+        if pref in datasets:
+            return datasets[pref]
 
-    # last fallback is first available split
+    # fallback to the first available dataset if all else fails
     if not strict:
         fallbacks.append(next(iter(datasets.keys())))
 
-    # check fallbacks
-    for fallback in fallbacks[1:]:
+    # check fallbacks (with warning)
+    for fallback in fallbacks:
         if fallback in datasets:
             warnings.warn(
-                f"{task} expects a {first_choice} dataset split, "
-                f"falling back to {fallback}"
+                f"{task} expects one of {preferred} dataset split, "
+                f"falling back to {fallback}. Use "
+                f'`splits={{"{preferred[0]}": "{fallback}"}}` to silence this warning'
             )
             return datasets[fallback]
 
