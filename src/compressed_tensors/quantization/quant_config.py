@@ -160,7 +160,7 @@ class QuantizationConfig(BaseModel):
 
     def to_dict(self):
         # for compatibility with HFQuantizer
-        return self.dict()
+        return self.model_dump()
 
     @staticmethod
     def from_pretrained(

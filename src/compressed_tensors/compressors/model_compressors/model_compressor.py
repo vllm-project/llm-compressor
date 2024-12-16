@@ -137,7 +137,7 @@ class ModelCompressor:
                 format, **sparsity_config
             )
         if quantization_config is not None:
-            quantization_config = QuantizationConfig.parse_obj(quantization_config)
+            quantization_config = QuantizationConfig.model_validate(quantization_config)
 
         return cls(
             sparsity_config=sparsity_config, quantization_config=quantization_config
@@ -193,7 +193,7 @@ class ModelCompressor:
 
         if is_compressed_tensors_config(compression_config):
             s_config = compression_config.sparsity_config
-            return s_config.dict() if s_config is not None else None
+            return s_config.model_dump() if s_config is not None else None
 
         return compression_config.get(SPARSITY_CONFIG_NAME, None)
 
@@ -214,7 +214,7 @@ class ModelCompressor:
 
         if is_compressed_tensors_config(compression_config):
             q_config = compression_config.quantization_config
-            return q_config.dict() if q_config is not None else None
+            return q_config.model_dump() if q_config is not None else None
 
         quantization_config = deepcopy(compression_config)
         quantization_config.pop(SPARSITY_CONFIG_NAME, None)

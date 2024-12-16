@@ -72,3 +72,10 @@ def test_load_scheme_from_preset(scheme_name: str):
     assert scheme_name in config.config_groups
     assert isinstance(config.config_groups[scheme_name], QuantizationScheme)
     assert config.config_groups[scheme_name].targets == targets
+
+
+def test_to_dict():
+    config_groups = {"group_1": QuantizationScheme(targets=[])}
+    config = QuantizationConfig(config_groups=config_groups)
+    reloaded = QuantizationConfig.model_validate(config.to_dict())
+    assert config == reloaded

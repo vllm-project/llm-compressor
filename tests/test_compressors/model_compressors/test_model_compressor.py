@@ -99,8 +99,8 @@ def test_hf_compressor_tensors_config(s_config, q_config, tmp_path):
     )
     q_config = QuantizationConfig(**q_config) if q_config is not None else None
 
-    s_config_dict = s_config.dict() if s_config is not None else None
-    q_config_dict = q_config.dict() if q_config is not None else None
+    s_config_dict = s_config.model_dump() if s_config is not None else None
+    q_config_dict = q_config.model_dump() if q_config is not None else None
 
     assert compressor.sparsity_config == s_config
     assert compressor.quantization_config == q_config

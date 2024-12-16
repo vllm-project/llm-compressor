@@ -110,4 +110,4 @@ def get_sample_dynamic_tinyllama_quant_config():
         },
         "ignore": ["LlamaRotaryEmbedding", "model.layers.1.mlp.down_proj"],
     }
-    return QuantizationConfig.parse_obj(config_dict)
+    return QuantizationConfig.model_validate(config_dict)

@@ -222,7 +222,7 @@ def get_sample_tinyllama_quant_config(status: str = "frozen"):
         },
         "ignore": ["LlamaRotaryEmbedding", "model.layers.1.mlp.down_proj"],
     }
-    return QuantizationConfig.parse_obj(config_dict)
+    return QuantizationConfig.model_validate(config_dict)
 
 
 @requires_accelerate()
