@@ -272,10 +272,10 @@ class TextGenerationDataset(RegistryMixin):
         **kwargs,
     ) -> Union[Dataset, IterableDataset]:
         """
-        Wrapper function around Dataset.map and IterableDataset.map
+        Wrapper function around Dataset.map and IterableDataset.map.
 
-        1. Clears invalid parameters in the case where streaming is enabled
-        2. Skips removing columns which were already removed after mapping
+        If the dataset is streaming (in the case of IterableDataset), non-applicable
+        arguments are ignored and the dataset features are resolved
         """
         if isinstance(dataset, IterableDataset):
             # remove arguments that don't apply to streaming
@@ -288,20 +288,5 @@ class TextGenerationDataset(RegistryMixin):
 
         if isinstance(dataset, IterableDataset):
             dataset = dataset._resolve_features()
-
-        # remove columns which are present, skip removing those which are not
-        if remove_columns is not None:
-            if isinstance(remove_columns, str):
-                remove_columns = [remove_columns]
-
-            dataset_column_names = dataset.column_names
-            if isinstance(dataset_column_names, dict):
-                dataset_column_names = sum(dataset_column_names.values(), [])
-            if isinstance(remove_columns, dict):
-                remove_columns = sum(remove_columns.values(), [])
-
-            dataset = dataset.remove_columns(
-                list(set(dataset_column_names) & set(remove_columns))
-            )
 
         return dataset
