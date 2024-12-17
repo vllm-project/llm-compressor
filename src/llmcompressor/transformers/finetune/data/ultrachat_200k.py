@@ -24,7 +24,7 @@ class UltraChatDataset(TextGenerationDataset):
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
     """
 
     DEFAULT_CHAT_TEMPLATE = (
@@ -40,7 +40,7 @@ class UltraChatDataset(TextGenerationDataset):
         "{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
     )
 
-    def __init__(self, data_args, split, tokenizer):
+    def __init__(self, data_args, split, processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "HuggingFaceH4/ultrachat_200k"
 
@@ -51,13 +51,15 @@ class UltraChatDataset(TextGenerationDataset):
             text_column="messages",
             data_args=data_args,
             split=split,
-            tokenizer=tokenizer,
+            processor=processor,
         )
 
         if (
             not hasattr(self.tokenizer, "chat_template")
             or self.tokenizer.chat_template is None
         ):
+            # note that since tokenizer is a member of processor,
+            # this change affects processor.apply_chat_template
             self.tokenizer.chat_template = self.DEFAULT_CHAT_TEMPLATE
 
     def get_raw_dataset(self, cache_dir: Optional[str] = None):
@@ -75,7 +77,7 @@ class UltraChatDataset(TextGenerationDataset):
             if sample["messages"][0]["role"] != "system":
                 sample["messages"].insert(0, {"role": "system", "content": ""})
 
-            sample["messages"] = self.tokenizer.apply_chat_template(
+            sample["messages"] = self.processor.apply_chat_template(
                 sample["messages"], tokenize=False, add_generation_prompt=False
             )
             return sample
