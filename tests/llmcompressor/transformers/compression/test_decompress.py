@@ -12,12 +12,21 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIG_DIR = "tests/llmcompressor/transformers/compression/run_compressed_configs"
+CONFIG_DIR = (
+    "tests/llmcompressor/transformers/compression/run_compressed_configs/decompression"
+)
 
 
 @requires_gpu
 @parameterized_class(parse_params(CONFIG_DIR))
 class TestQuantizationMatches(unittest.TestCase):
+    """
+    Test decompression - given a skeleton model and path to the optimized model,
+    write the optimized model's safetensors to the skeleton model and decompress
+    Ex. write weight_scale to skeleton model and then fp4 -> fp16
+
+    """
+
     compressed_model_stub = None
     skeleton_model_stub = None
 
