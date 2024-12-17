@@ -44,6 +44,17 @@ BLOOM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
     ),
 ]
 
+GLM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+    LayerMap(
+        balance_layers=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+        smooth_layers="re:.*input_layernorm",
+    ),
+    LayerMap(
+        balance_layers=["re:.*gate_up_proj"],
+        smooth_layers="re:.*post_attention_layernorm",
+    ),
+]
+
 
 # Registry of layer mappings for different architectures
 #   Add more mappings here
@@ -53,6 +64,7 @@ MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
     "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
+    "GlmForCausalLM": GLM_SMOOTHQUANT_MAPPINGS,
 }
 
 
