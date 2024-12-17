@@ -70,5 +70,5 @@ class TestQuantizationMatches(unittest.TestCase):
     def tearDownClass(cls):
         shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
-        del cls.base_model
+        del cls.uncompressed_model
         torch.cuda.empty_cache()
