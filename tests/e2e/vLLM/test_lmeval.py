@@ -104,7 +104,7 @@ class TestLMEval:
 
         logger.info("================= Running LM Eval ======================")
 
-        model_args = f"pretrained={self.save_dir}"
+        model_args = f"pretrained={self.save_dir},add_bos_token=True"
         results = lm_eval.simple_evaluate(
             model="hf",
             model_args=model_args,
@@ -122,10 +122,8 @@ class TestLMEval:
         logger.info(exact_match_strict)
         logger.info("Exact Match, Flex")
         logger.info(exact_match_flex)
-        breakpoint()
         assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
         assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
-        self.tear_down()
 
     def tear_down(self):
         if self.save_dir is not None:
