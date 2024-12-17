@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Union
 
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
@@ -93,7 +93,7 @@ class TextGenerationDataset(RegistryMixin):
                 dataset,
                 self.preprocess,
                 batched=False,
-                remove_columns=dataset.column_names,
+                remove_columns=get_column_names(dataset),
                 num_proc=self.data_args.preprocessing_num_workers,
                 desc="Preprocessing",
             )
@@ -101,7 +101,7 @@ class TextGenerationDataset(RegistryMixin):
         # rename and remove columns match processor kwargs
         dataset = self.rename_columns(dataset)
 
-        if "input_ids" not in dataset.column_names:
+        if "input_ids" not in get_column_names(dataset):
             # tokenize/ process
             dataset = self.map(
                 dataset,
@@ -110,7 +110,7 @@ class TextGenerationDataset(RegistryMixin):
                 keep_in_memory=True,  # bug occurs when not batched and not in memory,
                 # subsequent ds.map calls are always batched,
                 # regardless of `batched` argument
-                remove_columns=dataset.column_names,
+                remove_columns=get_column_names(dataset),
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Tokenizing",
@@ -201,10 +201,8 @@ class TextGenerationDataset(RegistryMixin):
 
     def rename_columns(self, dataset: DatasetType) -> DatasetType:
         # rename columns to match processor/tokenizer kwargs
-        if (
-            self.data_args.text_column != "text"
-            and self.data_args.text_column in dataset.column_names
-        ):
+        column_names = get_column_names(dataset)
+        if self.data_args.text_column in column_names and "text" not in column_names:
             dataset = dataset.rename_column(self.data_args.text_column, "text")
 
         return dataset
@@ -268,7 +266,6 @@ class TextGenerationDataset(RegistryMixin):
         self,
         dataset: Union[Dataset, IterableDataset],
         function: Callable[[Any], Any],
-        remove_columns: Optional[Union[str, List[str], Dict[str, List[str]]]] = None,
         **kwargs,
     ) -> Union[Dataset, IterableDataset]:
         """
@@ -290,3 +287,11 @@ class TextGenerationDataset(RegistryMixin):
             dataset = dataset._resolve_features()
 
         return dataset
+
+
+def get_column_names(dataset: DatasetType) -> List[str]:
+    column_names = dataset.column_names
+    if isinstance(column_names, dict):
+        column_names = sum(column_names.values(), [])
+
+    return column_names
