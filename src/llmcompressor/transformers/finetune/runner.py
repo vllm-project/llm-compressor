@@ -6,7 +6,6 @@ from typing import List, Optional
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -24,6 +23,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
 
@@ -38,7 +38,7 @@ class StageRunner:
         - set_trainer()
         - train() / evaluate() / predict()
 
-    :param model_args: Arguments pertaining to model/config/tokenizer
+    :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows
     :param training_args: Arguments pertaining to training loop configuration
     :model: unwrapped model to run flows on
@@ -56,11 +56,11 @@ class StageRunner:
 
         self.datasets = {}
         self.trainer = None
-        self.tokenizer = None
+        self.processor = None
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = True):
+    def populate_datasets(self, processor: Processor, add_labels: bool = True):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
@@ -68,7 +68,7 @@ class StageRunner:
         :param tokenizer: tokenizer to use for dataset tokenization
         """
         if self._data_args.dataset is None:
-            self.tokenizer = self._model_args.tokenizer
+            self.processor = self._model_args.processor
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
                 "weight-only and dynamic quantization"
@@ -102,7 +102,7 @@ class StageRunner:
                 registry_id,
                 data_args=self._data_args,
                 split=split_str,
-                tokenizer=tokenizer,
+                processor=processor,
             )
 
             dataset = self._data_args.dataset
@@ -124,7 +124,7 @@ class StageRunner:
             do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
-        self.tokenizer = tokenizer
+        self.processor = processor
 
     def get_dataset_split(self, split_name: str) -> Dataset:
         """
@@ -266,7 +266,7 @@ class StageRunner:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
-                    tokenizer=self.tokenizer,
+                    processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._training_args.save_compressed,
                 )
