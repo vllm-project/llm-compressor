@@ -122,6 +122,7 @@ class TestLMEval:
         logger.info(exact_match_strict)
         logger.info("Exact Match, Flex")
         logger.info(exact_match_flex)
+        breakpoint()
         assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
         assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
         self.tear_down()
