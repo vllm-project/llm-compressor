@@ -12,7 +12,7 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 from tests.testing_utils import parse_params, requires_gpu
 
 COMPRESSED_LINEAR_CONFIG_DIR = (
-    "tests/llmcompressor/transformers/compression/run_compressed_configs/run_compressed"
+    "tests/llmcompressor/transformers/compression/run_compressed_configs"
 )
 
 

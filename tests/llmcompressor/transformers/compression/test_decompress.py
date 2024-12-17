@@ -12,9 +12,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIG_DIR = (
-    "tests/llmcompressor/transformers/compression/run_compressed_configs/decompression"
-)
+CONFIG_DIR = "tests/llmcompressor/transformers/compression/decompression_configs"
 
 
 @requires_gpu
