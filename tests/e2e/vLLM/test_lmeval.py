@@ -124,6 +124,7 @@ class TestLMEval:
         logger.info(exact_match_flex)
         assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
         assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
+        self.tear_down()
 
     def tear_down(self):
         if self.save_dir is not None:
