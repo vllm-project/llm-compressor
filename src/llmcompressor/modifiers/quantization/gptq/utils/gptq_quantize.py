@@ -1,6 +1,6 @@
 import math
 from copy import copy
-from typing import Dict, Optional, Tuple, Type, Union
+from typing import Dict, Optional, Tuple, Union
 
 import torch
 import transformers
@@ -31,7 +31,7 @@ def make_empty_hessian(
 
 def accumulate_hessian(
     inp: torch.Tensor,
-    module_class: Type[torch.nn.Module],
+    module: torch.nn.Module,
     H: Optional[torch.Tensor] = None,
     num_samples: int = 1,
 ) -> Tuple[torch.Tensor, int]:
@@ -42,10 +42,21 @@ def accumulate_hessian(
     num_added = inp.shape[0]  # note this is the number of dataset samples, not
     # multiplied by the sequence length
 
-    if module_class in (torch.nn.Linear, transformers.Conv1D):
+    if isinstance(module, (torch.nn.Linear, transformers.Conv1D)):
         if len(inp.shape) == 3:
             inp = inp.reshape((-1, inp.shape[-1]))
         inp = inp.t()
+
+    if isinstance(module, torch.nn.Conv2d):
+        unfold = torch.nn.Unfold(
+            module.kernel_size,
+            dilation=module.dilation,
+            padding=module.padding,
+            stride=module.stride,
+        )
+        inp = unfold(inp)
+        inp = inp.permute([1, 0, 2])
+        inp = inp.flatten(1)
 
     H *= num_samples / (num_samples + num_added)
     num_samples += num_added

@@ -194,8 +194,12 @@ class GPTQModifier(Modifier, HooksMixin):
         # register hooks
         for name, module in state.model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
-                post_hook = partial(self.compress_module, name)
-                self.register_hook(module, post_hook, "forward")
+                # HACK: previously, embeddings were not quantized because they were not
+                # accessible by the layer compressor. For now, we manually ignore it,
+                # but in the FUTURE this should be ignored by the user
+                if not isinstance(module, torch.nn.Embedding):
+                    post_hook = partial(self.compress_module, name)
+                    self.register_hook(module, post_hook, "forward")
 
         # infer sequential targets
         if self.sequential_targets is None:
@@ -291,7 +295,7 @@ class GPTQModifier(Modifier, HooksMixin):
         with self._maybe_onload_hessian(module):
             self._hessians[module], self._num_samples[module] = accumulate_hessian(
                 inp,
-                type(module),
+                module,
                 self._hessians[module],
                 self._num_samples[module],
             )
