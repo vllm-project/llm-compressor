@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Union
 
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
@@ -93,7 +93,7 @@ class TextGenerationDataset(RegistryMixin):
                 dataset,
                 self.preprocess,
                 batched=False,
-                remove_columns=dataset.column_names,
+                remove_columns=get_column_names(dataset),
                 num_proc=self.data_args.preprocessing_num_workers,
                 desc="Preprocessing",
             )
@@ -101,7 +101,7 @@ class TextGenerationDataset(RegistryMixin):
         # rename and remove columns match processor kwargs
         dataset = self.rename_columns(dataset)
 
-        if "input_ids" not in dataset.column_names:
+        if "input_ids" not in get_column_names(dataset):
             # tokenize/ process
             dataset = self.map(
                 dataset,
@@ -110,7 +110,7 @@ class TextGenerationDataset(RegistryMixin):
                 keep_in_memory=True,  # bug occurs when not batched and not in memory,
                 # subsequent ds.map calls are always batched,
                 # regardless of `batched` argument
-                remove_columns=dataset.column_names,
+                remove_columns=get_column_names(dataset),
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Tokenizing",
@@ -201,10 +201,8 @@ class TextGenerationDataset(RegistryMixin):
 
     def rename_columns(self, dataset: DatasetType) -> DatasetType:
         # rename columns to match processor/tokenizer kwargs
-        if (
-            self.data_args.text_column != "text"
-            and self.data_args.text_column in dataset.column_names
-        ):
+        column_names = get_column_names(dataset)
+        if self.data_args.text_column in column_names and "text" not in column_names:
             dataset = dataset.rename_column(self.data_args.text_column, "text")
 
         return dataset
@@ -268,14 +266,13 @@ class TextGenerationDataset(RegistryMixin):
         self,
         dataset: Union[Dataset, IterableDataset],
         function: Callable[[Any], Any],
-        remove_columns: Optional[Union[str, List[str], Dict[str, List[str]]]] = None,
         **kwargs,
     ) -> Union[Dataset, IterableDataset]:
         """
-        Wrapper function around Dataset.map and IterableDataset.map
+        Wrapper function around Dataset.map and IterableDataset.map.
 
-        1. Clears invalid parameters in the case where streaming is enabled
-        2. Skips removing columns which were already removed after mapping
+        If the dataset is streaming (in the case of IterableDataset), non-applicable
+        arguments are ignored and the dataset features are resolved
         """
         if isinstance(dataset, IterableDataset):
             # remove arguments that don't apply to streaming
@@ -289,19 +286,12 @@ class TextGenerationDataset(RegistryMixin):
         if isinstance(dataset, IterableDataset):
             dataset = dataset._resolve_features()
 
-        # remove columns which are present, skip removing those which are not
-        if remove_columns is not None:
-            if isinstance(remove_columns, str):
-                remove_columns = [remove_columns]
-
-            dataset_column_names = dataset.column_names
-            if isinstance(dataset_column_names, dict):
-                dataset_column_names = sum(dataset_column_names.values(), [])
-            if isinstance(remove_columns, dict):
-                remove_columns = sum(remove_columns.values(), [])
-
-            dataset = dataset.remove_columns(
-                list(set(dataset_column_names) & set(remove_columns))
-            )
-
         return dataset
+
+
+def get_column_names(dataset: DatasetType) -> List[str]:
+    column_names = dataset.column_names
+    if isinstance(column_names, dict):
+        column_names = sum(column_names.values(), [])
+
+    return column_names
