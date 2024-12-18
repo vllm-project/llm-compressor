@@ -1,4 +1,6 @@
+import inspect
 from functools import cached_property
+from inspect import _ParameterKind as Kind
 from typing import Any, Callable, Dict, List, Union
 
 from compressed_tensors.registry import RegistryMixin
@@ -93,7 +95,6 @@ class TextGenerationDataset(RegistryMixin):
                 dataset,
                 self.preprocess,
                 batched=False,
-                remove_columns=get_column_names(dataset),
                 num_proc=self.data_args.preprocessing_num_workers,
                 desc="Preprocessing",
             )
@@ -103,6 +104,7 @@ class TextGenerationDataset(RegistryMixin):
 
         if "input_ids" not in get_column_names(dataset):
             # tokenize/ process
+            dataset = self.filter_tokenizer_args(dataset)
             dataset = self.map(
                 dataset,
                 self.tokenize,
@@ -110,7 +112,8 @@ class TextGenerationDataset(RegistryMixin):
                 keep_in_memory=True,  # bug occurs when not batched and not in memory,
                 # subsequent ds.map calls are always batched,
                 # regardless of `batched` argument
-                remove_columns=get_column_names(dataset),
+                remove_columns=get_column_names(dataset),  # assumes that input names
+                # and output names are disjoint
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Tokenizing",
@@ -138,7 +141,7 @@ class TextGenerationDataset(RegistryMixin):
                 desc="Adding labels",
             )
 
-        elif self.PROMPT_KEY in dataset.column_names:
+        elif self.PROMPT_KEY in get_column_names(dataset):
             dataset.remove_columns(self.PROMPT_KEY)
 
         return dataset
@@ -206,6 +209,18 @@ class TextGenerationDataset(RegistryMixin):
             dataset = dataset.rename_column(self.data_args.text_column, "text")
 
         return dataset
+
+    def filter_tokenizer_args(self, dataset: DatasetType) -> DatasetType:
+        # assumes that inputs are not passed via self.processor.__call__ args and kwargs
+        signature = inspect.signature(self.processor.__call__)
+        tokenizer_args = set(
+            key
+            for key, param in signature.parameters.items()
+            if param.kind not in (Kind.VAR_POSITIONAL, Kind.VAR_KEYWORD)
+        )
+
+        column_names = get_column_names(dataset)
+        return dataset.remove_columns(list(set(column_names) - set(tokenizer_args)))
 
     def tokenize(self, data: LazyRow) -> Dict[str, Any]:
         # separate prompt
