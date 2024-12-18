@@ -35,23 +35,25 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
 
     text_column: str = field(
         default="text",
-        metadata={"help": "For custom datasets only. The text field key"},
+        metadata={
+            "help": (
+                "Optional key to be used as the `text` input to tokenizer/processor "
+                "after dataset preprocesssing"
+            )
+        },
     )
 
     remove_columns: Union[None, str, List] = field(
         default=None,
-        metadata={
-            "help": "This argument is depreciated. Column names to remove after "
-            "preprocessing custom datasets"
-        },
+        metadata={"help": "Column names to remove after preprocessing (depreciated)"},
     )
 
     preprocessing_func: Union[None, str, Callable] = field(
         default=None,
         metadata={
             "help": (
-                "For custom datasets only. Either a function to apply to the dataset, "
-                "a function name defined in "
+                "Typically a function which applies a chat template. Can take the form "
+                "of iither a function to apply to the dataset, a name defined in "
                 "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
                 "a path to a function definition of the form /path/to/file.py:func"
             )
