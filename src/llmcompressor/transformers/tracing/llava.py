@@ -50,6 +50,8 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
         )
         self.post_init()
 
+        self.__class__.__name__ = "LlavaForConditionalGeneration"
+
     @wraps(LlavaForConditionalGeneration.forward)
     def forward(
         self,
