@@ -15,7 +15,6 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     format_calibration_data,
 )
 from llmcompressor.transformers.finetune.runner import StageRunner
-from llmcompressor.transformers.finetune.training_args import TrainingArguments
 
 
 @pytest.mark.unit

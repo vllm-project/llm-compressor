@@ -141,8 +141,8 @@ def parse_args(**kwargs):
     # raise depreciation warnings
     if data_args.remove_columns is not None:
         warnings.warn(
-            "`remove_columns` argument is depreciated, when processing non-tokenized "
-            "datasets, all columns not returned by preprocessing_fn will be removed",
+            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "columns which are invalid inputs the tokenizer will be removed",
             DeprecationWarning,
         )
 
