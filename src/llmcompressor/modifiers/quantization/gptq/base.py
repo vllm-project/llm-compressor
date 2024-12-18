@@ -43,9 +43,9 @@ class GPTQModifier(Modifier, HooksMixin):
     | test_stage:
     |    obcq_modifiers:
     |      GPTQModifier:
-    |          true_sequential: False
-    |          dampening_frac: 0.001
     |          block_size: 128
+    |          dampening_frac: 0.001
+    |          offload_hessians: False
     |          config_groups:
     |            group_0:
     |                targets:
@@ -63,25 +63,17 @@ class GPTQModifier(Modifier, HooksMixin):
 
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
-
     :param block_size: Used to determine number of columns to compress in one pass
+    :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
+        diagonal norm
     :param quantize: Set to True to quantize using an existing quantization modifier,
         or pass in the configuration for a quantization modifier if one does not
         already exist in the recipe
-    :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
-        diagonal norm
+    :param offload_hessians: Set to True for decreased memory usage but increased
+        runtime.
     :param config_groups: [Used, if a quantization modifier is not specified],
         dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
-    :param ignore: [Used, if a quantization modifier is not specified]
-        optional list of module class names or submodule names to not
-        quantize even if they match a target in config_groups. Defaults to empty list.
-    :param disable_quantization_observer_epoch: [Used, if a quantization modifier is
-        not specified] Epoch to disable updates to the module
-        quantization observers. At this point, quantized weights and zero points will
-        not be updated. Leave None to not disable observers during QAT. Default is None
-    :param num_calibration_steps: Number of steps to run post training calibration for.
-        When None, the entire calibration_dataloader is used
     :param scheme: [Used, if a quantization modifier is not specified], the quantization
         scheme to apply to the model, this is a dictionary that supports all keys from
         QuantizationScheme except targets, which will be set to the targets parameter
@@ -89,6 +81,17 @@ class GPTQModifier(Modifier, HooksMixin):
         `preset_scheme_name: targets` for example: `W8A8: ['Linear']` for weight 8 bit
         or a string of a preset scheme if targets is provided
         and activation 8 bit quantization on the Linear layers.
+    :param targets: list of layer names to quantize if a scheme is provided. Defaults
+        to Linear layers
+    :param ignore: [Used, if a quantization modifier is not specified]
+        optional list of module class names or submodule names to not
+        quantize even if they match a target in config_groups. Defaults to empty list.
+    :param num_calibration_steps: Number of steps to run post training calibration for.
+        When None, the entire calibration_dataloader is used
+    :param disable_quantization_observer_epoch: [Used, if a quantization modifier is
+        not specified] Epoch to disable updates to the module
+        quantization observers. At this point, quantized weights and zero points will
+        not be updated. Leave None to not disable observers during QAT. Default is None
     """
 
     # gptq modifier arguments
