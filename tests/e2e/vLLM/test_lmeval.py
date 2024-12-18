@@ -1,11 +1,10 @@
 import os
 import shutil
 from pathlib import Path
-from typing import Callable
 
+import numpy
 import pytest
 import yaml
-from huggingface_hub import HfApi
 from loguru import logger
 
 from llmcompressor.core import active_session
@@ -13,38 +12,32 @@ from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 
 try:
-    from vllm import LLM, SamplingParams
+    import lm_eval
 
-    vllm_installed = True
+    lm_eval_installed = True
 except ImportError:
-    vllm_installed = False
-    logger.warning("vllm is not installed. This test will be skipped")
+    lm_eval_installed = False
+    logger.warning("lm_eval is not installed. This test will be skipped")
 
-HF_MODEL_HUB_NAME = "nm-testing"
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
-
-
-@pytest.fixture
-def record_config_file(record_testsuite_property: Callable[[str, object], None]):
-    test_data_file_name = TEST_DATA_FILE.split("configs/")[-1]
-    record_testsuite_property("TEST_DATA_FILE_NAME", test_data_file_name)
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 
 
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
-@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
-class TestvLLM:
+@pytest.mark.skipif(
+    not lm_eval_installed, reason="lm eval is not installed, skipping test"
+)
+class TestLMEval:
     """
     The following test quantizes a model using a preset scheme or recipe,
-    runs the model using vLLM, and then pushes the model to the hub for
-    future use. Each test case is focused on a specific quantization type
-    (e.g W4A16 with grouped quantization, W4N16 with channel quantization).
-    To add a new test case, a new config has to be added to the `configs` folder.
-    The tests run on a cadence defined by the `cadence` field. Each config defines
-    the model to quantize. Optionally, a dataset id and split can be provided for
-    calibration. Finally, all config files must list a scheme. The scheme can be a
-    preset scheme from
+    and then evaluates the model using LM Eval. Each test case is focused on a
+    specific quantization type (e.g W4A16 with grouped quantization,
+    W4N16 with channel quantization). To add a new test case, a new config has to be
+    added to the lm_eval_configs folder. The tests run on a cadence defined by the
+    `cadence` field. Each config defines the model to quantize. Optionally, a dataset
+    id and split can be provided for calibration. Finally, all config files must list
+    a scheme. The scheme can be a preset scheme from
     https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
     or another identifier which can be used for the particular test case. If a recipe
     is not provided, it is assumed that the scheme provided is a preset scheme and will
@@ -65,6 +58,11 @@ class TestvLLM:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
+        self.task = eval_config.get("task")
+        self.num_fewshot = eval_config.get("num_fewshot")
+        self.limit = eval_config.get("limit")
+        self.exact_flex = eval_config.get("exact_match,flexible-extract")
+        self.exact_strict = eval_config.get("exact_match,strict-match")
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
@@ -72,18 +70,9 @@ class TestvLLM:
         self.device = "cuda:0"
         self.num_calibration_samples = 256
         self.max_seq_length = 2048
-        self.prompts = [
-            "The capital of France is",
-            "The president of the US is",
-            "My name is",
-        ]
-        self.api = HfApi()
 
-    @pytest.mark.usefixtures("record_config_file")
-    def test_vllm(self):
+    def test_lm_eval(self):
         # Run vLLM with saved model
-        import torch
-
         self.set_up()
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -113,34 +102,28 @@ class TestvLLM:
             fp.write(recipe_yaml_str)
         session.reset()
 
-        logger.info("================= UPLOADING TO HUB ======================")
+        logger.info("================= Running LM Eval ======================")
 
-        self.api.upload_folder(
-            repo_id=f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e",
-            folder_path=self.save_dir,
+        model_args = f"pretrained={self.save_dir}"
+        results = lm_eval.simple_evaluate(
+            model="hf",
+            model_args=model_args,
+            tasks=[self.task],
+            num_fewshot=self.num_fewshot,
+            limit=self.limit,
+            device="cuda:0",
+            batch_size=100,
         )
 
-        logger.info("================= RUNNING vLLM =========================")
-
-        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm = LLM(model=self.save_dir, dtype=torch.float16)
-        else:
-            llm = LLM(model=self.save_dir)
-        outputs = llm.generate(self.prompts, sampling_params)
-
-        logger.info("================= vLLM GENERATION ======================")
-        for output in outputs:
-            assert output
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
-
-            logger.info("PROMPT")
-            logger.info(prompt)
-            logger.info("GENERATED TEXT")
-            logger.info(generated_text)
-
+        metrics = results["results"][self.task]
+        exact_match_strict = metrics.get("exact_match,strict-match")
+        exact_match_flex = metrics.get("exact_match,flexible-extract")
+        logger.info("Exact Match, Strict")
+        logger.info(exact_match_strict)
+        logger.info("Exact Match, Flex")
+        logger.info(exact_match_flex)
+        assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
+        assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
         self.tear_down()
 
     def tear_down(self):
