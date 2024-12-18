@@ -13,7 +13,6 @@ from llmcompressor.modifiers.smoothquant.utils import (
     handle_mapping_resolution_errors,
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
-from llmcompressor.timer_utils import log_time
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
 
@@ -104,7 +103,6 @@ class SmoothQuantModifier(Modifier):
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
 
-    @log_time
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run SmoothQuant on the given state
