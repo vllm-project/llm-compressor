@@ -3,7 +3,6 @@ from typing import Optional, Union
 from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
 from loguru import logger
-from transformers import AutoTokenizer
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -11,6 +10,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     get_custom_datasets_from_path,
     get_raw_dataset,
 )
+from llmcompressor.typing import Processor
 
 
 class TextGenerationDataset(RegistryMixin):
@@ -30,10 +30,10 @@ class TextGenerationDataset(RegistryMixin):
         text_column: str,
         data_args: DataTrainingArguments,
         split: str,
-        tokenizer: AutoTokenizer,
+        processor: Processor,
     ):
         self.text_column = text_column
-        self.tokenizer = tokenizer
+        self.processor = processor
         self.data_args = data_args
         self.raw_kwargs = data_args.raw_kwargs or {}
         self.split = split
@@ -50,20 +50,38 @@ class TextGenerationDataset(RegistryMixin):
         else:
             self.padding = False
 
-        if self.tokenizer:
+        # get tokenizer
+        self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
+
+        if self.tokenizer is not None:
+            # fill in pad token
             if not self.tokenizer.pad_token:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        # configure sequence length
-        max_seq_length = data_args.max_seq_length
-        model_max_length = tokenizer.model_max_length if tokenizer else max_seq_length
-        if self.tokenizer and max_seq_length > model_max_length:
-            logger.warning(
-                f"The max_seq_length passed ({max_seq_length}) is larger than "
-                f"the maximum length for the model ({tokenizer.model_max_length}). "
-                f"Using max_seq_length={tokenizer.model_max_length}."
+            # configure sequence length
+            max_seq_length = data_args.max_seq_length
+            if data_args.max_seq_length > self.tokenizer.model_max_length:
+                logger.warning(
+                    f"The max_seq_length passed ({max_seq_length}) is larger than "
+                    f"maximum length for model ({self.tokenizer.model_max_length}). "
+                    f"Using max_seq_length={self.tokenizer.model_max_length}."
+                )
+            self.max_seq_length = min(
+                data_args.max_seq_length, self.tokenizer.model_max_length
             )
-        self.max_seq_length = min(data_args.max_seq_length, model_max_length)
+
+            # configure padding
+            self.padding = (
+                False
+                if self.data_args.concatenate_data
+                else "max_length"
+                if self.data_args.pad_to_max_length
+                else False
+            )
+
+        else:
+            self.max_seq_length = None
+            self.padding = False
 
     def get_raw_dataset(self, cache_dir: Optional[str] = None) -> Dataset:
         """
