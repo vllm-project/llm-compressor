@@ -24,7 +24,6 @@ MAX_SEQUENCE_LENGTH = 2048
 
 # Recipe
 recipe = [
-    # SmoothQuantModifier(smoothing_strength=0.8, ignore=ignore),
     GPTQModifier(
         targets="Linear",
         scheme="W8A8",
