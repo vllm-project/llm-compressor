@@ -18,7 +18,7 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    sequential_targets: List[str],  # FUTURE: replace with recipe inference
+    sequential_targets: List[str],
     dataloader: torch.utils.data.DataLoader,
     propagate_error: bool,
 ):
@@ -39,9 +39,6 @@ def run_pipeline(
     """
     # find layers
     layers = match_modules(model, sequential_targets)
-
-    # FUTURE: apply recipe to model
-    # initialize(recipe, model)
 
     with calibration_forward_context(model):
         intermediates = capture_first_layer_intermediates(model, layers, dataloader)

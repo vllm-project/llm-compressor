@@ -16,7 +16,7 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    sequential_targets: List[str],  # FUTURE: replace with recipe inference
+    sequential_targets: List[str],
     ignore: List[str],
     dataloader: torch.utils.data.DataLoader,
     propagate_error: bool,
@@ -42,9 +42,6 @@ def run_pipeline(
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
-
-    # FUTURE: apply recipe to model
-    # initialize(recipe, model)
 
     with calibration_forward_context(model):
         # prepare intermediates cache
