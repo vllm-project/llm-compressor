@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from compressed_tensors.utils.offload import is_module_offloaded
 from loguru import logger
 from torch.nn import Module
 
@@ -99,7 +100,6 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    hooks_: Optional[List] = None
     resolved_mappings_: Optional[List] = None
     scales_: Optional[Dict] = None
 
@@ -127,7 +127,6 @@ class SmoothQuantModifier(Modifier):
         self.scales_ = {}
 
         calibration_dataloader = state.data.calib
-        self.hooks_ = []
 
         self._setup_scale_hooks()
         self._calibrate(state.model, calibration_dataloader)
@@ -228,7 +227,7 @@ class SmoothQuantModifier(Modifier):
         for mapping in self.resolved_mappings_:
             name = mapping.smooth_name
             layer = mapping.smooth_layer
-            self.hooks_.append(layer.register_forward_hook(create_hook_fn(name)))
+            self.register_hook(layer, create_hook_fn(name), "forward")
 
     @torch.no_grad()
     def _calibrate(self, model: Module, calibration_dataloader: List):
@@ -255,9 +254,7 @@ class SmoothQuantModifier(Modifier):
         )
 
         # remove the hooks now that we are done calibrating
-        for hook in self.hooks_:
-            hook.remove()
-        del self.hooks_
+        self.remove_hooks()
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module):
@@ -286,6 +283,10 @@ class SmoothQuantModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
+                offloaded = is_module_offloaded(module)
+                if offloaded:
+                    module._hf_hook.pre_forward(module)
+
                 if module in balance_layers:
                     module.weight.mul_(scales.view(1, -1))
                 elif module == smooth_layer:
@@ -295,6 +296,9 @@ class SmoothQuantModifier(Modifier):
                         module.weight.div_(scales.view(-1, 1))
                     if hasattr(module, "bias") and module.bias is not None:
                         module.bias.div_(scales)
+
+                if offloaded:
+                    module._hf_hook.post_forward(module, None)
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -322,8 +326,16 @@ class SmoothQuantModifier(Modifier):
         # get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
+            offloaded = is_module_offloaded(layer)
+            if offloaded:
+                layer._hf_hook.pre_forward(layer)
+
             scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
             weight_scales.append(scale)
+
+            if offloaded:
+                layer._hf_hook.post_forward(layer, None)
+
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
         # calculate the amount of smoothing to apply
@@ -333,4 +345,5 @@ class SmoothQuantModifier(Modifier):
             1 - self.smoothing_strength
         )
         scales = torch.where(weight_scales > 0.0, scales, activation_scales)
+
         return scales

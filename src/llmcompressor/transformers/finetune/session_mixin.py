@@ -24,8 +24,9 @@ from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
 )
-from llmcompressor.pytorch.model_load.helpers import RECIPE_FILE_NAME, get_session_model
+from llmcompressor.pytorch.model_load.helpers import get_session_model
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
+from llmcompressor.transformers import RECIPE_FILE_NAME
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
@@ -486,8 +487,9 @@ class SessionManagerMixIn:
             )
 
         self.save_state()
-        if self.tokenizer is not None:
-            self.tokenizer.save_pretrained(output_dir)
+        processor = getattr(self, "processing_class", self.tokenizer)
+        if processor is not None:
+            processor.save_pretrained(output_dir)
 
         if not self.recipe:
             return

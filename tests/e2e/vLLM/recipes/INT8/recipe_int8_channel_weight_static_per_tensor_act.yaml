@@ -1,6 +1,8 @@
 quant_stage:
   quant_modifiers:
-    QuantizationModifier:
+    SmoothQuantModifier:
+      smoothing_strength: 0.8
+    GPTQModifier:
       ignore: [lm_head]
       config_groups:
         group_0:

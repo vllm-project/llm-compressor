@@ -24,6 +24,8 @@ from llmcompressor.transformers.compression.quantization_format import (
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
+from llmcompressor.transformers.utils import RECIPE_FILE_NAME
+from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import (
     find_and_move_state_dicts_to_cpu,
     unwrap_and_export_model,
@@ -32,7 +34,7 @@ from llmcompressor.utils.fsdp.helpers import (
 __all__ = ["modify_save_pretrained", "modify_fsdp_model_save_pretrained"]
 
 
-def modify_fsdp_model_save_pretrained(trainer, tokenizer):
+def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
     supports compression for fsdp model
@@ -77,7 +79,7 @@ def modify_fsdp_model_save_pretrained(trainer, tokenizer):
                     model=trainer.model,
                     accelerator=trainer.accelerator,
                     output_dir=save_directory,
-                    tokenizer=tokenizer,
+                    processor=processor,
                 )
                 # only allow the main process move the state
                 # dicts to cpu
@@ -189,11 +191,12 @@ def modify_save_pretrained(model: torch.nn.Module):
                 )
                 compressor.update_config(save_directory)
 
-            recipe_path = os.path.join(save_directory, "recipe.yaml")
+            recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
             session = active_session()
-            recipe_yaml_str = session.get_serialized_recipe()
-            with open(recipe_path, "w") as fp:
-                fp.write(recipe_yaml_str)
+
+            if (recipe_yaml_str := session.get_serialized_recipe()) is not None:
+                with open(recipe_path, "w") as fp:
+                    fp.write(recipe_yaml_str)
 
             # copy python files from cache dir to save_path if any
             copy_python_files_from_model_cache(model, save_directory)

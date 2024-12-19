@@ -1,22 +1,22 @@
 import torch
 from datasets import load_dataset
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot
+from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-MODEL_ID = "mistralai/Mistral-Nemo-Instruct-2407"
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 
 # adjust based off number of desired GPUs
 # reserve_for_hessians=True reserves memory which is required by
 # GPTQModifier and SparseGPTModifier
 device_map = calculate_offload_device_map(
-    MODEL_ID, num_gpus=2, reserve_for_hessians=True, torch_dtype=torch.bfloat16
+    MODEL_ID, num_gpus=1, reserve_for_hessians=True, torch_dtype=torch.bfloat16
 )
 
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)

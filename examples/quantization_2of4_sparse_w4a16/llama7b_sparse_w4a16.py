@@ -1,13 +1,15 @@
 import torch
+from loguru import logger
+from transformers import AutoModelForCausalLM
 
-from llmcompressor.transformers import SparseAutoModelForCausalLM, apply
+from llmcompressor.transformers import apply
 
 # define a recipe to handle sparsity, finetuning and quantization
 recipe = "2of4_w4a16_recipe.yaml"
 
 # load the model in as bfloat16 to save on memory and compute
 model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
 
@@ -50,4 +52,8 @@ apply(
     learning_rate=learning_rate,
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
+)
+logger.info(
+    "Note: vLLM requires the dtype=torch.float16 when running the ",
+    "compressed marlin-24 model",
 )

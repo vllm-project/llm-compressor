@@ -3,11 +3,9 @@ import unittest
 import pytest
 
 from llmcompressor.utils.pytorch.module import get_no_split_params
-from tests.testing_utils import requires_torch
 
 
 @pytest.mark.integration
-@requires_torch
 class TestInferTargets(unittest.TestCase):
     def setUp(self):
         from transformers import AutoModelForCausalLM

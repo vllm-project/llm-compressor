@@ -11,7 +11,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from loguru import logger
-from pydantic import Field
+from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
@@ -63,7 +63,8 @@ class QuantizationModifier(Modifier):
         There is an explicit assumption that the model contains modules with
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
-    :param targets: list of layer names to quantize if a scheme is provided
+    :param targets: list of layer names to quantize if a scheme is provided. Defaults
+        to Linear layers
     :param disable_quantization_observer_epoch: Epoch to disable updates to the module
         quantization observers. At this point, quantized weights and zero points will
         not be updated. Leave None to not disable observers during QAT. Default is None
@@ -73,7 +74,7 @@ class QuantizationModifier(Modifier):
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
     ignore: List[str] = Field(default_factory=list)
-    targets: Union[str, List[str], None] = None
+    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
     disable_quantization_observer_epoch: Optional[float] = None
@@ -81,7 +82,13 @@ class QuantizationModifier(Modifier):
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
-    calibration_hooks_: List = None
+
+    @field_validator("targets", mode="before")
+    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
+        if isinstance(value, str):
+            return [value]
+
+        return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.end and self.end != -1:
@@ -101,7 +108,6 @@ class QuantizationModifier(Modifier):
             self._check_calibration_data(config)
             module.apply(update_weight_zp_scale)
             module.apply(apply_calibration_status)
-            self.calibration_hooks_ = []
             self._calibrate_if_possible(module)
             self._check_token_distribution(
                 module, threshold=kwargs.get("min_tokens_per_module")
@@ -125,9 +131,6 @@ class QuantizationModifier(Modifier):
         module.apply(freeze_module_quantization)
 
     def create_init_config(self) -> QuantizationConfig:
-        if self.targets is not None and isinstance(self.targets, str):
-            self.targets = [self.targets]
-
         if self.scheme is not None:
             # takes precedence over config_groups
 
@@ -148,13 +151,10 @@ class QuantizationModifier(Modifier):
                 self.config_groups[group_name] = scheme
 
         if self.config_groups is None or len(self.config_groups) == 0:
-            default_quant_scheme = QuantizationScheme.default_scheme(
-                targets=self.targets
-            )
+            default_quant_scheme = QuantizationScheme(targets=self.targets)
             self.config_groups = {"group_0": default_quant_scheme}
             logger.info(
-                "No config groups were provided, generating "
-                f"QuantizationScheme.default_scheme = {self.config_groups}"
+                f"No config groups were provided, using default {self.config_groups}"
             )
 
         return QuantizationConfig(
@@ -230,15 +230,12 @@ class QuantizationModifier(Modifier):
 
         register_calibration_hooks():
             if input activation and not dynamic quant (used to call observers before intput QDQ):
-                - pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
+                - pre_hook := calibrate_input_hook
             if output activation and not dynamic quant (used to call observers before output QDQ):
-                - post_hook_handle = module.register_forward_hook(calibrate_kv_cache_output_hook())
+                - post_hook := calibrate_kv_cache_output_hook
             if kv_cache quantization (used to set kv_cache to QuantizedKVParameterCache and update k_scale/v_scale)
-                - pre_hook_handle = module.register_forward_pre_hook(calibrate_kv_cache_input_hook(), with_kwargs=True)
-                - post_hook_handle = module.register_forward_hook(calibrate_kv_cache_output_hook())
-
-            self.calibration_hooks.append(pre_hook_handle)
-            self.calibration_hooks.append(post_hook_handle)
+                - pre_hook := calibrate_kv_cache_input_hook
+                - post_hook := calibrate_kv_cache_output_hook
 
         self._calibrate(module) # run forward pass through model using calibration data
         set_unset_kv_cache() # remove kv_cache objects attached to attention layers
@@ -267,8 +264,7 @@ class QuantizationModifier(Modifier):
         module.apply(self.register_calibration_hooks)
         self._calibrate(module)
         module.apply(set_unset_kv_cache)
-        for h in self.calibration_hooks_:
-            h.remove()
+        self.remove_hooks()
 
     def register_calibration_hooks(self, module: Module):
         """
@@ -278,8 +274,6 @@ class QuantizationModifier(Modifier):
         if not quantization_scheme:
             return
 
-        pre_hook_handle = None
-        post_hook_handle = None
         is_attention_module_ = is_attention_module(module)
         input_quant = quantization_scheme.input_activations
         output_quant = quantization_scheme.output_activations
@@ -290,27 +284,23 @@ class QuantizationModifier(Modifier):
 
         # Calibrate inputs if an input_quant is provided and not running dynamic quant
         if calibrate_inputs:
-            pre_hook_handle = module.register_forward_pre_hook(calibrate_input_hook())
+            self.register_hook(module, calibrate_input_hook, "forward_pre")
 
         if output_quant:
             # hooks for attn modules if running kv_cache quant
             if is_attention_module_:
-                pre_hook_handle = module.register_forward_pre_hook(
-                    calibrate_kv_cache_input_hook(), with_kwargs=True
+                self.register_hook(
+                    module,
+                    calibrate_kv_cache_input_hook,
+                    "forward_pre",
+                    with_kwargs=True,
                 )
-                post_hook_handle = module.register_forward_hook(
-                    calibrate_kv_cache_output_hook()
-                )
+
+                self.register_hook(module, calibrate_kv_cache_output_hook, "forward")
+
             # hooks for output quant if not running dynamic quant
             elif not output_quant.dynamic:
-                post_hook_handle = module.register_forward_hook(calibrate_output_hook())
-
-        if pre_hook_handle:
-            logger.debug(f"Add {pre_hook_handle} for calibration")
-            self.calibration_hooks_.append(pre_hook_handle)
-        if post_hook_handle:
-            logger.debug(f"Add {post_hook_handle} for calibration")
-            self.calibration_hooks_.append(post_hook_handle)
+                self.register_hook(module, calibrate_output_hook, "forward")
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")

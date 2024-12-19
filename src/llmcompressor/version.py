@@ -8,7 +8,7 @@ version base and build type. It supports `release`, `nightly`, and `dev` build t
 from typing import Optional, Tuple
 
 # Define the base version and build type
-version_base = "0.3.0"
+version_base = "0.3.1"
 build_type = "dev"  # can be 'release', 'nightly', 'dev', or 'dev' with a dev number
 
 

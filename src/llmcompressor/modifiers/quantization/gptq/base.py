@@ -21,6 +21,7 @@ from llmcompressor.modifiers.quantization.gptq.utils import (
 from llmcompressor.modifiers.utils.layer_compressor import LayerCompressor
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.context import fix_fsdp_module_name
+from llmcompressor.utils.helpers import DisableKVCache
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -281,37 +282,33 @@ class GPTQModifier(Modifier):
         # want to calibrate wrt to these
         self.model.apply(disable_quantization)
 
-        forward_pass_use_cache = self.model.config.use_cache
-        self.model.config.use_cache = False
+        with DisableKVCache(self.model):
+            # run_calibration_forward uses the early stop exception to capture values
+            # as intermediates right before the forward pass of the first module
+            intermediates = run_calibration_forward(
+                self.model, dataloader, mask_padding=True
+            )
+            self.layer_compressors_[0].clear_early_stop()
 
-        # run_calibration_forward uses the early stop exception to capture values
-        # as intermediates right before the forward pass of the first module
-        intermediates = run_calibration_forward(
-            self.model, dataloader, mask_padding=True
-        )
-        self.layer_compressors_[0].clear_early_stop()
+            num_layers = len(self.compressible_layers_)
+            for idx, layer_compressor in enumerate(self.layer_compressors_):
+                logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
 
-        num_layers = len(self.compressible_layers_)
-        for idx, layer_compressor in enumerate(self.layer_compressors_):
-            logger.info(f"\n===== Compressing layer {idx+1}/{num_layers} " " =====")
+                # run the forward pass for each transformer layer (block) one at a time
+                logger.info(f"Calibrating {layer_compressor.name}...")
+                layer_compressor.pre_compress()
+                unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
 
-            # run the forward pass for each transformer layer (block) one at a time
-            logger.info(f"Calibrating {layer_compressor.name}...")
-            layer_compressor.pre_compress()
-            unquantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                layer_compressor.compress()
+                layer_compressor.post_compress()
+                layer_compressor.revert_layer_wrappers()
 
-            layer_compressor.compress()
-            layer_compressor.post_compress()
-            layer_compressor.revert_layer_wrappers()
-
-            # perform a second forward pass of the module to calculate weight-quantized
-            # outputs for use as inputs to the next layer (block)
-            quantized_outputs = layer_compressor.calibrate_layer(intermediates)
-            error = get_output_error(unquantized_outputs, quantized_outputs)
-            logger.info(f"Mean output error from quantization: {error:.3f}")
-            intermediates = quantized_outputs
-
-        self.model.config.use_cache = forward_pass_use_cache
+                # perform a second forward pass of the module to calculate
+                # weight-quantized outputs for use as inputs to the next layer
+                quantized_outputs = layer_compressor.calibrate_layer(intermediates)
+                error = get_output_error(unquantized_outputs, quantized_outputs)
+                logger.info(f"Mean output error from quantization: {error:.3f}")
+                intermediates = quantized_outputs
 
         # re-enable quantization
         self.model.apply(enable_quantization)

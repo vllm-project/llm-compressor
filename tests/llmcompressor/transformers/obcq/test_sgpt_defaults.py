@@ -2,11 +2,8 @@ import unittest
 
 import pytest
 
-from tests.testing_utils import requires_torch
-
 
 @pytest.mark.integration
-@requires_torch
 class TestSGPTDefaults(unittest.TestCase):
     def test_sgpt_defaults(self):
         from llmcompressor.core.state import State
