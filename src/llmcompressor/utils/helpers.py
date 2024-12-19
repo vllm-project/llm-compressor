@@ -4,6 +4,7 @@ Common functions for interfacing with python primitives and directories/files.
 """
 
 import ast
+import contextlib
 import errno
 import fnmatch
 import glob
@@ -23,6 +24,7 @@ from urllib.parse import urlparse
 
 import numpy
 import torch
+from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
 
 __all__ = [
@@ -61,6 +63,8 @@ __all__ = [
     "import_from_path",
     "getattr_chain",
     "DisableKVCache",
+    "DisableQuantization",
+    "calibration_forward_context",
 ]
 
 
@@ -1080,3 +1084,32 @@ class DisableKVCache:
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb):
         self.config.use_cache = self.restore_value
+
+
+@contextlib.contextmanager
+def DisableQuantization(model: torch.nn.Module):
+    """
+    Disable quantization from QuantizationModifier
+    """
+    model.apply(disable_quantization)
+    yield
+    model.apply(enable_quantization)
+
+
+@contextlib.contextmanager
+def calibration_forward_context(model: torch.nn.Module):
+    """
+    Context in which all calibration forward passes should occur.
+
+    - Remove gradient calculations
+    - Disable the KV cache
+    - Disable quantization from QuantizationModifier
+    """
+    model.eval()
+
+    with (
+        torch.no_grad(),
+        DisableKVCache(model),
+        DisableQuantization(model),
+    ):
+        yield
