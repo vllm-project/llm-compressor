@@ -2,10 +2,22 @@
 
 SUCCESS=0
 
-# Parse list of configs.
-MODEL_CONFIGS="$PWD/tests/e2e/vLLM/configs"
+while getopts "c:t:" OPT; do
+  case ${OPT} in
+    c ) 
+        CONFIG="$OPTARG"
+        ;;
+    t )
+        TEST="$OPTARG"
+        ;;
+    \? )
+        exit 1
+        ;;
+  esac
+done
 
-for MODEL_CONFIG in "$MODEL_CONFIGS"/*
+# Parse list of configs.
+for MODEL_CONFIG in "$CONFIG"/*
 do
     LOCAL_SUCCESS=0
 
@@ -13,9 +25,10 @@ do
 
     export TEST_DATA_FILE="$MODEL_CONFIG"
     pytest \
+        -r a \
         --capture=tee-sys \
         --junitxml="test-results/e2e-$(date +%s).xml" \
-        "$PWD/tests/e2e/vLLM/test_vllm.py" || LOCAL_SUCCESS=$?
+        "$TEST" || LOCAL_SUCCESS=$?
 
     if [[ $LOCAL_SUCCESS == 0 ]]; then
         echo "=== PASSED MODEL: $MODEL_CONFIG ==="
