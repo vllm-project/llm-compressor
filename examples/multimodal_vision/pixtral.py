@@ -1,10 +1,6 @@
-import os
-
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-
-# from llmcompressor.pytorch.data_collator import DataCollator
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TracableLlavaForConditionalGeneration
 from llmcompressor.transformers.utils.data_collator import pixtral_data_collator
@@ -33,9 +29,6 @@ recipe = [
 ]
 
 # Perform oneshot
-save_name = model_id.split("/")[1] + "-W8A8"
-save_path = os.path.join("./my_test/", save_name)
-print("Starting quantization")
 oneshot(
     model=model,
     tokenizer=model_id,
@@ -45,7 +38,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    output_dir=save_path,
     data_collator=pixtral_data_collator,
 )
 
@@ -55,3 +47,8 @@ input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))
 print("==========================================")
+
+# Save to disk compressed.
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)
