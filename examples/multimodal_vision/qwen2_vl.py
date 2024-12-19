@@ -11,6 +11,7 @@ from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
+from llmcompressor.transformers.utils.data_collator import qwen2_vl_data_collator
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
@@ -21,23 +22,9 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
-DATASET_SPLIT = "test[:3]"
-NUM_CALIBRATION_SAMPLES = 1
+DATASET_SPLIT = {"calibration": "test[:512]"}
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
-
-
-# TODO: define real collators in utils
-def data_collator(batch):
-    assert len(batch) == 1
-    return {
-        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
-        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-        "pixel_values": torch.tensor(
-            batch[0]["pixel_values"]
-        ),  # torch.Size([14308, 1176])
-        "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
-    }
-
 
 # Recipe
 recipe = GPTQModifier(
@@ -75,7 +62,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     output_dir=save_path,
-    data_collator=data_collator,
+    data_collator=qwen2_vl_data_collator,
 )
 
 processor.save_pretrained(save_path)
