@@ -16,6 +16,7 @@
 
 # Adapted from https://github.com/huggingface/transformers
 # neuralmagic: no copyright
+# vllm-project: no copyright
 
 import os
 from pathlib import PosixPath
