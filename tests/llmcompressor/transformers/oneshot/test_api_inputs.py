@@ -44,10 +44,7 @@ class TestOneShotInputs(unittest.TestCase):
         # to the loaded dataset.
         if self.tokenize:
             loaded_dataset = data_utils.get("dataload")()
-            self.dataset = loaded_dataset.map(
-                wrapped_preprocess_func,
-                remove_columns=data_utils.get("remove_columns"),
-            )
+            self.dataset = loaded_dataset.map(wrapped_preprocess_func)
             self.tokenizer = None
 
     def test_one_shot_inputs(self):
