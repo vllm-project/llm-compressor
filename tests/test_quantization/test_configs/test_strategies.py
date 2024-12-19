@@ -67,8 +67,8 @@ def test_channelwise(
     if input_symmetry is not None:
         mock_per_channel_calibration(model, base_name="input", value=inputs)
 
-    assert list(model.weight_scale.shape) == [model_shape[1], 1]
-    assert list(model.weight_zero_point.shape) == [model_shape[1], 1]
+    assert model.weight_scale.shape == (model_shape[1], 1)
+    assert model.weight_zero_point.shape == (model_shape[1], 1)
 
 
 @torch.no_grad
@@ -97,14 +97,14 @@ def test_group(
             model, base_name="input", value=inputs, group_size=group_size
         )
 
-    assert list(model.weight_scale.shape) == [
+    assert model.weight_scale.shape == (
         model_shape[1],
         int(model_shape[0] / group_size),
-    ]
-    assert list(model.weight_zero_point.shape) == [
+    )
+    assert model.weight_zero_point.shape == (
         model_shape[1],
         int(model_shape[0] / group_size),
-    ]
+    )
 
 
 @torch.no_grad
@@ -131,8 +131,8 @@ def test_token(
     mock_per_channel_calibration(model, base_name="weight", value=model.weight)
     mock_per_token_calibration(model, base_name="input", value=inputs)
 
-    assert list(model.input_scale.shape) == [1, 1]
-    assert list(model.input_zero_point.shape) == [1, 1]
+    assert model.input_scale.shape == (1, 1)
+    assert model.input_zero_point.shape == (1, 1)
 
-    assert list(model.weight_scale.shape) == [256, 1]
-    assert list(model.weight_zero_point.shape) == [256, 1]
+    assert model.weight_scale.shape == (256, 1)
+    assert model.weight_zero_point.shape == (256, 1)
