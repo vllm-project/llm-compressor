@@ -1,10 +1,8 @@
 import os
 
-import torch
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TracableMllamaForConditionalGeneration
 from llmcompressor.transformers.utils.data_collator import mllama_data_collator

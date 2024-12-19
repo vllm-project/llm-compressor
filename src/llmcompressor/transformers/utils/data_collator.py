@@ -2,6 +2,7 @@ import torch
 
 __all__ = ["mllama_data_collator", "pixtral_data_collator"]
 
+
 def mllama_data_collator(batch):
     assert len(batch) == 1
     return {
@@ -13,6 +14,7 @@ def mllama_data_collator(batch):
         "cross_attention_mask": torch.tensor(batch[0]["cross_attention_mask"]),
     }
 
+
 def pixtral_data_collator(batch):
     assert len(batch) == 1
     return {
@@ -20,6 +22,7 @@ def pixtral_data_collator(batch):
         "attention_mask": torch.tensor(batch[0]["attention_mask"]),
         "pixel_values": torch.tensor(batch[0]["pixel_values"])[0],
     }
+
 
 def qwen2_vl_data_collator(batch):
     assert len(batch) == 1

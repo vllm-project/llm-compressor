@@ -1,6 +1,5 @@
 import os
 
-import torch
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier

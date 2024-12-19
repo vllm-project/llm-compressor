@@ -1,6 +1,5 @@
 import os
 
-import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
@@ -43,7 +42,7 @@ recipe = GPTQModifier(
             ),
         ),
     },
-    ignore=["re:.*lm_head"],
+    ignore=["re:visual.*", "re:.*lm_head"],
     dampening_frac=0.5,
 )
 

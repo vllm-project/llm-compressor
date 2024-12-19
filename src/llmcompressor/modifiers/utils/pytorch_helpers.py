@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Callable, Dict, List, Optional, Tuple, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 from torch.nn import Module
