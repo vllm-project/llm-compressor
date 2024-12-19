@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Any
 
 import torch
 from torch.nn import Module
@@ -25,9 +25,7 @@ class EarlyStopException(Exception):
     :param kwargs: keyword inputs passed to the layer where the excetion was raised
     """
 
-    def __init__(self, args: Tuple, kwargs: Dict):
-        if args is None:
-            return
+    def __init__(self, args: Tuple[Any, ...], kwargs: Dict[str, Any]):
         self.args = tensors_to_device(args, "cpu")
         self.kwargs = kwargs
 
