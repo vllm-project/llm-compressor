@@ -10,7 +10,7 @@ from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
-from transformers.utils.fx import HFTracer
+from transformers.utils.fx import HFTracer, HFProxy
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -74,6 +74,15 @@ def trace_subgraphs(
     return subgraphs
 
 
+class LCProxy(HFProxy):
+    @property
+    def dim(self):
+        breakpoint()
+        if hasattr(self, "_metadata") and self._metadata is not None:
+            return self._metadata
+        return self.tracer.create_proxy("call_method", "dim", (self,), {})
+
+
 def get_tracer(
     model: Module, sequential_targets: Set[Module], ignore: Set[Module]
 ) -> HFTracer:
@@ -81,7 +90,7 @@ def get_tracer(
         module for module in model.modules() if has_offloaded_params(module)
     )
 
-    class PiecewiseTracer(HFTracer):
+    class LCTracer(HFTracer):
         def create_arg(self, a: Any) -> Argument:
             if isinstance(a, PretrainedConfig):
                 kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
@@ -99,7 +108,10 @@ def get_tracer(
                 or super().is_leaf_module(module, module_qualified_name)
             )
 
-    return PiecewiseTracer()
+        def proxy(self, node):
+            return LCProxy(node, self)
+
+    return LCTracer()
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
