@@ -18,6 +18,7 @@
 # neuralmagic: no copyright
 
 import os
+import warnings
 from pathlib import PosixPath
 
 from loguru import logger
@@ -25,7 +26,6 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoProcessor,
-    DefaultDataCollator,
     HfArgumentParser,
     PreTrainedModel,
     set_seed,
@@ -119,6 +119,8 @@ def parse_args(**kwargs):
         * model_args in src/llmcompressor/transformers/finetune/model_args.py
         * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
         * training_args in src/llmcompressor/transformers/finetune/training_args.py
+
+    Throws depreciation warnings
     """
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments)
@@ -135,6 +137,14 @@ def parse_args(**kwargs):
                 key, value = recipe_arg.split("=")
                 arg_dict[key] = value
             training_args.recipe_args = arg_dict
+
+    # raise depreciation warnings
+    if data_args.remove_columns is not None:
+        warnings.warn(
+            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "columns which are invalid inputs the tokenizer will be removed",
+            DeprecationWarning,
+        )
 
     # silently assign tokenizer to processor
     if model_args.tokenizer:
@@ -346,7 +356,6 @@ def main(
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     # Initialize our Trainer
-    data_collator = DefaultDataCollator()
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
@@ -357,7 +366,7 @@ def main(
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
         processing_class=processor,
-        data_collator=data_collator,
+        data_collator=data_args.data_collator,
     )
 
     # wrap model.save_pretrained

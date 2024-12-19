@@ -26,6 +26,8 @@ class EarlyStopException(Exception):
     """
 
     def __init__(self, args: Tuple, kwargs: Dict):
+        if args is None:
+            return
         self.args = tensors_to_device(args, "cpu")
         self.kwargs = kwargs
 
@@ -39,7 +41,7 @@ def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.T
     :param batch: batch to apply padding to if it exists
     :return: batch with padding zeroed out in the input_ids
     """
-    batch["input_ids"] = batch["input_ids"] * batch["attention_mask"]
+    batch["input_ids"].masked_fill_(batch["attention_mask"] == 0, 0)
     return batch
 
 
@@ -58,7 +60,7 @@ def run_calibration_forward(
     :param model: PyTorch model to run
     :param calibration_dataloader: data to use for calibration
     :param num_calibration_steps: number of items in calibration_dataloader to process,
-    None or a negative number to process all available data
+        None or a negative number to process all available data
     :param calibration_function: option to pass a custom forward function for model
     :param device: option to move the model to a specific device before calibration
     :param mask_padding: whether to zero out padding tokens during calibration
