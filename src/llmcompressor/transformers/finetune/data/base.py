@@ -107,8 +107,8 @@ class TextGenerationDataset(RegistryMixin):
 
         if "input_ids" not in get_columns(dataset):
             # tokenize/ process
-            dataset = self.filter_tokenizer_args(dataset)
-            logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")
+            dataset = self.filter_processor_args(dataset)
+            logger.debug(f"Processor args after filtering: {get_columns(dataset)}")
             dataset = self.map(
                 dataset,
                 self.tokenize,
@@ -215,26 +215,33 @@ class TextGenerationDataset(RegistryMixin):
     def rename_columns(self, dataset: DatasetType) -> DatasetType:
         # rename columns to match processor/tokenizer kwargs
         column_names = get_columns(dataset)
-        if self.data_args.text_column in column_names and "text" not in column_names:
-            logger.debug(f"Renaming column `{self.data_args.text_column}` to `text`")
-            dataset = dataset.rename_column(self.data_args.text_column, "text")
+        for from_, to_ in self.data_args.rename_columns:
+            if from_ not in column_names:
+                raise ValueError(
+                    f"Cannot rename {from_} to {to_}from columns {column_names}"
+                )
+            dataset = dataset.rename_column(from_, to_)
+            column_names.remove(from_)
+            column_names.append(to_)
 
         return dataset
 
-    def filter_tokenizer_args(self, dataset: DatasetType) -> DatasetType:
-        # assumes that inputs are not passed via self.processor.__call__ args and kwargs
-        signature = inspect.signature(self.processor.__call__)
-        tokenizer_args = set(
-            key
-            for key, param in signature.parameters.items()
-            if param.kind not in (Kind.VAR_POSITIONAL, Kind.VAR_KEYWORD)
-        )
+    def filter_processor_args(self, dataset: DatasetType) -> DatasetType:
+        processor_kwargs = self.data_args.processor_kwargs
+        if processor_kwargs is None:
+            # assumes that inputs are not passed via args and kwargs
+            signature = inspect.signature(self.processor.__call__)
+            processor_kwargs = set(
+                key
+                for key, param in signature.parameters.items()
+                if param.kind not in (Kind.VAR_POSITIONAL, Kind.VAR_KEYWORD)
+            )
         logger.debug(
-            f"Found processor args `{tokenizer_args}`. Removing all other columns"
+            f"Found processor args `{processor_kwargs}`. Removing all other columns"
         )
 
         column_names = get_columns(dataset)
-        return dataset.remove_columns(list(set(column_names) - set(tokenizer_args)))
+        return dataset.remove_columns(list(set(column_names) - set(processor_kwargs)))
 
     def tokenize(self, data: LazyRow) -> Dict[str, Any]:
         # separate prompt

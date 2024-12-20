@@ -141,8 +141,14 @@ def parse_args(**kwargs):
     # raise depreciation warnings
     if data_args.remove_columns is not None:
         warnings.warn(
-            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
-            "columns which are invalid inputs the tokenizer will be removed",
+            "`remove_columns` is depreciated, please use `rename_columns` and "
+            "`processor_kwargs` instead",
+            DeprecationWarning,
+        )
+
+    if data_args.text_column is not None:
+        warnings.warn(
+            "`text_column` is depreciated, please use `rename_columns` instead",
             DeprecationWarning,
         )
 
@@ -152,6 +158,12 @@ def parse_args(**kwargs):
             raise ValueError("Cannot use both a tokenizer and processor")
         model_args.processor = model_args.tokenizer
     model_args.tokenizer = None
+
+    if data_args.tokenizer_kwargs:
+        if data_args.processor_kwargs:
+            raise ValueError("Cannot use both a tokenizer and processor")
+        data_args.processor_kwargs = data_args.tokenizer_kwargs
+    data_args.tokenizer_kwargs = None
 
     return model_args, data_args, training_args
 

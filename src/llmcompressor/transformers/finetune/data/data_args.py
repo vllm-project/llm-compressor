@@ -38,14 +38,35 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
         metadata={
             "help": (
                 "Optional key to be used as the `text` input to tokenizer/processor "
-                "after dataset preprocesssing"
+                "after dataset preprocesssing (deprecated, please use "
+                "`rename_columns` instead)"
             )
         },
     )
 
     remove_columns: Union[None, str, List] = field(
         default=None,
-        metadata={"help": "Column names to remove after preprocessing (deprecated)"},
+        metadata={
+            "help": (
+                "Column names to remove after preprocessing (deprecated, please use "
+                "`rename_columns` instead)"
+            )
+        },
+    )
+
+    rename_columns: Optional[Dict[str, str]] = field(
+        default_factory=dict,
+        metadata={
+            "help": "Optional mapping to rename dataset columns after preprocessing"
+        },
+    )
+
+    tokenizer_kwargs: Optional[List[str]] = field(
+        default=None, metadata={"help": "Alias for `processor_kwargs`"}
+    )
+
+    processor_kwargs: Optional[List[str]] = field(
+        default=None, metadata={"help": "Optional list of processor argument names"}
     )
 
     preprocessing_func: Union[None, str, Callable] = field(
