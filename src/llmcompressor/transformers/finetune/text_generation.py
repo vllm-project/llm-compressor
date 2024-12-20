@@ -250,14 +250,27 @@ def initialize_processor_from_path(
 ) -> Processor:
     processor_src = model_args.processor
     processor_src = processor_src or get_shared_processor_src(model, teacher)
-    processor = AutoProcessor.from_pretrained(
-        processor_src,
-        cache_dir=model_args.cache_dir,
-        use_fast=True,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        trust_remote_code=model_args.trust_remote_code_model,
-    )
+    # The use_fast=True option is not currently supported safely in Transformers
+    # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
+    try:
+        processor = AutoProcessor.from_pretrained(
+            processor_src,
+            cache_dir=model_args.cache_dir,
+            use_fast=True,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=model_args.trust_remote_code_model,
+        )
+    except Exception:
+        logger.debug("Could not load fast processor, loading slow processor instead")
+        processor = AutoProcessor.from_pretrained(
+            processor_src,
+            cache_dir=model_args.cache_dir,
+            use_fast=False,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=model_args.trust_remote_code_model,
+        )
 
     return processor
 
