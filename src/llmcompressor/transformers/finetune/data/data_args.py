@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
+
+from transformers import DefaultDataCollator
 
 
 @dataclass
@@ -31,24 +33,36 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
         },
     )
 
-    text_column: Optional[str] = field(
+    text_column: str = field(
         default="text",
-        metadata={"help": "For custom datasets only. The text field key"},
+        metadata={
+            "help": (
+                "Optional key to be used as the `text` input to tokenizer/processor "
+                "after dataset preprocesssing"
+            )
+        },
     )
 
     remove_columns: Union[None, str, List] = field(
         default=None,
-        metadata={"help": "Column names to remove after preprocessing custom datasets"},
+        metadata={"help": "Column names to remove after preprocessing (deprecated)"},
     )
 
     preprocessing_func: Union[None, str, Callable] = field(
         default=None,
         metadata={
             "help": (
-                "The preprocessing function to apply or the preprocessing func name in "
-                "src/llmcompressor/transformers/utils/preprocessing_functions.py"
+                "Typically a function which applies a chat template. Can take the form "
+                "of either a function to apply to the dataset, a name defined in "
+                "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
+                "a path to a function definition of the form /path/to/file.py:func"
             )
         },
+    )
+
+    data_collator: Callable[[Any], Any] = field(
+        default_factory=lambda: DefaultDataCollator(),
+        metadata={"help": "The function to used to form a batch from the dataset"},
     )
 
 
@@ -91,8 +105,8 @@ class DataTrainingArguments(CustomDataTrainingArguments):
             "help": "Whether or not to concatenate datapoints to fill max_seq_length"
         },
     )
-    raw_kwargs: Optional[Dict] = field(
-        default=None,
+    raw_kwargs: Dict = field(
+        default_factory=dict,
         metadata={"help": "Additional keyboard args to pass to datasets load_data"},
     )
     splits: Union[None, str, List, Dict] = field(
