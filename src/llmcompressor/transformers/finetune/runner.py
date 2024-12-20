@@ -65,7 +65,8 @@ class StageRunner:
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
 
-        :param tokenizer: tokenizer to use for dataset tokenization
+        :param processor: processor or tokenizer to use for dataset tokenization
+        :param add_labels: if True, add labels column to dataset splits
         """
         if self._data_args.dataset is None:
             self.processor = self._model_args.processor
@@ -93,10 +94,11 @@ class StageRunner:
             splits = {_get_split_name(s): s for s in splits}
 
         # default to custom dataset if dataset provided isn't a string
-        registry_id = self._data_args.dataset
-
-        if not isinstance(registry_id, str):
-            registry_id = "custom"
+        registry_id = (
+            self._data_args.dataset
+            if isinstance(self._data_args.dataset, str)
+            else "custom"
+        )
         for split_name, split_str in splits.items():
             dataset_manager = TextGenerationDataset.load_from_registry(
                 registry_id,
@@ -104,18 +106,7 @@ class StageRunner:
                 split=split_str,
                 processor=processor,
             )
-
-            dataset = self._data_args.dataset
-            if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
-                # dataset is already tokenized
-                tokenized_datasets[split_name] = dataset
-            else:
-                # dataset needs to be tokenized
-                raw_dataset = dataset_manager.get_raw_dataset()
-                tokenized_dataset = dataset_manager.tokenize_and_process(
-                    raw_dataset, add_labels=add_labels
-                )
-                tokenized_datasets[split_name] = tokenized_dataset
+            tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
 
         self.datasets = make_dataset_splits(
             tokenized_datasets,
@@ -124,7 +115,6 @@ class StageRunner:
             do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
-        self.processor = processor
 
     def get_dataset_split(self, split_name: str) -> Dataset:
         """
@@ -149,6 +139,7 @@ class StageRunner:
                 tokenized_dataset=self.get_dataset_split("calibration"),
                 num_calibration_samples=self._data_args.num_calibration_samples,
                 do_shuffle=self._data_args.shuffle_calibration_samples,
+                collate_fn=self._data_args.data_collator,
                 accelerator=self.trainer.accelerator,
             )
 
