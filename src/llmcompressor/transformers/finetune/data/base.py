@@ -240,7 +240,7 @@ class TextGenerationDataset(RegistryMixin):
 
         column_names = get_columns(dataset)
         return dataset.remove_columns(
-            list(set(column_names) - set(processor_kwargs)) - set([self.PROMPT_KEY])
+            list(set(column_names) - set(processor_kwargs) - set([self.PROMPT_KEY]))
         )
 
     def tokenize(self, data: LazyRow) -> Dict[str, Any]:
