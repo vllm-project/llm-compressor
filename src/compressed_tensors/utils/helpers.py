@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, Optional
+import warnings
+from functools import wraps
+from typing import Any, Callable, Dict, Optional
 
 import torch
 from transformers import AutoConfig
@@ -24,6 +26,8 @@ __all__ = [
     "tensor_follows_mask_structure",
     "replace_module",
     "is_compressed_tensors_config",
+    "getattr_chain",
+    "deprecated",
     "Aliasable",
 ]
 
@@ -120,6 +124,65 @@ def is_compressed_tensors_config(compression_config: Any) -> bool:
         return isinstance(compression_config, CompressedTensorsConfig)
     except ImportError:
         return False
+
+
+def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
+    """
+    Chain multiple getattr calls, separated by `.`
+
+    :param obj: base object whose attributes are being retrieved
+    :param chain_str: attribute names separated by `.`
+    :param default: default value, throw error otherwise
+    """
+    if len(args) >= 1:
+        has_default = True
+        default = args[0]
+    elif "default" in kwargs:
+        has_default = True
+        default = kwargs["default"]
+    else:
+        has_default = False
+
+    attr_names = chain_str.split(".")
+
+    res = obj
+    for attr_name in attr_names:
+        if not hasattr(res, attr_name):
+            if has_default:
+                return default
+            else:
+                raise AttributeError(f"{res} object has no attribute {attr_name}")
+        res = getattr(res, attr_name)
+
+    return res
+
+
+def deprecated(future_name: Optional[str] = None, message: Optional[str] = None):
+    """
+    Decorator to mark functions as deprecated
+
+    :param new_function: Function called in place of depreciated function
+    :param message: Depreciation message, replaces default depreciation message
+    """
+
+    def decorator(func: Callable[[Any], Any]):
+        nonlocal message
+
+        if message is None:
+            message = (
+                f"{func.__name__} is deprecated and will be removed in a future release"
+            )
+            if future_name is not None:
+                message += f". Please use {future_name} instead."
+
+        @wraps(func)
+        def wrapped(*args, **kwargs):
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
+            return func(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
 
 
 class Aliasable:

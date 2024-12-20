@@ -24,6 +24,7 @@ from compressed_tensors.quantization import (
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
 )
+from tests.testing_utils import requires_accelerate
 from torch.nn import Linear
 
 
@@ -33,6 +34,11 @@ Q_PARAM_NAMES = {
     "weights": "weight",
     "output_activations": "output",
 }
+
+
+@pytest.fixture
+def layer():
+    return Linear(4, 4)
 
 
 @pytest.mark.parametrize(
@@ -53,14 +59,13 @@ Q_PARAM_NAMES = {
     ],
 )
 def test_initialize_module_for_quantization(
-    create_quantization_scheme, weights, input_activations
+    create_quantization_scheme, weights, input_activations, layer
 ):
     quantization_scheme = create_quantization_scheme(
         targets=["*"],
         weights=weights,
         input_activations=input_activations,
     )
-    layer = Linear(4, 4)
 
     assert not hasattr(layer, "quantization_scheme")
     assert not hasattr(layer, "quantization_status")
@@ -87,6 +92,39 @@ def test_initialize_module_for_quantization(
     assert hasattr(layer, "quantization_status")
 
     assert layer.quantization_status == QuantizationStatus.INITIALIZED
+
+
+@requires_accelerate()
+@pytest.mark.parametrize(
+    "weights,input_activations",
+    [
+        (
+            QuantizationArgs(num_bits=NUM_BITS, symmetric=True),
+            None,
+        ),
+        (
+            None,
+            QuantizationArgs(num_bits=NUM_BITS, symmetric=True),
+        ),
+        (
+            QuantizationArgs(num_bits=NUM_BITS, symmetric=True),
+            QuantizationArgs(num_bits=NUM_BITS, symmetric=True),
+        ),
+    ],
+)
+def test_initialize_module_for_quantization_offloaded(
+    create_quantization_scheme, weights, input_activations, layer
+):
+    from accelerate.hooks import attach_align_device_hook
+
+    attach_align_device_hook(layer, offload=True)
+
+    test_initialize_module_for_quantization(
+        create_quantization_scheme,
+        weights,
+        input_activations,
+        layer,
+    )
 
 
 @pytest.mark.parametrize(
