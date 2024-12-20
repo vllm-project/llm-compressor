@@ -88,6 +88,7 @@ class TextGenerationDataset(RegistryMixin):
         if isinstance(dataset, str):
             # load dataset: load from huggingface or disk
             dataset = self.load_dataset()
+        logger.debug(f"Raw dataset: {get_columns(dataset)}")
 
         if self.preprocess is not None:
             # preprocess: apply template or preprocessing function
@@ -98,13 +99,16 @@ class TextGenerationDataset(RegistryMixin):
                 num_proc=self.data_args.preprocessing_num_workers,
                 desc="Preprocessing",
             )
+            logger.debug(f"Dataset after preprocessing: {get_columns(dataset)}")
 
         # rename and remove columns match processor kwargs
         dataset = self.rename_columns(dataset)
+        logger.debug(f"Dataset after column renaming: {get_columns(dataset)}")
 
-        if "input_ids" not in get_column_names(dataset):
+        if "input_ids" not in get_columns(dataset):
             # tokenize/ process
             dataset = self.filter_tokenizer_args(dataset)
+            logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")
             dataset = self.map(
                 dataset,
                 self.tokenize,
@@ -112,12 +116,13 @@ class TextGenerationDataset(RegistryMixin):
                 keep_in_memory=True,  # bug occurs when not batched and not in memory,
                 # subsequent ds.map calls are always batched,
                 # regardless of `batched` argument
-                remove_columns=get_column_names(dataset),  # assumes that input names
+                remove_columns=get_columns(dataset),  # assumes that input names
                 # and output names are disjoint
                 num_proc=self.data_args.preprocessing_num_workers,
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Tokenizing",
             )
+            logger.debug(f"Model kwargs after tokenizing: {get_columns(dataset)}")
 
         if self.data_args.concatenate_data:
             # postprocess: group text
@@ -129,6 +134,7 @@ class TextGenerationDataset(RegistryMixin):
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Concatenating data",
             )
+            logger.debug(f"Model kwargs after concatenating: {get_columns(dataset)}")
 
         if add_labels:
             # postprocess: add labels
@@ -140,10 +146,13 @@ class TextGenerationDataset(RegistryMixin):
                 load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Adding labels",
             )
+            logger.debug(f"Model kwargs after adding labels: {get_columns(dataset)}")
 
-        elif self.PROMPT_KEY in get_column_names(dataset):
+        elif self.PROMPT_KEY in get_columns(dataset):
             dataset.remove_columns(self.PROMPT_KEY)
+            logger.debug("Removed prompt key")
 
+        logger.debug(f"Model kwargs after postprocessing: {get_columns(dataset)}")
         return dataset
 
     def load_dataset(self):
@@ -167,6 +176,7 @@ class TextGenerationDataset(RegistryMixin):
                     else self.data_args.dataset_name,
                 )
 
+        logger.debug(f"Loading dataset {self.data_args.dataset}")
         return get_raw_dataset(
             self.data_args,
             None,
@@ -178,8 +188,8 @@ class TextGenerationDataset(RegistryMixin):
     @cached_property
     def preprocess(self) -> Union[Callable[[LazyRow], Any], None]:
         """
-        The function must return keys which correspond to tokenizer kwargs, optionally
-        including PROMPT_KEY
+        The function must return keys which correspond to processor/tokenizer kwargs,
+        optionally including PROMPT_KEY
         """
         preprocessing_func = self.data_args.preprocessing_func
 
@@ -204,8 +214,9 @@ class TextGenerationDataset(RegistryMixin):
 
     def rename_columns(self, dataset: DatasetType) -> DatasetType:
         # rename columns to match processor/tokenizer kwargs
-        column_names = get_column_names(dataset)
+        column_names = get_columns(dataset)
         if self.data_args.text_column in column_names and "text" not in column_names:
+            logger.debug(f"Renaming column `{self.data_args.text_column}` to `text`")
             dataset = dataset.rename_column(self.data_args.text_column, "text")
 
         return dataset
@@ -218,8 +229,11 @@ class TextGenerationDataset(RegistryMixin):
             for key, param in signature.parameters.items()
             if param.kind not in (Kind.VAR_POSITIONAL, Kind.VAR_KEYWORD)
         )
+        logger.debug(
+            f"Found processor args `{tokenizer_args}`. Removing all other columns"
+        )
 
-        column_names = get_column_names(dataset)
+        column_names = get_columns(dataset)
         return dataset.remove_columns(list(set(column_names) - set(tokenizer_args)))
 
     def tokenize(self, data: LazyRow) -> Dict[str, Any]:
@@ -304,7 +318,7 @@ class TextGenerationDataset(RegistryMixin):
         return dataset
 
 
-def get_column_names(dataset: DatasetType) -> List[str]:
+def get_columns(dataset: DatasetType) -> List[str]:
     column_names = dataset.column_names
     if isinstance(column_names, dict):
         column_names = sum(column_names.values(), [])
