@@ -1,9 +1,10 @@
+import transformers
 from datasets import load_dataset
 from loguru import logger
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
-from llmcompressor.transformers import oneshot
+from llmcompressor.transformers import oneshot, tracing
 from tests.testing_utils import preprocess_tokenize_dataset
 
 
@@ -18,13 +19,14 @@ def run_oneshot_for_e2e_testing(
     dataset_config: str,
     scheme: str,
     quant_type: str,
+    model_class: str = "AutoModelForCausalLM",
 ):
     # Load model.
     oneshot_kwargs = {}
-    loaded_model = AutoModelForCausalLM.from_pretrained(
+    loaded_model = get_model_class(model_class).from_pretrained(
         model, device_map=device, torch_dtype="auto"
     )
-    tokenizer = AutoTokenizer.from_pretrained(model)
+    tokenizer = AutoProcessor.from_pretrained(model)
 
     if dataset_id:
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
@@ -56,3 +58,13 @@ def run_oneshot_for_e2e_testing(
         oneshot_device=device,
     )
     return oneshot_kwargs["model"], tokenizer
+
+
+def get_model_class(model_class: str):
+    model_class = getattr(
+        tracing, model_class, getattr(transformers, model_class, None)
+    )
+    if model_class is None:
+        raise ValueError(f"Could not import model class {model_class}")
+
+    return model_class

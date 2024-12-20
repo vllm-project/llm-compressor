@@ -51,6 +51,7 @@ class TestLMEval:
             pytest.skip("Skipping test; cadence mismatch")
 
         self.model = eval_config["model"]
+        self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
@@ -87,6 +88,7 @@ class TestLMEval:
             dataset_split=self.dataset_split,
             recipe=self.recipe,
             quant_type=self.quant_type,
+            model_class=self.model_class,
         )
 
         logger.info("================= SAVING TO DISK ======================")

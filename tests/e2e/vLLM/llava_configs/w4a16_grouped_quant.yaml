@@ -1,0 +1,12 @@
+cadence: "weekly"
+model: llava-hf/llava-1.5-7b-hf
+num_fewshot: 5
+limit: 1000
+task: "gsm8k"
+exact_match,flexible-extract: 0.72
+exact_match,strict-match: 0.72
+scheme: W4A16
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+quant_type: "GPTQ"
+model_class: "TracableLlavaForConditionalGeneration"
