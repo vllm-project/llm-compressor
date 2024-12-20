@@ -62,10 +62,7 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
 
     data_collator: Callable[[Any], Any] = field(
         default_factory=lambda: DefaultDataCollator(),
-        metadata={
-            "help": "For custom datasets only. The function to used to form a batch "
-            "from the dataset"
-        },
+        metadata={"help": "The function to used to form a batch from the dataset"},
     )
 
 
