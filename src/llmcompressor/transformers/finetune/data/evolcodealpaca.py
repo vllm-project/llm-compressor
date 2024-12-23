@@ -24,7 +24,7 @@ class EvolCodeAlpacaDataset(TextGenerationDataset):
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
-    :param tokenizer: tokenizer to use on dataset
+    :param processor: processor or tokenizer to use on dataset
     """
 
     EVOL_ALPACA_TEMPLATE = (
@@ -34,11 +34,11 @@ class EvolCodeAlpacaDataset(TextGenerationDataset):
         "\n\n### Response:\n"
     )
 
-    def __init__(self, data_args, split, tokenizer):
+    def __init__(self, data_args, split, processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "theblackcat102/evol-codealpaca-v1"
         super().__init__(
-            text_column="text", data_args=data_args, split=split, tokenizer=tokenizer
+            text_column="text", data_args=data_args, split=split, processor=processor
         )
 
     def get_raw_dataset(self, cache_dir: Optional[str] = None):

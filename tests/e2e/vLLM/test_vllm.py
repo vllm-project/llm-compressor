@@ -1,6 +1,7 @@
 import os
 import shutil
 from pathlib import Path
+from typing import Callable
 
 import pytest
 import yaml
@@ -20,7 +21,13 @@ except ImportError:
     logger.warning("vllm is not installed. This test will be skipped")
 
 HF_MODEL_HUB_NAME = "nm-testing"
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
+
+
+@pytest.fixture
+def record_config_file(record_testsuite_property: Callable[[str, object], None]):
+    test_data_file_name = TEST_DATA_FILE.split("configs/")[-1]
+    record_testsuite_property("TEST_DATA_FILE_NAME", test_data_file_name)
 
 
 # Will run each test case in its own process through run_tests.sh
@@ -72,6 +79,7 @@ class TestvLLM:
         ]
         self.api = HfApi()
 
+    @pytest.mark.usefixtures("record_config_file")
     def test_vllm(self):
         # Run vLLM with saved model
         import torch
