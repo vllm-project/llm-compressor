@@ -100,17 +100,6 @@ jobs:
           pip3 install ./compressed-tensors/
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
-
-      - uses: actions/checkout@v4
-        with:
-          repository: "huggingface/transformers"
-          path: "transformers"
-      - name: "⚙️ Install transformers from source"
-        run: |
-          pip3 uninstall -y transformers
-          pip3 install ./transformers
-          rm -rf transformers
-
       - name: "🔬 Running transformers tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
