@@ -24,6 +24,15 @@ def pixtral_data_collator(batch):
     }
 
 
+def llava_data_collator(batch):
+    assert len(batch) == 1
+    return {
+        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
+        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
+        "pixel_values": torch.tensor(batch[0]["pixel_values"]),
+    }
+
+
 def qwen2_vl_data_collator(batch):
     assert len(batch) == 1
     return {
