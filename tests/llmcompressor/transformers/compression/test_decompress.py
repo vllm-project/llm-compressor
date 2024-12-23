@@ -19,8 +19,10 @@ CONFIG_DIR = "tests/llmcompressor/transformers/compression/decompression_configs
 @parameterized_class(parse_params(CONFIG_DIR))
 class TestQuantizationMatches(unittest.TestCase):
     """
-    Test the decompression, which copies the attrs of compressed_model_stub's
-    safetensors to skeleton_model_stub and decompresses. Ex. fp4 -> fp16
+    Test decompression - given a skeleton model and path to the optimized model,
+    write the optimized model's safetensors to the skeleton model and decompress
+    Ex. write weight_scale to skeleton model and then fp4 -> fp16
+
     """
 
     compressed_model_stub = None
