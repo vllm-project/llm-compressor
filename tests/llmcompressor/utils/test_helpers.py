@@ -1,9 +1,12 @@
 from types import SimpleNamespace
 
 import pytest
+import torch
 
 from llmcompressor.utils import (
     ALL_TOKEN,
+    DisableQuantization,
+    calibration_forward_context,
     convert_to_bool,
     flatten_iterable,
     getattr_chain,
@@ -124,3 +127,24 @@ def test_getattr_chain():
     assert getattr_chain(base, "b.d.dne", "default") == "default"
     with pytest.raises(AttributeError):
         getattr_chain(base, "b.d.dne")
+
+
+def test_DisableQuantization():
+    model = torch.nn.Linear(1, 1)
+    with DisableQuantization(model):
+        assert not model.quantization_enabled
+    assert model.quantization_enabled
+
+
+def test_calibration_forward_context():
+    model = torch.nn.Linear(1, 1)
+    model.config = SimpleNamespace()
+    model.config.use_cache = True
+
+    with calibration_forward_context(model):
+        assert not torch.is_grad_enabled()
+        assert not model.quantization_enabled
+        assert not model.config.use_cache
+    assert torch.is_grad_enabled()
+    assert model.quantization_enabled
+    assert model.config.use_cache
