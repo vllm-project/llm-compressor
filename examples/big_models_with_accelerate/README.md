@@ -54,7 +54,7 @@ When working with `accelerate`, it is important to keep in mind that CPU offload
 
 We will show working examples for each use case:
 - **CPU Offloading**: Quantize `Llama-70B` to `FP8` using `PTQ` with a single GPU
-- **Multi-GPU**: Quantize `Llama-70B` to `INT8` using `GPTQ` and `SmoothQuant` with 8 GPUs
+- **Multi-GPU**: Quantize `Llama-70B` to `INT8` using `GPTQ` and `SmoothQuant` with 2 GPUs
 
 ### Installation
 
@@ -83,7 +83,7 @@ For quantization methods that require calibration data (e.g. `GPTQ`), CPU offloa
 
 Note that running non-sequential `GPTQ` requires significant additional memory beyond the model size. As a rough rule of thumb, running `GPTQModifier` non-sequentially will take up 3x the model size for a 16-bit model and 2x the model size for a 32-bit model (these estimates include the memory required to store the model itself in GPU).
 
-- `multi_gpu_int8.py` demonstrates quantizing the weights and activations of `Llama-70B` to `int8` on 8 A100s:
+- `multi_gpu_int8.py` demonstrates quantizing the weights and activations of `Llama-70B` to `int8` on 2 A100s:
 
 ```python
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
