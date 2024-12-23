@@ -45,7 +45,7 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
 
     remove_columns: Union[None, str, List] = field(
         default=None,
-        metadata={"help": "Column names to remove after preprocessing (depreciated)"},
+        metadata={"help": "Column names to remove after preprocessing (deprecated)"},
     )
 
     preprocessing_func: Union[None, str, Callable] = field(
@@ -53,7 +53,7 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
         metadata={
             "help": (
                 "Typically a function which applies a chat template. Can take the form "
-                "of iither a function to apply to the dataset, a name defined in "
+                "of either a function to apply to the dataset, a name defined in "
                 "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
                 "a path to a function definition of the form /path/to/file.py:func"
             )
@@ -62,10 +62,7 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
 
     data_collator: Callable[[Any], Any] = field(
         default_factory=lambda: DefaultDataCollator(),
-        metadata={
-            "help": "For custom datasets only. The function to used to form a batch "
-            "from the dataset"
-        },
+        metadata={"help": "The function to used to form a batch from the dataset"},
     )
 
 
