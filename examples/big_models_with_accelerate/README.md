@@ -81,12 +81,10 @@ The resulting model `./Meta-Llama-3-70B-Instruct-FP8-Dynamic` is ready to run wi
 
 For quantization methods that require calibration data (e.g. `GPTQ`), CPU offloading is too slow. For these methods, `llmcompressor` can use `accelerate` multi-GPU to quantize models that are larger than a single GPU. For example, when quantizing a model to `int8`, we typically use `GPTQ` to statically quantize the weights, which requires calibration data.
 
-Note that running non-sequential `GPTQ` requires significant additional memory beyond the model size. As a rough rule of thumb, running `GPTQModifier` non-sequentially will take up 3x the model size for a 16-bit model and 2x the model size for a 32-bit model (these estimates include the memory required to store the model itself in GPU).
-
 - `multi_gpu_int8.py` demonstrates quantizing the weights and activations of `Llama-70B` to `int8` on 2 A100s:
 
 ```python
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1
 python multi_gpu_int8.py
 ```
 
