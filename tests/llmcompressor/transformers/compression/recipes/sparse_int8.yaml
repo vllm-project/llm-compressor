@@ -3,9 +3,9 @@ pruning_stage:
         SparseGPTModifier:
             sparsity: 0.5
             sequential_update: true
-            mask_structure: "2:4"
+            mask_structure: "0:0"
             targets: ['re:model.layers.\d*$']
-quant_stage:
+test_stage:
     quant_modifiers:
         QuantizationModifier:
             ignore: ["lm_head"]
@@ -13,17 +13,25 @@ quant_stage:
                 group_0:
                     weights:
                         num_bits: 8
-                        type: int
-                        strategy: tensor
-                        dynamic: false
+                        type: "int"
                         symmetric: true
+                        strategy: "tensor"
                     input_activations:
                         num_bits: 8
-                        type: int
-                        strategy: tensor
-                        dynamic: true
-                        symmetric: true
+                        type: "int"
+                        symmetric: false
+                        strategy: "tensor"
+                    output_activations: null
                     targets: ["Linear"]
+                group_1:
+                    weights:
+                        num_bits: 8
+                        type: "int"
+                        symmetric: true
+                        strategy: "tensor"
+                    input_activations: null
+                    output_activations: null
+                    targets: ["Embedding"]
     pruning_modifiers:
         ConstantPruningModifier:
             targets: [

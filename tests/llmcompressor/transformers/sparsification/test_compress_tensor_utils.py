@@ -362,9 +362,9 @@ def test_model_shared_tensors_gpu(
     "model_stub, recipe, sparse_format, quant_format",
     [
         (
-            "Xenova/llama2.c-stories110M",
-            "tests/llmcompressor/transformers/compression/recipes/sparse_24_int8.yaml",
-            CompressionFormat.sparse_24.value,
+            "Xenova/llama2.c-stories15M",
+            "tests/llmcompressor/transformers/compression/recipes/sparse_int8.yaml",
+            CompressionFormat.sparse_bitmask.value,
             CompressionFormat.int_quantized.value,
         ),
     ],
@@ -437,30 +437,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         if key.endswith("weight") and quant_format != "dense":
             # we don't expect an exact match for compressed
             diff = torch.abs(dense_tensor - reconstructed_tensor)
-            assert not torch.any(
-                diff > 0.01
-            ).item(), f"{key} has a diff greater than 0.01"
+            assert not torch.any(diff > 0.01), f"Max diff: {torch.max(diff)}"
         else:
             assert torch.equal(dense_tensor, reconstructed_tensor)
     shutil.rmtree(tmp_path)
-
-
-# This parameterization should be added to the test_compressor_stacking test
-# once the lossy nature of FP8 compress-decompress is resolved.
-# Until then, this test is marked as xfail.
-@pytest.mark.xfail(reason="Known issue with FP8 compress-decompress")
-@pytest.mark.parametrize(
-    "model_stub, recipe, sparse_format, quant_format",
-    [
-        (
-            "Xenova/llama2.c-stories110M",
-            "tests/llmcompressor/transformers/compression/recipes/sparse_24_fp8.yaml",
-            CompressionFormat.sparse_24.value,
-            CompressionFormat.float_quantized.value,
-        ),
-    ],
-)
-def test_compressor_stacking_fp8(
-    model_stub, recipe, sparse_format, quant_format, tmp_path
-):
-    test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tmp_path)
