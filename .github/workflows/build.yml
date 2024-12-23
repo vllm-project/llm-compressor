@@ -76,13 +76,9 @@ jobs:
               with:
                   ref: ${{ inputs.gitref }}
 
-            - name: install testmo
-              uses: neuralmagic/nm-actions/actions/install-testmo@v1.0.0
-
             - name: create testmo run
               id: create_testmo_run
-              uses: neuralmagic/nm-actions/actions/testmo-run-create@v1.2.0
-              if: success()
+              uses: neuralmagic/nm-actions/actions/testmo-run-create@v1.11.0
               with:
                 testmo_url: https://neuralmagic.testmo.net
                 testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
@@ -142,8 +138,8 @@ jobs:
 
             - name: report build status to testmo
               id: report_build
-              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.2.0
-              if: (success() || failure()) && ${{ inputs.testmo_run_id != '' }}
+              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.11.0
+              if: success() || failure()
               with:
                   testmo_url: https://neuralmagic.testmo.net
                   testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}

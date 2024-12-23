@@ -90,9 +90,6 @@ jobs:
               with:
                   venv: TEST
 
-            - name: install testmo
-              uses: neuralmagic/nm-actions/actions/install-testmo@v1.0.0
-
             - name: download whl
               id: download
               uses: actions/download-artifact@v4
@@ -108,8 +105,8 @@ jobs:
 
             - name: report test results
               id: report_test
-              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.2.0
-              if: (success() || failure()) && ${{ inputs.testmo_run_id != '' }}
+              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.11.0
+              if: (success() || failure()) && inputs.testmo_run_id != ''
               with:
                   testmo_url: https://neuralmagic.testmo.net
                   testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
