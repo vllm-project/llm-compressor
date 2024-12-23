@@ -1,6 +1,10 @@
-from .llava import TracableLlavaForConditionalGeneration
-from .mistral import TracableMistralForCausalLM
-from .mllama import TracableMllamaForConditionalGeneration
+from .llava import (
+    LlavaForConditionalGeneration as TracableLlavaForConditionalGeneration,
+)
+from .mistral import MistralForCausalLM as TracableMistralForCausalLM
+from .mllama import (
+    MllamaForConditionalGeneration as TracableMllamaForConditionalGeneration,
+)
 
 __all__ = [
     "TracableLlavaForConditionalGeneration",

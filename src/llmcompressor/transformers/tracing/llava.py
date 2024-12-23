@@ -29,10 +29,10 @@ from transformers.models.llava.modeling_llava import (
 )
 from transformers.models.mistral.configuration_mistral import MistralConfig
 
-from .mistral import TracableMistralForCausalLM
+from .mistral import MistralForCausalLM as TracableMistralForCausalLM
 
 
-class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
+class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
     def __init__(self, config: LlavaConfig):
         super().__init__(config)
         self.vision_tower = AutoModel.from_config(config.vision_config)

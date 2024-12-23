@@ -1090,7 +1090,7 @@ class MistralModel(MistralPreTrainedModel):
         return causal_mask
 
 
-class TracableMistralForCausalLM(MistralPreTrainedModel, GenerationMixin):
+class MistralForCausalLM(MistralPreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
 
