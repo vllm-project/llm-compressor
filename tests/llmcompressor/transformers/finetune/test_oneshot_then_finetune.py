@@ -22,7 +22,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
     def setUp(self):
         self.output = Path("./finetune_output")
 
-    def test_oneshot_then_finetune(self):
+    def test_oneshot_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map="auto"
@@ -88,7 +88,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 resume_from_checkpoint=True,  # use last checkpoint
             )
 
-    def test_quantization_then_finetune(self):
+    def test_oneshot_quantization_then_finetune(self):
         recipe = QuantizationModifier(
             targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
         )
