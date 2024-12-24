@@ -43,7 +43,6 @@ class TestBigModelsWithAccelerate:
                 "",
                 id="multi_gpu_int8",
                 marks=[
-                    requires_gpu_mem(630),
                     requires_gpu_count(2),
                     pytest.mark.multi_gpu,
                 ],
