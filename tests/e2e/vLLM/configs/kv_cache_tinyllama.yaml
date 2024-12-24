@@ -1,0 +1,7 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+recipe: tests/e2e/vLLM/recipes/kv_cache/default.yaml
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+scheme: kv_cache_default_tinyllama
