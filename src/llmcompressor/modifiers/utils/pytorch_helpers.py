@@ -2,6 +2,7 @@ from itertools import cycle
 from typing import Callable, Dict, List, Optional, Tuple
 
 import torch
+from compressed_tensors import is_module_offloaded
 from torch.nn import Module
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -70,11 +71,19 @@ def run_calibration_forward(
         calibration_function if calibration_function else tensors_module_forward
     )
 
-    # move model to optional specified device if it is not already there
-    model_device = next(model.parameters()).device
-    if device is not None and model_device != device:
+    # move to specified device if specified
+    if device is not None:
         model.to(device)
-        model_device = next(model.parameters()).device
+        model_device = device
+
+    # start on the cpu if the model is offloaded
+    elif any((m for m in model.modules() if is_module_offloaded(m))):
+        model_device = torch.device("cpu")
+
+    # copy model device if not offloaded
+    else:
+        model_device = model.device
+
     _dataloader = (
         calibration_dataloader
         if num_calibration_steps is None
