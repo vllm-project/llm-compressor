@@ -107,8 +107,8 @@ class TextGenerationDataset(RegistryMixin):
 
         if "input_ids" not in get_columns(dataset):
             # tokenize/ process
-            dataset = self.filter_processor_args(dataset)
-            logger.debug(f"Processor args after filtering: {get_columns(dataset)}")
+            dataset = self.filter_tokenizer_args(dataset)
+            logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")
             dataset = self.map(
                 dataset,
                 self.tokenize,
@@ -149,7 +149,7 @@ class TextGenerationDataset(RegistryMixin):
             logger.debug(f"Model kwargs after adding labels: {get_columns(dataset)}")
 
         elif self.PROMPT_KEY in get_columns(dataset):
-            dataset.remove_columns(self.PROMPT_KEY)
+            dataset = dataset.remove_columns(self.PROMPT_KEY)
             logger.debug("Removed prompt key")
 
         logger.debug(f"Model kwargs after postprocessing: {get_columns(dataset)}")
