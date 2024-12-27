@@ -68,7 +68,7 @@ class TestLMEval:
         logger.info(self.scheme)
 
         self.device = "cuda:0"
-        self.num_calibration_samples = 256
+        self.num_calibration_samples = 512
         self.max_seq_length = 2048
 
     def test_lm_eval(self):
@@ -104,7 +104,7 @@ class TestLMEval:
 
         logger.info("================= Running LM Eval ======================")
 
-        model_args = f"pretrained={self.save_dir}"
+        model_args = f"pretrained={self.save_dir},add_bos_token=True"
         results = lm_eval.simple_evaluate(
             model="hf",
             model_args=model_args,
