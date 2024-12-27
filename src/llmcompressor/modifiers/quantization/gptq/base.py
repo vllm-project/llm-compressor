@@ -217,6 +217,7 @@ class GPTQModifier(Modifier, HooksMixin):
         # infer pipeline
         model_name = state.model.__class__.__name__
         input_names = state.data.calib.dataset.column_names
+        unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
         try:
             run_sequential(
                 state.model,
@@ -230,7 +231,7 @@ class GPTQModifier(Modifier, HooksMixin):
         except Exception as exception:
             if isinstance(exception, torch.fx.proxy.TraceError):
                 warnings.warn(f"Failed to trace {model_name} with inputs {input_names}")
-            if isinstance(exception, torch.OutOfMemoryError):
+            if isinstance(exception, unfixable_errors):
                 raise exception
 
             warnings.warn("Falling back to layer_sequential pipeline")
@@ -246,7 +247,7 @@ class GPTQModifier(Modifier, HooksMixin):
             except Exception as exception:
                 if isinstance(exception, TypeError):
                     warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, torch.OutOfMemoryError):
+                if isinstance(exception, unfixable_errors):
                     raise exception
 
                 warnings.warn(
