@@ -302,6 +302,10 @@ def get_model_compressor(
 
 @contextlib.contextmanager
 def skip_missing_weights_context():
+    """
+    Used when loading a quantized model whose state dict does not align model
+    definition weights
+    """
     kaiming_uniform_ = torch.nn.init.kaiming_uniform_
     uniform_ = torch.nn.init.uniform_
     normal_ = torch.nn.init.normal_
