@@ -1,4 +1,3 @@
-import logging
 import math
 import shutil
 
@@ -22,6 +21,7 @@ from llmcompressor.transformers.compression.sparsity_config import (
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
+    skip_missing_weights_context,
 )
 
 
@@ -63,18 +63,10 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         clear_sparse_session=False,
     )
 
-    # temporarily set the log level to error, to ignore printing out long missing
-    # and unexpected key error messages (these are EXPECTED for quantized models)
-    transformers_logger = logging.getLogger("transformers.modeling_utils")
-    restore_log_level = transformers_logger.getEffectiveLevel()
-    transformers_logger.setLevel(level=logging.ERROR)
-
-    model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype
-    )
-
-    # restore transformers logging level now that model shell is loaded
-    transformers_logger.setLevel(level=restore_log_level)
+    with skip_missing_weights_context():
+        model = AutoModelForCausalLM.from_pretrained(
+            tmp_path / "oneshot_out", torch_dtype=dtype
+        )
 
     # assert that sample layer has the intended sparsity
     assert math.isclose(
