@@ -10,11 +10,9 @@ if TYPE_CHECKING:
     from llmcompressor.transformers import DataTrainingArguments as DataArgs
 
 
-@TextGenerationDataset.register(name="ultrachat_200k")
-class UltraChatDataset(TextGenerationDataset):
+@TextGenerationDataset.register(name="flickr", alias="flickr30k")
+class Flickr30K(TextGenerationDataset):
     """
-    Child text generation class for the Ultra Chat 200k dataset
-
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
     :param processor: processor or tokenizer to use on dataset
@@ -35,11 +33,7 @@ class UltraChatDataset(TextGenerationDataset):
 
     def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
         data_args = deepcopy(data_args)
-        data_args.dataset = "HuggingFaceH4/ultrachat_200k"
-        data_args.text_column = "messages"
-
-        if split in ["train", "test"]:
-            split += "_sft"
+        data_args.dataset = "lmms-lab/flickr30k"
 
         super().__init__(data_args=data_args, split=split, processor=processor)
 
@@ -56,12 +50,19 @@ class UltraChatDataset(TextGenerationDataset):
             )
 
     def dataset_template(self, sample):
-        messages = sample["messages"]
-        if messages[0]["role"] != "system":
-            messages.insert(0, {"role": "system", "content": ""})
-
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "What does the image show?"},
+                ],
+            }
+        ]
         return {
             "text": self.processor.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=False
-            )
+                messages,
+                add_generation_prompt=True,
+            ),
+            "images": sample["image"],
         }
