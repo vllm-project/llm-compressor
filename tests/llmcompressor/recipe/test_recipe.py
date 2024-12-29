@@ -31,8 +31,8 @@ def test_serialization(recipe_str):
     serialized_recipe = recipe_instance.yaml()
     recipe_from_serialized = Recipe.create_instance(serialized_recipe)
 
-    expected_dict = recipe_instance.dict()
-    actual_dict = recipe_from_serialized.dict()
+    expected_dict = recipe_instance.model_dump()
+    actual_dict = recipe_from_serialized.model_dump()
 
     assert expected_dict == actual_dict
 
@@ -97,7 +97,7 @@ def test_recipe_can_be_created_from_modifier_instances():
         actual_modifiers[0].modifiers, expected_modifiers[0].modifiers
     ):
         assert isinstance(actual_modifier, type(expected_modifier))
-        assert actual_modifier.dict() == expected_modifier.dict()
+        assert actual_modifier.model_dump() == expected_modifier.model_dump()
 
 
 class A_FirstDummyModifier(Modifier):
