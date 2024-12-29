@@ -1,33 +1,46 @@
+# flake8: noqa
 """ PyTorch GLM-4V model. """
 import math
 import sys
-import torch
-import torch.utils.checkpoint
-import torch.nn.functional as F
-from torch import nn
-from torch.nn import CrossEntropyLoss, LayerNorm, MSELoss, BCEWithLogitsLoss
-from torch.nn.utils import skip_init
-from typing import Optional, Tuple, Union, List, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import torch
+import torch.nn.functional as F
+import torch.utils.checkpoint
+from torch import nn
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, LayerNorm, MSELoss
+from torch.nn.utils import skip_init
+from transformers.generation.logits_process import LogitsProcessor
+from transformers.generation.utils import (
+    GenerationConfig,
+    LogitsProcessorList,
+    ModelOutput,
+    StoppingCriteriaList,
+)
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
     SequenceClassifierOutputWithPast,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers.utils import logging, is_torch_npu_available
-from transformers.generation.logits_process import LogitsProcessor
-from transformers.generation.utils import LogitsProcessorList, StoppingCriteriaList, GenerationConfig, ModelOutput
+from transformers.utils import is_torch_npu_available, logging
 
-from .visual import EVA2CLIPModel
 from .configuration_chatglm import ChatGLMConfig
+from .visual import EVA2CLIPModel
 
 try:
-    from transformers.utils import is_flash_attn_greater_or_equal_2_10, is_flash_attn_2_available
+    from transformers.utils import (
+        is_flash_attn_2_available,
+        is_flash_attn_greater_or_equal_2_10,
+    )
 
     if is_flash_attn_2_available():
         from flash_attn import flash_attn_func, flash_attn_varlen_func
-        from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
+        from flash_attn.bert_padding import (  # noqa
+            index_first_axis,
+            pad_input,
+            unpad_input,
+        )
 except:
     pass
 

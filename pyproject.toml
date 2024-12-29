@@ -13,7 +13,7 @@ profile = "black"
 files = "src/guidellm"
 
 [tool.ruff]
-exclude = ["build", "dist", "env", ".venv", "src/llmcompressor/pytorch/tracing"]
+exclude = ["build", "dist", "env", ".venv", "src/llmcompressor/transformers/tracing"]
 lint.select = ["E", "F", "W"]
 
 [tool.flake8]
