@@ -8,13 +8,14 @@ from torch.nn import Module
 __all__ = ["get_GPU_memory_usage", "get_layer_size_mb", "CompressionLogger"]
 
 
-def get_GPU_memory_usage() -> List[Tuple]:
+def get_GPU_memory_usage() -> List[Tuple[float, float]]:
     if torch.version.hip:
         return get_GPU_usage_amd()
     else:
         return get_GPU_usage_nv()
 
-def get_GPU_usage_nv() -> List [Tuple]:
+
+def get_GPU_usage_nv() -> List[Tuple[float, float]]:
     try:
         import pynvml
         from pynvml import NVMLError
@@ -44,10 +45,12 @@ def get_GPU_usage_nv() -> List [Tuple]:
         logger.warning("Failed to obtain GPU usage from pynvml")
         return []
 
-def get_GPU_usage_amd() -> List[Tuple]:
+
+def get_GPU_usage_amd() -> List[Tuple[float, float]]:
     usage = []
     try:
         import amdsmi
+
         try:
             amdsmi.amdsmi_init()
             devices = amdsmi.amdsmi_get_processor_handles()
@@ -65,12 +68,13 @@ def get_GPU_usage_amd() -> List[Tuple]:
                     (memory_percentage, vram_memory_total / (1e9)),
                 )
             amdsmi.amdsmi_shut_down()
-        except amdsmi.AmdSmiException as _err:
-            logger.warning(f"amdsmi library error:\n {_err}")
+        except amdsmi.AmdSmiException as error:
+            logger.warning(f"amdsmi library error:\n {error}")
     except ImportError:
         logger.warning("Failed to obtain GPU usage from amdsmi")
 
     return usage
+
 
 def get_layer_size_mb(module: Module) -> float:
     param_size = 0
