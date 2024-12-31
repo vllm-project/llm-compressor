@@ -214,7 +214,7 @@ class GPTQModifier(Modifier, HooksMixin):
         if self._update_size is None:
             self._update_size = len(state.data.calib)
 
-        # infer pipeline
+        # infer and run pipeline
         model_name = state.model.__class__.__name__
         input_names = state.data.calib.dataset.column_names
         unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
