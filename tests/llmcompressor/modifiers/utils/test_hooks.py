@@ -64,6 +64,27 @@ def test_remove_hooks():
     assert mod_a.hook_called and not mod_b.hook_called
 
 
+def test_remove_hooks_parameterized():
+    model = DummyModel()
+
+    mod_a = ModA()
+    mod_a_pre_hook = mod_a.register_hook(model.linear1, mod_a.hook, "forward_pre")
+    mod_a_post_hook = mod_a.register_hook(model.linear1, mod_a.hook, "forward")
+
+    mod_b = ModB()
+    mod_b_pre_hook = mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
+    mod_b_post_hook = mod_b.register_hook(model.linear2, mod_b.hook, "forward")
+
+    mod_a.remove_hooks([mod_a_post_hook])
+    mod_b.remove_hooks([mod_b_pre_hook])
+
+    assert len(mod_a._hooks) == 1 and next(iter(mod_a._hooks)) == mod_a_pre_hook
+    assert len(mod_b._hooks) == 1 and next(iter(mod_b._hooks)) == mod_b_post_hook
+
+    model(model.dummy_inputs)
+    assert mod_a.hook_called and mod_b.hook_called
+
+
 def test_disable_hooks():
     model = DummyModel()
 
