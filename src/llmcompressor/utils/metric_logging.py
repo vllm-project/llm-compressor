@@ -16,6 +16,9 @@ def get_GPU_memory_usage() -> List[Tuple[float, float]]:
 
 
 def get_GPU_usage_nv() -> List[Tuple[float, float]]:
+    """
+    get gpu usage for Nvidia GPUs using nvml lib
+    """
     try:
         import pynvml
         from pynvml import NVMLError
@@ -47,6 +50,9 @@ def get_GPU_usage_nv() -> List[Tuple[float, float]]:
 
 
 def get_GPU_usage_amd() -> List[Tuple[float, float]]:
+    """
+    get gpu usage for AMD GPUs using amdsmi lib
+    """
     usage = []
     try:
         import amdsmi
