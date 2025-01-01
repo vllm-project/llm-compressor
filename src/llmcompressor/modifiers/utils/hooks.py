@@ -40,7 +40,11 @@ class HooksMixin(BaseModel):
     @classmethod
     @contextlib.contextmanager
     def disable_hooks(cls, keep: Set[RemovableHandle] = set()):
-        """Disable all hooks across all modifiers"""
+        """
+        Disable all hooks across all modifiers
+
+        :param keep: optional set of handles to keep enabled
+        """
         try:
             cls._HOOKS_DISABLED = True
             cls._HOOKS_KEEP_ENABLED = keep
@@ -67,7 +71,7 @@ class HooksMixin(BaseModel):
             Ex. "forward", "forward_pre", "full_backward", "state_dict_post", ""
         :param kwargs: keyword arguments to pass to register hook method
         """
-        handle = SimpleNamespace(value=None)
+        handle = None
 
         @wraps(hook)
         def wrapped_hook(*args, **kwargs):
@@ -75,7 +79,7 @@ class HooksMixin(BaseModel):
 
             if (
                 HooksMixin._HOOKS_DISABLED
-                and handle.value not in HooksMixin._HOOKS_KEEP_ENABLED
+                and handle not in HooksMixin._HOOKS_KEEP_ENABLED
             ):
                 return
 
