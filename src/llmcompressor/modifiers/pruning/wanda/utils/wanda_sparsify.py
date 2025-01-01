@@ -5,6 +5,10 @@ import transformers
 
 WANDA_PRECISION = torch.float32
 
+# TODO: are these needed?
+# torch.backends.cuda.matmul.allow_tf32 = False
+# torch.backends.cudnn.allow_tf32 = False
+
 
 def make_empty_row_scalars(
     module: torch.nn.Module, device: Optional[torch.device] = None
