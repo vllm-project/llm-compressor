@@ -127,3 +127,50 @@ def test_disable_hooks_keep():
     mod_b.hook_called = False
     model(model.dummy_inputs)
     assert mod_a.hook_called and mod_b.hook_called
+
+
+def test_disable_hooks_composable():
+    model = DummyModel()
+
+    mod_a = ModA()
+    handle_a = mod_a.register_hook(model.linear1, mod_a.hook, "forward")
+
+    mod_b = ModB()
+    handle_b = mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
+
+    # composing two keeps
+    with (
+        HooksMixin.disable_hooks(keep=set([handle_b])),
+        HooksMixin.disable_hooks(keep=set([handle_a])),
+    ):
+        model(model.dummy_inputs)
+    assert mod_a.hook_called and mod_b.hook_called
+
+    mod_a.hook_called = False
+    mod_b.hook_called = False
+    model(model.dummy_inputs)
+    assert mod_a.hook_called and mod_b.hook_called
+
+    mod_a.hook_called = False
+    mod_b.hook_called = False
+    with HooksMixin.disable_hooks():
+        model(model.dummy_inputs)
+    assert not mod_a.hook_called and not mod_b.hook_called
+
+    # composing a keep and an empty keep
+    mod_a.hook_called = False
+    mod_b.hook_called = False
+    with HooksMixin.disable_hooks(keep=set([handle_a])), HooksMixin.disable_hooks():
+        model(model.dummy_inputs)
+    assert mod_a.hook_called and not mod_b.hook_called
+
+    mod_a.hook_called = False
+    mod_b.hook_called = False
+    model(model.dummy_inputs)
+    assert mod_a.hook_called and mod_b.hook_called
+
+    mod_a.hook_called = False
+    mod_b.hook_called = False
+    with HooksMixin.disable_hooks():
+        model(model.dummy_inputs)
+    assert not mod_a.hook_called and not mod_b.hook_called
