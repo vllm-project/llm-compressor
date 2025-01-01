@@ -41,17 +41,18 @@ class HooksMixin(BaseModel):
     @contextlib.contextmanager
     def disable_hooks(cls, keep: Set[RemovableHandle] = set()):
         """
-        Disable all hooks across all modifiers
+        Disable all hooks across all modifiers. Composing multiple contexts is
+        equivalent to the union of `keep` arguments
 
         :param keep: optional set of handles to keep enabled
         """
         try:
             cls._HOOKS_DISABLED = True
-            cls._HOOKS_KEEP_ENABLED = keep
+            cls._HOOKS_KEEP_ENABLED |= keep
             yield
         finally:
             cls._HOOKS_DISABLED = False
-            cls._HOOKS_KEEP_ENABLED = set()
+            cls._HOOKS_KEEP_ENABLED -= keep
 
     def register_hook(
         self,
