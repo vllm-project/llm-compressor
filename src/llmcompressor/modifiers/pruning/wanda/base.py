@@ -1,14 +1,14 @@
+import warnings
+from collections import defaultdict
 from functools import partial
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
-import warnings
 import numpy as np
 import torch
 from loguru import logger
+from pydantic import field_validator, model_validator
 from torch.nn import Module
 from tqdm import tqdm
-from collections import defaultdict
-from pydantic import field_validator, model_validator
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
@@ -86,7 +86,7 @@ class WandaPruningModifier(Modifier):
 
         if (owl_m is not None) ^ (owl_lmbda is not None):
             raise ValueError("Must provide both `owl_m` and `owl_lmbda` or neither")
-        
+
         model._prunen, model._prunen = mask_structure.split(":")
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -121,7 +121,13 @@ class WandaPruningModifier(Modifier):
                 layer_sparsity = self.sparsity
 
             for name, module in get_prunable_layers(layer):
-                post_hook = partial(self.compress_module, name, self._prunen, self._prunem, layer_sparsity)
+                post_hook = partial(
+                    self.compress_module,
+                    name,
+                    self._prunen,
+                    self._prunem,
+                    layer_sparsity,
+                )
                 self.register_hook(module, post_hook, "forward")
 
         # infer and run pipeline
@@ -174,7 +180,6 @@ class WandaPruningModifier(Modifier):
             return get_no_split_params(model)
         if isinstance(self.sequential_targets, str):
             return [self.sequential_targets]
-
 
     def _infer_layer_sparsity(self, activations):
         wanda = {}
