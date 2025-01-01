@@ -1,6 +1,5 @@
 import contextlib
 from functools import wraps
-from types import SimpleNamespace
 from typing import Any, Callable, ClassVar, Optional, Set, Union
 
 import torch
