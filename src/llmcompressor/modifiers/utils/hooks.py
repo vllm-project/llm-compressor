@@ -1,6 +1,6 @@
 import contextlib
 from functools import wraps
-from typing import Any, Callable, ClassVar, List, Optional, Set, Union
+from typing import Any, Callable, ClassVar, Optional, Set, Union
 
 import torch
 from loguru import logger
@@ -75,7 +75,7 @@ class HooksMixin(BaseModel):
 
         return handle
 
-    def remove_hooks(self, handles: Optional[List[RemovableHandle]] = None):
+    def remove_hooks(self, handles: Optional[Set[RemovableHandle]] = None):
         """Remove all hooks belonging to a modifier"""
         if handles is None:
             handles = self._hooks
@@ -83,4 +83,4 @@ class HooksMixin(BaseModel):
         for hook in handles:
             hook.remove()
 
-        self._hooks -= set(handles)
+        self._hooks -= handles
