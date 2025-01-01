@@ -1,5 +1,6 @@
 import contextlib
 from functools import wraps
+from types import SimpleNamespace
 from typing import Any, Callable, ClassVar, Optional, Set, Union
 
 import torch
@@ -29,18 +30,24 @@ class HooksMixin(BaseModel):
         - modifier.remove_hooks()
     """
 
-    _HOOKS_DISABLED: ClassVar[bool] = False  # attached to global HooksMixin
-    _hooks: Set[RemovableHandle] = set()  # attached to local subclasses
+    # attached to global HooksMixin class
+    _HOOKS_DISABLED: ClassVar[bool] = False
+    _HOOKS_KEEP_ENABLED: ClassVar[Set[RemovableHandle]] = set()
+
+    # attached to local subclasses
+    _hooks: Set[RemovableHandle] = set()
 
     @classmethod
     @contextlib.contextmanager
-    def disable_hooks(cls):
+    def disable_hooks(cls, keep: Set[RemovableHandle] = set()):
         """Disable all hooks across all modifiers"""
         try:
             cls._HOOKS_DISABLED = True
+            cls._HOOKS_KEEP_ENABLED = keep
             yield
         finally:
             cls._HOOKS_DISABLED = False
+            cls._HOOKS_KEEP_ENABLED = set()
 
     def register_hook(
         self,
@@ -60,20 +67,26 @@ class HooksMixin(BaseModel):
             Ex. "forward", "forward_pre", "full_backward", "state_dict_post", ""
         :param kwargs: keyword arguments to pass to register hook method
         """
+        handle = SimpleNamespace(value=None)
 
         @wraps(hook)
         def wrapped_hook(*args, **kwargs):
-            if HooksMixin._HOOKS_DISABLED:
+            nonlocal handle
+
+            if (
+                HooksMixin._HOOKS_DISABLED
+                and handle.value not in HooksMixin._HOOKS_KEEP_ENABLED
+            ):
                 return
 
             return hook(*args, **kwargs)
 
         register_function = getattr(target, f"register_{hook_type}_hook")
-        handle = register_function(wrapped_hook, **kwargs)
-        self._hooks.add(handle)
-        logger.debug(f"{self} added {handle}")
+        handle.value = register_function(wrapped_hook, **kwargs)
+        self._hooks.add(handle.value)
+        logger.debug(f"{self} added {handle.value}")
 
-        return handle
+        return handle.value
 
     def remove_hooks(self, handles: Optional[Set[RemovableHandle]] = None):
         """Remove all hooks belonging to a modifier"""
