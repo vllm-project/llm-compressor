@@ -75,8 +75,8 @@ def test_remove_hooks_parameterized():
     mod_b_pre_hook = mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
     mod_b_post_hook = mod_b.register_hook(model.linear2, mod_b.hook, "forward")
 
-    mod_a.remove_hooks([mod_a_post_hook])
-    mod_b.remove_hooks([mod_b_pre_hook])
+    mod_a.remove_hooks(set([mod_a_post_hook]))
+    mod_b.remove_hooks(set([mod_b_pre_hook]))
 
     assert len(mod_a._hooks) == 1 and next(iter(mod_a._hooks)) == mod_a_pre_hook
     assert len(mod_b._hooks) == 1 and next(iter(mod_b._hooks)) == mod_b_post_hook
