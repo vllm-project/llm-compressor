@@ -32,15 +32,14 @@ def make_empty_hessian(
 def accumulate_hessian(
     inp: torch.Tensor,
     module: torch.nn.Module,
-    H: Optional[torch.Tensor] = None,
-    num_samples: int = 1,
+    H: Optional[torch.Tensor],
+    num_samples: int,
 ) -> Tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
 
-    num_added = inp.shape[0]  # note this is the number of dataset samples, not
-    # multiplied by the sequence length
+    num_added = inp.shape[0]
 
     if isinstance(module, (torch.nn.Linear, transformers.Conv1D)):
         if len(inp.shape) == 3:
