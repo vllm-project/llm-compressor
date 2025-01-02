@@ -10,7 +10,7 @@ from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
-from transformers.utils.fx import HFTracer, HFProxy
+from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -72,15 +72,6 @@ def trace_subgraphs(
     trace_consumed_names(subgraphs)
 
     return subgraphs
-
-
-class LCProxy(HFProxy):
-    @property
-    def dim(self):
-        breakpoint()
-        if hasattr(self, "_metadata") and self._metadata is not None:
-            return self._metadata
-        return self.tracer.create_proxy("call_method", "dim", (self,), {})
 
 
 def get_tracer(

@@ -7,7 +7,7 @@ from .mllama import (
     MllamaForConditionalGeneration as TracableMllamaForConditionalGeneration,
 )
 from .qwen2_vl import (
-    Qwen2VLForConditionalGeneration as TracableQwen2VLForConditionalGeneration
+    Qwen2VLForConditionalGeneration as TracableQwen2VLForConditionalGeneration,
 )
 
 __all__ = [
