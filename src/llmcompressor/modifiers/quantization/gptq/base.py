@@ -252,7 +252,8 @@ class GPTQModifier(Modifier, HooksMixin):
 
                 warnings.warn(
                     "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy"
+                    "may result in decreased accuracy. Consider using "
+                    "`offload_hessians=True`"
                 )
                 run_basic(state.model, state.data.calib)
                 return True
