@@ -1,4 +1,5 @@
 # flake8: noqa
+# vllm-project: no copyright
 import math
 from argparse import Namespace
 

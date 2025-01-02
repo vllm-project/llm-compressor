@@ -1,4 +1,5 @@
 # flake8: noqa
+# vllm-project: no copyright
 """ PyTorch GLM-4V model. """
 import math
 import sys
