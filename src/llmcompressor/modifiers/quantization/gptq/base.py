@@ -233,6 +233,8 @@ class GPTQModifier(Modifier, HooksMixin):
                 warnings.warn(f"Failed to trace {model_name} with inputs {input_names}")
             if isinstance(exception, unfixable_errors):
                 raise exception
+            
+            raise exception
 
             warnings.warn("Falling back to layer_sequential pipeline")
             try:
