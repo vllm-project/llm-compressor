@@ -52,7 +52,7 @@ def run_pipeline(
         for subgraph_index, subgraph in enumerate(subgraphs):
             # prepare tqdm description texts
             calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
-            prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagate"
+            prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
             # compile subgraph forward function
             forward_function = subgraph.compile_forward()
