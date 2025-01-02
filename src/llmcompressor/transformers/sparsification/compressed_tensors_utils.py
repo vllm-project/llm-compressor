@@ -236,6 +236,10 @@ def patch_tied_tensors_bug(model: torch.nn.Module):
         input_embed = model.get_input_embeddings()
         output_embed = model.get_output_embeddings()
 
+        if input_embed is None or output_embed is None:
+            # some models fail to properly override the abstract methods
+            return
+
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
             for module in (input_embed, output_embed):
                 if not is_module_offloaded(module):
