@@ -13,9 +13,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# vllm-project: no copyright
 """PyTorch Llava model."""
 
-from functools import wraps
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -27,11 +27,47 @@ from transformers.models.llava.modeling_llava import (
     logger,
 )
 from transformers.models.mistral.configuration_mistral import MistralConfig
+from transformers.utils.fx import HFProxy
 
-from .mistral import TracableMistralForCausalLM
+from .mistral import MistralForCausalLM as TracableMistralForCausalLM
 
 
-class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
+def maybe_install_metadata_image_features(
+    image_features: Union[torch.Tensor, HFProxy],
+    pixel_values: Union[torch.Tensor, HFProxy],
+    config: LlavaConfig,
+):
+    if isinstance(image_features, HFProxy):
+        # (num_images, image_length, embed_dim)
+        num_images = pixel_values._metadata.size(0)
+        image_length = config.image_seq_length
+        embed_dim = config.vision_config.intermediate_size
+
+        original_fn = image_features.tracer.patched_torch_methods["empty"][1]
+        metadata = original_fn(
+            (num_images, image_length, embed_dim), device=torch.device("meta")
+        )
+        image_features.install_metadata(metadata)
+
+    return image_features
+
+
+def maybe_install_metadata_inputs_embeds(
+    inputs_embeds_masked: Union[torch.Tensor, HFProxy],
+    inputs_embeds: Union[torch.Tensor, HFProxy],
+    special_image_mask: Union[torch.Tensor, HFProxy],
+    image_features: Union[torch.Tensor, HFProxy],
+):
+    if isinstance(inputs_embeds_masked, HFProxy):
+        metadata = inputs_embeds._metadata.masked_scatter(
+            special_image_mask._metadata.to(bool), image_features._metadata
+        )
+        inputs_embeds_masked.install_metadata(metadata)
+
+    return inputs_embeds
+
+
+class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
     def __init__(self, config: LlavaConfig):
         super().__init__(config)
         self.vision_tower = AutoModel.from_config(config.vision_config)
@@ -52,7 +88,6 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
 
         self.__class__.__name__ = "LlavaForConditionalGeneration"
 
-    @wraps(LlavaForConditionalGeneration.forward)
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -124,6 +159,10 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 pixel_values=pixel_values,
                 vision_feature_layer=vision_feature_layer,
                 vision_feature_select_strategy=vision_feature_select_strategy,
+            )
+
+            image_features = maybe_install_metadata_image_features(
+                image_features, pixel_values, self.config
             )
 
         if legacy_processing:
@@ -201,9 +240,14 @@ class TracableLlavaForConditionalGeneration(LlavaForConditionalGeneration):
             image_features = image_features.to(
                 inputs_embeds.device, inputs_embeds.dtype
             )
-            inputs_embeds = inputs_embeds.masked_scatter(
+            inputs_embeds_masked = inputs_embeds.masked_scatter(
                 special_image_mask, image_features
             )
+
+            inputs_embeds_masked = maybe_install_metadata_inputs_embeds(
+                inputs_embeds_masked, inputs_embeds, special_image_mask, image_features
+            )
+            inputs_embeds = inputs_embeds_masked
 
         outputs = self.language_model(
             attention_mask=attention_mask,

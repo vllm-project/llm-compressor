@@ -100,13 +100,19 @@ class StageRunner:
             else "custom"
         )
         for split_name, split_str in splits.items():
-            dataset_manager = TextGenerationDataset.load_from_registry(
-                registry_id,
-                data_args=self._data_args,
-                split=split_str,
-                processor=processor,
-            )
-            tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
+            dataset = self._data_args.dataset
+            if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
+                # dataset is already tokenized
+                tokenized_datasets[split_name] = dataset
+            else:
+                # dataset needs to be tokenized
+                dataset_manager = TextGenerationDataset.load_from_registry(
+                    registry_id,
+                    data_args=self._data_args,
+                    split=split_str,
+                    processor=processor,
+                )
+                tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
 
         self.datasets = make_dataset_splits(
             tokenized_datasets,

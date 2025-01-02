@@ -18,6 +18,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# vllm-project: no copyright
 """PyTorch Mistral model."""
 
 import math
@@ -1089,7 +1090,7 @@ class MistralModel(MistralPreTrainedModel):
         return causal_mask
 
 
-class TracableMistralForCausalLM(MistralPreTrainedModel, GenerationMixin):
+class MistralForCausalLM(MistralPreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
 

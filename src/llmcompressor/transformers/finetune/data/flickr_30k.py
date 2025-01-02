@@ -1,6 +1,8 @@
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
@@ -42,6 +44,10 @@ class Flickr30K(TextGenerationDataset):
             # note that since tokenizer is a member of processor,
             # this change affects processor.apply_chat_template
             self.tokenizer.chat_template = self.DEFAULT_CHAT_TEMPLATE
+            logger.warning(
+                "tokenizer.chat_template is not set, using default chat template for "
+                f"{self.__class__.__name__}"
+            )
 
     def dataset_template(self, sample):
         messages = [

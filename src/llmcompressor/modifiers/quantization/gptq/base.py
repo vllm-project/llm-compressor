@@ -216,19 +216,8 @@ class GPTQModifier(Modifier, HooksMixin):
 
         # infer pipeline
         model_name = state.model.__class__.__name__
-        column_names = state.data.calib.dataset.column_names
-
-
-        run_sequential(
-            state.model,
-            self.sequential_targets,
-            self.ignore,
-            state.data.calib,
-            propagate_error=True,
-        )
-        return True
-    
-
+        input_names = state.data.calib.dataset.column_names
+        unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
         try:
             run_sequential(
                 state.model,
@@ -241,8 +230,8 @@ class GPTQModifier(Modifier, HooksMixin):
 
         except Exception as exception:
             if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(f"Failed to trace {model_name} with {column_names}")
-            if isinstance(exception, torch.OutOfMemoryError):
+                warnings.warn(f"Failed to trace {model_name} with inputs {input_names}")
+            if isinstance(exception, unfixable_errors):
                 raise exception
 
             warnings.warn("Falling back to layer_sequential pipeline")
@@ -258,14 +247,13 @@ class GPTQModifier(Modifier, HooksMixin):
             except Exception as exception:
                 if isinstance(exception, TypeError):
                     warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, torch.OutOfMemoryError):
+                if isinstance(exception, unfixable_errors):
                     raise exception
-                
-                breakpoint()
 
                 warnings.warn(
                     "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy"
+                    "may result in decreased accuracy. Consider using "
+                    "`offload_hessians=True`"
                 )
                 run_basic(state.model, state.data.calib)
                 return True

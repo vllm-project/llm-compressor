@@ -2,12 +2,12 @@ from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.tracing import TracableMllamaForConditionalGeneration
-from llmcompressor.transformers.utils.data_collator import mllama_data_collator
+from llmcompressor.transformers.tracing import TracableLlavaForConditionalGeneration
+from llmcompressor.transformers.utils.data_collator import llava_data_collator
 
 # Load model.
-model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-model = TracableMllamaForConditionalGeneration.from_pretrained(
+model_id = "llava-hf/llava-1.5-7b-hf"
+model = TracableLlavaForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
@@ -23,7 +23,8 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W8A8",
-        ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
+        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        sequential_targets=["LlamaDecoderLayer"],
     ),
 ]
 
@@ -37,7 +38,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    data_collator=mllama_data_collator,
+    data_collator=llava_data_collator,
 )
 
 # Confirm generations of the quantized model look sane.

@@ -1573,7 +1573,7 @@ QWEN2_VL_INPUTS_DOCSTRING = r"""
 """
 
 
-class TracableQwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
+class Qwen2VLForConditionalGeneration(Qwen2VLPreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
     def __init__(self, config):

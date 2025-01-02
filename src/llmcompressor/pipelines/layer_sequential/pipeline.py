@@ -18,7 +18,7 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    sequential_targets: List[str],  # FUTURE: replace with recipe inference
+    sequential_targets: List[str],
     dataloader: torch.utils.data.DataLoader,
     propagate_error: bool,
 ):
@@ -40,17 +40,15 @@ def run_pipeline(
     # find layers
     layers = match_modules(model, sequential_targets)
 
-    # FUTURE: apply recipe to model
-    # initialize(recipe, model)
-
     with calibration_forward_context(model):
+        # prepare intermediates cache
         intermediates = capture_first_layer_intermediates(model, layers, dataloader)
 
         num_layers = len(layers)
         for layer_index, layer in enumerate(layers):
             # prepare tqdm description texts
             calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
-            prop_desc = f"({layer_index + 1}/{num_layers}): Propagate"
+            prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
             if propagate_error:
                 # do an preliminary pass to trigger modifier hooks

@@ -63,6 +63,8 @@ __all__ = [
     "import_from_path",
     "getattr_chain",
     "DisableKVCache",
+    "DisableQuantization",
+    "calibration_forward_context",
 ]
 
 
