@@ -81,7 +81,7 @@ def get_tracer(
         module for module in model.modules() if has_offloaded_params(module)
     )
 
-    class PiecewiseTracer(HFTracer):
+    class SequentialTracer(HFTracer):
         def create_arg(self, a: Any) -> Argument:
             if isinstance(a, PretrainedConfig):
                 kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
@@ -99,7 +99,7 @@ def get_tracer(
                 or super().is_leaf_module(module, module_qualified_name)
             )
 
-    return PiecewiseTracer()
+    return SequentialTracer()
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
@@ -166,9 +166,10 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
             if remaining_indegrees[user] == 0:
                 queue.append(user)
 
-    # a perfect solution would involve implicitly consolodating partition indices so
-    # that each node is assigned to the maximum partition possible (in order to delay
-    # execution as long as possible), but this covers the most costly case (get_attr)
+    # a perfect implementation would involve implicitly consolidating partition indices
+    # so that each node is assigned to the maximum partition possible (in order to delay
+    # execution as long as possible), but the current implementation covers the most
+    # common and costly case (get_attr)
     for node in graph.graph.find_nodes(op="get_attr"):
         user_partitions = []
         for user in node.users:
