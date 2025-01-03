@@ -3,31 +3,29 @@
 """ PyTorch GLM-4V model. """
 import math
 import sys
-from typing import Any, Dict, List, Optional, Tuple, Union
-
 import torch
-import torch.nn.functional as F
 import torch.utils.checkpoint
+import torch.nn.functional as F
 from torch import nn
-from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, LayerNorm, MSELoss
+from torch.nn import CrossEntropyLoss, LayerNorm, MSELoss, BCEWithLogitsLoss
 from torch.nn.utils import skip_init
-from transformers.generation.logits_process import LogitsProcessor
-from transformers.generation.utils import (
-    GenerationConfig,
-    LogitsProcessorList,
-    ModelOutput,
-    StoppingCriteriaList,
-)
+from typing import Optional, Tuple, Union, List, Dict, Any
+
 from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
     SequenceClassifierOutputWithPast,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers.utils import is_torch_npu_available, logging
+from transformers.utils import logging, is_torch_npu_available
+from transformers.generation.logits_process import LogitsProcessor
+from transformers.generation.utils import LogitsProcessorList, StoppingCriteriaList, GenerationConfig, ModelOutput
 
-from .configuration_chatglm import ChatGLMConfig
 from .visual import EVA2CLIPModel
+from .configuration_chatglm import ChatGLMConfig
+
+# TRACING: import wrap
+from torch.fx import wrap
 
 try:
     from transformers.utils import (
@@ -44,8 +42,6 @@ try:
         )
 except:
     pass
-
-from torch.fx import wrap
 
 # flags required to enable jit fusion kernels
 
@@ -890,6 +886,7 @@ class Embedding(torch.nn.Module):
         return embeddings
 
 
+# TRACING: this function is untracable
 @wrap
 def is_empty(images_list: Optional[List[List[torch.Tensor]]]):
     if images_list is None or len(images_list) == 0:
@@ -997,6 +994,7 @@ class ChatGLMModel(ChatGLMPreTrainedModel):
                     input_id = input_ids[i].tolist()
                     boi_token_pos, eoi_token_pos = input_id.index(self.config.boi_token_id), input_id.index(
                         self.config.eoi_token_id)
+                    # TRACING: Assume that processing and tokenization was done correctly
                     #assert eoi_token_pos - boi_token_pos == 2
                     new_input_embeds.append(torch.cat(
                         (inputs_embeds[i, :boi_token_pos], images_features[i].to(inputs_embeds.device),
@@ -1028,13 +1026,16 @@ class ChatGLMModel(ChatGLMPreTrainedModel):
                                             attention_mask], dim=-1)
 
         if full_attention_mask is None:
-            if True:  #if (attention_mask is not None and not attention_mask.all().item()) or (past_key_values and seq_length != 1):
-                if True:  #if self.training:
+            # TRACING: Assume only prefill and that the attention mask is full
+            #if (attention_mask is not None and not attention_mask.all().item()) or (past_key_values and seq_length != 1):
+            if False:  #if (attention_mask is not None and not attention_mask.all().item()) or (past_key_values and seq_length != 1):
+                if self.training:
                     # https://github.com/THUDM/GLM-4/issues/264
                     new_input_ids, new_attention_mask = [], []
                     for i in range(len(input_ids)):
                         input_id = input_ids[i].tolist()
                         boi_token_pos, eoi_token_pos = input_id.index(self.config.boi_token_id), input_id.index(self.config.eoi_token_id)
+                        # TRACING: Assume that processing and tokenization was done correctly
                         #assert eoi_token_pos - boi_token_pos == 2
 
                         new_attention_mask.append(torch.cat(
@@ -1152,6 +1153,7 @@ class ChatGLMForConditionalGeneration(ChatGLMPreTrainedModel):
                 if not is_empty(images):
                     boi_token_pos, eoi_token_pos = input_id.index(self.config.boi_token_id), input_id.index(
                         self.config.eoi_token_id)
+                # TRACING: Assume that processing and tokenization was done correctly
                 #assert eoi_token_pos - boi_token_pos == 2
                 new_attention_masks.append(torch.cat(
                     (attention_mask[i, :boi_token_pos + 1], attention_mask.new_ones(num_patches),
@@ -1214,6 +1216,7 @@ class ChatGLMForConditionalGeneration(ChatGLMPreTrainedModel):
                 input_id = input_ids[i].tolist()
                 boi_token_pos, eoi_token_pos = input_id.index(self.config.boi_token_id), input_id.index(
                     self.config.eoi_token_id)
+                # TRACING: Assume that processing and tokenization was done correctly
                 #assert eoi_token_pos - boi_token_pos == 2
 
                 new_labels.append(torch.cat(

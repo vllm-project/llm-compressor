@@ -1,4 +1,6 @@
-from .glm.modeling_chatglm import ChatGLMForConditionalGeneration
+from .glm.modeling_chatglm import (
+    ChatGLMForConditionalGeneration as TracableChatGLMForConditionalGeneration,
+)
 from .llava import (
     LlavaForConditionalGeneration as TracableLlavaForConditionalGeneration,
 )
@@ -11,5 +13,5 @@ __all__ = [
     "TracableLlavaForConditionalGeneration",
     "TracableMllamaForConditionalGeneration",
     "TracableMistralForCausalLM",
-    "ChatGLMForConditionalGeneration",
+    "TracableChatGLMForConditionalGeneration",
 ]
