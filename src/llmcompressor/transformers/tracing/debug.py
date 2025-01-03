@@ -15,7 +15,6 @@ def attempt_trace(
     ignore: List[str],
 ):
     # Load model
-    model_id = "Qwen/Qwen2-VL-2B-Instruct"
     model = model_class.from_pretrained(
         model_id,
         device_map="auto",
