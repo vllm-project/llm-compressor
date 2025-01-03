@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from typing import List
 
 import torch
@@ -19,15 +18,13 @@ def run_pipeline(
     sequential_targets: List[str],
     ignore: List[str],
     dataloader: torch.utils.data.DataLoader,
-    propagate_error: bool,
 ):
     """
     Run a sequential data pipeline.
     1. The model is partitioned into subgraphs according to `sequential_targets`
-    2. Data passes through each subgraph sequentially. If `propagate_error` is enabled,
-        then data is passed through each subgraph twice, once to trigger calibration
-        hooks, then a second time in order to capture activations after quantization
-        has occurred through the hooks.
+    2. Data passes through each subgraph sequentially. Data is passed through each
+        subgraph twice, once to trigger calibration hooks, then a second time in order
+        to capture activations after quantization has occurred through the hooks.
     3. The intermediate activations between each subgraph are cached and offloaded to
         the cpu between each batch in order to save memory
 
@@ -57,18 +54,15 @@ def run_pipeline(
             # compile subgraph forward function
             forward_function = subgraph.compile_forward()
 
-            if propagate_error:
-                # do an preliminary pass to trigger modifier hooks
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                    inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    forward_function(model, **inputs)
+            # do an preliminary pass to trigger modifier hooks
+            for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
+                inputs = intermediates.fetch(batch_index, subgraph.input_names)
+                forward_function(model, **inputs)
 
-            # if using propagate_error, then this pass does not trigger modifier hooks
-            # and is only used for capturing intermediates
-            # otherwise, this pass triggers modifier hooks and captures intermediates
-            with HooksMixin.disable_hooks() if propagate_error else nullcontext():
-                desc = prop_desc if propagate_error else calib_desc
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
+            # this pass does not trigger modifier hooks
+            # and is only used for capturing outputs from the newly compressed modules
+            with HooksMixin.disable_hooks():
+                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
                     output = forward_function(model, **inputs)
 

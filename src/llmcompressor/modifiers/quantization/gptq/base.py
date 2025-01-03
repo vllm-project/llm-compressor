@@ -228,7 +228,6 @@ class GPTQModifier(Modifier, HooksMixin):
                 self.sequential_targets,
                 self.ignore,
                 state.data.calib,
-                propagate_error=True,
             )
             return True
 
@@ -244,7 +243,6 @@ class GPTQModifier(Modifier, HooksMixin):
                     state.model,
                     self.sequential_targets,
                     state.data.calib,
-                    propagate_error=True,
                 )
                 return True
 

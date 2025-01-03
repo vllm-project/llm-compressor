@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from typing import List
 
 import torch
@@ -20,7 +19,6 @@ def run_pipeline(
     model: torch.nn.Module,
     sequential_targets: List[str],
     dataloader: torch.utils.data.DataLoader,
-    propagate_error: bool,
 ):
     """
     Run a layer-wise sequential data pipeline.
@@ -50,18 +48,15 @@ def run_pipeline(
             calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
             prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
-            if propagate_error:
-                # do an preliminary pass to trigger modifier hooks
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                    inputs = intermediates.fetch(batch_index)
-                    layer(**inputs)
+            # do an preliminary pass to trigger modifier hooks
+            for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
+                inputs = intermediates.fetch(batch_index)
+                layer(**inputs)
 
-            # if using propagate_error, then this pass does not trigger modifier hooks
-            # and is only used for capturing intermediates
-            # otherwise, this pass triggers modifier hooks and captures intermediates
-            with HooksMixin.disable_hooks() if propagate_error else nullcontext():
-                desc = prop_desc if propagate_error else calib_desc
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=desc):
+            # this pass does not trigger modifier hooks
+            # and is only used for capturing outputs from the newly compressed modules
+            with HooksMixin.disable_hooks():
+                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
                     inputs = intermediates.fetch(batch_index)
                     output = layer(**inputs)
 
