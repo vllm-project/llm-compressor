@@ -1,6 +1,12 @@
 import torch
 
-__all__ = ["mllama_data_collator", "pixtral_data_collator"]
+__all__ = [
+    "mllama_data_collator",
+    "pixtral_data_collator",
+    "llava_data_collator",
+    "qwen2_vl_data_collator",
+    "glm_data_collator",
+]
 
 
 def mllama_data_collator(batch):

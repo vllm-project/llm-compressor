@@ -22,7 +22,7 @@ MAX_SEQUENCE_LENGTH = 2048
 recipe = [
     GPTQModifier(
         targets="Linear",
-        scheme="W8A8",
+        scheme="W4A16",
         ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
         sequential_targets=["MistralDecoderLayer"],
     ),
