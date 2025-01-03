@@ -24,7 +24,7 @@ DEFAULT_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
         smooth_layers="re:.*post_attention_layernorm",
     ),
 ]
-MIXTRAL_MAPPINGS: List[LayerMap] = [
+MIXTRAL_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
         smooth_layers="re:.*input_layernorm",
@@ -49,10 +49,11 @@ BLOOM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
 #   Add more mappings here
 MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
     "LlamaForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
-    "MixtralForCausalLM": MIXTRAL_MAPPINGS,
+    "MixtralForCausalLM": MIXTRAL_SMOOTHQUANT_MAPPINGS,
     "MistralForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
+    "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
 }
 
 
