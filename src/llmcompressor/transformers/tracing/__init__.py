@@ -1,17 +1,17 @@
 from .glm.modeling_chatglm import (
-    ChatGLMForConditionalGeneration as TracableChatGLMForConditionalGeneration,
+    ChatGLMForConditionalGeneration as TraceableChatGLMForConditionalGeneration,
 )
 from .llava import (
-    LlavaForConditionalGeneration as TracableLlavaForConditionalGeneration,
+    LlavaForConditionalGeneration as TraceableLlavaForConditionalGeneration,
 )
-from .mistral import MistralForCausalLM as TracableMistralForCausalLM
+from .mistral import MistralForCausalLM as TraceableMistralForCausalLM
 from .mllama import (
-    MllamaForConditionalGeneration as TracableMllamaForConditionalGeneration,
+    MllamaForConditionalGeneration as TraceableMllamaForConditionalGeneration,
 )
 
 __all__ = [
-    "TracableLlavaForConditionalGeneration",
-    "TracableMllamaForConditionalGeneration",
-    "TracableMistralForCausalLM",
-    "TracableChatGLMForConditionalGeneration",
+    "TraceableLlavaForConditionalGeneration",
+    "TraceableMllamaForConditionalGeneration",
+    "TraceableMistralForCausalLM",
+    "TraceableChatGLMForConditionalGeneration",
 ]

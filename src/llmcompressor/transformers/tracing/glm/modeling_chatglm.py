@@ -886,7 +886,7 @@ class Embedding(torch.nn.Module):
         return embeddings
 
 
-# TRACING: this function is untracable
+# TRACING: this function is untraceable
 @wrap
 def is_empty(images_list: Optional[List[List[torch.Tensor]]]):
     if images_list is None or len(images_list) == 0:

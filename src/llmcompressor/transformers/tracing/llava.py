@@ -30,8 +30,8 @@ from transformers.models.llava.modeling_llava import (
 from transformers.models.mistral.configuration_mistral import MistralConfig
 from transformers.utils.fx import HFProxy
 
-# TRACING: Reuse tracable subclass
-from .mistral import MistralForCausalLM as TracableMistralForCausalLM
+# TRACING: Reuse traceable subclass
+from .mistral import MistralForCausalLM as TraceableMistralForCausalLM
 
 
 # TRACING: The shape of image_features is known and documented by
@@ -82,9 +82,9 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
         self.multi_modal_projector = LlavaMultiModalProjector(config)
         self.vocab_size = config.text_config.vocab_size
 
-        # TRACING: Must use TracableMistralForCausalLM which wraps an untracable function
+        # TRACING: Must use TraceableMistralForCausalLM which wraps an untraceable function
         if isinstance(config.text_config, MistralConfig):
-            self.language_model = TracableMistralForCausalLM(config.text_config)
+            self.language_model = TraceableMistralForCausalLM(config.text_config)
         else:
             self.language_model = AutoModelForCausalLM.from_config(config.text_config)
 

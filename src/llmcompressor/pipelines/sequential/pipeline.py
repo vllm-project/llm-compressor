@@ -31,12 +31,12 @@ def run_pipeline(
     3. The intermediate activations between each subgraph are cached and offloaded to
         the cpu between each batch in order to save memory
 
-    This pipeline requires that the model be tracable with respect to data from the
+    This pipeline requires that the model be traceable with respect to data from the
     data loader. This may be an issue for vision language models with vision datasets,
     due to specialized input processing in the model.
 
     In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A model
-    can be made tracable by wrapping the untracable functions (see
+    can be made traceable by wrapping the untraceable functions (see
     llmcompressor.transformers.tracing)
     """
     # trace subgraphs

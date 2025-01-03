@@ -50,7 +50,7 @@ from transformers.utils import (
 logger = logging.get_logger(__name__)
 
 
-@wrap  # NOT TRACABLE, wrap this function
+@wrap  # NOT TRACEABLE, wrap this function
 def _prepare_cross_attention_mask(
     cross_attention_mask: torch.Tensor,
     num_vision_tokens: int,
