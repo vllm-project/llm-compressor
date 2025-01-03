@@ -217,7 +217,11 @@ class GPTQModifier(Modifier, HooksMixin):
         # infer pipeline
         model_name = state.model.__class__.__name__
         input_names = state.data.calib.dataset.column_names
-        unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
+        unfixable_errors = (
+            torch.OutOfMemoryError,
+            torch._C._LinAlgError,
+            KeyboardInterrupt,
+        )
         try:
             run_sequential(
                 state.model,
