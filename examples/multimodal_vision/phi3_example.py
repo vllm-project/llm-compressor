@@ -40,7 +40,7 @@ def preprocess(example):
     }
 
 
-ds = ds.map(preprocess)
+ds = ds.map(preprocess, remove_columns=["image", "caption", "sentids", "img_id", "filename"])
 
 
 # Tokenize inputs.
@@ -54,7 +54,7 @@ def tokenize(sample):
     )
 
 
-ds = ds.map(tokenize, remove_columns=ds.column_names)
+ds = ds.map(tokenize, keep_in_memory=True, remove_columns=ds.column_names)
 
 
 # Recipe
