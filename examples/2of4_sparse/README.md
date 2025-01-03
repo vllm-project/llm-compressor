@@ -187,11 +187,11 @@ if __name__ == "__main__":
 
 Command to run model:
 ```bash
-python3 run_model.py --model <MODEL_PATH>
+python3 run_model.py <MODEL_PATH>
 ```
 
 Example:
 ```bash
-python3 run_model.py --model Meta-Llama-3-8B-Instruct2of4-W8A8-FP8-Dynamic-Per-Token
+python3 run_model.py Meta-Llama-3-8B-Instruct2of4-W8A8-FP8-Dynamic-Per-Token
 ```
 
