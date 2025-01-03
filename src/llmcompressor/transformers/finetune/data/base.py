@@ -253,7 +253,7 @@ class TextGenerationDataset(RegistryMixin):
         # store unpadded prompt so we can mask out correct number of elements in labels
         if prompt is not None:
             data[self.PROMPT_KEY] = self.processor(
-                prompt,
+                text=prompt,
                 max_length=self.max_seq_length,
                 truncation=True,
             )["input_ids"]
