@@ -15,7 +15,6 @@
 # limitations under the License.
 
 # Adapted from https://github.com/huggingface/transformers
-# neuralmagic: no copyright
 # vllm-project: no copyright
 
 import os
