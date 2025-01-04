@@ -11,6 +11,14 @@ __all__ = ["run_pipeline"]
 
 
 def run_pipeline(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader):
+    """
+    Run a basic data pipeline.
+
+    Batches are fetched from the data loader and are used to perform forward passes
+    through the model. This pipeline is typically used for basic model calibration
+    and, unlike the sequential pipelines, does not propagate compression error when
+    used to calibrate model compression
+    """
     model_device = get_execution_device(model)
 
     with calibration_forward_context(model):

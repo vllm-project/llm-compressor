@@ -20,7 +20,8 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
 ):
     """
-    Run a sequential data pipeline.
+    Run a sequential data pipeline according to the following steps:
+
     1. The model is partitioned into subgraphs according to `sequential_targets`
     2. Data passes through each subgraph sequentially. Data is passed through each
         subgraph twice, once to trigger calibration hooks, then a second time in order

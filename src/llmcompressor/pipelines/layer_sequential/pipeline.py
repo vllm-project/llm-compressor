@@ -21,7 +21,8 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
 ):
     """
-    Run a layer-wise sequential data pipeline.
+    Run a layer-wise sequential data pipeline according to the following steps:
+
     1. Layers are identified according to `sequential_targets`
     2. A hook is attached to the first layer. This hook raises an exception which is
         then caught and used to capture the input arguments to the first layer
@@ -33,7 +34,8 @@ def run_pipeline(
     to the next layer. This is violated by encoder-decoder architectures among others.
 
     If your model architecture violates these assumptions, consider using the sequential
-    pipeline (see llmcompressor.pipelines.sequential)
+    pipeline (see llmcompressor.pipelines.sequential). Architectures which are known to
+    fail these assumptions include GPT-J and most vision language models
     """
     # find layers
     layers = match_modules(model, sequential_targets)
