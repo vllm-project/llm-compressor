@@ -88,22 +88,21 @@ def quantize_weight(
     actorder = quant_args.actorder
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
-    module_class = type(module)
     W = module.weight.clone()
     H = hessians_dict[module]  # unfortunately python does not have a `move` keyword
     del hessians_dict[module]  # so we have to delete the original reference manually
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
-        "minmax",
+        quant_args.observer,
         quantization_args=quant_args,
         averaging_constant=1.0,  # ignore moving average
     )
 
     # standardize shape and dtype
-    if module_class == torch.nn.Conv2d:
+    if isinstance(module, torch.nn.Conv2d):
         W = W.flatten(1)
-    elif module_class == transformers.Conv1D:
+    elif isinstance(module, transformers.Conv1D):
         W.transpose_(0, 1)
     W = W.to(dtype=GPTQ_PRECISION)
     num_rows = W.shape[0]
@@ -263,7 +262,7 @@ def quantize_weight(
     if not has_gidx:
         g_idx = None
 
-    if module_class == transformers.Conv1D:
+    if isinstance(module, transformers.Conv1D):
         W.transpose_(0, 1)
     W = W.reshape(final_shape).to(final_dtype)
 

@@ -2,12 +2,12 @@ from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.tracing import TracableLlavaForConditionalGeneration
+from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
 from llmcompressor.transformers.utils.data_collator import llava_data_collator
 
 # Load model.
 model_id = "llava-hf/llava-1.5-7b-hf"
-model = TracableLlavaForConditionalGeneration.from_pretrained(
+model = TraceableLlavaForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
@@ -22,7 +22,7 @@ MAX_SEQUENCE_LENGTH = 2048
 recipe = [
     GPTQModifier(
         targets="Linear",
-        scheme="W8A8",
+        scheme="W4A16",
         ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
         sequential_targets=["LlamaDecoderLayer"],
     ),

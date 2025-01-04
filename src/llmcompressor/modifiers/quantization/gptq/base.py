@@ -60,6 +60,18 @@ class GPTQModifier(Modifier, HooksMixin):
     |                    group_size: 128
     |                    actorder: False
 
+    Lifecycle:
+        - on_initialize_structure
+            - _build_quant_modifier
+        - on_initialize
+            - register_hook(module, compress_module, "forward")
+            - run_sequential / run_layer_sequential / run_basic
+                - make_empty_hessian
+                - accumulate_hessian
+                - quantize_weight
+        - on_finalize
+            - remove_hooks()
+            - model.apply(freeze_module_quantization)
 
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
@@ -217,14 +229,17 @@ class GPTQModifier(Modifier, HooksMixin):
         # infer pipeline
         model_name = state.model.__class__.__name__
         input_names = state.data.calib.dataset.column_names
-        unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
+        unfixable_errors = (
+            torch.OutOfMemoryError,
+            torch._C._LinAlgError,
+            KeyboardInterrupt,
+        )
         try:
             run_sequential(
                 state.model,
                 self.sequential_targets,
                 self.ignore,
                 state.data.calib,
-                propagate_error=True,
             )
             return True
 
@@ -240,7 +255,6 @@ class GPTQModifier(Modifier, HooksMixin):
                     state.model,
                     self.sequential_targets,
                     state.data.calib,
-                    propagate_error=True,
                 )
                 return True
 
@@ -268,6 +282,8 @@ class GPTQModifier(Modifier, HooksMixin):
             self._quantization_modifier.finalize(state, **kwargs)
 
         self.remove_hooks()
+        self._hessians = dict()
+        self._num_samples = dict()
         state.model.apply(freeze_module_quantization)
 
         return True

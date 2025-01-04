@@ -1,7 +1,7 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set
 
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
@@ -20,11 +20,25 @@ __all__ = ["trace_subgraphs", "Subgraph"]
 
 @dataclass
 class Subgraph:
+    """
+    Dataclass specifying an executable subgraph of a model graph
+
+    :param graph: subgraph of model graph
+    :param input_names: argument names of the compiled forward function
+    :param consumed_names: argument names which are not used by any subsequent subgraphs
+        and can therefore be deleted from the intermediates cache
+    """
+
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
 
-    def compile_forward(self):
+    def compile_forward(self) -> Callable[[Any], Any]:
+        """
+        Generate and compile code for executing this subgraph
+
+        :return: function which, when called, executes this subgraph
+        """
         code = self.graph.python_code("self")
         exec(code.src, code.globals)
         return code.globals.get("forward")
@@ -36,6 +50,18 @@ def trace_subgraphs(
     sequential_targets: List[str],
     ignore: List[str],
 ) -> List[Subgraph]:
+    """
+    Trace a model to produce subgraphs, where each sequential target belongs to exactly
+    one subgraph and where executing each subgraph in order is equivalent to executing
+    the original model
+
+    :param model: model being traced
+    :param sample_input: inputs whose values will change during execution but whose
+        __len__, __bool__, and __contains__ values are assumed constant across batches
+    :param sequential_targets: list of patterns specifying sequential targets
+    :param ignore: list of patterns specifying modules to ignore during tracing
+    :return: a list of Subgraphs in order of execution
+    """
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
     ignore = match_modules(model, ignore)
@@ -77,12 +103,23 @@ def trace_subgraphs(
 def get_tracer(
     model: Module, sequential_targets: Set[Module], ignore: Set[Module]
 ) -> HFTracer:
-    offloaded_modules = set(
-        module for module in model.modules() if has_offloaded_params(module)
-    )
+    """
+    Get a tracer specialized for the given model. The resulting tracer will not trace
+    inside of sequential targets, ignored targets, or offloaded modules.
+
+    Tracing within sequential targets and ignored targets is unnecessary, and tracing
+    within offloaded modules may result in meta tensors being added to the model graph
+
+    :param model: model being traced
+    :param sequential_targets: modules which are sequential targets
+    :param ignore: modules which are ignored
+    """
+    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
+    skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
     class SequentialTracer(HFTracer):
         def create_arg(self, a: Any) -> Argument:
+            # special extension allows models which depend on config values to be traced
             if isinstance(a, PretrainedConfig):
                 kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
                 return self.create_node("call_function", a.__class__, (), kwargs)
@@ -90,19 +127,26 @@ def get_tracer(
             else:
                 return super().create_arg(a)
 
-        # Treat as leaf, skip tracing inside this module
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return (
-                module in sequential_targets
-                or module in offloaded_modules
-                or module in ignore
-                or super().is_leaf_module(module, module_qualified_name)
+            return module in skip_trace_modules or super().is_leaf_module(
+                module, module_qualified_name
             )
 
     return SequentialTracer()
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
+    """
+    Creates concrete args which, unlike the equivalent function provided by
+    transformers.utils.fx, creates default values for variadic arguments, which are
+    needed by some models.
+
+    :param model: model being traced
+    :param sample_input: values used to symbolically trace the model. All arguments
+        to the model.forward function which are not in the sample_input are considered
+        concrete args
+    :return: dictionary mapping concrete argument names to their default values
+    """
     sig = inspect.signature(model.forward)
 
     concrete_args = {}
@@ -123,7 +167,15 @@ def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
     return concrete_args
 
 
-def get_target_nodes(graph: GraphModule, targets: Set[Module]) -> Set[Node]:
+def find_target_nodes(graph: GraphModule, targets: Set[Module]) -> Set[Node]:
+    """
+    Find all nodes whose execution is equivalent to executing the target modules.
+    Note that these nodes are guaranteed to be treated as leaf nodes by SequentialTracer
+
+    :param graph: graph containing target nodes
+    :param targets: modules whose nodes are being searched for
+    :return: set of all nodes which call the target modules
+    """
     return set(
         node
         for node in graph.graph.nodes
@@ -132,8 +184,18 @@ def get_target_nodes(graph: GraphModule, targets: Set[Module]) -> Set[Node]:
 
 
 def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List[Node]]:
+    """
+    Partition the graph into partitions such that each `target` belongs to exactly one
+    partition and executing each partition depends only on intermediate values produced
+    by executing the partitions before it.
+
+    :param graph: graph being partitioned
+    :param targets: target modules which will be assigned to disjoint partitions
+    :return: list of partitions, where each partition is a list of nodes belong to that
+        partition
+    """
     assert check_assumption(graph.graph)
-    target_nodes = get_target_nodes(graph, targets)
+    target_nodes = find_target_nodes(graph, targets)
 
     partitions: List[List[Node]] = [[]]
     remaining_indegrees = {
@@ -142,7 +204,8 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     }
     partition_index = 0  # global counter
 
-    # start with graph input nodes
+    # start with graph input nodes,
+    # but delay the `get_attr` nodes as long as possible
     queue = deque(
         node
         for node in graph.graph.nodes
@@ -166,9 +229,9 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
             if remaining_indegrees[user] == 0:
                 queue.append(user)
 
-    # a perfect implementation would involve implicitly consolidating partition indices
+    # an ideal implementation would involve implicitly consolidating partition indices
     # so that each node is assigned to the maximum partition possible (in order to delay
-    # execution as long as possible), but the current implementation covers the most
+    # execution as long as possible), but saving these nodes for last covers the most
     # common and costly case (get_attr)
     for node in graph.graph.find_nodes(op="get_attr"):
         user_partitions = []
@@ -185,6 +248,17 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
 
 
 def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgraph]:
+    """
+    Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
+    of output node names to their computed values. Note that the `consumed_names`
+    attribute of each Subgraph remains empty, to be later populated by
+    `trace_consumed_names`
+
+    :param model: model which owns the produced Subgraphs
+    :param partitions: list of partitions, where each partition is a list of nodes
+        belong to that partition
+    :return: list of subgraphs in order of execution
+    """
     subgraphs = []
 
     # create subgraphs
@@ -197,7 +271,6 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
         new_input_nodes = {
             input_node
             for node in partition_nodes
-            # if node.op != "get_attr"
             for input_node in node.all_input_nodes
             if input_node not in partition_nodes and input_node.op
         }
@@ -233,7 +306,13 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
     return subgraphs
 
 
-def trace_consumed_names(subgraphs: List[Dict[str, Any]]):
+def trace_consumed_names(subgraphs: List[Subgraph]):
+    """
+    Populate the `consumed_names` attribute of each Subgraph according to when inputs
+    are last used in order to vacate the `intermediates` cache and save memory
+
+    :param subgraphs: list of subgraphs with empty `consumed_names` attributes
+    """
     # populate consumed_names according to when inputs are last used
     # in order to vacate the `intermediates` cache and save memory
     all_input_names = set().union(*(subgraph.input_names for subgraph in subgraphs))
@@ -243,10 +322,17 @@ def trace_consumed_names(subgraphs: List[Dict[str, Any]]):
                 subgraph.consumed_names.add(input_name)
                 break
         else:
-            assert False
+            raise ValueError(f"Could not find input name {input_name} in subgraphs")
 
 
 def check_assumption(graph: Graph) -> bool:
+    """
+    Checks that a graph is not malformed
+
+    :param graph: graph being checked
+    :return: True if node.users and node.all_input_nodes have bidirectional
+        relationships, False otherwise
+    """
     for node in graph.nodes:
         for user in node.users:
             if node not in user.all_input_nodes:
@@ -265,6 +351,13 @@ def check_assumption(graph: Graph) -> bool:
 
 
 def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
+    """
+    Find modules whose names matach the patterns given by `target_names`
+
+    :param model: model containing submodules to find
+    :param target_names: target patterns to find
+    :return: all submodules matching `target_names`
+    """
     return set(
         module
         for name, module in model.named_modules()

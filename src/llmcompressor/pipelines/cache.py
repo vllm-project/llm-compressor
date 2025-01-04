@@ -8,11 +8,29 @@ import tqdm
 
 @dataclass
 class IntermediateValue:
+    """
+    Dataclass which recursively defines offloaded values and which device to onload to
+
+    :param value: either an offloaded Tensor, an primative value, or a recursable value
+    :param device: if the value is a Tensor, then the device to onload the tensor to,
+        otherwise None
+    """
+
     value: Union[torch.Tensor, "IntermediateValue", Any]
     device: Union[torch.device, None]
 
 
 class IntermediatesCache:
+    """
+    Cache which stores intermediate values (activations) produced by batched, sequential
+    execution of models. Values are offloaded to the `offload_device` when stored in
+    the cache and onloaded to their original device when fetched from the cache
+
+    Currently supports nested offloading of dataclass instances and tuples
+
+    Construct using `empty` and `from_dataloader` class methods
+    """
+
     batch_intermediates: List[Dict[str, IntermediateValue]]
     offload_device: torch.device
 
@@ -26,6 +44,12 @@ class IntermediatesCache:
 
     @classmethod
     def empty(cls, num_batches: int, offload_device: torch.device):
+        """
+        Construct an empty cache
+
+        :param num_batches: the expected number of batches to be stored
+        :param offload_device: device to offload values to
+        """
         batch_intermediates = [{} for _ in range(num_batches)]
         return cls(batch_intermediates, offload_device)
 
@@ -37,6 +61,15 @@ class IntermediatesCache:
         mask_padding: bool = True,
         offload_device: torch.device = "cpu",
     ):
+        """
+        Initialize a cache with data from the provided dataloader
+
+        :param dataloader: dataloader which generates values to be cached
+        :param model_device: device which values will be onloaded to when fetched
+        :param mask_padding: zero out padding tokens if True. This affects modifiers
+            such as GPTQ and SparseGPT
+        :param offload_device: device to offload values to
+        """
         batch_intermediates = [
             {
                 key: (
@@ -57,6 +90,13 @@ class IntermediatesCache:
     def fetch(
         self, batch_index: int, input_names: Optional[List[str]] = None
     ) -> Dict[str, Any]:
+        """
+        Fetch values belonging to a batch
+
+        :param batch_index: index of batch whose values are being fetched
+        :param input_names: list of keys whose values are being fetched
+        :return: dictionary mapping keys to onloaded values
+        """
         intermediates = self.batch_intermediates[batch_index]
 
         return {
@@ -66,10 +106,23 @@ class IntermediatesCache:
         }
 
     def update(self, batch_index: int, values: Dict[str, Any]):
+        """
+        Update/put values belonging to a batch
+
+        :param batch_index: index of batch whose values will be updated
+        :param values: dictionary mapping keys to values used for update
+        """
         intermediates = {k: self._offload_value(v) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
     def delete(self, batch_index: int, consumed_names: Optional[List[str]] = None):
+        """
+        Delete values from the cache
+
+        :param batch_index: index of batch whose values will be deleted
+        :param consumed_names: list of keys whose values will be deleted, defaults to
+            removing all keys
+        """
         intermediates = self.batch_intermediates[batch_index]
 
         if consumed_names is None:
@@ -134,4 +187,5 @@ class IntermediatesCache:
             # some attention masks, such as those from pixtral, are are 4d
             attention_mask = attention_mask[0, 0, 0].unsqueeze(0)
 
-        return input_ids.masked_fill_(torch.logical_not(attention_mask), 0)
+        # Assumes that `attention_mask` only contains zeros and ones
+        return input_ids * attention_mask

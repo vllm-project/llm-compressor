@@ -114,8 +114,8 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
 def hessian_memory_requirements(model: torch.nn.Module) -> int:
     """
     Determines the number of bytes needed to store Hessian data for a single
-    transformer layer in model. This is used for reserving memory for GPTQModifier
-    or SparseGPTModifier
+    transformer layer in model. This is used for reserving memory for GPTQ
+    quantization
 
     :param model: model to calculate requirements for
     :return: number of bytes required to reserve for GPTQ on a single layer
@@ -192,6 +192,7 @@ def custom_offload_device_map(
     memory_limits = {device: max_memory_per_gpu for device in range(num_gpus)}
     memory_limits["cpu"] = max_cpu_memory
 
+    device_map = {}
     with init_empty_weights():
         dummy_model = model_cls.from_pretrained(model_stub, **model_kwargs)
         device_map = infer_auto_device_map(
@@ -199,6 +200,7 @@ def custom_offload_device_map(
             max_memory=memory_limits,
             no_split_module_classes=dummy_model._no_split_modules,
         )
+        del dummy_model
 
     return device_map
 
@@ -206,8 +208,7 @@ def custom_offload_device_map(
 def calculate_offload_device_map(
     model_stub: str,
     reserve_for_hessians=False,
-    num_gpus: Optional[int] = None,
-    gpu_ids: Optional[List[int]] = None,
+    num_gpus: int = 1,
     torch_dtype: torch.dtype = torch.float16,
     model_cls: Type = AutoModelForCausalLM,
     **model_kwargs,
@@ -217,33 +218,23 @@ def calculate_offload_device_map(
     into account extra memory required for quantization and (optionally) GPTQ hessians
 
     :param model_stub: local path or HF stub to calculate mapping for
-    :param reserve_for_hessians: whether to reserve memory for GPTQ/OBCQ
-    :param num_gpus: number of gpus to utilize, defaults to max available
-    :param gpu_ids: list of gpu device ids to utilize, overrides num_gpus if provided
-    :param torch_dtype: datatype in which model weights are to be loaded with
+    :param reserve_for_hessians: whether to reserve memory for GPTQ
+    :param num_gpus: number of gpus to utilize
     :param model_cls: model class to use when initializing model structure,
         default is AutoModelForCausalLM
     :param model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
     max_cpu_memory = psutil.virtual_memory().available
+    max_gpu_memory = torch.cuda.mem_get_info(0)[0]
     available_gpus = torch.cuda.device_count()
-    if gpu_ids is None:
-        if num_gpus is None:
-            num_gpus = available_gpus
-        gpu_ids = range(num_gpus)
-    else:
-        num_gpus = len(gpu_ids)
-
-    if num_gpus > available_gpus:
+    if available_gpus < num_gpus:
         raise ValueError(
             f"Requested {num_gpus} GPUs but only {available_gpus} are available."
         )
+    max_gpu_memory = [max_gpu_memory] * num_gpus
 
-    max_gpu_memory = {
-        device_id: torch.cuda.mem_get_info(device_id)[0] for device_id in gpu_ids
-    }
-
+    device_map = {}
     with init_empty_weights():
         dummy_model = model_cls.from_pretrained(
             model_stub, torch_dtype=torch_dtype, **model_kwargs
@@ -256,7 +247,7 @@ def calculate_offload_device_map(
 
         memory_limits = {
             idx: (max_memory - reserved_memory)
-            for idx, max_memory in max_gpu_memory.items()
+            for idx, max_memory in enumerate(max_gpu_memory)
         }
         memory_limits["cpu"] = max_cpu_memory
 
@@ -265,6 +256,7 @@ def calculate_offload_device_map(
             max_memory=memory_limits,
             no_split_module_classes=dummy_model._no_split_modules,
         )
+        del dummy_model
 
     return device_map
 

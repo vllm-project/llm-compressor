@@ -24,19 +24,23 @@ from transformers.models.llava.configuration_llava import LlavaConfig
 from transformers.models.llava.modeling_llava import (
     LlavaCausalLMOutputWithPast,
     LlavaMultiModalProjector,
+    LlavaPreTrainedModel,
     logger,
 )
 from transformers.models.mistral.configuration_mistral import MistralConfig
 from transformers.utils.fx import HFProxy
 
-from .mistral import MistralForCausalLM as TracableMistralForCausalLM
+# TRACING: Reuse traceable subclass
+from .mistral import MistralForCausalLM as TraceableMistralForCausalLM
 
 
+# TRACING: The shape of image_features is known and documented by
+# LlavaForConditionalGeneration.get_image_features
 def maybe_install_metadata_image_features(
     image_features: Union[torch.Tensor, HFProxy],
     pixel_values: Union[torch.Tensor, HFProxy],
     config: LlavaConfig,
-):
+) -> Union[torch.Tensor, HFProxy]:
     if isinstance(image_features, HFProxy):
         # (num_images, image_length, embed_dim)
         num_images = pixel_values._metadata.size(0)
@@ -52,12 +56,14 @@ def maybe_install_metadata_image_features(
     return image_features
 
 
+# TRACING: The shape of inputs_embeds is known. This function compensates for
+# the fact that shape inference through `masked_scatter` is not implemented yet
 def maybe_install_metadata_inputs_embeds(
     inputs_embeds_masked: Union[torch.Tensor, HFProxy],
     inputs_embeds: Union[torch.Tensor, HFProxy],
     special_image_mask: Union[torch.Tensor, HFProxy],
     image_features: Union[torch.Tensor, HFProxy],
-):
+) -> Union[torch.Tensor, HFProxy]:
     if isinstance(inputs_embeds_masked, HFProxy):
         metadata = inputs_embeds._metadata.masked_scatter(
             special_image_mask._metadata.to(bool), image_features._metadata
@@ -67,26 +73,23 @@ def maybe_install_metadata_inputs_embeds(
     return inputs_embeds
 
 
+# TRACING: override `__init__` and `forward`
 class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
     def __init__(self, config: LlavaConfig):
-        super().__init__(config)
+        super(LlavaPreTrainedModel, self).__init__(config)
         self.vision_tower = AutoModel.from_config(config.vision_config)
 
         self.multi_modal_projector = LlavaMultiModalProjector(config)
         self.vocab_size = config.text_config.vocab_size
 
-        # NOT TRACABLE: Must use TracableMistralForCausalLM which wraps untracable function
+        # TRACING: Must use TraceableMistralForCausalLM which wraps an untraceable function
         if isinstance(config.text_config, MistralConfig):
-            self.language_model = TracableMistralForCausalLM(config.text_config)
+            self.language_model = TraceableMistralForCausalLM(config.text_config)
         else:
             self.language_model = AutoModelForCausalLM.from_config(config.text_config)
 
-        self.pad_token_id = (
-            self.config.pad_token_id if self.config.pad_token_id is not None else -1
-        )
+        self.pad_token_id = self.config.pad_token_id if self.config.pad_token_id is not None else -1
         self.post_init()
-
-        self.__class__.__name__ = "LlavaForConditionalGeneration"
 
     def forward(
         self,
@@ -106,23 +109,13 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
         cache_position: Optional[torch.LongTensor] = None,
         num_logits_to_keep: int = 0,
     ) -> Union[Tuple, LlavaCausalLMOutputWithPast]:
-        output_attentions = (
-            output_attentions
-            if output_attentions is not None
-            else self.config.output_attentions
-        )
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
-            output_hidden_states
-            if output_hidden_states is not None
-            else self.config.output_hidden_states
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        return_dict = (
-            return_dict if return_dict is not None else self.config.use_return_dict
-        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         vision_feature_layer = (
-            vision_feature_layer
-            if vision_feature_layer is not None
-            else self.config.vision_feature_layer
+            vision_feature_layer if vision_feature_layer is not None else self.config.vision_feature_layer
         )
         vision_feature_select_strategy = (
             vision_feature_select_strategy
@@ -131,9 +124,7 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
         )
 
         if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError(
-                "You must specify exactly one of input_ids or inputs_embeds"
-            )
+            raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
         if pixel_values is not None and inputs_embeds is not None:
             raise ValueError(
@@ -148,7 +139,8 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
             # not very reliable, but we don't expect one to actually pass 500+ images for one prompt
             # In case we're in decoding stage, legacy behavior is checked by presence of pixel values even if use_cache=True
 
-            # NOT TRACABLE, instead always use legacy_processing = False
+            # TRACING: Assume that the user will not pass 500+ images for a single prompt
+            # instead always use legacy_processing = False
             # legacy_processing = (
             #     (input_ids == self.config.image_token_index).sum(1).max() < self.config.image_seq_length
             # ) or (input_ids.shape[-1] == 1 and pixel_values is not None)
@@ -174,23 +166,17 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
             )
             # prefill stage vs decoding stage (legacy behavior copied)
             if input_ids.shape[1] != 1:
-                inputs_embeds, attention_mask, labels, position_ids = (
-                    self._merge_input_ids_with_image_features(
-                        image_features, inputs_embeds, input_ids, attention_mask, labels
-                    )
+                inputs_embeds, attention_mask, labels, position_ids = self._merge_input_ids_with_image_features(
+                    image_features, inputs_embeds, input_ids, attention_mask, labels
                 )
-                cache_position = torch.arange(
-                    attention_mask.shape[1], device=attention_mask.device
-                )
+                cache_position = torch.arange(attention_mask.shape[1], device=attention_mask.device)
             else:
                 # Retrieve the first layer to inspect the logits and mask out the hidden states
                 # that are set to 0
                 first_layer_past_key_value = past_key_values[0][0][:, :, :, 0]
 
                 # Sum all dimensions of head_dim (-2) to avoid random errors such as: https://github.com/huggingface/transformers/pull/28032#issuecomment-1863691941
-                batch_index, non_attended_tokens = torch.where(
-                    first_layer_past_key_value.float().sum(-2) == 0
-                )
+                batch_index, non_attended_tokens = torch.where(first_layer_past_key_value.float().sum(-2) == 0)
 
                 # Get the target length
                 target_length = input_ids.shape[1]
@@ -212,20 +198,16 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 # Zero-out the places where we don't need to attend
                 extended_attention_mask[new_batch_index, new_non_attended_tokens] = 0
 
-                attention_mask = torch.cat(
-                    (extended_attention_mask, attention_mask[:, -target_length:]), dim=1
-                )
+                attention_mask = torch.cat((extended_attention_mask, attention_mask[:, -target_length:]), dim=1)
                 position_ids = torch.sum(attention_mask, dim=1).unsqueeze(-1) - 1
-                cache_position = torch.arange(
-                    attention_mask.shape[1], device=attention_mask.device
-                )[-target_length:]
+                cache_position = torch.arange(attention_mask.shape[1], device=attention_mask.device)[-target_length:]
 
         # @raushan retain only the new behavior after v4.47
         elif image_features is not None:
             n_image_tokens = (input_ids == self.config.image_token_index).sum().item()
             n_image_features = image_features.shape[0] * image_features.shape[1]
 
-            # NOT TRACABLE, instead always use n_image_tokens != n_image_features = False
+            # TRACING: Assume that processing and tokenization was done correctly
             # if n_image_tokens != n_image_features:
             if False:
                 raise ValueError(
@@ -237,16 +219,11 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 .expand_as(inputs_embeds)
                 .to(inputs_embeds.device)
             )
-            image_features = image_features.to(
-                inputs_embeds.device, inputs_embeds.dtype
-            )
-            inputs_embeds_masked = inputs_embeds.masked_scatter(
-                special_image_mask, image_features
-            )
+            image_features = image_features.to(inputs_embeds.device, inputs_embeds.dtype)
+            inputs_embeds_masked = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
-            inputs_embeds_masked = maybe_install_metadata_inputs_embeds(
-                inputs_embeds_masked, inputs_embeds, special_image_mask, image_features
-            )
+            # TRACING: install metadata
+            inputs_embeds_masked = maybe_install_metadata_inputs_embeds(inputs_embeds_masked, inputs_embeds, special_image_mask, image_features)
             inputs_embeds = inputs_embeds_masked
 
         outputs = self.language_model(
@@ -270,23 +247,16 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
             if attention_mask is not None:
                 # we use the input attention mask to shift the logits and labels, because it is 2D.
                 # we also crop attn mask in case it is longer, which happens in PrefixTuning with peft
-                shift_attention_mask = attention_mask[:, -(logits.shape[1] - 1) :].to(
-                    logits.device
-                )
-                shift_logits = logits[..., :-1, :][
-                    shift_attention_mask.to(logits.device) != 0
-                ].contiguous()
-                shift_labels = labels[..., 1:][
-                    shift_attention_mask.to(labels.device) != 0
-                ].contiguous()
+                shift_attention_mask = attention_mask[:, -(logits.shape[1] - 1) :].to(logits.device)
+                shift_logits = logits[..., :-1, :][shift_attention_mask.to(logits.device) != 0].contiguous()
+                shift_labels = labels[..., 1:][shift_attention_mask.to(labels.device) != 0].contiguous()
             else:
                 shift_logits = logits[..., :-1, :].contiguous()
                 shift_labels = labels[..., 1:].contiguous()
             # Flatten the tokens
             loss_fct = torch.nn.CrossEntropyLoss()
             loss = loss_fct(
-                shift_logits.view(-1, shift_logits.size(-1)),
-                shift_labels.view(-1).to(shift_logits.device),
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1).to(shift_logits.device),
             )
 
         if not return_dict:

@@ -1,13 +1,12 @@
 # flake8: noqa
 # vllm-project: no copyright
-import math
-from argparse import Namespace
-
 import torch
-import torch.nn.functional as F
 from torch import nn
-from torch.nn import LayerNorm
+from argparse import Namespace
+import torch.nn.functional as F
 from transformers.activations import ACT2FN
+import math
+from torch.nn import LayerNorm
 
 
 def standard_attention(query_layer, key_layer, value_layer, scaling_attention_score=True):
