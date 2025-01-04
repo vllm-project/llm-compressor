@@ -187,4 +187,5 @@ class IntermediatesCache:
             # some attention masks, such as those from pixtral, are are 4d
             attention_mask = attention_mask[0, 0, 0].unsqueeze(0)
 
-        return input_ids.masked_fill_(torch.logical_not(attention_mask), 0)
+        # Assumes that `attention_mask` only contains zeros and ones
+        return input_ids * attention_mask
