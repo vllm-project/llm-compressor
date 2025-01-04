@@ -136,6 +136,17 @@ def get_tracer(
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
+    """
+    Creates concrete args which, unlike the equivalent function provided by
+    transformers.utils.fx, creates default values for variadic arguments, which are
+    needed by some models.
+
+    :param model: model being traced
+    :param sample_input: values used to symbolically trace the model. All arguments
+        to the model.forward function which are not in the sample_input are considered
+        concrete args
+    :return: dictionary mapping concrete argument names to their default values
+    """
     sig = inspect.signature(model.forward)
 
     concrete_args = {}
@@ -156,7 +167,15 @@ def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
     return concrete_args
 
 
-def get_target_nodes(graph: GraphModule, targets: Set[Module]) -> Set[Node]:
+def find_target_nodes(graph: GraphModule, targets: Set[Module]) -> Set[Node]:
+    """
+    Find all nodes whose execution is equivalent to executing the target modules.
+    Note that these nodes are guaranteed to be treated as leaf nodes by SequentialTracer
+
+    :param graph: graph containing target nodes
+    :param targets: modules whose nodes are being searched for
+    :return: set of all nodes which call the target modules
+    """
     return set(
         node
         for node in graph.graph.nodes
@@ -165,8 +184,18 @@ def get_target_nodes(graph: GraphModule, targets: Set[Module]) -> Set[Node]:
 
 
 def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List[Node]]:
+    """
+    Partition the graph into partitions such that each `target` belongs to exactly one
+    partition and executing each partition depends only on intermediate values produced
+    by executing the partitions before it.
+
+    :param graph: graph being partitioned
+    :param targets: target modules which will be assigned to disjoint partitions
+    :return: list of partitions, where each partition is a list of nodes belong to that
+        partition
+    """
     assert check_assumption(graph.graph)
-    target_nodes = get_target_nodes(graph, targets)
+    target_nodes = find_target_nodes(graph, targets)
 
     partitions: List[List[Node]] = [[]]
     remaining_indegrees = {
@@ -219,6 +248,17 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
 
 
 def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgraph]:
+    """
+    Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
+    of output node names to their computed values. Note that the `consumed_names`
+    attribute of each Subgraph remains empty, to be later populated by
+    `trace_consumed_names`
+
+    :param model: model which owns the produced Subgraphs
+    :param partitions: list of partitions, where each partition is a list of nodes
+        belong to that partition
+    :return: list of subgraphs in order of execution
+    """
     subgraphs = []
 
     # create subgraphs
@@ -266,7 +306,13 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
     return subgraphs
 
 
-def trace_consumed_names(subgraphs: List[Dict[str, Any]]):
+def trace_consumed_names(subgraphs: List[Subgraph]):
+    """
+    Populate the `consumed_names` attribute of each Subgraph according to when inputs
+    are last used in order to vacate the `intermediates` cache and save memory
+
+    :param subgraphs: list of subgraphs with empty `consumed_names` attributes
+    """
     # populate consumed_names according to when inputs are last used
     # in order to vacate the `intermediates` cache and save memory
     all_input_names = set().union(*(subgraph.input_names for subgraph in subgraphs))
@@ -276,10 +322,17 @@ def trace_consumed_names(subgraphs: List[Dict[str, Any]]):
                 subgraph.consumed_names.add(input_name)
                 break
         else:
-            assert False
+            raise ValueError(f"Could not find input name {input_name} in subgraphs")
 
 
 def check_assumption(graph: Graph) -> bool:
+    """
+    Checks that a graph is not malformed
+
+    :param graph: graph being checked
+    :return: True if node.users and node.all_input_nodes have bidirectional
+        relationships, False otherwise
+    """
     for node in graph.nodes:
         for user in node.users:
             if node not in user.all_input_nodes:
@@ -298,6 +351,13 @@ def check_assumption(graph: Graph) -> bool:
 
 
 def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
+    """
+    Find modules whose names matach the patterns given by `target_names`
+
+    :param model: model containing submodules to find
+    :param target_names: target patterns to find
+    :return: all submodules matching `target_names`
+    """
     return set(
         module
         for name, module in model.named_modules()
