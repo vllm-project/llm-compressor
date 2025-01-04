@@ -60,6 +60,18 @@ class GPTQModifier(Modifier, HooksMixin):
     |                    group_size: 128
     |                    actorder: False
 
+    Lifecycle:
+        - on_initialize_structure
+            - _build_quant_modifier
+        - on_initialize
+            - register_hook(module, compress_module, "forward")
+            - run_sequential / run_layer_sequential / run_basic
+                - make_empty_hessian
+                - accumulate_hessian
+                - quantize_weight
+        - on_finalize
+            - remove_hooks()
+            - model.apply(freeze_module_quantization)
 
     :param sequential_targets: list of layer names to compress during GPTQ, or
         '__ALL__' to compress every layer in the model
