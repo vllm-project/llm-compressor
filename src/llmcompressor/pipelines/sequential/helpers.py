@@ -77,12 +77,11 @@ def trace_subgraphs(
 def get_tracer(
     model: Module, sequential_targets: Set[Module], ignore: Set[Module]
 ) -> HFTracer:
-    offloaded_modules = set(
-        module for module in model.modules() if has_offloaded_params(module)
-    )
+    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
 
     class SequentialTracer(HFTracer):
         def create_arg(self, a: Any) -> Argument:
+            # special extension allows models which depend on config values to be traced
             if isinstance(a, PretrainedConfig):
                 kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
                 return self.create_node("call_function", a.__class__, (), kwargs)
@@ -90,11 +89,11 @@ def get_tracer(
             else:
                 return super().create_arg(a)
 
-        # Treat as leaf, skip tracing inside this module
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
+            # skip tracing sequential targets, offloaded modules, and ignored modules
             return (
                 module in sequential_targets
-                or module in offloaded_modules
+                or module in offloaded_modules  # TODO: may be unnecessary
                 or module in ignore
                 or super().is_leaf_module(module, module_qualified_name)
             )
@@ -142,7 +141,8 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     }
     partition_index = 0  # global counter
 
-    # start with graph input nodes
+    # start with graph input nodes,
+    # but delay the `get_attr` nodes as long as possible
     queue = deque(
         node
         for node in graph.graph.nodes
@@ -166,9 +166,9 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
             if remaining_indegrees[user] == 0:
                 queue.append(user)
 
-    # a perfect implementation would involve implicitly consolidating partition indices
+    # an ideal implementation would involve implicitly consolidating partition indices
     # so that each node is assigned to the maximum partition possible (in order to delay
-    # execution as long as possible), but the current implementation covers the most
+    # execution as long as possible), but saving these nodes for last covers the most
     # common and costly case (get_attr)
     for node in graph.graph.find_nodes(op="get_attr"):
         user_partitions = []
@@ -197,7 +197,6 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
         new_input_nodes = {
             input_node
             for node in partition_nodes
-            # if node.op != "get_attr"
             for input_node in node.all_input_nodes
             if input_node not in partition_nodes and input_node.op
         }
