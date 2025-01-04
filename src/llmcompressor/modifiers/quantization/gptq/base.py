@@ -282,6 +282,8 @@ class GPTQModifier(Modifier, HooksMixin):
             self._quantization_modifier.finalize(state, **kwargs)
 
         self.remove_hooks()
+        self._hessians = dict()
+        self._num_samples = dict()
         state.model.apply(freeze_module_quantization)
 
         return True
