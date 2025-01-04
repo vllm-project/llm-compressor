@@ -89,21 +89,6 @@ apply(
 
 ```
 
-
-### Step 3: Compression
-
-The resulting model will be uncompressed. To save a final compressed copy of the model 
-run the following:
-
-```python
-import torch
-from transformers import AutoModelForCausalLM
-
-compressed_output_dir = "output_llama7b_2of4_w4a16_channel_compressed"
-model = AutoModelForCausalLM.from_pretrained(output_dir, torch_dtype=torch.bfloat16)
-model.save_pretrained(compressed_output_dir, save_compressed=True)
-```
-
 ### Custom Quantization
 The current repo supports multiple quantization techniques configured using a recipe. Supported strategies are `tensor`, `group` and `channel`. 
 The above recipe (`2of4_w4a16_recipe.yaml`) uses channel-wise quantization specified by `strategy: "channel"` in its config group. 
