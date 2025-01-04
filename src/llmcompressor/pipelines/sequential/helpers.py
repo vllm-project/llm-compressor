@@ -1,7 +1,7 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set
 
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
@@ -20,11 +20,25 @@ __all__ = ["trace_subgraphs", "Subgraph"]
 
 @dataclass
 class Subgraph:
+    """
+    Dataclass specifying an executable subgraph of a model graph
+
+    :param graph: subgraph of model graph
+    :param input_names: argument names of the compiled forward function
+    :param consumed_names: argument names which are not used by any subsequent subgraphs
+        and can therefore be deleted from the intermediates cache
+    """
+
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
 
-    def compile_forward(self):
+    def compile_forward(self) -> Callable[[Any], Any]:
+        """
+        Generate and compile code for executing this subgraph
+
+        :return: function which, when called, executes this subgraph
+        """
         code = self.graph.python_code("self")
         exec(code.src, code.globals)
         return code.globals.get("forward")
@@ -36,6 +50,18 @@ def trace_subgraphs(
     sequential_targets: List[str],
     ignore: List[str],
 ) -> List[Subgraph]:
+    """
+    Trace a model to produce subgraphs, where each sequential target belongs to exactly
+    one subgraph and where executing each subgraph in order is equivalent to executing
+    the original model
+
+    :param model: model being traced
+    :param sample_input: inputs whose values will change during execution but whose
+        __len__, __bool__, and __contains__ values are assumed constant across batches
+    :param sequential_targets: list of patterns specifying sequential targets
+    :param ignore: list of patterns specifying modules to ignore during tracing
+    :return: a list of Subgraphs in order of execution
+    """
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
     ignore = match_modules(model, ignore)
@@ -77,7 +103,19 @@ def trace_subgraphs(
 def get_tracer(
     model: Module, sequential_targets: Set[Module], ignore: Set[Module]
 ) -> HFTracer:
+    """
+    Get a tracer specialized for the given model. The resulting tracer will not trace
+    inside of sequential targets, ignored targets, or offloaded modules.
+
+    Tracing within sequential targets and ignored targets is unnecessary, and tracing
+    within offloaded modules may result in meta tensors being added to the model graph
+
+    :param model: model being traced
+    :param sequential_targets: modules which are sequential targets
+    :param ignore: modules which are ignored
+    """
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
+    skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
     class SequentialTracer(HFTracer):
         def create_arg(self, a: Any) -> Argument:
@@ -90,12 +128,8 @@ def get_tracer(
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            # skip tracing sequential targets, offloaded modules, and ignored modules
-            return (
-                module in sequential_targets
-                or module in offloaded_modules  # TODO: may be unnecessary
-                or module in ignore
-                or super().is_leaf_module(module, module_qualified_name)
+            return module in skip_trace_modules or super().is_leaf_module(
+                module, module_qualified_name
             )
 
     return SequentialTracer()
