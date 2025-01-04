@@ -19,6 +19,13 @@ __all__ = ["match_modules", "capture_first_layer_intermediates", "to_next_layer_
 
 
 def match_modules(model: Module, target_names: List[str]) -> List[Module]:
+    """
+    Find all submodules which match the `target_names` and sort them by name
+
+    :param model: model to search for submodules in
+    :param target_names: patterns of submodule names to match
+    :return: list of submodules
+    """
     names_layers = [
         (name, module)
         for name, module in model.named_modules()
@@ -35,6 +42,21 @@ def capture_first_layer_intermediates(
     dataloader: DataLoader,
     mask_padding: bool = True,
 ) -> IntermediatesCache:
+    """
+    Captures the intermediate activations directly before the first model layer.
+    This is meant to capture any model preprocessing before model layers are executed
+
+    Note that if any modules compressed prior to the execution of the first layer, the
+    compression error induced by compressing those modules will not be propagated to
+    subsequent activations, as they would be for modules which are compressed within
+    a layer
+
+    :param model: model containing layers
+    :param layers: list of layer submodules in the model
+    :param dataloader: dataloader of calibration inputs
+    :param mask_padding: zero out padding tokens if True. This affects modifiers such as
+        GPTQ and SparseGPT
+    """
     model_device = get_execution_device(model)
     intermediates = IntermediatesCache.empty(len(dataloader), torch.device("cpu"))
     first_layer = layers[0]
@@ -64,6 +86,14 @@ def capture_first_layer_intermediates(
 
 
 def to_next_layer_kwargs(args: Tuple[Any, ...], next_layer: Module) -> Dict[str, Any]:
+    """
+    Convert a list of arguments to a dictionary of keyword arguments which match the
+    next layer's function signature
+
+    :param args: list of argument values
+    :param next_layer: the next layer whose function signature must be matched
+    :return: dictionary mapping function signature keywords to argument values
+    """
     signature = inspect.signature(next_layer.forward)
     return args_to_kwargs(args, signature)
 
