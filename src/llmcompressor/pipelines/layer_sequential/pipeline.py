@@ -42,7 +42,7 @@ def run_pipeline(
 
     with calibration_forward_context(model):
         # prepare intermediates cache
-        intermediates = capture_first_layer_intermediates(model, layers, dataloader)
+        intermediates = capture_first_layer_intermediates(model, layers[0], dataloader)
 
         num_layers = len(layers)
         for layer_index, layer in enumerate(layers):
