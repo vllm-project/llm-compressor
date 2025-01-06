@@ -5,6 +5,7 @@ import torch.utils.data.dataloader
 import tqdm
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
     capture_first_layer_intermediates,
     match_modules,
@@ -42,7 +43,9 @@ def run_pipeline(
 
     with calibration_forward_context(model):
         # prepare intermediates cache
-        intermediates = capture_first_layer_intermediates(model, layers[0], dataloader)
+        intermediates: IntermediatesCache = capture_first_layer_intermediates(
+            model, layers[0], dataloader
+        )
 
         num_layers = len(layers)
         for layer_index, layer in enumerate(layers):
