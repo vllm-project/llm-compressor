@@ -1,28 +1,9 @@
-import pdb
-import sys
-
-
-def exception_handler(exc_type, exc_value, exc_traceback):
-    """Custom exception handler to invoke pdb on error."""
-    if issubclass(exc_type, KeyboardInterrupt):
-        # Allow KeyboardInterrupt to exit normally
-        sys.__excepthook__(exc_type, exc_value, exc_traceback)
-        return
-    print(f"\nUnhandled exception: {exc_value}")
-    pdb.post_mortem(exc_traceback)
-
-
-# Set the custom exception hook
-sys.excepthook = exception_handler
-
-
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
-# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
@@ -49,6 +30,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic-2"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)

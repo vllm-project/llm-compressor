@@ -165,7 +165,7 @@ class StageRunner:
 
             # if we don't run a forward pass after initializing the FSDP model for the
             # first time, calls to summon_full_params will fail ¯\_(ツ)_/¯
-            if islas_fsdp_model(self.trainer.model):
+            if is_fsdp_model(self.trainer.model):
                 dummy_inp = dict(next(iter(calib_data)))
                 model_device = next(self.trainer.model.parameters()).device
                 dummy_inp = tensors_to_device(dummy_inp, model_device)

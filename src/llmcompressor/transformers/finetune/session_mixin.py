@@ -8,7 +8,6 @@ import torch
 from loguru import logger
 from torch.nn import Module
 from torch.utils.data import DataLoader, IterableDataset
-from transformers import Trainer as HFTransformersTrainer
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -447,7 +446,6 @@ class SessionManagerMixIn:
         :param stage: which stage of the recipe to run, or None to run whole recipe
         :param calib_data: dataloader of calibration data
         """
-
         apply(
             recipe=self.recipe,
             recipe_stage=stage,
