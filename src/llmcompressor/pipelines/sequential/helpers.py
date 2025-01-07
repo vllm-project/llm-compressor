@@ -194,7 +194,7 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     :return: list of partitions, where each partition is a list of nodes belonging to
         that partition
     """
-    assert check_assumption(graph.graph)
+    assert graph_is_well_formed(graph.graph)
     target_nodes = find_target_nodes(graph, targets)
 
     partitions: List[List[Node]] = [[]]
@@ -301,7 +301,7 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
             )
         )
 
-        assert check_assumption(graph)
+        assert graph_is_well_formed(graph)
 
     return subgraphs
 
@@ -325,13 +325,13 @@ def trace_consumed_names(subgraphs: List[Subgraph]):
             raise ValueError(f"Could not find input name {input_name} in subgraphs")
 
 
-def check_assumption(graph: Graph) -> bool:
+def graph_is_well_formed(graph: Graph) -> bool:
     """
-    Checks that a graph is not malformed
+    A graph is well formed if and only if
+    `nodeA in NodeB.users <=> nodeB in Node.A.all_input_nodes`
 
     :param graph: graph being checked
-    :return: True if node.users and node.all_input_nodes have bidirectional
-        relationships, False otherwise
+    :return: True if the graph is well formed, False otherwise
     """
     for node in graph.nodes:
         for user in node.users:
