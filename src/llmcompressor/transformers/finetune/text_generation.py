@@ -88,7 +88,8 @@ def oneshot(**kwargs):
     CLI entrypoint for running oneshot calibration
     """
     model_args, data_args, recipe_args = parse_oneshot_args(**kwargs)
-    run_oneshot(model_args, data_args, recipe_args)
+    model = run_oneshot(model_args, data_args, recipe_args)
+    return model
 
 
 # alias
@@ -553,19 +554,16 @@ def run_oneshot(
     if isinstance(processor, str) or processor is None:
         tokenizer_or_processor = initialize_processor_from_path(model_args, model)
 
-    pre_initialize_structure(model=model)
+    # pre_initialize_structure(model=model)
 
     calibration_dataset = get_calibration_dataloader(data_args, processor)
 
     # Initialize oneshot calibrator
     calibrator = Calibrator(
+        model=model,
         recipe=recipe_args.recipe,
         recipe_args=recipe_args.recipe_args,
-        args=recipe_args,
         data_args=data_args,
-        train_dataset=calibration_dataset,
-        processing_class=tokenizer_or_processor,
-        data_collator=data_args.data_collator,
     )
 
     calibrator.one_shot(calibration_data=calibration_dataset)
@@ -587,6 +585,8 @@ def run_oneshot(
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:
         reset_session()
+        
+    return model
 
 
 if __name__ == "__main__":
