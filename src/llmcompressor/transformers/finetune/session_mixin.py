@@ -8,9 +8,9 @@ import torch
 from loguru import logger
 from torch.nn import Module
 from torch.utils.data import DataLoader, IterableDataset
+from transformers import Trainer as HFTransformersTrainer
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
-from transformers import Trainer as HFTransformersTrainer
 
 from llmcompressor.core import (
     active_session,
@@ -35,8 +35,6 @@ from llmcompressor.transformers.finetune.callbacks import (
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
-
-from transformers import Trainer as HFTransformersTrainer
 
 if TYPE_CHECKING:
     from llmcompressor.transformers import DataTrainingArguments
@@ -449,7 +447,7 @@ class SessionManagerMixIn:
         :param stage: which stage of the recipe to run, or None to run whole recipe
         :param calib_data: dataloader of calibration data
         """
-        
+
         apply(
             recipe=self.recipe,
             recipe_stage=stage,

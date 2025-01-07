@@ -1,18 +1,18 @@
-
-from typing import List, Optional
 from dataclasses import dataclass, field
+from typing import List, Optional
+
 
 @dataclass
 class RecipeArguments:
     """Recipe and session variables"""
 
-    recipe: Optional[str] = field( # runner py, test_gen.py
+    recipe: Optional[str] = field(  # runner py, test_gen.py
         default=None,
         metadata={
             "help": "Path to a LLM Compressor sparsification recipe",
         },
     )
-    recipe_args: Optional[List[str]] = field( # text_gen.py
+    recipe_args: Optional[List[str]] = field(  # text_gen.py
         default=None,
         metadata={
             "help": (

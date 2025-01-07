@@ -1,3 +1,21 @@
+import pdb
+import sys
+
+
+def exception_handler(exc_type, exc_value, exc_traceback):
+    """Custom exception handler to invoke pdb on error."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Allow KeyboardInterrupt to exit normally
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    print(f"\nUnhandled exception: {exc_value}")
+    pdb.post_mortem(exc_traceback)
+
+
+# Set the custom exception hook
+sys.excepthook = exception_handler
+
+
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -6,7 +24,9 @@ from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",

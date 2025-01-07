@@ -1,5 +1,6 @@
-import sys
 import pdb
+import sys
+
 
 def exception_handler(exc_type, exc_value, exc_traceback):
     """Custom exception handler to invoke pdb on error."""
@@ -10,9 +11,9 @@ def exception_handler(exc_type, exc_value, exc_traceback):
     print(f"\nUnhandled exception: {exc_value}")
     pdb.post_mortem(exc_traceback)
 
+
 # Set the custom exception hook
 sys.excepthook = exception_handler
-
 
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -48,6 +49,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic-2"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)

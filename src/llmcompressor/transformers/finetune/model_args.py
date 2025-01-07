@@ -85,7 +85,7 @@ class ModelArguments:
     )
 
 
-@dataclass 
+@dataclass
 class OneshotModelArguments:
     """Model variables used for oneshot calibration"""
 

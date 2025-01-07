@@ -57,16 +57,24 @@ class StageRunner:
         self.datasets = {}
         self.trainer = None
         self.processor = None
-        
+
         if hasattr(model_args, "output_dir"):
             output_dir = model_args.output_dir
         else:
-            output_dir = training_args.output_dir 
+            output_dir = training_args.output_dir
 
-        self.parent_output_dir = output_dir 
+        self.parent_output_dir = output_dir
         self._output_dir = output_dir
 
-    def populate_datasets(self, processor: Processor, add_labels: bool = True, do_oneshot=False, do_train=False, do_eval=False, do_predict=False):
+    def populate_datasets(
+        self,
+        processor: Processor,
+        add_labels: bool = True,
+        do_oneshot=False,
+        do_train=False,
+        do_eval=False,
+        do_predict=False,
+    ):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
@@ -157,14 +165,18 @@ class StageRunner:
 
             # if we don't run a forward pass after initializing the FSDP model for the
             # first time, calls to summon_full_params will fail ¯\_(ツ)_/¯
-            if is_fsdp_model(self.trainer.model):
+            if islas_fsdp_model(self.trainer.model):
                 dummy_inp = dict(next(iter(calib_data)))
                 model_device = next(self.trainer.model.parameters()).device
                 dummy_inp = tensors_to_device(dummy_inp, model_device)
                 with torch.no_grad():
                     self.trainer.model(**dummy_inp)
 
-        if hasattr(self, "trainer") and self.trainer is not None and self.trainer.has_hf_trainer:
+        if (
+            hasattr(self, "trainer")
+            and self.trainer is not None
+            and self.trainer.has_hf_trainer
+        ):
             # accelerator instantiated from HFTrainer
             self.trainer.accelerator.wait_for_everyone()
 
