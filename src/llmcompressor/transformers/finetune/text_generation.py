@@ -84,12 +84,17 @@ def eval(**kwargs):
 
 
 def oneshot(**kwargs):
+    from llmcompressor.transformers.calibration.oneshot import Oneshot
+
     """
     CLI entrypoint for running oneshot calibration
     """
-    model_args, data_args, recipe_args = parse_oneshot_args(**kwargs)
-    model = run_oneshot(model_args, data_args, recipe_args)
-    return model
+    oneshot_calibrator = Oneshot(**kwargs)
+    oneshot_calibrator.run()
+    return oneshot_calibrator.model
+    # model_args, data_args, recipe_args = parse_oneshot_args(**kwargs)
+    # model = run_oneshot(model_args, data_args, recipe_args)
+    # return model
 
 
 # alias
@@ -554,8 +559,6 @@ def run_oneshot(
     if isinstance(processor, str) or processor is None:
         tokenizer_or_processor = initialize_processor_from_path(model_args, model)
 
-    # pre_initialize_structure(model=model)
-
     calibration_dataset = get_calibration_dataloader(data_args, processor)
 
     # Initialize oneshot calibrator
@@ -585,7 +588,7 @@ def run_oneshot(
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:
         reset_session()
-        
+
     return model
 
 

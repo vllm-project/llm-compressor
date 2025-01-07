@@ -3,7 +3,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
@@ -30,6 +31,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic-OneshotClass"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
