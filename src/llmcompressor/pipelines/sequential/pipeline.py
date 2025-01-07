@@ -15,9 +15,9 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
+    dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
-    dataloader: torch.utils.data.DataLoader,
 ):
     """
     Run a sequential data pipeline according to the following steps:
@@ -36,6 +36,11 @@ def run_pipeline(
     In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A model
     can be made traceable by wrapping the untraceable functions (see
     llmcompressor.transformers.tracing)
+
+    :param model: model being calibrated
+    :param dataloader: loads data for calibration
+    :param sequential_targets: patterns which match to the layer modules of the model
+    :param ignore: patterns which match to modules which should be ignored by tracing
     """
     # trace subgraphs
     sample_input = next(iter(dataloader))

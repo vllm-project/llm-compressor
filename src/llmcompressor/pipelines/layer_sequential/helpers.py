@@ -119,8 +119,8 @@ def early_stop_hook(module: Module):
 @dataclass
 class EarlyStopException(Exception):
     """
-    Note: this is exception different from the exception defined in
-    llmcompressor.modifiers.utils.pytorch_helpers, and will eventually replace
+    Note: this exception is different from the exception defined in
+    llmcompressor.modifiers.utils.pytorch_helpers, and will eventually replace it
 
     Attribute names `args` and `kwargs` are reserved for `dataclass`
     """
