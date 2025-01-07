@@ -13,12 +13,17 @@
 # limitations under the License.
 
 import logging
-from typing import Dict, Generator, Tuple
+from pathlib import Path
+from typing import Any, Dict, Generator, Tuple, Union
 
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.quantization import QuantizationArgs
-from compressed_tensors.utils import get_nested_weight_mappings, merge_names
+from compressed_tensors.utils import (
+    get_nested_mappings_from_state_dict,
+    get_nested_weight_mappings,
+    merge_names,
+)
 from safetensors import safe_open
 from torch import Tensor
 from tqdm import tqdm
@@ -113,7 +118,7 @@ class BaseQuantizationCompressor(BaseCompressor):
 
     def decompress(
         self,
-        path_to_model_or_tensors: str,
+        path_to_model_or_tensors: Union[str, Path, Dict[str, Any]],
         names_to_scheme: Dict[str, QuantizationArgs],
         device: str = "cpu",
     ) -> Generator[Tuple[str, Tensor], None, None]:
@@ -121,15 +126,25 @@ class BaseQuantizationCompressor(BaseCompressor):
         Reads a compressed state dict located at path_to_model_or_tensors
         and returns a generator for sequentially decompressing back to a
         dense state dict
-
         :param path_to_model_or_tensors: path to compressed safetensors model (directory
             with one or more safetensors files) or compressed tensors file
         :param names_to_scheme: quantization args for each quantized weight
         :param device: optional device to load intermediate weights into
         :return: compressed state dict
         """
+        if isinstance(path_to_model_or_tensors, (str, Path)):
+            yield from self._decompress_from_path(
+                path_to_model_or_tensors, names_to_scheme, device
+            )
+
+        else:
+            yield from self._decompress_from_state_dict(
+                path_to_model_or_tensors, names_to_scheme
+            )
+
+    def _decompress_from_path(self, path_to_model, names_to_scheme, device):
         weight_mappings = get_nested_weight_mappings(
-            path_to_model_or_tensors, self.COMPRESSION_PARAM_NAMES
+            path_to_model, self.COMPRESSION_PARAM_NAMES
         )
         for weight_name in weight_mappings.keys():
             weight_data = {}
@@ -137,6 +152,21 @@ class BaseQuantizationCompressor(BaseCompressor):
                 full_name = merge_names(weight_name, param_name)
                 with safe_open(safe_path, framework="pt", device=device) as f:
                     weight_data[param_name] = f.get_tensor(full_name)
+            if "weight_scale" in weight_data:
+                quant_args = names_to_scheme[weight_name]
+                decompressed = self.decompress_weight(
+                    compressed_data=weight_data, quantization_args=quant_args
+                )
+                yield merge_names(weight_name, "weight"), decompressed
+
+    def _decompress_from_state_dict(self, state_dict, names_to_scheme):
+        weight_mappings = get_nested_mappings_from_state_dict(
+            state_dict, self.COMPRESSION_PARAM_NAMES
+        )
+        for weight_name in weight_mappings.keys():
+            weight_data = {}
+            for param_name, param_value in weight_mappings[weight_name].items():
+                weight_data[param_name] = param_value
 
             if "weight_scale" in weight_data:
                 quant_args = names_to_scheme[weight_name]

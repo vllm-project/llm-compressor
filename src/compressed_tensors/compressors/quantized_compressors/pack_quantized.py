@@ -68,9 +68,9 @@ class PackedQuantizationCompressor(BaseQuantizationCompressor):
         self,
         weight: Tensor,
         scale: Tensor,
+        quantization_args: QuantizationArgs,
         zero_point: Optional[Tensor] = None,
         g_idx: Optional[torch.Tensor] = None,
-        quantization_args: Optional[QuantizationArgs] = None,
         device: Optional[torch.device] = None,
     ) -> Dict[str, torch.Tensor]:
         """
@@ -78,9 +78,9 @@ class PackedQuantizationCompressor(BaseQuantizationCompressor):
 
         :param weight: uncompressed weight tensor
         :param scale: quantization scale for weight
+        :param quantization_args: quantization parameters for weight
         :param zero_point: quantization zero point for weight
         :param g_idx: optional mapping from column index to group index
-        :param quantization_args: quantization parameters for weight
         :param device: optional device to move compressed output to
         :return: dictionary of compressed weight data
         """

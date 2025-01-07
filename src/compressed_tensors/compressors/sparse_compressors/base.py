@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import logging
-from typing import Dict, Generator, Tuple
+from typing import Dict, Generator, Optional, Set, Tuple
 
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.utils import get_nested_weight_mappings, merge_names
@@ -30,7 +30,8 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 class BaseSparseCompressor(BaseCompressor):
     """
     Base class representing a sparse compression algorithm. Each child class should
-    implement compression_param_info, compress_weight and decompress_weight.
+    implement compression_param_info, compress_weight and decompress_weight; child
+    classes should also define COMPRESSION_PARAM_NAMES.
 
     Compressors support compressing/decompressing a full module state dict or a single
     quantized PyTorch leaf module.
@@ -59,11 +60,17 @@ class BaseSparseCompressor(BaseCompressor):
     :param config: config specifying compression parameters
     """
 
-    def compress(self, model_state: Dict[str, Tensor]) -> Dict[str, Tensor]:
+    def compress(
+        self,
+        model_state: Dict[str, Tensor],
+        compression_targets: Optional[Set[str]] = None,
+    ) -> Dict[str, Tensor]:
         """
         Compresses a dense state dict using bitmask compression
 
         :param model_state: state dict of uncompressed model
+        :param compression_targets: optional set of layer prefixes to compress,
+            otherwise compress all layers (for backwards compatibility)
         :return: compressed state dict
         """
         compressed_dict = {}
@@ -71,7 +78,14 @@ class BaseSparseCompressor(BaseCompressor):
             f"Compressing model with {len(model_state)} parameterized layers..."
         )
         for name, value in tqdm(model_state.items(), desc="Compressing model"):
-            compression_data = self.compress_weight(name, value)
+            if not self.should_compress(name, compression_targets):
+                compressed_dict[name] = value
+                continue
+            prefix = name
+            if prefix.endswith(".weight"):
+                prefix = prefix[: -(len(".weight"))]
+
+            compression_data = self.compress_weight(prefix, value)
             for key in compression_data.keys():
                 if key in compressed_dict:
                     _LOGGER.warn(
@@ -97,8 +111,10 @@ class BaseSparseCompressor(BaseCompressor):
         :param device: device to load decompressed weights onto
         :return: iterator for generating decompressed weights
         """
-        weight_mappings = get_nested_weight_mappings(
-            path_to_model_or_tensors, self.COMPRESSION_PARAM_NAMES
+        weight_mappings, ignored_params = get_nested_weight_mappings(
+            path_to_model_or_tensors,
+            self.COMPRESSION_PARAM_NAMES,
+            return_unmatched_params=True,
         )
         for weight_name in weight_mappings.keys():
             weight_data = {}
@@ -107,4 +123,26 @@ class BaseSparseCompressor(BaseCompressor):
                 with safe_open(safe_path, framework="pt", device=device) as f:
                     weight_data[param_name] = f.get_tensor(full_name)
             decompressed = self.decompress_weight(weight_data)
-            yield weight_name, decompressed
+            yield merge_names(weight_name, "weight"), decompressed
+
+        for ignored_param_name, safe_path in ignored_params.items():
+            with safe_open(safe_path, framework="pt", device=device) as f:
+                value = f.get_tensor(ignored_param_name)
+            yield ignored_param_name, value
+
+    @staticmethod
+    def should_compress(name: str, expanded_targets: Optional[Set[str]] = None) -> bool:
+        """
+        Check if a parameter should be compressed.
+        Currently, this only returns True for weight parameters.
+
+        :param name: name of the parameter
+        :param expanded_targets: set of layer prefixes to compress
+        :return: whether or not the parameter should be compressed
+        """
+        if expanded_targets is None:
+            return name.endswith(".weight")
+
+        return (
+            name.endswith(".weight") and name[: -(len(".weight"))] in expanded_targets
+        )

@@ -16,7 +16,7 @@ import json
 import os
 import re
 import struct
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 from safetensors import safe_open
 from torch import Tensor
@@ -30,9 +30,13 @@ __all__ = [
     "merge_names",
     "get_weight_mappings",
     "get_nested_weight_mappings",
+    "get_nested_mappings_from_state_dict",
     "get_quantization_state_dict",
     "is_quantization_param",
 ]
+
+WeightMappingType = Dict[str, str]
+NestedWeightMappingType = Dict[str, WeightMappingType]
 
 
 def get_safetensors_folder(
@@ -92,7 +96,7 @@ def get_safetensors_header(safetensors_path: str) -> Dict[str, str]:
     return header
 
 
-def match_param_name(full_name: str, param_name: str) -> str:
+def match_param_name(full_name: str, param_name: str) -> Optional[str]:
     """
     Helper function extracting the uncompressed parameterized layer name from a
     compressed name. Assumes the compressed name was merged using merge_names.
@@ -176,38 +180,100 @@ def get_weight_mappings(path_to_model_or_tensors: str) -> Dict[str, str]:
 
 
 def get_nested_weight_mappings(
-    model_path: str, params_to_nest: List[str]
-) -> Dict[str, Dict[str, str]]:
+    model_path: str, params_to_nest: List[str], return_unmatched_params: bool = False
+) -> Union[NestedWeightMappingType, Tuple[NestedWeightMappingType, WeightMappingType]]:
     """
     Takes a path to a state dict saved in safetensors format and returns a nested
-    mapping from uncompressed parameterized layer names to the file locations of each
-    of the layers compression parameters.
+    mapping from uncompressed parameterized layer names to the file locations of
+    each layer's compression parameters.
 
-    layer.weight: {
+    Example of the nested mapping:
+    layer: {
         bitmask: file_location,
         row_offsets: file_location,
         shape: file_location,
         compressed: file_location
     }
 
-    This generalizes to cases where the model is split into multiple safetensors files
+    If other parameters are found that do not match the nested parameters, they will
+    be returned in a separate dictionary only if return_unmatched_params is True.
+    This dictionary may be needed for cases where compressors are stacked (e.g.,
+    quantization compression followed by sparse compression).
 
-    :param model_path: path to safetensors state dict, must contain either a single
-    safetensors file or multiple files with an index
-    :return: nested mapping of parameterized layer name to file location
+    Example of the unmatched params mapping:
+    {
+        layer.weight_scale: file_location,
+        layer.input_scale: file_location
+    }
+
+    This generalizes to cases where the model is split into multiple safetensors
+    files.
+
+    :param model_path: Path to the safetensors state dict, must contain either a
+        single safetensors file or multiple files with an index.
+    :param params_to_nest: List of parameter names to nest.
+    :param return_unmatched_params: If True, return a second dictionary containing
+        the remaining parameters that were not matched to the params_to_nest.
+    :return:
+        - If return_unmatched_params is False:
+            NestedWeightMappingType: A nested mapping of parameterized layer names to
+            file locations of each layer's compression parameters.
+        - If return_unmatched_params is True:
+            Tuple[NestedWeightMappingType, WeightMappingType]: A tuple containing:
+                - NestedWeightMappingType: A nested mapping of parameterized layer
+                names to file locations of each layer's compression parameters.
+                - WeightMappingType: A mapping of the remaining parameter names to
+                their file locations that were not matched to the params_to_nest.
     """
     weight_mappings = get_weight_mappings(model_path)
-
     nested_weight_mappings = {}
-    for key in weight_mappings.keys():
+    unmatched_params = {}
+
+    for key, file_location in weight_mappings.items():
+        matched = False
         for param_name in params_to_nest:
-            maybe_match = match_param_name(key, param_name)
-            if maybe_match is not None:
-                dense_param = maybe_match
+            dense_param = match_param_name(key, param_name)
+            if dense_param:
                 if dense_param not in nested_weight_mappings:
                     nested_weight_mappings[dense_param] = {}
-                nested_weight_mappings[dense_param][param_name] = weight_mappings[key]
+                nested_weight_mappings[dense_param][param_name] = file_location
+                matched = True
+        if return_unmatched_params and not matched:
+            unmatched_params[key] = file_location
 
+    if return_unmatched_params:
+        return nested_weight_mappings, unmatched_params
+    return nested_weight_mappings
+
+
+def get_nested_mappings_from_state_dict(
+    state_dict, params_to_nest
+) -> NestedWeightMappingType:
+    """
+    Takes a state dict and returns a nested mapping from uncompressed
+    parameterized layer names to the value of
+    each layer's compression parameters.
+
+    Example of the nested mapping:
+    layer: {
+        weight_scale: ...,
+        weight: ...,
+        zero_point: ...,
+    }
+
+    :param state_dict: state dict of the model
+    :param params_to_nest: List of parameter names to nest.
+    :return: Nested mapping of parameterized layer names to the value of
+        each layer's compression parameters.
+    """
+    nested_weight_mappings = {}
+    for key in state_dict.keys():
+        for param_name in params_to_nest:
+            dense_param = match_param_name(key, param_name)
+            if dense_param:
+                if dense_param not in nested_weight_mappings:
+                    nested_weight_mappings[dense_param] = {}
+                nested_weight_mappings[dense_param][param_name] = state_dict[key]
     return nested_weight_mappings
 
 

@@ -18,7 +18,7 @@ from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from typing import Dict, Iterable, List, Optional
 from typing import OrderedDict as OrderedDictType
-from typing import Union
+from typing import Set, Union
 
 import torch
 from compressed_tensors.config import CompressionFormat
@@ -52,6 +52,8 @@ __all__ = [
     "apply_quantization_config",
     "apply_quantization_status",
     "find_name_or_class_matches",
+    "expand_sparse_target_names",
+    "is_sparse_target",
 ]
 
 from compressed_tensors.quantization.utils.helpers import is_module_quantized
@@ -243,6 +245,49 @@ def apply_quantization_status(model: Module, status: QuantizationStatus):
 
     if current_status < status >= QuantizationStatus.COMPRESSED > current_status:
         model.apply(compress_quantized_weights)
+
+
+def expand_sparse_target_names(
+    model: Module, targets: Iterable[str], ignore: Iterable[str]
+) -> Set[str]:
+    """
+    Finds all unique module names in the model that match the given
+    targets and ignore lists.
+
+    Note: Targets must be regexes, layer types, or full layer names.
+
+    :param model: model to search for targets in
+    :param targets: list of targets to search for
+    :param ignore: list of targets to ignore
+    :return: set of all targets that match the given targets and should
+        not be ignored
+    """
+    return {
+        name
+        for name, module in iter_named_leaf_modules(model)
+        if is_sparse_target(name, module, targets, ignore)
+    }
+
+
+def is_sparse_target(
+    name: str, module: Module, targets: Iterable[str], ignore: Iterable[str]
+) -> bool:
+    """
+    Determines if a module should be included in the targets based on the
+    targets and ignore lists.
+
+    Note: Targets must be regexes, layer types, or full layer names.
+
+    :param name: name of the module
+    :param module: the module itself
+    :param targets: list of targets to search for
+    :param ignore: list of targets to ignore
+    :return: True if the module is a target and not ignored, False otherwise
+    """
+    return bool(
+        find_name_or_class_matches(name, module, targets)
+        and not find_name_or_class_matches(name, module, ignore or [])
+    )
 
 
 def find_name_or_class_matches(

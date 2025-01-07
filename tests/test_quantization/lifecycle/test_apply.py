@@ -14,6 +14,7 @@
 
 import re
 from typing import Optional
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -26,10 +27,36 @@ from compressed_tensors.quantization import (
 from compressed_tensors.quantization.lifecycle import (
     apply_quantization_config,
     apply_quantization_status,
+    expand_sparse_target_names,
+    is_sparse_target,
 )
 from compressed_tensors.quantization.utils import iter_named_leaf_modules
 from tests.testing_utils import requires_accelerate
 from transformers import AutoModelForCausalLM
+
+
+@pytest.fixture
+def mock_model():
+    model = MagicMock()
+    model.named_modules.return_value = [
+        ("layer1", MagicMock()),
+        ("layer2", MagicMock()),
+        ("layer3", MagicMock()),
+    ]
+    return model
+
+
+@pytest.fixture
+def mock_module():
+    return MagicMock()
+
+
+@pytest.fixture
+def llama_stories_model():
+    return AutoModelForCausalLM.from_pretrained(
+        "Xenova/llama2.c-stories15M",
+        torch_dtype="auto",
+    )
 
 
 def test_target_prioritization(mock_frozen):
@@ -266,3 +293,73 @@ def test_apply_quantization_status(caplog, ignore, should_raise_warning):
             assert len(caplog.text) > 0
         else:
             assert len(caplog.text) == 0
+
+
+@pytest.mark.parametrize(
+    "targets, ignore, expected_targets",
+    [
+        ([], [], set()),
+        (["layer1", "layer2"], [], {"layer1", "layer2"}),
+        ([], ["layer1"], set()),
+        (["layer1", "layer2"], ["layer2"], {"layer1"}),
+        (["re:layer.*"], ["layer3"], {"layer1", "layer2"}),
+    ],
+)
+def test_expand_targets_with_mock(mock_model, targets, ignore, expected_targets):
+    expanded_targets = expand_sparse_target_names(mock_model, targets, ignore)
+    assert expanded_targets == expected_targets
+
+
+@pytest.mark.parametrize(
+    "targets, ignore, expected_targets",
+    [
+        (
+            ["re:model.layers.[01].self_attn.q_proj"],
+            ["re:model.layers.1.self_attn.q_proj"],
+            set(["model.layers.0.self_attn.q_proj"]),
+        ),
+        (
+            ["re:model.layers.[01].self_attn.q_proj"],
+            [],
+            set(["model.layers.0.self_attn.q_proj", "model.layers.1.self_attn.q_proj"]),
+        ),
+        (
+            ["re:model.layers.[0-2].self_attn.q_proj"],
+            ["re:model.layers.1.self_attn.q_proj"],
+            set(["model.layers.0.self_attn.q_proj", "model.layers.2.self_attn.q_proj"]),
+        ),
+        (
+            ["model.layers.0.self_attn.q_proj"],
+            ["model.layers.0.self_attn.q_proj"],
+            set(),
+        ),
+        (
+            ["re:model.layers.*.self_attn.q_proj"],
+            ["re:model.layers.[01].self_attn.q_proj"],
+            set(
+                f"model.layers.{layer_idx}.self_attn.q_proj"
+                for layer_idx in range(2, 6)
+            ),
+        ),
+    ],
+)
+def test_expand_targets_with_llama_stories(
+    llama_stories_model, targets, ignore, expected_targets
+):
+    expanded_targets = expand_sparse_target_names(llama_stories_model, targets, ignore)
+    assert expanded_targets == expected_targets
+
+
+@pytest.mark.parametrize(
+    "name, targets, ignore, expected",
+    [
+        ("layer1", ["layer1"], [], True),
+        ("layer1", ["layer1"], ["layer1"], False),
+        ("layer1", ["layer2"], [], False),
+        ("layer1", ["re:layer.*"], [], True),
+        ("layer1", ["re:layer.*"], ["re:layer1"], False),
+    ],
+)
+def test_is_target_with_mock(mock_module, name, targets, ignore, expected):
+    result = is_sparse_target(name, mock_module, targets, ignore)
+    assert result == expected

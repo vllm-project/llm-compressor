@@ -17,8 +17,9 @@ import logging
 import operator
 import os
 import re
+from contextlib import contextmanager
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Set, TypeVar, Union
 
 import compressed_tensors
 import torch
@@ -38,6 +39,7 @@ from compressed_tensors.quantization import (
     apply_quantization_config,
     load_pretrained_quantization,
 )
+from compressed_tensors.quantization.lifecycle import expand_sparse_target_names
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import (
     is_module_quantized,
@@ -104,7 +106,6 @@ class ModelCompressor:
         """
         config = AutoConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
         compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
-
         return cls.from_compression_config(compression_config)
 
     @classmethod
@@ -282,8 +283,14 @@ class ModelCompressor:
                 )
 
         if self.sparsity_compressor is not None:
+            sparse_compression_targets: Set[str] = expand_sparse_target_names(
+                model=model,
+                targets=self.sparsity_config.targets,
+                ignore=self.sparsity_config.ignore,
+            )
             compressed_state_dict = self.sparsity_compressor.compress(
-                compressed_state_dict
+                compressed_state_dict,
+                compression_targets=sparse_compression_targets,
             )
 
         # HACK: Override the dtype_byte_size function in transformers to
@@ -301,23 +308,41 @@ class ModelCompressor:
         :param model: pytorch model to load decompressed weights into
         """
         model_path = get_safetensors_folder(model_path)
+        sparse_decompressed = False
+
         if self.sparsity_compressor is not None:
+            # Sparse decompression is applied on the model_path
             dense_gen = self.sparsity_compressor.decompress(model_path)
             self._replace_weights(dense_gen, model)
             setattr(model, SPARSITY_CONFIG_NAME, self.sparsity_compressor.config)
+            sparse_decompressed = True
 
         if self.quantization_compressor is not None:
-            names_to_scheme = apply_quantization_config(model, self.quantization_config)
-            load_pretrained_quantization(model, model_path)
+            # Temporarily set quantization status to FROZEN to prevent
+            # quantization during apply_quantization_config. This ensures
+            # that the dtypes of the weights are not unintentionally updated.
+            # The status is restored after quantization params are loaded.
+            with override_quantization_status(
+                self.quantization_config, QuantizationStatus.FROZEN
+            ):
+                names_to_scheme = apply_quantization_config(
+                    model, self.quantization_config
+                )
+                load_pretrained_quantization(model, model_path)
+
+            model_path_or_state_dict = (
+                model.state_dict() if sparse_decompressed else model_path
+            )
+
             dense_gen = self.quantization_compressor.decompress(
-                model_path, names_to_scheme=names_to_scheme
+                model_path_or_state_dict, names_to_scheme=names_to_scheme
             )
             self._replace_weights(dense_gen, model)
 
-            def update_status(module):
+            def freeze_quantization_status(module):
                 module.quantization_status = QuantizationStatus.FROZEN
 
-            model.apply(update_status)
+            model.apply(freeze_quantization_status)
             setattr(model, QUANTIZATION_CONFIG_NAME, self.quantization_config)
 
     def update_config(self, save_directory: str):
@@ -367,12 +392,26 @@ class ModelCompressor:
         with open(config_file_path, "w") as config_file:
             json.dump(config_data, config_file, indent=2, sort_keys=True)
 
-    def _replace_weights(self, dense_weight_generator, model):
+    def _replace_weights(self, dense_weight_generator, model: Module):
+        """
+        Replace the weights of the model with the
+        provided dense weights.
+
+        This method iterates over the dense_weight_generator and
+        updates the corresponding weights in the model. If a parameter
+        name does not exist in the model, it will be skipped.
+
+        :param dense_weight_generator (generator): A generator that yields
+            tuples of (name, data), where 'name' is the parameter name and
+            'data' is the updated param data
+        :param model: The model whose weights are to be updated.
+        """
         for name, data in tqdm(dense_weight_generator, desc="Decompressing model"):
             split_name = name.split(".")
             prefix, param_name = ".".join(split_name[:-1]), split_name[-1]
             module = operator.attrgetter(prefix)(model)
-            update_parameter_data(module, data, param_name)
+            if hasattr(module, param_name):
+                update_parameter_data(module, data, param_name)
 
 
 def map_modules_to_quant_args(model: Module) -> Dict[str, QuantizationArgs]:
@@ -402,3 +441,23 @@ def new_dtype_byte_size(dtype):
         raise ValueError(f"`dtype` is not a valid dtype: {dtype}.")
     bit_size = int(bit_search.groups()[0])
     return bit_size // 8
+
+
+@contextmanager
+def override_quantization_status(
+    config: QuantizationConfig, status: QuantizationStatus
+):
+    """
+    Within this context, the quantization status will be set to the
+    supplied status. After the context exits, the original status
+    will be restored.
+
+    :param config: the quantization config to override
+    :param status: the status to temporarily set
+    """
+    original_status = config.quantization_status
+    config.quantization_status = status
+    try:
+        yield
+    finally:
+        config.quantization_status = original_status

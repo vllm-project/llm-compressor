@@ -44,16 +44,16 @@ def test_bitmask_sizes(shape, sparsity, dtype):
     assert len(dense_state_dict) * 4 == len(sparse_state_dict)
 
     # bitmask should be 1 bit per dense element, rounded up to nearest int8
-    sparse_shape = sparse_state_dict["dummy.weight.shape"]
+    sparse_shape = sparse_state_dict["dummy.shape"]
     assert torch.all(torch.eq(sparse_shape, torch.tensor(shape)))
-    bitmask_shape = sparse_state_dict["dummy.weight.bitmask"].shape
+    bitmask_shape = sparse_state_dict["dummy.bitmask"].shape
     assert bitmask_shape[0] == sparse_shape[0]
     assert bitmask_shape[1] == int(math.ceil(sparse_shape[1] / 8.0))
 
     # one value for each non-zero weight
-    values_shape = sparse_state_dict["dummy.weight.compressed"].shape
+    values_shape = sparse_state_dict["dummy.compressed"].shape
     assert values_shape[0] == torch.sum(test_tensor != 0)
-    row_offsets_shape = sparse_state_dict["dummy.weight.row_offsets"].shape
+    row_offsets_shape = sparse_state_dict["dummy.row_offsets"].shape
     assert row_offsets_shape[0] == test_tensor.shape[0]
 
 
