@@ -43,7 +43,7 @@ from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.model_args import ModelArguments, OneshotModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
-from llmcompressor.transformers.finetune.trainer import Trainer
+from llmcompressor.transformers.finetune.trainer import Trainer, Calibrator
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_fsdp_model_save_pretrained,
@@ -51,7 +51,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
-    get_shared_processor_src,
+    get_processor_from_model,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
 from llmcompressor.typing import Processor
@@ -334,12 +334,10 @@ def initialize_processor_from_path(
     model_args: ModelArguments, model: PreTrainedModel, teacher: Optional[PreTrainedModel] = None
 ) -> Processor:
     processor_src = model_args.processor
-    processor_teacher = get_shared_processor_src(model, teacher) if teacher is not None  else None
-    processor_src = processor_src or processor_teacher
+    processor_src = model_args.processor or get_processor_from_model(model, teacher)  
     # The use_fast=True option is not currently supported safely in Transformers
     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
     try:
-        breakpoint()
         processor = AutoProcessor.from_pretrained(
             processor_src,
             cache_dir=model_args.cache_dir,
@@ -455,7 +453,7 @@ def main(
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
-    # Initialize our Trainer
+    # Initialize our Calibrator
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
@@ -560,6 +558,18 @@ def run_oneshot(
     )
 
     stage_runner.populate_datasets(processor=processor, add_labels=None, do_oneshot=True)
+    calib_dataset = stage_runner.get_dataset_split("calibration")
+    # Initialize our Trainer
+    calibrator = Calibrator(
+        recipe=recipe_args.recipe,
+        recipe_args=recipe_args.recipe_args,
+        args=recipe_args,
+        data_args=data_args,
+        train_dataset=calib_dataset,
+        processing_class=processor,
+        data_collator=data_args.data_collator,
+    )
+    stage_runner.trainer = calibrator
     
     # datasets = get_oneshot_datasets(processor, data_args, model_args)
 

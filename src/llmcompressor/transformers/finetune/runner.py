@@ -57,8 +57,14 @@ class StageRunner:
         self.datasets = {}
         self.trainer = None
         self.processor = None
-        self.parent_output_dir = self._training_args.output_dir
-        self._output_dir = self._training_args.output_dir
+        
+        if hasattr(model_args, "output_dir"):
+            output_dir = model_args.output_dir
+        else:
+            output_dir = training_args.output_dir 
+
+        self.parent_output_dir = output_dir 
+        self._output_dir = output_dir
 
     def populate_datasets(self, processor: Processor, add_labels: bool = True, do_oneshot=False, do_train=False, do_eval=False, do_predict=False):
         """
@@ -158,7 +164,9 @@ class StageRunner:
                 with torch.no_grad():
                     self.trainer.model(**dummy_inp)
 
-        self.trainer.accelerator.wait_for_everyone()
+        if hasattr(self, "trainer") and self.trainer is not None and self.trainer.has_hf_trainer:
+            # accelerator instantiated from HFTrainer
+            self.trainer.accelerator.wait_for_everyone()
 
         self.trainer.one_shot(calibration_data=calib_data, stage=stage)
 

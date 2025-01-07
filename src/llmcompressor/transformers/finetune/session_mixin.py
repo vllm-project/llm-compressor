@@ -10,6 +10,7 @@ from torch.nn import Module
 from torch.utils.data import DataLoader, IterableDataset
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
+from transformers import Trainer as HFTransformersTrainer
 
 from llmcompressor.core import (
     active_session,
@@ -34,6 +35,8 @@ from llmcompressor.transformers.finetune.callbacks import (
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
+
+from transformers import Trainer as HFTransformersTrainer
 
 if TYPE_CHECKING:
     from llmcompressor.transformers import DataTrainingArguments
@@ -75,33 +78,42 @@ class SessionManagerMixIn:
         self.recipe = recipe
         self.recipe_args = recipe_args
         self.teacher = teacher
+        self.has_hf_trainer = False
 
         # parse training and metadata args
         training_args = kwargs.get("args")
-        self.metadata = (
-            self._extract_metadata(
-                metadata_args=METADATA_ARGS,
-                training_args_dict=training_args.to_dict(),
-                data_args_dict=asdict(data_args) if data_args else {},
+        if hasattr(self, "training_args"):
+            self.metadata = (
+                self._extract_metadata(
+                    metadata_args=METADATA_ARGS,
+                    training_args_dict=training_args.to_dict(),
+                    data_args_dict=asdict(data_args) if data_args else {},
+                )
+                if training_args and METADATA_ARGS
+                else None
             )
-            if training_args and METADATA_ARGS
-            else None
-        )
 
         # setup metrics and session
         self.logger_manager = LoggerManager(log_python=False)
         create_session()
 
-        # call Trainer initialization
-        super().__init__(**kwargs)
-        self.accelerator.wait_for_everyone()
+        # empty or instantiate HF trainer in MRO
+        super().__init__()
 
-        # setup callbacks and loss
-        self.optim_callbacks = TrainingLoopCallbacks(self)
-        self.callback_handler.add_callback(self.optim_callbacks)
-        self.callback_disable_fp16 = DisableHalfPrecisionCallback(self)
-        self.callback_handler.add_callback(self.callback_disable_fp16)
-        self.criterion = torch.nn.CrossEntropyLoss()
+        if hasattr(self, "accelerator"):
+            self.has_hf_trainer = True
+
+        if self.has_hf_trainer:
+            self.accelerator.wait_for_everyone()
+
+            # setup callbacks and loss
+            self.optim_callbacks = TrainingLoopCallbacks(self)
+            self.callback_handler.add_callback(self.optim_callbacks)
+            self.callback_disable_fp16 = DisableHalfPrecisionCallback(self)
+            self.callback_handler.add_callback(self.callback_disable_fp16)
+            self.criterion = torch.nn.CrossEntropyLoss()
+        else:
+            self.model = get_session_model()
 
         model_signature = inspect.signature(self.model.forward)
         self._signature_columns = list(model_signature.parameters.keys())
@@ -112,7 +124,7 @@ class SessionManagerMixIn:
         else:
             self._teacher_signature_columns = None
 
-        if self.is_fsdp_enabled:
+        if self.has_hf_trainer and self.is_fsdp_enabled:
             self._prepare_model_for_fsdp()
 
         if data_args is not None:
@@ -437,6 +449,7 @@ class SessionManagerMixIn:
         :param stage: which stage of the recipe to run, or None to run whole recipe
         :param calib_data: dataloader of calibration data
         """
+        
         apply(
             recipe=self.recipe,
             recipe_stage=stage,
@@ -445,13 +458,14 @@ class SessionManagerMixIn:
             calib_data=calibration_data,
             start=-1,
             copy_data=False,
-            accelerator=self.accelerator,
+            accelerator=self.accelerator if self.has_hf_trainer else None,
             min_tokens_per_module=self.min_tokens_per_module,
         )
 
         # log model sparsity
         # self.maybe_log_model_sparsification()
-        self.accelerator.wait_for_everyone()
+        if self.has_hf_trainer:
+            self.accelerator.wait_for_everyone()
 
     def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """
