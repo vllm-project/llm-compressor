@@ -48,7 +48,7 @@ class StageRunner:
         self,
         data_args: "DataTrainingArguments",
         model_args: "ModelArguments",
-        training_args: "TrainingArguments",
+        training_args: Optional["TrainingArguments"] = None,
     ):
         self._data_args = data_args
         self._model_args = model_args
@@ -60,7 +60,7 @@ class StageRunner:
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(self, processor: Processor, add_labels: bool = True):
+    def populate_datasets(self, processor: Processor, add_labels: bool = True, do_oneshot=False, do_train=False, do_eval=False, do_predict=False):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
@@ -116,10 +116,10 @@ class StageRunner:
 
         self.datasets = make_dataset_splits(
             tokenized_datasets,
-            do_train=self._training_args.do_train,
-            do_eval=self._training_args.do_eval,
-            do_predict=self._training_args.do_predict,
-            do_oneshot=self._training_args.do_oneshot,
+            do_train=do_train or self._training_args.do_train,
+            do_eval=do_eval or self._training_args.do_eval,
+            do_predict=do_predict or self._training_args.do_predict,
+            do_oneshot=do_oneshot or self._training_args.do_oneshot,
         )
 
     def get_dataset_split(self, split_name: str) -> Dataset:
@@ -146,7 +146,7 @@ class StageRunner:
                 num_calibration_samples=self._data_args.num_calibration_samples,
                 do_shuffle=self._data_args.shuffle_calibration_samples,
                 collate_fn=self._data_args.data_collator,
-                accelerator=self.trainer.accelerator,
+                # accelerator=self.trainer.accelerator,
             )
 
             # if we don't run a forward pass after initializing the FSDP model for the

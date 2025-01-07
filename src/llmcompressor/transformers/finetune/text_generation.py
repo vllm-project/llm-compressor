@@ -20,6 +20,7 @@
 import os
 import warnings
 from pathlib import PosixPath
+from typing import Optional
 
 from loguru import logger
 from transformers import (
@@ -40,7 +41,7 @@ from llmcompressor.pytorch.model_load.helpers import (
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.model_args import ModelArguments
+from llmcompressor.transformers.finetune.model_args import ModelArguments, OneshotModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
@@ -55,7 +56,9 @@ from llmcompressor.transformers.sparsification.sparse_model import (
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
+from loguru import logger
 
+from llmcompressor.transformers.utils.recipe_args import RecipeArguments
 
 def train(**kwargs):
     """
@@ -79,9 +82,8 @@ def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
-    training_args.do_oneshot = True
-    main(model_args, data_args, training_args)
+    model_args, data_args, recipe_args = parse_oneshot_args(**kwargs)
+    run_oneshot(model_args, data_args, recipe_args)
 
 
 # alias
@@ -156,6 +158,89 @@ def parse_args(**kwargs):
     return model_args, data_args, training_args
 
 
+def parse_oneshot_args(**kwargs):
+    parser = HfArgumentParser(
+        (OneshotModelArguments, DataTrainingArguments, RecipeArguments)
+    )
+    if not kwargs:
+        model_args, data_args, recipe_args = parser.parse_args_into_dataclasses()
+    else:
+        model_args, data_args, recipe_args = parser.parse_dict(kwargs)
+        
+    if recipe_args.recipe_args is not None:
+        if not isinstance(recipe_args.recipe_args, dict):
+            arg_dict = {}
+            for recipe_arg in recipe_args.recipe_args:
+                key, value = recipe_arg.split("=")
+                arg_dict[key] = value
+            recipe_args.recipe_args = arg_dict
+
+    if model_args.tokenizer:
+        if model_args.processor:
+            raise ValueError("Cannot use both a tokenizer and processor")
+
+        logger.debug("Overwriting processor with tokenizer")
+        model_args.processor = model_args.tokenizer
+        
+    return model_args, data_args, recipe_args
+
+
+def initialize_oneshot_model(
+    model_args,
+):
+    # Load pretrained model
+    # The .from_pretrained methods guarantee that only one local process can
+    # concurrently download model & vocab.
+    model_path = model_args.model
+    config = AutoConfig.from_pretrained(
+        model_args.config_name if model_args.config_name else model_path,
+        cache_dir=model_args.cache_dir,
+        revision=model_args.model_revision,
+        use_auth_token=True if model_args.use_auth_token else None,
+        tie_word_embeddings=model_args.tie_word_embeddings,
+        trust_remote_code=model_args.trust_remote_code_model,
+    )
+
+    model_path = (
+        model_args.model
+        if hasattr(model_args, "model")
+        else model_args.model_name_or_path
+    )
+
+    # Fallback to CPU if GPU requested and not available
+    model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
+
+    # Trainer handles device assignment for FSDP and training, don't do mapping here
+    # if running oneshot outside of FSDP, apply user device settings
+    device_map = None
+    fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
+    if not fsdp_enabled:
+        device_map = model_args.oneshot_device
+        logger.warning(f"Moving {model_path} to device {device_map} for One-Shot")
+    elif not fsdp_enabled:
+        device_map = "auto"
+
+    model_kwargs = {
+        "config": config,
+        "cache_dir": model_args.cache_dir,
+        "revision": model_args.model_revision,
+        "use_auth_token": True if model_args.use_auth_token else None,
+        "torch_dtype": parse_dtype(model_args.precision),
+        "device_map": device_map,
+        "trust_remote_code": model_args.trust_remote_code_model,
+    }
+
+    # this calls from_pretrained under the hood so should be FSDP safe
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        **model_kwargs,
+    )
+    if "sequence_length" in model_kwargs:
+        model.seqlen = model_kwargs["sequence_length"]
+
+    return model
+
+    
 def initialize_model_from_path(
     model_args: ModelArguments,
     training_args: TrainingArguments,
@@ -246,13 +331,15 @@ def initialize_model_from_path(
 
 
 def initialize_processor_from_path(
-    model_args: ModelArguments, model: PreTrainedModel, teacher: PreTrainedModel
+    model_args: ModelArguments, model: PreTrainedModel, teacher: Optional[PreTrainedModel] = None
 ) -> Processor:
     processor_src = model_args.processor
-    processor_src = processor_src or get_shared_processor_src(model, teacher)
+    processor_teacher = get_shared_processor_src(model, teacher) if teacher is not None  else None
+    processor_src = processor_src or processor_teacher
     # The use_fast=True option is not currently supported safely in Transformers
     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
     try:
+        breakpoint()
         processor = AutoProcessor.from_pretrained(
             processor_src,
             cache_dir=model_args.cache_dir,
@@ -434,7 +521,76 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:
         reset_session()
+        
+        
+def run_oneshot(
+    model_args: OneshotModelArguments,
+    data_args: DataTrainingArguments,
+    recipe_args: RecipeArguments,
+):
 
+    if model_args.tie_word_embeddings is True:
+        logger.debug(
+            "The tie_word_embeddings flag is by default set to False. "
+            "This guarantees that the one-shot algorithm saves the final "
+            "weights without errors. Detected tie_word_embeddings=True. "
+            "This may cause issues with the one-shot algorithm on save. "
+        )
+
+    model = model_args.model
+    if isinstance(model, str) or isinstance(model, PosixPath):
+        model = initialize_oneshot_model(model_args)
+
+    # patch a shared tensor bug in HF transformers
+    # https://github.com/huggingface/transformers/issues/33689
+    patch_tied_tensors_bug(model)
+
+
+    processor = model_args.processor
+    if isinstance(processor, str) or processor is None:
+        processor = initialize_processor_from_path(model_args, model)
+
+    pre_initialize_structure(model=model)
+
+    # initialize session manager
+    initialize_recipe(model, None)
+    
+    stage_runner = StageRunner(
+        model_args=model_args, data_args=data_args,
+    )
+
+    stage_runner.populate_datasets(processor=processor, add_labels=None, do_oneshot=True)
+    
+    # datasets = get_oneshot_datasets(processor, data_args, model_args)
+
+    # # wrap model.save_pretrained
+    # if is_fsdp_model(model):
+    #     modify_fsdp_model_save_pretrained(trainer, processor)
+    # else:
+    #     modify_save_pretrained(model)
+    
+    modify_save_pretrained(model) 
+
+    stage_runner.one_shot()
+
+    # save if model was provided as a string or custom output_dir was set
+    if isinstance(model_args.model, str) or (
+        model_args.output_dir
+        != TrainingArguments.__dataclass_fields__["output_dir"].default
+    ):
+        model.save_pretrained(
+            model_args.output_dir, save_compressed=model_args.save_compressed
+        )
+        if processor is not None:
+            processor.save_pretrained(model_args.output_dir)
+
+    # Clean up the CompressionSession before exit if requested
+    if recipe_args.clear_sparse_session:
+        reset_session()
+
+    
 
 if __name__ == "__main__":
     apply()
+
+
