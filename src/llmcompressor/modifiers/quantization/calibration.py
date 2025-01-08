@@ -23,7 +23,6 @@ __all__ = [
     "apply_calibration_status",
 ]
 
-
 def initialize_observer(
     module: Module,
     base_name: str,
@@ -121,6 +120,12 @@ def update_weight_zp_scale(module: Module):
 
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
+        if module.quantization_scheme.weights.transform:
+            for t, trans in module.quantization_scheme.weights.transform.items():
+                if t == "r2":
+                    # know during set-up using the model shape?
+                    module.weight = module.weight @ trans
+
         call_observer(module=module, base_name="weight")
 
 
