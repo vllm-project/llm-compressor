@@ -20,6 +20,7 @@ def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
+    gptq_modifier,  # TODO: remove
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:
@@ -61,6 +62,9 @@ def run_pipeline(
             for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                 inputs = intermediates.fetch(batch_index)
                 layer(**inputs)
+
+            # TODO: replace with a lifecycle event
+            gptq_modifier.finish_compressing_modules(model)
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules

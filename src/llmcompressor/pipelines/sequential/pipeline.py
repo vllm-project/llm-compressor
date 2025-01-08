@@ -5,10 +5,12 @@ import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
 
+from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.core.events import EventType
 
 __all__ = ["run_pipeline"]
 
@@ -18,6 +20,7 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
+    gptq_modifier # TODO: Remove
 ):
     """
     Run a sequential data pipeline according to the following steps:
@@ -64,6 +67,9 @@ def run_pipeline(
             for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                 inputs = intermediates.fetch(batch_index, subgraph.input_names)
                 forward_function(model, **inputs)
+
+            # TODO: replace with a lifecycle event
+            gptq_modifier.finish_compressing_modules(model)
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
