@@ -80,15 +80,12 @@ class SessionManagerMixIn:
 
         # parse training and metadata args
         training_args = kwargs.get("args")
-        if hasattr(self, "training_args"):
-            self.metadata = (
-                self._extract_metadata(
-                    metadata_args=METADATA_ARGS,
-                    training_args_dict=training_args.to_dict(),
-                    data_args_dict=asdict(data_args) if data_args else {},
-                )
-                if training_args and METADATA_ARGS
-                else None
+        self.metadata = None
+        if training_args is not None and training_args and METADATA_ARGS:
+            self.metadata = self._extract_metadata(
+                metadata_args=METADATA_ARGS,
+                training_args_dict=training_args.to_dict(),
+                data_args_dict=asdict(data_args) if data_args else {},
             )
 
         # setup metrics and session
@@ -96,7 +93,7 @@ class SessionManagerMixIn:
         create_session()
 
         # empty or instantiate HF trainer in MRO
-        super().__init__()
+        super().__init__(**kwargs)
 
         if hasattr(self, "accelerator"):
             self.has_hf_trainer = True

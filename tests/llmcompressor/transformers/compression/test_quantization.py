@@ -62,7 +62,6 @@ class TestQuantizationMatches(unittest.TestCase):
         oneshot(
             model=model,
             dataset=dataset,
-            overwrite_output_dir=True,
             output_dir=output_dir,
             max_seq_length=max_seq_length,
             num_calibration_samples=num_calibration_samples,

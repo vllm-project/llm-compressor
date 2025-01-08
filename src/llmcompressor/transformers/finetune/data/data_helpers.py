@@ -17,7 +17,6 @@ __all__ = [
     "get_raw_dataset",
     "make_dataset_splits",
     "get_custom_datasets_from_path",
-    "get_oneshot_datasets",
     "get_calibration_dataloader",
 ]
 
@@ -249,61 +248,10 @@ def transform_dataset_keys(data_files: Dict[str, Any]):
     return data_files
 
 
-def get_oneshot_datasets(processor, data_args, model_args, add_labels: bool = True):
-    if data_args.dataset is None:
-        # processor = model_args.processor
-        logger.info(
-            "Running oneshot without calibration data. This is expected for "
-            "weight-only and dynamic quantization"
-        )
-        return
-
-    splits = data_args.splits
-    tokenized_datasets = {}
-
-    def _get_split_name(inp_str):
-        # strip out split name, for ex train[60%:] -> train
-        match = re.match(r"(\w*)\[.*\]", inp_str)
-        if match is not None:
-            return match.group(1)
-        return inp_str
-
-    if splits is None:
-        splits = {"all": None}
-    elif isinstance(splits, str):
-        splits = {_get_split_name(splits): splits}
-    elif isinstance(splits, List):
-        splits = {_get_split_name(s): s for s in splits}
-
-    # default to custom dataset if dataset provided isn't a string
-    registry_id = data_args.dataset if isinstance(data_args.dataset, str) else "custom"
-    for split_name, split_str in splits.items():
-        dataset = data_args.dataset
-        if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
-            # dataset is already tokenized
-            tokenized_datasets[split_name] = dataset
-        else:
-            # dataset needs to be tokenized
-            from llmcompressor.transformers.finetune.data import TextGenerationDataset
-
-            dataset_manager = TextGenerationDataset.load_from_registry(
-                registry_id,
-                data_args=data_args,
-                split=split_str,
-                processor=processor,
-            )
-            tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
-
-    return make_dataset_splits(
-        tokenized_datasets=tokenized_datasets,
-        do_oneshot=True,
-    )
-
-
 def get_calibration_dataloader(
     data_args,
     processor,
-    add_labels: bool = True,
+    add_labels: bool = False,  # for oneshot
     do_oneshot=True,
 ):
     """
@@ -362,6 +310,7 @@ def get_calibration_dataloader(
         tokenized_datasets,
         do_oneshot=do_oneshot,
     )
+
     calibration_dataset = datasets.get("calibration")
 
     return format_calibration_data(

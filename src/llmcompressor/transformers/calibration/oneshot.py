@@ -12,6 +12,8 @@ from transformers import (
     PreTrainedModel,
 )
 
+# from llmcompressor.core.lifecycle import OneshotCompressionLifecycle
+from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.pytorch.model_load.helpers import fallback_to_cpu, parse_dtype
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -37,11 +39,13 @@ class Oneshot:
 
     Lifecycle:
         - Instantiate CompressionLifecycle that is responsible for applying the recipe
-        - Carry out preprocessing - model, tokenizer/processor instantiation, untie shared tensors,
-            wrap model.save_pretrained to save models in compressed_tensors format for vllm inference
+        - Carry out pre-processing - model, tokenizer/processor instantiation,
+        untie shared tensors, wrap model.save_pretrained to save models in
+        compressed_tensors format for vllm inference
         - Get calibration dataloader for dataset to calibrate the scales and zero points
         - Applying recipe modifiers using the calibration dataloader
-        - Save the model in compressed_tensors format if model was provided as a string or custom output_dir was set
+        - Carry out post-processing - save the model in compressed_tensors format
+        if the model was provided as a string or custom output_dir was set
 
     Usage:
 
@@ -49,47 +53,41 @@ class Oneshot:
     oneshot_calibrator = Oneshot(model=model, recipe=recipe, dataset=dateset)
     oneshot_calibrator.run()
 
+    model = oneshot_calibrator.model
+    tokenizer_or_processor = oneshot_calibrator.tokenizer_or_processor
+    recipe = oneshot_calibrator.recipe
+
     ```
     """
 
     def __init__(self, **kwargs):
-        from llmcompressor.core.lifecycle import CompressionLifecycle
-
         self.model_args, self.data_args, self.recipe_args = parse_oneshot_args(**kwargs)
-        self.lifecycle = CompressionLifecycle()  # [TODO] singleton for
 
+        # Singleton for consecutive oneshot calls to keep applied recipe history
+        self.lifecycle = CompressionLifecycle()
+
+        # model, tokenizer/processor instantiation
         self._preprocess()
 
         self.model = self.model_args.model
         self.tokenizer_or_processor = self.model_args.processor
+        self.recipe = self.recipe_args.recipe
 
     def run(self):
+        """Carry out oneshot calibration"""
         calibration_dataloader = get_calibration_dataloader(
             self.data_args, self.tokenizer_or_processor
         )
 
         self.apply_recipe_modifiers(calibration_dataloader=calibration_dataloader)
 
-        # save if model was provided as a string or custom output_dir was set
-        if isinstance(self.model_args.model, str) or (
-            self.model_args.output_dir
-            != OneshotModelArguments.__dataclass_fields__["output_dir"].default
-        ):
-            self.model_args.model.save_pretrained(
-                self.model_args.output_dir,
-                save_compressed=self.model_args.save_compressed,
-            )
-            if self.tokenizer_or_processor is not None:
-                self.tokenizer_or_processor.save_pretrained(self.model_args.output_dir)
-
-        # Clean up the CompressionSession before exit if requested
-        if self.recipe_args.clear_sparse_session:
-            self.lifecycle.reset()
+        self._post_process()
 
     def apply_recipe_modifiers(self, calibration_dataloader: Optional[DataLoader]):
+        """Apply recipe modifiers to the model"""
         self.lifecycle.initialize(
             model=self.model,
-            recipe=self.recipe_args.recipe,
+            recipe=self.recipe,
             recipe_args=self.recipe_args.recipe_args,
             calib_data=calibration_dataloader,
             start=-1,  # oneshot specific arg
@@ -98,6 +96,7 @@ class Oneshot:
         )
 
     def _preprocess(self):
+        """Preprocess model and tokenizer/processor"""
         if self.model_args.tie_word_embeddings is True:
             logger.debug(
                 "The tie_word_embeddings flag is by default set to False. "
@@ -128,8 +127,31 @@ class Oneshot:
         if self.data_args is not None:
             self.min_tokens_per_module = self.data_args.min_tokens_per_module
 
+    def _post_process(self):
+        """Save model if custom path was set and reset lifecycle if requested"""
+        # save if model was provided as a string or custom output_dir was set
+        if isinstance(self.model_args.model, str) or (
+            self.model_args.output_dir
+            != OneshotModelArguments.__dataclass_fields__["output_dir"].default
+        ):
+            self.model_args.model.save_pretrained(
+                self.model_args.output_dir,
+                save_compressed=self.model_args.save_compressed,
+            )
+            if self.tokenizer_or_processor is not None:
+                self.tokenizer_or_processor.save_pretrained(self.model_args.output_dir)
+
+        # Clean up the CompressionSession before exit if requested
+        if self.recipe_args.clear_sparse_session:
+            self.reset_lifecycle()
+
+    def reset_lifecycle(self):
+        """Reset the CompressionLifecycle"""
+        self.lifecycle.reset()
+
 
 def parse_oneshot_args(**kwargs):
+    """Parse oneshot arguments into model_args, data_args and recipe_args"""
     parser = HfArgumentParser(
         (OneshotModelArguments, DataTrainingArguments, RecipeArguments)
     )

@@ -41,15 +41,12 @@ from llmcompressor.pytorch.model_load.helpers import (
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    get_calibration_dataloader,
-)
 from llmcompressor.transformers.finetune.model_args import (
     ModelArguments,
     OneshotModelArguments,
 )
 from llmcompressor.transformers.finetune.runner import StageRunner
-from llmcompressor.transformers.finetune.trainer import Calibrator, Trainer
+from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_fsdp_model_save_pretrained,
@@ -92,9 +89,6 @@ def oneshot(**kwargs):
     oneshot_calibrator = Oneshot(**kwargs)
     oneshot_calibrator.run()
     return oneshot_calibrator.model
-    # model_args, data_args, recipe_args = parse_oneshot_args(**kwargs)
-    # model = run_oneshot(model_args, data_args, recipe_args)
-    # return model
 
 
 # alias
@@ -466,7 +460,6 @@ def main(
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
-    # Initialize our Calibrator
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
@@ -532,64 +525,6 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:
         reset_session()
-
-
-def run_oneshot(
-    model_args: OneshotModelArguments,
-    data_args: DataTrainingArguments,
-    recipe_args: RecipeArguments,
-):
-    if model_args.tie_word_embeddings is True:
-        logger.debug(
-            "The tie_word_embeddings flag is by default set to False. "
-            "This guarantees that the one-shot algorithm saves the final "
-            "weights without errors. Detected tie_word_embeddings=True. "
-            "This may cause issues with the one-shot algorithm on save. "
-        )
-
-    model = model_args.model
-    if isinstance(model, str) or isinstance(model, PosixPath):
-        model = initialize_oneshot_model(model_args)
-
-    # patch a shared tensor bug in HF transformers
-    # https://github.com/huggingface/transformers/issues/33689
-    patch_tied_tensors_bug(model)
-
-    processor = model_args.processor
-    if isinstance(processor, str) or processor is None:
-        tokenizer_or_processor = initialize_processor_from_path(model_args, model)
-
-    calibration_dataset = get_calibration_dataloader(data_args, processor)
-
-    # Initialize oneshot calibrator
-    calibrator = Calibrator(
-        model=model,
-        recipe=recipe_args.recipe,
-        recipe_args=recipe_args.recipe_args,
-        data_args=data_args,
-    )
-
-    calibrator.one_shot(calibration_data=calibration_dataset)
-
-    # wrap model.save_pretrained in compressed_tensors format for vllm
-    modify_save_pretrained(model)
-
-    # save if model was provided as a string or custom output_dir was set
-    if isinstance(model_args.model, str) or (
-        model_args.output_dir
-        != OneshotModelArguments.__dataclass_fields__["output_dir"].default
-    ):
-        model.save_pretrained(
-            model_args.output_dir, save_compressed=model_args.save_compressed
-        )
-        if tokenizer_or_processor is not None:
-            tokenizer_or_processor.save_pretrained(model_args.output_dir)
-
-    # Clean up the CompressionSession before exit if requested
-    if recipe_args.clear_sparse_session:
-        reset_session()
-
-    return model
 
 
 if __name__ == "__main__":

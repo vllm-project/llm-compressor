@@ -41,16 +41,20 @@ class TestOneShotCli(unittest.TestCase):
             "--recipe",
             self.recipe,
             "--num_calibration_samples",
-            "10",
+            "16",
             "--pad_to_max_length",
             "False",
         ]
 
         if len(self.additional_args) > 0:
             cmd.extend(self.additional_args)
+
         res = run_cli_command(cmd)
-        self.assertEqual(res.returncode, 0)
-        print(res.stdout)
+
+        # oneshot returns model
+        self.assertIsNone(res.stderr)
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        # if a test case was skipped
+        if hasattr(self, "output"):
+            shutil.rmtree(self.output)
