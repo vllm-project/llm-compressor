@@ -18,7 +18,7 @@ __all__ = ["run_pipeline"]
 def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    gptq_modifier: GPTQModifier,
+    gptq_modifier: "GPTQModifier",
 ):
     """
     Run a basic data pipeline.

@@ -23,7 +23,7 @@ def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
-    gptq_modifier: GPTQModifier,  # TODO: remove
+    gptq_modifier: "GPTQModifier",  # TODO: remove
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:

@@ -21,7 +21,7 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
-    gptq_modifier: GPTQModifier,  # TODO: Remove
+    gptq_modifier: "GPTQModifier",  # TODO: Remove
 ):
     """
     Run a sequential data pipeline according to the following steps:
