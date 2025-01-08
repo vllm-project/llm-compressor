@@ -68,7 +68,7 @@ def run_pipeline(
                 forward_function(model, **inputs)
 
             # TODO: replace with a lifecycle event
-            gptq_modifier.finish_compressing_modules(model)
+            gptq_modifier.quantize_modules(model)
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
