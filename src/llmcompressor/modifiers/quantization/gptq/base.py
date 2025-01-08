@@ -322,8 +322,8 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-    def quantize_modules(self, model: torch.nn.Module):
-        for module in model.modules():
+    def quantize_modules(self):
+        for module in self._num_samples:
             name = self._module_names[module]
             num_samples = self._num_samples[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
@@ -352,9 +352,6 @@ class GPTQModifier(Modifier, HooksMixin):
 
             # self._hessians[module] already deleted by quantize_weight
             del self._num_samples[module]
-
-        assert len(self._hessians) <= 0
-        assert len(self._num_samples) <= 0
 
     @contextlib.contextmanager
     def _maybe_onload_hessian(self, module: torch.nn.Module):

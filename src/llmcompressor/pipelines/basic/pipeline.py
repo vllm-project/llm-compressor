@@ -40,4 +40,4 @@ def run_pipeline(
             model(**batch)
 
             # TODO: replace with a lifecycle event
-            gptq_modifier.quantize_modules(model)
+            gptq_modifier.quantize_modules()
