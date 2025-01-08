@@ -20,7 +20,6 @@ from llmcompressor.core import (
     initialize,
     pre_initialize_structure,
 )
-from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
@@ -640,54 +639,3 @@ class SessionManagerMixIn:
             ).epoch
 
         return checkpoint, epoch
-
-
-class OneshotSessionManagerMixIn:
-    """
-    Mix-In class to extend the Hugging Face Trainer class to support LLM Compressor
-    recipes for one-shot and finetuning flows.
-
-    :param recipe: path to recipe file to apply during training
-    :param recipe_args: additional kwargs to use for evaluating recipe
-    :param data_args: kwargs for configuring dataset loading
-    :param teacher: optional teacher model to use for distillation
-    """
-
-    def __init__(
-        self,
-        model: Module,
-        recipe: Optional[str] = None,
-        recipe_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional["DataTrainingArguments"] = None,
-    ):
-        self.model = model
-        self.recipe = recipe
-        self.recipe_args = recipe_args
-
-        self.lifecycle = CompressionLifecycle()
-        self.lifecycle.pre_initialize_structure(model=model)
-
-        if data_args is not None:
-            self.min_tokens_per_module = data_args.min_tokens_per_module
-
-    def one_shot(
-        self,
-        calibration_data: Optional[DataLoader] = None,
-    ):
-        """
-        Run oneshot calibration on the active model
-
-        :param stage: which stage of the recipe to run, or None to run whole recipe
-        :param calib_data: dataloader of calibration data
-        """
-
-        # run oneshot iterating the modifiers specified in the recipe
-        return self.lifecycle.initialize(
-            model=self.model,
-            recipe=self.recipe,
-            recipe_args=self.recipe_args,
-            calib_data=calibration_data,
-            start=-1,  # oneshot specific
-            copy_data=False,
-            min_tokens_per_module=self.min_tokens_per_module,
-        )

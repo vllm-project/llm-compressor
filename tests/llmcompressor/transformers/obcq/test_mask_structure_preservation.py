@@ -5,7 +5,6 @@ import pytest
 from compressed_tensors.utils import tensor_follows_mask_structure
 from parameterized import parameterized_class
 
-from llmcompressor.core import reset_session
 from tests.testing_utils import parse_params
 
 MASK_STRUCTURE_CONFIGS_DIRECTORY = (
@@ -47,7 +46,6 @@ class TestMaskStructurePreserved(unittest.TestCase):
 
         import torch
 
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
@@ -55,7 +53,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
         tolerance = 1e-3
         num_calibration_samples = 16
 
-        oneshot(
+        compressor = oneshot(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -65,7 +63,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
             clear_sparse_session=False,
             save_compressed=False,
         )
-        first_tiny_model = get_session_model()
+        first_tiny_model = compressor.model
         targetted_layer = first_tiny_model.model.layers[0].self_attn.k_proj
         target_layer_sparsity = tensor_sparsity(targetted_layer.weight)
         initial_mask = first_tiny_model.model.layers[0].self_attn.k_proj.weight == 0
@@ -77,9 +75,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
         # mask structure is as expected, i.e same as self.recipe_mask_structure
         assert tensor_follows_mask_structure(initial_mask, self.recipe_mask_structure)
 
-        reset_session()
-
-        oneshot(
+        second_compressor = oneshot(
             model=self.output_first,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -90,7 +86,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
             save_compressed=False,
         )
 
-        second_tiny_model = get_session_model()
+        second_tiny_model = second_compressor.model
 
         # model is loaded
         assert second_tiny_model is not None

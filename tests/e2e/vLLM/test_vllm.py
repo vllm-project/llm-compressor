@@ -16,7 +16,6 @@ try:
     from vllm import LLM, SamplingParams
 
     vllm_installed = True
-    raise
 except ImportError:
     vllm_installed = False
     logger.warning("vllm is not installed. This test will be skipped")

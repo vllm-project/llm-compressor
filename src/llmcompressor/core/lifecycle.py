@@ -22,34 +22,7 @@ from llmcompressor.recipe import RecipeContainer
 
 __all__ = [
     "CompressionLifecycle",
-    # "OneshotCompressionLifecycle",
 ]
-
-
-# @dataclass
-# class CompressionLifecycle:
-#     """
-#     A class for managing the lifecycle of compression events in the LLM Compressor.
-
-#     :param state: The current state of the compression process
-#     :type state: Optional[State]
-#     :param recipe_container: The container for the compression recipe
-#     :type recipe_container: RecipeContainer
-#     :param modifiers: The list of stage modifiers
-#     :type modifiers: List[StageModifiers]
-#     :param event_lifecycle: The event lifecycle manager
-#     :type event_lifecycle: Optional[EventLifecycle]
-#     """
-
-#     state: Optional[State] = None
-#     recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
-#     modifiers: List[StageModifiers] = field(default_factory=list)
-#     event_lifecycle: Optional[EventLifecycle] = None
-
-#     initialized_structure: bool = False
-#     initialized_: bool = False
-#     finalized: bool = False
-#     event_called: bool = False
 
 
 @dataclass
@@ -77,31 +50,47 @@ class CompressionLifecycle:
     finalized: bool = False
     event_called: bool = False
 
-    _instance = None
-    _initialized = False
+    # _instance = None
+    # _initialized = False
 
-    def __new__(cls, *args, **kwargs):
-        """Singleton"""
-        if cls._instance is None:
-            cls._instance = super(CompressionLifecycle, cls).__new__(cls)
-        return cls._instance
+    # def __new__(cls, *args, **kwargs):
+    #     """Singleton"""
+    #     if cls._instance is None:
+    #         cls._instance = super(CompressionLifecycle, cls).__new__(cls)
+    #     return cls._instance
+
+    # def __init__(self, *args, **kwargs):
+    #     if not self._initialized:
+    #         super().__init__()
+
+    #         # Set additional initializations here if needed
+    #         self.state = kwargs.get("state", None)
+    #         self.recipe_container = kwargs.get("recipe_container", RecipeContainer())
+    #         self.modifiers = kwargs.get("modifiers", [])
+    #         self.event_lifecycle = kwargs.get("event_lifecycle", None)
+
+    #         self.initialized_structure = False
+    #         self.initialized_ = False
+    #         self.finalized = False
+    #         self.event_called = False
+
+    #         self._initialized = True
 
     def __init__(self, *args, **kwargs):
-        if not self._initialized:
-            super().__init__()
+        super().__init__()
 
-            # Set additional initializations here if needed
-            self.state = kwargs.get("state", None)
-            self.recipe_container = kwargs.get("recipe_container", RecipeContainer())
-            self.modifiers = kwargs.get("modifiers", [])
-            self.event_lifecycle = kwargs.get("event_lifecycle", None)
+        # Set additional initializations here if needed
+        self.state = kwargs.get("state", None)
+        self.recipe_container = kwargs.get("recipe_container", RecipeContainer())
+        self.modifiers = kwargs.get("modifiers", [])
+        self.event_lifecycle = kwargs.get("event_lifecycle", None)
 
-            self.initialized_structure = False
-            self.initialized_ = False
-            self.finalized = False
-            self.event_called = False
+        self.initialized_structure = False
+        self.initialized_ = False
+        self.finalized = False
+        self.event_called = False
 
-            self._initialized = True
+        self._initialized = True
 
     def reset(self):
         """
@@ -378,20 +367,3 @@ class CompressionLifecycle:
         self.state.model.layer_prefix = model_metadata.layer_prefix
         logger.debug("Model layer prefix set to {}", self.state.model.layer_prefix)
         return True
-
-
-# @dataclass
-# class OneshotCompressionLifecycle(CompressionLifecycle):
-#     _instance: Optional["OneshotCompressionLifecycle"] = None
-#     _initialized: bool = False
-
-#     def __new__(cls, *args, **kwargs):
-#         """Singleton"""
-#         if cls._instance is None:
-#             cls._instance = super(OneshotCompressionLifecycle, cls).__new__(cls)
-#         return cls._instance
-
-#     def __init__(self, *args, **kwargs):
-#         if not self._initialized:
-#             super().__init__(*args, **kwargs)
-#             self._initialized = True

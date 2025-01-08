@@ -1,16 +1,9 @@
 from transformers import Trainer as HFTransformersTrainer
 
-from llmcompressor.transformers.finetune.session_mixin import (
-    OneshotSessionManagerMixIn,
-    SessionManagerMixIn,
-)
+from llmcompressor.transformers.finetune.session_mixin import SessionManagerMixIn
 
-__all__ = ["Trainer", "Calibrator"]
+__all__ = ["Trainer"]
 
 
 class Trainer(SessionManagerMixIn, HFTransformersTrainer):
-    pass
-
-
-class Calibrator(OneshotSessionManagerMixIn):
     pass

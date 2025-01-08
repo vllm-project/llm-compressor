@@ -6,13 +6,13 @@ from typing import List, Optional
 class RecipeArguments:
     """Recipe and session variables"""
 
-    recipe: Optional[str] = field(  # runner py, test_gen.py
+    recipe: Optional[str] = field(
         default=None,
         metadata={
             "help": "Path to a LLM Compressor sparsification recipe",
         },
     )
-    recipe_args: Optional[List[str]] = field(  # text_gen.py
+    recipe_args: Optional[List[str]] = field(
         default=None,
         metadata={
             "help": (

@@ -50,7 +50,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     one_of_sparse_weights = "model.layers.1.mlp.up_proj.weight"
 
     # create a sparse model
-    oneshot(
+    oneshot_calibrator = oneshot(
         model=model_path,
         dataset=dataset,
         output_dir=output_dir,
@@ -83,7 +83,9 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         rel_tol=1e-3,
     )
 
-    inferred_structure = SparsityConfigMetadata.infer_sparsity_structure()
+    inferred_structure = SparsityConfigMetadata.infer_sparsity_structure(
+        model, oneshot_calibrator.lifecycle.modifiers
+    )
     assert inferred_structure == "0:0"
 
     model.save_pretrained(
@@ -160,8 +162,6 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     ],
 )
 def test_quant_model_reload(format, dtype, tmp_path):
-    from llmcompressor.pytorch.model_load.helpers import get_session_model
-
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
@@ -176,7 +176,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     empty_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
 
     # create a quantized model
-    oneshot(
+    oneshot_compressor = oneshot(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -189,7 +189,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     )
 
     # Fetch the oneshot model
-    model = get_session_model()
+    model = oneshot_compressor.model
     og_state_dict = model.state_dict()
     path = tmp_path / "compressed"
 

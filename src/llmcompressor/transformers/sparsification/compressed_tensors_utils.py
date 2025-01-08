@@ -17,6 +17,7 @@ from loguru import logger
 from safetensors.torch import storage_ptr
 
 from llmcompressor.core import active_session
+from llmcompressor.modifiers.stage import StageModifiers
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
@@ -99,7 +100,9 @@ def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
     )
 
 
-def modify_save_pretrained(model: torch.nn.Module):
+def modify_save_pretrained(
+    model: torch.nn.Module,
+):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
     supports compression
@@ -124,6 +127,7 @@ def modify_save_pretrained(model: torch.nn.Module):
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
             skip_compression_stats: bool = False,
+            stage_modifiers: Optional[StageModifiers] = None,
             **kwargs,
         ):
             """
@@ -169,6 +173,7 @@ def modify_save_pretrained(model: torch.nn.Module):
                 save_compressed=save_compressed,
                 skip_compression_stats=skip_compression_stats,
                 state_dict=state_dict,
+                stage_modifiers=stage_modifiers,
             )
 
             if compressor is None:
@@ -260,6 +265,7 @@ def get_model_compressor(
     save_compressed: bool = True,
     skip_compression_stats: bool = False,
     state_dict: Optional[Dict] = None,
+    stage_modifiers: Optional[StageModifiers] = None,
 ):
     """
     Obtain the compressor based on the config and the
@@ -295,7 +301,10 @@ def get_model_compressor(
             "skip_compression_stats=True"
         )
         sparsity_config = SparsityConfigMetadata.from_pretrained(
-            model, state_dict=state_dict, compress=save_compressed
+            model,
+            state_dict=state_dict,
+            compress=save_compressed,
+            stage_modifiers=stage_modifiers,
         )
 
     quantization_format = infer_quantization_format(

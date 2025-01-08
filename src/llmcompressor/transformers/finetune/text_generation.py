@@ -88,7 +88,7 @@ def oneshot(**kwargs):
     """
     oneshot_calibrator = Oneshot(**kwargs)
     oneshot_calibrator.run()
-    return oneshot_calibrator.model
+    return oneshot_calibrator
 
 
 # alias

@@ -12,7 +12,6 @@ from transformers import (
     PreTrainedModel,
 )
 
-# from llmcompressor.core.lifecycle import OneshotCompressionLifecycle
 from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.pytorch.model_load.helpers import fallback_to_cpu, parse_dtype
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
@@ -67,11 +66,12 @@ class Oneshot:
         self.lifecycle = CompressionLifecycle()
 
         # model, tokenizer/processor instantiation
-        self._preprocess()
+        self._pre_process()
 
         self.model = self.model_args.model
         self.tokenizer_or_processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
+        self.modifiers = self.lifecycle.modifiers
 
     def run(self):
         """Carry out oneshot calibration"""
@@ -95,7 +95,17 @@ class Oneshot:
             min_tokens_per_module=self.min_tokens_per_module,
         )
 
-    def _preprocess(self):
+        self.lifecycle.finalize(
+            model=self.model,
+            recipe=self.recipe,
+            recipe_args=self.recipe_args.recipe_args,
+            calib_data=calibration_dataloader,
+            start=-1,  # oneshot specific arg
+            copy_data=False,
+            min_tokens_per_module=self.min_tokens_per_module,
+        )
+
+    def _pre_process(self):
         """Preprocess model and tokenizer/processor"""
         if self.model_args.tie_word_embeddings is True:
             logger.debug(
@@ -113,7 +123,7 @@ class Oneshot:
         # https://github.com/huggingface/transformers/issues/33689
         patch_tied_tensors_bug(model)
 
-        # wrap model.save_pretrained in compressed_tensors format for vllm
+        # on save, convert the model in a compressed_tensors format for vllm inference
         modify_save_pretrained(model)
 
         self.model_args.model = model
@@ -137,6 +147,7 @@ class Oneshot:
             self.model_args.model.save_pretrained(
                 self.model_args.output_dir,
                 save_compressed=self.model_args.save_compressed,
+                stage_modifiers=self.lifecycle.modifiers,
             )
             if self.tokenizer_or_processor is not None:
                 self.tokenizer_or_processor.save_pretrained(self.model_args.output_dir)
