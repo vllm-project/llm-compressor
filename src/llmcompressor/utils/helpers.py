@@ -1098,6 +1098,7 @@ def DisableQuantization(model: torch.nn.Module):
 
 @contextlib.contextmanager
 def calibration_forward_context(model: torch.nn.Module):
+    from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
     """
     Context in which all calibration forward passes should occur.
 
@@ -1105,7 +1106,10 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable the KV cache
     - Disable quantization from QuantizationModifier
     """
-    model.eval()
+    if not is_moe_model(model):
+        model.eval()
+    else:
+        model.train()
 
     with (
         torch.no_grad(),
