@@ -50,22 +50,6 @@ class CompressionLifecycle:
     finalized: bool = False
     event_called: bool = False
 
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-
-        # Set additional initializations here if needed
-        self.state = kwargs.get("state", None)
-        self.recipe_container = kwargs.get("recipe_container", RecipeContainer())
-        self.modifiers = kwargs.get("modifiers", [])
-        self.event_lifecycle = kwargs.get("event_lifecycle", None)
-
-        self.initialized_structure = False
-        self.initialized_ = False
-        self.finalized = False
-        self.event_called = False
-
-        self._initialized = True
-
     def reset(self):
         """
         Reset the compression lifecycle, finalizing any active modifiers

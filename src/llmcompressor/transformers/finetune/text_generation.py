@@ -340,7 +340,6 @@ def initialize_processor_from_path(
     model: PreTrainedModel,
     teacher: Optional[PreTrainedModel] = None,
 ) -> Processor:
-    processor_src = model_args.processor
     processor_src = model_args.processor or get_processor_from_model(model, teacher)
     # The use_fast=True option is not currently supported safely in Transformers
     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
