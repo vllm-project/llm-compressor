@@ -323,7 +323,7 @@ class GPTQModifier(Modifier, HooksMixin):
             )
 
     def quantize_modules(self):
-        for module in self._num_samples:
+        for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             num_samples = self._num_samples[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
