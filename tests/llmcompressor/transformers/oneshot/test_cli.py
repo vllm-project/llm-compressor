@@ -51,7 +51,7 @@ class TestOneShotCli(unittest.TestCase):
 
         res = run_cli_command(cmd)
 
-        # oneshot returns model
+        # oneshot has return arg
         self.assertIsNone(res.stderr)
 
     def tearDown(self):

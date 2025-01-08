@@ -50,32 +50,6 @@ class CompressionLifecycle:
     finalized: bool = False
     event_called: bool = False
 
-    # _instance = None
-    # _initialized = False
-
-    # def __new__(cls, *args, **kwargs):
-    #     """Singleton"""
-    #     if cls._instance is None:
-    #         cls._instance = super(CompressionLifecycle, cls).__new__(cls)
-    #     return cls._instance
-
-    # def __init__(self, *args, **kwargs):
-    #     if not self._initialized:
-    #         super().__init__()
-
-    #         # Set additional initializations here if needed
-    #         self.state = kwargs.get("state", None)
-    #         self.recipe_container = kwargs.get("recipe_container", RecipeContainer())
-    #         self.modifiers = kwargs.get("modifiers", [])
-    #         self.event_lifecycle = kwargs.get("event_lifecycle", None)
-
-    #         self.initialized_structure = False
-    #         self.initialized_ = False
-    #         self.finalized = False
-    #         self.event_called = False
-
-    #         self._initialized = True
-
     def __init__(self, *args, **kwargs):
         super().__init__()
 
