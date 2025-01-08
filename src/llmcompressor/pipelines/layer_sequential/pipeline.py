@@ -4,6 +4,7 @@ import torch
 import torch.utils.data.dataloader
 import tqdm
 
+from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
@@ -20,7 +21,7 @@ def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
-    gptq_modifier,  # TODO: remove
+    gptq_modifier: GPTQModifier,  # TODO: remove
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:

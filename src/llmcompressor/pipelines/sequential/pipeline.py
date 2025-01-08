@@ -5,12 +5,11 @@ import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
 
-from llmcompressor.core.session_functions import LifecycleCallbacks
+from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.core.events import EventType
 
 __all__ = ["run_pipeline"]
 
@@ -20,7 +19,7 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
-    gptq_modifier # TODO: Remove
+    gptq_modifier: GPTQModifier,  # TODO: Remove
 ):
     """
     Run a sequential data pipeline according to the following steps:

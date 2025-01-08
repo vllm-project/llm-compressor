@@ -1,10 +1,9 @@
 import contextlib
 import warnings
-from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import QuantizationScheme, QuantizationArgs
+from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -14,7 +13,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
-from llmcompressor.core import State, Event
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
@@ -126,7 +125,6 @@ class GPTQModifier(Modifier, HooksMixin):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _update_size: Optional[int] = PrivateAttr(default=None)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -205,7 +203,7 @@ class GPTQModifier(Modifier, HooksMixin):
             self._quantization_modifier.initialize(state, **kwargs)
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
-        
+
         # prepare module names
         self._module_names = {m: name for name, m in state.model.named_modules()}
 
@@ -216,17 +214,13 @@ class GPTQModifier(Modifier, HooksMixin):
                 # accessible by the layer compressor. For now, we manually ignore it,
                 # but in the FUTURE this should be ignored by the user
                 if not isinstance(module, torch.nn.Embedding):
-                    self.register_hook(module, self.compress_module, "forward")
+                    self.register_hook(module, self.calibrate_module, "forward")
 
         # infer sequential targets
         if self.sequential_targets is None:
             self.sequential_targets = get_no_split_params(state.model)
         if isinstance(self.sequential_targets, str):
             self.sequential_targets = [self.sequential_targets]
-
-        # infer update size
-        if self._update_size is None:
-            self._update_size = len(state.data.calib)
 
         # infer pipeline
         model_name = state.model.__class__.__name__
@@ -277,7 +271,7 @@ class GPTQModifier(Modifier, HooksMixin):
 
         return True
 
-    def compress_module(
+    def calibrate_module(
         self,
         module: torch.nn.Module,
         args: Tuple[torch.Tensor, ...],
@@ -312,15 +306,38 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-        # After enough samples are accumulated, perform quantization
-        if self._num_samples[module] >= self._update_size:
-            self._quantize_module(module)
-
-    def finish_compressing_modules(self, model: torch.nn.Module):
+    def quantize_modules(self, model: torch.nn.Module):
         for module in model.modules():
-            if self._num_samples.get(module, 0) > 0:
-                self._quantize_module(module)
+            name = self._module_names[module]
+            num_samples = self._num_samples[module]
+            quant_args = getattr_chain(module, "quantization_scheme.weights")
 
+            logger.info(f"Quantizing {name} using {num_samples} samples")
+            with (
+                torch.no_grad(),
+                align_module_device(module),
+                self._maybe_onload_hessian(module),
+                CompressionLogger(module) as comp_logger,
+            ):
+                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                    module=module,
+                    quant_args=quant_args,
+                    hessians_dict=self._hessians,
+                    blocksize=self.block_size,
+                    percdamp=self.dampening_frac,
+                )
+                comp_logger.set_loss(loss)
+
+            update_offload_parameter(module, "weight", quantized_weight)
+            update_offload_parameter(module, "weight_scale", scale)
+            update_offload_parameter(module, "weight_zero_point", zero_point)
+            if g_idx is not None:
+                update_offload_parameter(module, "weight_g_idx", g_idx)
+
+            # self._hessians[module] already deleted by quantize_weight
+            del self._num_samples[module]
+
+        assert len(self._hessians) <= 0
         assert len(self._num_samples) <= 0
 
     @contextlib.contextmanager
@@ -334,38 +351,6 @@ class GPTQModifier(Modifier, HooksMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
-
-
-    def _quantize_module(self, module: torch.nn.Module, name: str):
-        name = self._module_names[module]
-        num_samples = self._num_samples[module]
-        quant_args = getattr_chain(module, "quantization_scheme.weights")
-
-        logger.info(f"Quantizing {name} using {num_samples} samples")
-        with (
-            torch.no_grad(),
-            align_module_device(module),
-            self._maybe_onload_hessian(module),
-            CompressionLogger(module) as comp_logger,
-        ):
-            loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
-                module=module,
-                quant_args=quant_args,
-                hessians_dict=self._hessians,
-                blocksize=self.block_size,
-                percdamp=self.dampening_frac,
-            )
-            comp_logger.set_loss(loss)
-
-        update_offload_parameter(module, "weight", quantized_weight)
-        update_offload_parameter(module, "weight_scale", scale)
-        update_offload_parameter(module, "weight_zero_point", zero_point)
-        if g_idx is not None:
-            update_offload_parameter(module, "weight_g_idx", g_idx)
-
-        # self._hessians[module] already deleted by quantize_weight
-        del self._num_samples[module]
-    
 
     def _build_quant_modifier(self):
         """
