@@ -23,6 +23,7 @@ from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.pipelines.layer_sequential import (
     run_pipeline as run_layer_sequential,
 )
@@ -63,7 +64,7 @@ class GPTQModifier(Modifier, HooksMixin):
             - _build_quant_modifier
         - on_initialize
             - register_hook(module, compress_module, "forward")
-            - run_sequential / run_layer_sequential
+            - run_sequential / run_layer_sequential / run_basic
                 - make_empty_hessian
                 - accumulate_hessian
                 - quantize_weight
@@ -247,13 +248,27 @@ class GPTQModifier(Modifier, HooksMixin):
                 raise exception
 
             warnings.warn("Falling back to layer_sequential pipeline")
-            run_layer_sequential(
-                state.model,
-                state.data.calib,
-                self.sequential_targets,
-                self,
-            )
-            return True
+            try:
+                run_layer_sequential(
+                    state.model,
+                    state.data.calib,
+                    self.sequential_targets,
+                )
+                return True
+
+            except Exception as exception:
+                if isinstance(exception, TypeError):
+                    warnings.warn(f"{model_name} fails layer-wise assumptions")
+                if isinstance(exception, unfixable_errors):
+                    raise exception
+
+                warnings.warn(
+                    "Falling back to basic pipeline, which requires extra memory and "
+                    "may result in decreased accuracy. Consider using "
+                    "`offload_hessians=True`"
+                )
+                run_basic(state.model, state.data.calib, self)
+                return True
 
     def on_finalize(self, state: "State", **kwargs) -> bool:
         """
