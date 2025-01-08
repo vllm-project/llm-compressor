@@ -1,10 +1,9 @@
-from typing import List
+from typing import TYPE_CHECKING, List
 
 import torch
 import torch.utils.data.dataloader
 import tqdm
 
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
@@ -13,6 +12,9 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     to_next_layer_kwargs,
 )
 from llmcompressor.utils.helpers import calibration_forward_context
+
+if TYPE_CHECKING:
+    from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
 __all__ = ["run_pipeline"]
 
