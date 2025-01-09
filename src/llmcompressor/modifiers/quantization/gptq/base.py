@@ -237,15 +237,9 @@ class GPTQModifier(Modifier, HooksMixin):
         try:
             run_sequential(
                 state.model,
-<<<<<<< HEAD
-                self.sequential_targets,
-                self.ignore,
-                state.data.calib,
-=======
                 state.data.calib,
                 self.sequential_targets,
                 self.ignore,
->>>>>>> origin
             )
             return True
 
@@ -259,13 +253,8 @@ class GPTQModifier(Modifier, HooksMixin):
             try:
                 run_layer_sequential(
                     state.model,
-<<<<<<< HEAD
-                    self.sequential_targets,
-                    state.data.calib,
-=======
                     state.data.calib,
                     self.sequential_targets,
->>>>>>> origin
                 )
                 return True
 
