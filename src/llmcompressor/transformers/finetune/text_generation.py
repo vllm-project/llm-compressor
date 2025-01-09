@@ -99,12 +99,12 @@ def apply(**kwargs):
     CLI entrypoint for any of training, eval, predict or oneshot
     """
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.run_stages = True
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
         training_args.report_to = []
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def compress(**kwargs):
@@ -113,9 +113,9 @@ def compress(**kwargs):
 
 def load_dataset(dataset_name: str, **kwargs):
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
+        (ModelArguments, DataTrainingArguments, RecipeArguments, TrainingArguments)
     )
-    model_args, data_args, training_args = parser.parse_dict(kwargs)
+    _, data_args, _, _ = parser.parse_dict(kwargs)
     data_args["dataset_name"] = dataset_name
 
 
@@ -128,11 +128,8 @@ def parse_args(**kwargs):
         * training_args in src/llmcompressor/transformers/finetune/training_args.py
 
     Throws depreciation warnings
-    """
 
-    # avoid collision to save oneshot model (no training args) and HF training args
-    output_dir = kwargs.get("output_dir", None) or "./output"
-    save_safetensors = kwargs.get("save_safetensors", True)
+    """
 
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, RecipeArguments, TrainingArguments)
@@ -144,9 +141,6 @@ def parse_args(**kwargs):
         )
     else:
         model_args, data_args, recipe_args, training_args = parser.parse_dict(kwargs)
-
-    model_args.output_dir = output_dir
-    model_args.save_safetensors = save_safetensors
 
     if recipe_args.recipe_args is not None:
         if not isinstance(recipe_args.recipe_args, dict):
@@ -223,7 +217,7 @@ def initialize_model_from_path(
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
 
     device_map = model_args.oneshot_device
-    if not fsdp_enabled and training_args.do_train:
+    if not fsdp_enabled and training_args is not None and training_args.do_train:
         device_map = "auto"
 
     model_kwargs = {
@@ -305,8 +299,8 @@ def initialize_processor_from_path(
 def main(
     model_args: ModelArguments,
     data_args: DataTrainingArguments,
-    training_args: TrainingArguments,
     recipe_args: RecipeArguments,
+    training_args: TrainingArguments,
 ):
     """
     Main entrypoint for finetuning text generation models. A model can be loaded from
@@ -345,9 +339,9 @@ def main(
         for stage in recipe_obj.stages:
             run_type = stage.infer_run_type()
             if run_type is StageRunType.ONESHOT:
-                recipe_args.do_oneshot = True
+                training_args.do_oneshot = True
             elif run_type is StageRunType.TRAIN:
-                recipe_args.do_train = True
+                training_args.do_train = True
 
     # Summary on each process
     logger.warning(
@@ -405,6 +399,7 @@ def main(
         recipe=recipe_args.recipe,
         recipe_args=recipe_args.recipe_args,
         args=training_args,
+        model_args=model_args,
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
@@ -452,14 +447,14 @@ def main(
 
     # save if model was provided as a string or custom output_dir was set
     if isinstance(model_args.model, str) or (
-        model_args.output_dir
+        training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
         model.save_pretrained(
-            model_args.output_dir, save_compressed=model_args.save_compressed
+            training_args.output_dir, save_compressed=model_args.save_compressed
         )
         if processor is not None:
-            processor.save_pretrained(model_args.output_dir)
+            processor.save_pretrained(training_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:

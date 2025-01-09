@@ -60,8 +60,8 @@ class StageRunner:
         self.datasets = {}
         self.trainer = None
         self.processor = None
-        self.parent_output_dir = self.model_args.output_dir
-        self._output_dir = self.model_args.output_dir
+        self.parent_output_dir = self._training_args.output_dir
+        self._output_dir = self._training_args.output_dir
 
     def populate_datasets(self, processor: Processor, add_labels: bool = True):
         """
@@ -250,7 +250,7 @@ class StageRunner:
                 if not os.path.exists(self._output_dir):
                     os.makedirs(self._output_dir)
                 save_completed_stages(self._output_dir, completed_stages)
-            self._model_args.output_dir = self._output_dir
+            self._training_args.output_dir = self._output_dir
 
             # run stage
             if run_type is StageRunType.ONESHOT:
@@ -260,14 +260,14 @@ class StageRunner:
             checkpoint = None
 
             if (
-                self._model_args.output_dir
+                self._training_args.output_dir
                 != TrainingArguments.__dataclass_fields__["output_dir"].default
             ):
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
                     processor=self.processor,
-                    save_safetensors=self._model_args.save_safetensors,
+                    save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._model_args.save_compressed,
                 )
 

@@ -15,6 +15,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     format_calibration_data,
 )
 from llmcompressor.transformers.finetune.runner import StageRunner
+from llmcompressor.transformers.utils.recipe_args import RecipeArguments
 
 
 @pytest.mark.unit
@@ -283,8 +284,12 @@ class TestSplitLoading(unittest.TestCase):
         )
         training_args = TrainingArguments(do_train=True, output_dir="dummy")
         model_args = ModelArguments(model=None)
+        recipe_args = RecipeArguments()
         stage_runner = StageRunner(
-            model_args=model_args, data_args=data_args, training_args=training_args
+            model_args=model_args,
+            data_args=data_args,
+            training_args=training_args,
+            recipe_args=recipe_args,
         )
         stage_runner.populate_datasets(processor=self.tiny_llama_tokenizer)
 
@@ -322,6 +327,7 @@ class TestTokenizationDataset(unittest.TestCase):
                 dataset=tokenized_dataset, shuffle_calibration_samples=False
             ),
             training_args=TrainingArguments(do_oneshot=True),
+            recipe_args=RecipeArguments(),
         )
         stage_runner.populate_datasets(processor=None)
         calib_dataset = stage_runner.get_dataset_split("calibration")

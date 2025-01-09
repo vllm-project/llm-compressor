@@ -4,7 +4,11 @@ from typing import Optional
 
 @dataclass
 class ModelArguments:
-    """Model variables used for oneshot calibration"""
+    """
+    Model variables used for oneshot calibration, training or finetuning and
+    stage runners (combination of oneshot and finetune going back and forth)
+
+    """
 
     model: str = field(
         metadata={
@@ -12,6 +16,12 @@ class ModelArguments:
                 "A pretrained model or a string as a path to pretrained model, "
                 "HF stub, or model identifier from huggingface.co/models."
             )
+        },
+    )
+    distill_teacher: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Teacher model (a trained text generation model)",
         },
     )
     config_name: Optional[str] = field(
@@ -72,20 +82,6 @@ class ModelArguments:
     oneshot_device: Optional[str] = field(
         default="cuda:0",
         metadata={"help": "Device to run oneshot calibration on"},
-    )
-    save_safetensors: Optional[bool] = field(
-        default=True,
-        metadata={
-            "help": "Use safetensors saving and loading for state dicts instead of "
-            "default torch.load and torch.save."
-        },
-    )
-    output_dir: str = field(
-        default="./output",
-        metadata={
-            "help": "The output directory where the model predictions and "
-            "checkpoints will be written."
-        },
     )
     model_revision: str = field(
         default="main",
