@@ -10,8 +10,8 @@ like the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 2. How to determine if your model is traceable for your dataset
 3. How to modify your model definition to be traceable
 
-
 ## Why is Tracing Required? ##
+
 
 ## Determining Traceability ##
 In order to determine if a model is traceable for a given dataset, you can use the
@@ -92,9 +92,24 @@ time, increasing peak memory usage.
 Note that in the image above, the `multi_modal_projector` is also ignored.
 
 ## Defining your own Traceable Model Definitions ##
+Before defining your own traceable model definition, make sure that the untraceable
+parts of your model are not a part of a module that can be
+[ignored](#choosing-modules-to-ignore).
 
+To define your own traceable model definition, follow the steps below:
+1. Copy the original model definition into the [tracing folder](/src/llmcompressor/transformers/tracing/). The original model definition can usually be found in [`transformers/models`](https://github.com/huggingface/transformers/tree/main/src/transformers/models) folder or the `modeling_X.py` file for models with remote code.
+2. Add your new model class to [tracing/\_\_init\_\_.py](/src/llmcompressor/transformers/tracing/__init__.py).
+3. Use the `attempt_trace` function as show in [Determining Traceability](#determining-traceability) to find the untraceable line of code in your model. **Remember to replace the original `model_class` with your own imported custom traceable model definition**.
+4. Find the untraceable line of code in your model definition and modify the code to make it traceable. Examples of how to do this for each of the common errors can be found below. If you encounter a tracing issue which is not documented below, please create an issue!
+5. Repeat steps 3-4 until all of the untraceable operations have been replaced with traceable operations.
+6. Once your model traces successfully, remove any class definitions you did not use and import them if necessary. Note that this cannot be done for models with remote code.
+7. Commit your changes to a branch and open a PR so that others like yourself can benefit from the changes! LLM Compressor is an open-source project that relies on community contribution to support the wide range of model architectures available on huggingface. P.S., remember to add `# vllm-project: no copyright` underneath any copyright notices at the top of the file.
+TODO: revisit the tone here
 
 ### Conditional Execution and Asserts ###
+```
+torch.fx.proxy.TraceError: symbolically traced variables cannot be used as inputs to control flow
+```
 
 ### Wrapping functions ###
 skips problematic or shape-dependent operations, but you will not know the shape of the output
