@@ -134,9 +134,7 @@ class TestQuantizationMatches(unittest.TestCase):
             split="train_gen[:5%]",
             processor=tokenizer,
         )
-        calib_dataset = dataset_manager.tokenize_and_process(
-            dataset_manager.get_raw_dataset()
-        )
+        calib_dataset = dataset_manager()
         data_loader = DataLoader(
             calib_dataset,
             batch_size=1,
