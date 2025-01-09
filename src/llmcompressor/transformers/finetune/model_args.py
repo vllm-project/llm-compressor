@@ -34,6 +34,12 @@ class ModelArguments:
             "help": "Pretrained tokenizer name or path if not the same as model_name"
         },
     )
+    processor: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Pretrained processor name or path if not the same as model_name"
+        },
+    )
     cache_dir: Optional[str] = field(
         default=None,
         metadata={"help": "Where to store the pretrained data from huggingface.co"},
