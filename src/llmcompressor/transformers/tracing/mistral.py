@@ -32,7 +32,6 @@ from transformers.utils import (
 )
 
 # TRACING: imports
-from torch.fx import wrap
 from transformers.models.mistral.modeling_mistral import (
     MistralPreTrainedModel,
     MistralModel,
@@ -46,7 +45,7 @@ logger = logging.get_logger(__name__)
 
 
 # TRACING: This function is untracable
-@wrap
+@torch.fx.wrap
 def _prepare_4d_causal_attention_mask_with_cache_position(
     attention_mask: torch.Tensor,
     sequence_length: int,
@@ -195,11 +194,11 @@ class MistralModel(MistralModel):
         return causal_mask
 
 
-# TRACING: Must use MistralModel
+# TRACING: Must use MistralModel with wrapped function
 class MistralForCausalLM(MistralForCausalLM):
     def __init__(self, config):
         super(MistralPreTrainedModel, self).__init__(config)
-        # TRACING: Must use MistralModel
+        # TRACING: Must use MistralModel with wrapped function
         self.model = MistralModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
@@ -208,12 +207,12 @@ class MistralForCausalLM(MistralForCausalLM):
         self.post_init()
 
 
-# TRACING: Must use MistralModel
+# TRACING: Must use MistralModel with wrapped function
 class MistralForSequenceClassification(MistralForSequenceClassification):
     def __init__(self, config):
         super(MistralPreTrainedModel, self).__init__(config)
         self.num_labels = config.num_labels
-        # TRACING: Must use MistralModel
+        # TRACING: Must use MistralModel with wrapped function
         self.model = MistralModel(config)
         self.score = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
@@ -221,12 +220,12 @@ class MistralForSequenceClassification(MistralForSequenceClassification):
         self.post_init()
 
 
-# TRACING: Must use MistralModel
+# TRACING: Must use MistralModel with wrapped function
 class MistralForTokenClassification(MistralForTokenClassification):
     def __init__(self, config):
         super(MistralPreTrainedModel, self).__init__(config)
         self.num_labels = config.num_labels
-        # TRACING: Must use MistralModel
+        # TRACING: Must use MistralModel with wrapped function
         self.model = MistralModel(config)
         if getattr(config, "classifier_dropout", None) is not None:
             classifier_dropout = config.classifier_dropout
@@ -240,11 +239,11 @@ class MistralForTokenClassification(MistralForTokenClassification):
         # Initialize weights and apply final processing
         self.post_init()
 
-# TRACING: Must use MistralModel
+# TRACING: Must use MistralModel with wrapped function
 class MistralForQuestionAnswering(MistralForQuestionAnswering):
     def __init__(self, config):
         super(MistralPreTrainedModel, self).__init__(config)
-        # TRACING: Must use MistralModel
+        # TRACING: Must use MistralModel with wrapped function
         self.model = MistralModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, 2)
 

@@ -5,6 +5,7 @@ import torch.utils.data.dataloader
 import tqdm
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
     capture_first_layer_intermediates,
     match_modules,
@@ -17,8 +18,8 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    sequential_targets: List[str],
     dataloader: torch.utils.data.DataLoader,
+    sequential_targets: List[str],
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:
@@ -36,13 +37,19 @@ def run_pipeline(
     If your model architecture violates these assumptions, consider using the sequential
     pipeline (see llmcompressor.pipelines.sequential). Architectures which are known to
     fail these assumptions include GPT-J and most vision language models
+
+    :param model: model being calibrated
+    :param dataloader: loads data for calibration
+    :param sequential_targets: patterns which match to the layer modules of the model
     """
     # find layers
     layers = match_modules(model, sequential_targets)
 
     with calibration_forward_context(model):
         # prepare intermediates cache
-        intermediates = capture_first_layer_intermediates(model, layers, dataloader)
+        intermediates: IntermediatesCache = capture_first_layer_intermediates(
+            model, layers[0], dataloader
+        )
 
         num_layers = len(layers)
         for layer_index, layer in enumerate(layers):

@@ -59,7 +59,7 @@ class IntermediatesCache:
         dataloader: torch.utils.data.DataLoader,
         model_device: torch.device,
         mask_padding: bool = True,
-        offload_device: torch.device = "cpu",
+        offload_device: torch.device = torch.device("cpu"),
     ):
         """
         Initialize a cache with data from the provided dataloader
@@ -70,20 +70,16 @@ class IntermediatesCache:
             such as GPTQ and SparseGPT
         :param offload_device: device to offload values to
         """
-        batch_intermediates = [
-            {
-                key: (
-                    IntermediateValue(
-                        value=cls._mask_padding(value, batch["attention_mask"]),
-                        device=model_device,
-                    )
-                    if mask_padding and key == "input_ids"
-                    else IntermediateValue(value=value, device=model_device)
-                )
-                for key, value in batch.items()
-            }
-            for batch in tqdm.tqdm(dataloader, desc="Preparing intermediates cache")
-        ]
+        # note: list comprehesion was found to not improve performance
+        batch_intermediates = []
+        for batch in tqdm.tqdm(dataloader, desc="Preparing intermediates cache"):
+            intermediate = {}
+            for key, value in batch.items():
+                if mask_padding and key == "input_ids":
+                    value = cls._mask_padding(value, batch["attention_mask"])
+                intermediate[key] = IntermediateValue(value=value, device=model_device)
+
+            batch_intermediates.append(intermediate)
 
         return cls(batch_intermediates, offload_device)
 

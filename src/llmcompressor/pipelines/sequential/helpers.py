@@ -58,8 +58,8 @@ def trace_subgraphs(
     :param model: model being traced
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
-    :param sequential_targets: list of patterns specifying sequential targets
-    :param ignore: list of patterns specifying modules to ignore during tracing
+    :param sequential_targets: list of patterns matching sequential targets
+    :param ignore: list of patterns matching modules to ignore during tracing
     :return: a list of Subgraphs in order of execution
     """
     # find modules
@@ -191,10 +191,10 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
 
     :param graph: graph being partitioned
     :param targets: target modules which will be assigned to disjoint partitions
-    :return: list of partitions, where each partition is a list of nodes belong to that
-        partition
+    :return: list of partitions, where each partition is a list of nodes belonging to
+        that partition
     """
-    assert check_assumption(graph.graph)
+    assert graph_is_well_formed(graph.graph)
     target_nodes = find_target_nodes(graph, targets)
 
     partitions: List[List[Node]] = [[]]
@@ -256,7 +256,7 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
 
     :param model: model which owns the produced Subgraphs
     :param partitions: list of partitions, where each partition is a list of nodes
-        belong to that partition
+        belonging to that partition
     :return: list of subgraphs in order of execution
     """
     subgraphs = []
@@ -301,7 +301,7 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
             )
         )
 
-        assert check_assumption(graph)
+        assert graph_is_well_formed(graph)
 
     return subgraphs
 
@@ -325,13 +325,13 @@ def trace_consumed_names(subgraphs: List[Subgraph]):
             raise ValueError(f"Could not find input name {input_name} in subgraphs")
 
 
-def check_assumption(graph: Graph) -> bool:
+def graph_is_well_formed(graph: Graph) -> bool:
     """
-    Checks that a graph is not malformed
+    A graph is well formed if and only if
+    `nodeA in NodeB.users <=> nodeB in Node.A.all_input_nodes`
 
     :param graph: graph being checked
-    :return: True if node.users and node.all_input_nodes have bidirectional
-        relationships, False otherwise
+    :return: True if the graph is well formed, False otherwise
     """
     for node in graph.nodes:
         for user in node.users:
@@ -352,7 +352,7 @@ def check_assumption(graph: Graph) -> bool:
 
 def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
     """
-    Find modules whose names matach the patterns given by `target_names`
+    Find modules whose names match the patterns given by `target_names`
 
     :param model: model containing submodules to find
     :param target_names: target patterns to find

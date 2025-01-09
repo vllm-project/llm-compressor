@@ -28,7 +28,6 @@ from transformers.utils import (
 )
 
 # TRACING: imports
-from torch.fx import wrap
 from transformers.models.mllama.modeling_mllama import (
     MLLAMA_START_DOCSTRING,
     MllamaForConditionalGeneration,
@@ -38,7 +37,7 @@ logger = logging.get_logger(__name__)
 
 
 # TRACING: This function is not traceable
-@wrap
+@torch.fx.wrap
 def _prepare_cross_attention_mask(
     cross_attention_mask: torch.Tensor,
     num_vision_tokens: int,

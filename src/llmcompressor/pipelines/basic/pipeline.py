@@ -18,6 +18,9 @@ def run_pipeline(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
     through the model. This pipeline is typically used for basic model calibration
     and, unlike the sequential pipelines, does not propagate compression error when
     used to calibrate model compression
+
+    :param model: model being calibrated
+    :param dataloader: loads data for calibration
     """
     model_device = get_execution_device(model)
 

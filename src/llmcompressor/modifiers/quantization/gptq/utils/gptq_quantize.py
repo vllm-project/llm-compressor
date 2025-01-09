@@ -161,7 +161,7 @@ def quantize_weight(
         H = torch.linalg.cholesky(H, upper=True)
         Hinv = H
     except torch._C._LinAlgError:
-        raise ValueError(
+        raise torch._C._LinAlgError(
             "Failed to invert hessian due to numerical instability. Consider "
             "increasing GPTQModifier.dampening_frac, increasing the number "
             "of calibration samples, or shuffling the calibration dataset"

@@ -5,7 +5,6 @@ __all__ = [
     "pixtral_data_collator",
     "llava_data_collator",
     "qwen2_vl_data_collator",
-    "glm_data_collator",
 ]
 
 
@@ -46,14 +45,4 @@ def qwen2_vl_data_collator(batch):
         "attention_mask": torch.tensor(batch[0]["attention_mask"]),
         "pixel_values": torch.tensor(batch[0]["pixel_values"]),
         "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
-    }
-
-
-def glm_data_collator(batch):
-    assert len(batch) == 1
-    return {
-        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
-        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-        "position_ids": torch.tensor(batch[0]["position_ids"]),
-        "images": torch.tensor(batch[0]["images"]),
     }

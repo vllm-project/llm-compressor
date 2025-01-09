@@ -38,7 +38,7 @@ def match_modules(model: Module, target_names: List[str]) -> List[Module]:
 
 def capture_first_layer_intermediates(
     model: Module,
-    layers: List[Module],
+    first_layer: Module,
     dataloader: DataLoader,
     mask_padding: bool = True,
 ) -> IntermediatesCache:
@@ -52,14 +52,13 @@ def capture_first_layer_intermediates(
     a layer
 
     :param model: model containing layers
-    :param layers: list of layer submodules in the model
+    :param first_layer: the first layer of the model
     :param dataloader: dataloader of calibration inputs
     :param mask_padding: zero out padding tokens if True. This affects modifiers such as
         GPTQ and SparseGPT
     """
     model_device = get_execution_device(model)
     intermediates = IntermediatesCache.empty(len(dataloader), torch.device("cpu"))
-    first_layer = layers[0]
     signature = inspect.signature(first_layer.forward)
 
     with calibration_forward_context(model), early_stop_hook(first_layer):
@@ -120,8 +119,8 @@ def early_stop_hook(module: Module):
 @dataclass
 class EarlyStopException(Exception):
     """
-    Note: this is exception different from the exception defined in
-    llmcompressor.modifiers.utils.pytorch_helpers, and will eventually replace
+    Note: this exception is different from the exception defined in
+    llmcompressor.modifiers.utils.pytorch_helpers, and will eventually replace it
 
     Attribute names `args` and `kwargs` are reserved for `dataclass`
     """
