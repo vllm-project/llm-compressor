@@ -15,18 +15,19 @@
 # limitations under the License.
 
 # Adapted from https://github.com/huggingface/transformers
-# neuralmagic: no copyright
+# vllm-project: no copyright
 
 import os
+import warnings
 from pathlib import PosixPath
 
 from loguru import logger
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
-    AutoTokenizer,
-    DefaultDataCollator,
+    AutoProcessor,
     HfArgumentParser,
+    PreTrainedModel,
     set_seed,
 )
 
@@ -49,9 +50,10 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
-    get_shared_tokenizer_src,
+    get_shared_processor_src,
 )
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
+from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
@@ -117,6 +119,8 @@ def parse_args(**kwargs):
         * model_args in src/llmcompressor/transformers/finetune/model_args.py
         * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
         * training_args in src/llmcompressor/transformers/finetune/training_args.py
+
+    Throws depreciation warnings
     """
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments)
@@ -133,6 +137,21 @@ def parse_args(**kwargs):
                 key, value = recipe_arg.split("=")
                 arg_dict[key] = value
             training_args.recipe_args = arg_dict
+
+    # raise depreciation warnings
+    if data_args.remove_columns is not None:
+        warnings.warn(
+            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "columns which are invalid inputs the tokenizer will be removed",
+            DeprecationWarning,
+        )
+
+    # silently assign tokenizer to processor
+    if model_args.tokenizer:
+        if model_args.processor:
+            raise ValueError("Cannot use both a tokenizer and processor")
+        model_args.processor = model_args.tokenizer
+    model_args.tokenizer = None
 
     return model_args, data_args, training_args
 
@@ -226,19 +245,34 @@ def initialize_model_from_path(
     return teacher, model_path, model
 
 
-def initialize_tokenizer_from_path(model_args, model, teacher):
-    tokenizer_src = model_args.tokenizer
-    tokenizer_src = tokenizer_src or get_shared_tokenizer_src(model, teacher)
-    tokenizer = AutoTokenizer.from_pretrained(
-        tokenizer_src,
-        cache_dir=model_args.cache_dir,
-        use_fast=True,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        trust_remote_code=model_args.trust_remote_code_model,
-    )
+def initialize_processor_from_path(
+    model_args: ModelArguments, model: PreTrainedModel, teacher: PreTrainedModel
+) -> Processor:
+    processor_src = model_args.processor
+    processor_src = processor_src or get_shared_processor_src(model, teacher)
+    # The use_fast=True option is not currently supported safely in Transformers
+    # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
+    try:
+        processor = AutoProcessor.from_pretrained(
+            processor_src,
+            cache_dir=model_args.cache_dir,
+            use_fast=True,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=model_args.trust_remote_code_model,
+        )
+    except Exception:
+        logger.debug("Could not load fast processor, loading slow processor instead")
+        processor = AutoProcessor.from_pretrained(
+            processor_src,
+            cache_dir=model_args.cache_dir,
+            use_fast=False,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=model_args.trust_remote_code_model,
+        )
 
-    return tokenizer
+    return processor
 
 
 def main(
@@ -299,11 +333,9 @@ def main(
     # Detecting last checkpoint.
     last_checkpoint = None
     teacher = model_args.distill_teacher
-    model = model_args.model
-    # Load tokenizer
-    # distill TODO: support for different tokenizer for teacher?
-    tokenizer = model_args.tokenizer
+    # distill TODO: support for different processor for teacher?
 
+    model = model_args.model
     if isinstance(model, str) or isinstance(model, PosixPath):
         (teacher, _model_path, model) = initialize_model_from_path(
             model_args,
@@ -317,8 +349,9 @@ def main(
     if teacher is not None:
         teacher.eval()
 
-    if isinstance(tokenizer, str) or tokenizer is None:
-        tokenizer = initialize_tokenizer_from_path(model_args, model, teacher)
+    processor = model_args.processor
+    if isinstance(processor, str) or processor is None:
+        processor = initialize_processor_from_path(model_args, model, teacher)
 
     pre_initialize_structure(model=model)
 
@@ -330,13 +363,12 @@ def main(
         model_args=model_args, data_args=data_args, training_args=training_args
     )
     add_labels = training_args.do_train or training_args.run_stages
-    stage_runner.populate_datasets(tokenizer=tokenizer, add_labels=add_labels)
+    stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
     train_dataset = stage_runner.get_dataset_split("train")
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     # Initialize our Trainer
-    data_collator = DefaultDataCollator()
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
@@ -346,13 +378,13 @@ def main(
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
+        processing_class=processor,
+        data_collator=data_args.data_collator,
     )
 
     # wrap model.save_pretrained
     if is_fsdp_model(model):
-        modify_fsdp_model_save_pretrained(trainer, tokenizer)
+        modify_fsdp_model_save_pretrained(trainer, processor)
     else:
         modify_save_pretrained(model)
 
@@ -396,8 +428,8 @@ def main(
         model.save_pretrained(
             training_args.output_dir, save_compressed=training_args.save_compressed
         )
-        if tokenizer is not None:
-            tokenizer.save_pretrained(training_args.output_dir)
+        if processor is not None:
+            processor.save_pretrained(training_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
     if training_args.clear_sparse_session:
