@@ -45,7 +45,7 @@ logger = logging.get_logger(__name__)
 
 
 # TRACING: This function is untracable
-@torch.fx.wrap
+# @torch.fx.wrap # TODO: maybe we don't actually need these changes?
 def _prepare_4d_causal_attention_mask_with_cache_position(
     attention_mask: torch.Tensor,
     sequence_length: int,
