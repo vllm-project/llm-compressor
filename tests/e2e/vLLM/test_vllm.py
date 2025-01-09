@@ -183,7 +183,7 @@ class TestvLLM:
                     else file == expected
                 )
             ]
-            if matches is not None:
+            if len(matches) > 0:
                 matched_patterns.add(expected)
 
         assert len(matched_patterns) == len(EXPECTED_SAVED_FILES), (
