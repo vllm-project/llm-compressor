@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import torch
 import torch.utils.data.dataloader
@@ -10,7 +10,7 @@ from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+    from llmcompressor.modifiers import Modifier
 
 __all__ = ["run_pipeline"]
 
@@ -18,7 +18,7 @@ __all__ = ["run_pipeline"]
 def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    gptq_modifier: "GPTQModifier",
+    callback_modifier: Optional[Modifier] = None,
 ):
     """
     Run a basic data pipeline.
@@ -30,6 +30,7 @@ def run_pipeline(
 
     :param model: model being calibrated
     :param dataloader: loads data for calibration
+    :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
     model_device = get_execution_device(model)
 
@@ -40,4 +41,5 @@ def run_pipeline(
             model(**batch)
 
             # TODO: replace with a lifecycle event
-            gptq_modifier.quantize_modules()
+            if callback_modifier:
+                callback_modifier.on_sequential_batch_end()

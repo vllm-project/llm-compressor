@@ -322,7 +322,11 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-    def quantize_modules(self):
+    def on_sequential_batch_end(self):
+        """
+        Quantize modules.
+        TODO: implement with event callback
+        """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             num_samples = self._num_samples[module]

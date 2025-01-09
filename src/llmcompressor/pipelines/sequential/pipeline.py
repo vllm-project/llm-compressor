@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 import torch
 import torch.utils.data.dataloader
@@ -11,7 +11,7 @@ from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.utils.helpers import calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+    from llmcompressor.modifiers import Modifier
 
 __all__ = ["run_pipeline"]
 
@@ -21,7 +21,7 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
-    gptq_modifier: "GPTQModifier",  # TODO: Remove
+    callback_modifier: Optional[Modifier] = None,
 ):
     """
     Run a sequential data pipeline according to the following steps:
@@ -70,7 +70,8 @@ def run_pipeline(
                 forward_function(model, **inputs)
 
             # TODO: replace with a lifecycle event
-            gptq_modifier.quantize_modules()
+            if callback_modifier:
+                callback_modifier.on_sequential_batch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
