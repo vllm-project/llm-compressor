@@ -40,6 +40,10 @@ ds = ds.map(process_and_tokenize, remove_columns=ds.column_names)
 
 
 # TODO: weight quant through the QuantizationModifier does not need data
+# R1 on inputs/embeddings - makes sense to be a modifier then? If touching embeddings/outputs?
+# May also need to be transposed?
+# R1: Global - same transfrom
+# R2: Layer specific
 recipe = """
 quant_stage:
     quant_modifiers:
