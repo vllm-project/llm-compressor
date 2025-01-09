@@ -172,7 +172,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         device = "cpu"
     dataset = "open_platypus"
     concatenate_data = False
-    num_calibration_samples = 1
+    num_calibration_samples = 16
     splits = {"calibration": "train[:10%]"}
 
     # create a quantized model
