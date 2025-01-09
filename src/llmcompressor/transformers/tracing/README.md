@@ -125,8 +125,24 @@ copyright notices at the top of the file. TODO: revisit the tone here
 torch.fx.proxy.TraceError: symbolically traced variables cannot be used as inputs to control flow
 ```
 
+Control flow statements often cause issues during tracing because symbolic variables,
+ie inputs provided from the dataset sample, cannot be used as inputs to control flow.
+To resolve these issues, you can replace the logic with an assumption which bypasses the
+problematic control flow.
+
+For example, the following block:
 ```python3
 if n_image_tokens != n_image_features:
+    raise ValueError(
+        f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
+    )
+```
+
+Should be replaced with:
+```python3
+# TRACING: Assume that processing and tokenization was done correctly
+# if n_image_tokens != n_image_features:
+if False:
     raise ValueError(
         f"Image features and image tokens do not match: tokens: {n_image_tokens}, features {n_image_features}"
     )
@@ -140,7 +156,7 @@ torch.fx.proxy.TraceError: Proxy object cannot be iterated. This can be attempte
 https://pytorch.org/docs/main/fx.html#torch.fx.Proxy
 
 
-### Wrapping functions ###
+### Wrapping Functions ###
 When tracing the [`MllamaForConditionalGeneration`](/src/llmcompressor/transformers/tracing/mllama.py)
 architecture, we encounter a `TraceError` on this line:
 ```python3
@@ -176,6 +192,31 @@ def _prepare_cross_attention_mask(...) -> ...:
 TODO: In the future, 
 https://github.com/pytorch/pytorch/blob/main/torch/fx/_symbolic_trace.py#L1246-L1247
 
+### Defining Your Own Functions to Wrap ###
+
+```python3
+...
+for idx, feature in enumerate(features):
+    process_feature(idx, feature)
+...
+```
+To resolve this, restructure the loop to use tensor operations or wrap the iteration in a function that will not be traced. For instance:
+
+```python3
+@torch.fx.wrap
+def process_all_features(features):
+    for idx, feature in enumerate(features):
+        process_feature(idx, feature)
+
+...
+process_all_features(features)
+...
+```
+
+Make sure to define your new function at the top module-level and pass in any arguments
+required by the function.
+
+
 ### Correcting Shape Inference ###
 When performing tracing with LLM Compressor, the shapes of some variables are assumed
 based on the shapes provided by a sample from the dataset. This is done to ensure some
@@ -195,10 +236,31 @@ inputs_embeds_masked = maybe_install_metadata_inputs_embeds(inputs_embeds_masked
 ```
 
 ### Ensuring Consistent Data Types ###
+```
+TypeError: __bool__ should return bool, returned Tensor
+```
 
+In rare cases, some variables are assigned to a different type than the type they were
+initialized with. This is a problem for the torch.fx tracing module, as it requires that
+all variables maintain the same type.
+
+In this case, the variable `legacy_processing` is initially assigned to the `bool` type.
+Howver, it is later reassigned to the type `torch.Tensor[bool]`.
 ```python3
 legacy_processing = False
+...
 legacy_processing = (
     (input_ids == self.config.image_token_index).sum(1).max() < self.config.image_seq_length
 ) or (input_ids.shape[-1] == 1 and pixel_values is not None)
+```
+
+In this example, we can fix the type of `legacy_processing` by ensuring that the new
+assignment matches the original type `bool`
+
+```python3
+legacy_processing = False
+...
+legacy_processing = (
+    (input_ids == self.config.image_token_index).sum(1).max() < self.config.image_seq_length
+) or (input_ids.shape[-1] == 1 and pixel_values is not None).item()
 ```
