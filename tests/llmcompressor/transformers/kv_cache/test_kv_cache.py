@@ -61,39 +61,6 @@ def oneshot_fixture():
     return _oneshot_fixture
 
 
-def test_kv_cache_config_format(oneshot_fixture, tmp_path):
-    _, used_args = next(oneshot_fixture(tmp_path))
-    output_dir = used_args["output_dir"]
-    config = AutoConfig.from_pretrained(str(output_dir))
-    quant_config = config.quantization_config
-    assert quant_config is not None
-    assert quant_config["kv_cache_scheme"] is not None
-
-    kv_cache_scheme = quant_config["kv_cache_scheme"]
-    assert kv_cache_scheme["num_bits"] == used_args["num_bits"]
-    assert kv_cache_scheme["type"] == used_args["_type"]
-    assert kv_cache_scheme["strategy"] == used_args["strategy"]
-    assert kv_cache_scheme["dynamic"] == used_args["dynamic"]
-    assert kv_cache_scheme["symmetric"] == used_args["symmetric"]
-
-
-def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
-    model, used_args = next(oneshot_fixture(tmp_path))
-    output_dir = used_args["output_dir"]
-    with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(str(output_dir))
-
-    counts = 0
-    for name, submodule in iter_named_quantizable_modules(
-        model, include_children=False, include_attn=True
-    ):
-        counts += 1
-        assert "self_attn" in name
-        assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-        assert hasattr(submodule, KVCacheScaleType.KEY.value)
-    assert counts > 0
-
-
 @pytest.fixture(scope="session")
 def kv_cache_fixture():
     def _kv_cache_fixture(recipe: str, tmp_path: Path):
@@ -166,6 +133,39 @@ def kv_cache_fixture():
         )
 
     return _kv_cache_fixture
+
+
+def test_kv_cache_config_format(oneshot_fixture, tmp_path):
+    _, used_args = next(oneshot_fixture(tmp_path))
+    output_dir = used_args["output_dir"]
+    config = AutoConfig.from_pretrained(str(output_dir))
+    quant_config = config.quantization_config
+    assert quant_config is not None
+    assert quant_config["kv_cache_scheme"] is not None
+
+    kv_cache_scheme = quant_config["kv_cache_scheme"]
+    assert kv_cache_scheme["num_bits"] == used_args["num_bits"]
+    assert kv_cache_scheme["type"] == used_args["_type"]
+    assert kv_cache_scheme["strategy"] == used_args["strategy"]
+    assert kv_cache_scheme["dynamic"] == used_args["dynamic"]
+    assert kv_cache_scheme["symmetric"] == used_args["symmetric"]
+
+
+def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
+    model, used_args = next(oneshot_fixture(tmp_path))
+    output_dir = used_args["output_dir"]
+    with init_empty_weights():
+        model = AutoModelForCausalLM.from_pretrained(str(output_dir))
+
+    counts = 0
+    for name, submodule in iter_named_quantizable_modules(
+        model, include_children=False, include_attn=True
+    ):
+        counts += 1
+        assert "self_attn" in name
+        assert hasattr(submodule, KVCacheScaleType.VALUE.value)
+        assert hasattr(submodule, KVCacheScaleType.KEY.value)
+    assert counts > 0
 
 
 def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
