@@ -20,7 +20,7 @@ def test_c4_initializes(tiny_llama_tokenizer):
     )
     assert isinstance(c4_manager, TextGenerationDataset)
     assert isinstance(c4_manager, C4Dataset)
-    assert c4_manager.text_column == "text"
+    assert c4_manager.data_args.text_column == "text"
     assert not c4_manager.padding
     assert c4_manager.max_seq_length == data_args.max_seq_length
 
@@ -38,7 +38,7 @@ def test_wikitext_initializes(tiny_llama_tokenizer):
     )
     assert isinstance(wiki_manager, TextGenerationDataset)
     assert isinstance(wiki_manager, WikiTextDataset)
-    assert wiki_manager.text_column == "text"
+    assert wiki_manager.data_args.text_column == "text"
     assert wiki_manager.padding == "max_length"
     assert wiki_manager.max_seq_length == data_args.max_seq_length
 
@@ -54,6 +54,6 @@ def test_open_platypus_initializes(tiny_llama_tokenizer):
     )
     assert isinstance(op_manager, TextGenerationDataset)
     assert isinstance(op_manager, OpenPlatypusDataset)
-    assert op_manager.text_column == "text"
+    assert op_manager.data_args.text_column == "text"
     assert not op_manager.padding
     assert op_manager.max_seq_length == data_args.max_seq_length

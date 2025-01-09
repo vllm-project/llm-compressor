@@ -8,7 +8,17 @@ from torch.nn import Module
 __all__ = ["get_GPU_memory_usage", "get_layer_size_mb", "CompressionLogger"]
 
 
-def get_GPU_memory_usage() -> List[Tuple]:
+def get_GPU_memory_usage() -> List[Tuple[float, float]]:
+    if torch.version.hip:
+        return get_GPU_usage_amd()
+    else:
+        return get_GPU_usage_nv()
+
+
+def get_GPU_usage_nv() -> List[Tuple[float, float]]:
+    """
+    get gpu usage for Nvidia GPUs using nvml lib
+    """
     try:
         import pynvml
         from pynvml import NVMLError
@@ -37,6 +47,39 @@ def get_GPU_memory_usage() -> List[Tuple]:
     except ImportError:
         logger.warning("Failed to obtain GPU usage from pynvml")
         return []
+
+
+def get_GPU_usage_amd() -> List[Tuple[float, float]]:
+    """
+    get gpu usage for AMD GPUs using amdsmi lib
+    """
+    usage = []
+    try:
+        import amdsmi
+
+        try:
+            amdsmi.amdsmi_init()
+            devices = amdsmi.amdsmi_get_processor_handles()
+
+            for device in devices:
+                vram_memory_usage = amdsmi.amdsmi_get_gpu_memory_usage(
+                    device, amdsmi.amdsmi_interface.AmdSmiMemoryType.VRAM
+                )
+                vram_memory_total = amdsmi.amdsmi_get_gpu_memory_total(
+                    device, amdsmi.amdsmi_interface.AmdSmiMemoryType.VRAM
+                )
+
+                memory_percentage = vram_memory_usage / vram_memory_total
+                usage.append(
+                    (memory_percentage, vram_memory_total / (1e9)),
+                )
+            amdsmi.amdsmi_shut_down()
+        except amdsmi.AmdSmiException as error:
+            logger.warning(f"amdsmi library error:\n {error}")
+    except ImportError:
+        logger.warning("Failed to obtain GPU usage from amdsmi")
+
+    return usage
 
 
 def get_layer_size_mb(module: Module) -> float:
@@ -81,7 +124,7 @@ class CompressionLogger:
 
         if self.start_tick is not None:
             duration = stop_tick - self.start_tick
-            patch.log("METRIC", f"time {duration:.2f}")
+            patch.log("METRIC", f"time {duration:.2f}s")
         if self.loss is not None:
             patch.log("METRIC", f"error {self.loss:.2f}")
 
