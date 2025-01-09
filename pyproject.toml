@@ -8,12 +8,13 @@ target-version = ['py38']
 
 [tool.isort]
 profile = "black"
+skip = ["src/llmcompressor/transformers/tracing/"]
 
 [tool.mypy]
 files = "src/guidellm"
 
 [tool.ruff]
-exclude = ["build", "dist", "env", ".venv"]
+exclude = ["build", "dist", "env", ".venv", "src/llmcompressor/transformers/tracing/"]
 lint.select = ["E", "F", "W"]
 
 [tool.flake8]

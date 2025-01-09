@@ -1,4 +1,11 @@
+from copy import deepcopy
+from typing import TYPE_CHECKING
+
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.typing import Processor
+
+if TYPE_CHECKING:
+    from llmcompressor.transformers import DataTrainingArguments as DataArgs
 
 
 @TextGenerationDataset.register(name="wikitext")
@@ -11,7 +18,13 @@ class WikiTextDataset(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
-    def __init__(self, data_args, split, processor):
+    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
+        data_args = deepcopy(data_args)
+        data_args.dataset = "Salesforce/wikitext"
+        data_args.text_column = "text"
+
         super().__init__(
-            text_column="text", data_args=data_args, split=split, processor=processor
+            data_args=data_args,
+            split=split,
+            processor=processor,
         )
