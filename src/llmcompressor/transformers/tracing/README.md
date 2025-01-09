@@ -1,5 +1,5 @@
 # Tracing #
-LLM Compressor see the [Sequential Pipeline](src/llmcompressor/pipelines/sequential/pipeline.py)
+LLM Compressor see the [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
 
 
 ## Testing Traceability ##
