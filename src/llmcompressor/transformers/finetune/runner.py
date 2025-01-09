@@ -23,6 +23,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.transformers.utils.recipe_args import RecipeArguments
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
@@ -49,16 +50,18 @@ class StageRunner:
         data_args: "DataTrainingArguments",
         model_args: "ModelArguments",
         training_args: "TrainingArguments",
+        recipe_args: "RecipeArguments",
     ):
         self._data_args = data_args
         self._model_args = model_args
         self._training_args = training_args
+        self._recipe_args = recipe_args
 
         self.datasets = {}
         self.trainer = None
         self.processor = None
-        self.parent_output_dir = self._training_args.output_dir
-        self._output_dir = self._training_args.output_dir
+        self.parent_output_dir = self.model_args.output_dir
+        self._output_dir = self.model_args.output_dir
 
     def populate_datasets(self, processor: Processor, add_labels: bool = True):
         """
@@ -214,7 +217,7 @@ class StageRunner:
         :param checkpoint: optional checkpoint to pick up a stage from
         """
 
-        recipe_obj = Recipe.create_instance(self._training_args.recipe)
+        recipe_obj = Recipe.create_instance(self._recipe_args.recipe)
         with self.trainer.accelerator.main_process_first():
             checkpoint_dir = self._model_args.model
             completed_stages = get_completed_stages(checkpoint_dir)
@@ -247,7 +250,7 @@ class StageRunner:
                 if not os.path.exists(self._output_dir):
                     os.makedirs(self._output_dir)
                 save_completed_stages(self._output_dir, completed_stages)
-            self._training_args.output_dir = self._output_dir
+            self._model_args.output_dir = self._output_dir
 
             # run stage
             if run_type is StageRunType.ONESHOT:
@@ -257,15 +260,15 @@ class StageRunner:
             checkpoint = None
 
             if (
-                self._training_args.output_dir
+                self._model_args.output_dir
                 != TrainingArguments.__dataclass_fields__["output_dir"].default
             ):
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
                     processor=self.processor,
-                    save_safetensors=self._training_args.save_safetensors,
-                    save_compressed=self._training_args.save_compressed,
+                    save_safetensors=self._model_args.save_safetensors,
+                    save_compressed=self._model_args.save_compressed,
                 )
 
             # save stage to checkpoint dir

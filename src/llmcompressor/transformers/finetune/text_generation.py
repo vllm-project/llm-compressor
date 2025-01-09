@@ -41,9 +41,8 @@ from llmcompressor.pytorch.model_load.helpers import (
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.model_args import (
+from llmcompressor.transformers.finetune.model_args import (  # OneshotModelArguments,
     ModelArguments,
-    OneshotModelArguments,
 )
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
@@ -66,18 +65,18 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_eval = True
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def oneshot(**kwargs):
@@ -125,25 +124,37 @@ def parse_args(**kwargs):
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in src/llmcompressor/transformers/finetune/model_args.py
         * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
+        * recipe_args in src/llmcompressor/transformers/utils/recipe_args.py
         * training_args in src/llmcompressor/transformers/finetune/training_args.py
 
     Throws depreciation warnings
     """
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    if not kwargs:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    else:
-        model_args, data_args, training_args = parser.parse_dict(kwargs)
 
-    if training_args.recipe_args is not None:
-        if not isinstance(training_args.recipe_args, dict):
+    # avoid collision to save oneshot model (no training args) and HF training args
+    output_dir = kwargs.get("output_dir", None) or "./output"
+    save_safetensors = kwargs.get("save_safetensors", True)
+
+    parser = HfArgumentParser(
+        (ModelArguments, DataTrainingArguments, RecipeArguments, TrainingArguments)
+    )
+
+    if not kwargs:
+        model_args, data_args, recipe_args, training_args = (
+            parser.parse_args_into_dataclasses()
+        )
+    else:
+        model_args, data_args, recipe_args, training_args = parser.parse_dict(kwargs)
+
+    model_args.output_dir = output_dir
+    model_args.save_safetensors = save_safetensors
+
+    if recipe_args.recipe_args is not None:
+        if not isinstance(recipe_args.recipe_args, dict):
             arg_dict = {}
-            for recipe_arg in training_args.recipe_args:
+            for recipe_arg in recipe_args.recipe_args:
                 key, value = recipe_arg.split("=")
                 arg_dict[key] = value
-            training_args.recipe_args = arg_dict
+            recipe_args.recipe_args = arg_dict
 
     # raise depreciation warnings
     if data_args.remove_columns is not None:
@@ -160,38 +171,12 @@ def parse_args(**kwargs):
         model_args.processor = model_args.tokenizer
     model_args.tokenizer = None
 
-    return model_args, data_args, training_args
+    return model_args, data_args, recipe_args, training_args
 
 
-def parse_oneshot_args(**kwargs):
-    parser = HfArgumentParser(
-        (OneshotModelArguments, DataTrainingArguments, RecipeArguments)
-    )
-    if not kwargs:
-        model_args, data_args, recipe_args = parser.parse_args_into_dataclasses()
-    else:
-        model_args, data_args, recipe_args = parser.parse_dict(kwargs)
-
-    if recipe_args.recipe_args is not None:
-        if not isinstance(recipe_args.recipe_args, dict):
-            arg_dict = {}
-            for recipe_arg in recipe_args.recipe_args:
-                key, value = recipe_arg.split("=")
-                arg_dict[key] = value
-            recipe_args.recipe_args = arg_dict
-
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor")
-
-        logger.debug("Overwriting processor with tokenizer")
-        model_args.processor = model_args.tokenizer
-
-    return model_args, data_args, recipe_args
-
-
-def initialize_oneshot_model(
-    model_args,
+def initialize_model_from_path(
+    model_args: ModelArguments,
+    training_args: Optional[TrainingArguments] = None,
 ):
     # Load pretrained model
     # The .from_pretrained methods guarantee that only one local process can
@@ -206,8 +191,25 @@ def initialize_oneshot_model(
         trust_remote_code=model_args.trust_remote_code_model,
     )
 
+    last_checkpoint = None
+
+    if training_args is not None:
+        teacher_config = (
+            AutoConfig.from_pretrained(
+                model_args.distill_teacher,
+                use_auth_token=True if model_args.use_auth_token else None,
+                tie_word_embeddings=model_args.tie_word_embeddings,
+                trust_remote_code=model_args.trust_remote_code_model,
+            )
+            if model_args.distill_teacher
+            else None
+        )
+        last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
+        # Set seed before initializing model.
+        set_seed(training_args.seed)
+
     model_path = (
-        model_args.model
+        last_checkpoint or model_args.model
         if hasattr(model_args, "model")
         else model_args.model_name_or_path
     )
@@ -217,12 +219,11 @@ def initialize_oneshot_model(
 
     # Trainer handles device assignment for FSDP and training, don't do mapping here
     # if running oneshot outside of FSDP, apply user device settings
-    device_map = None
+
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-    if not fsdp_enabled:
-        device_map = model_args.oneshot_device
-        logger.warning(f"Moving {model_path} to device {device_map} for One-Shot")
-    elif not fsdp_enabled:
+
+    device_map = model_args.oneshot_device
+    if not fsdp_enabled and training_args.do_train:
         device_map = "auto"
 
     model_kwargs = {
@@ -243,96 +244,31 @@ def initialize_oneshot_model(
     if "sequence_length" in model_kwargs:
         model.seqlen = model_kwargs["sequence_length"]
 
-    return model
+    teacher = None
+    if training_args is not None:
+        teacher_device_map = None if fsdp_enabled else "auto"
+        teacher_kwargs = {
+            "config": teacher_config,
+            "cache_dir": model_args.cache_dir,
+            "use_auth_token": True if model_args.use_auth_token else None,
+            "torch_dtype": parse_dtype(model_args.precision),
+            "device_map": teacher_device_map,
+            "trust_remote_code": model_args.trust_remote_code_model,
+        }
 
-
-def initialize_model_from_path(
-    model_args: ModelArguments,
-    training_args: TrainingArguments,
-):
-    last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
-    # Load pretrained model
-    # The .from_pretrained methods guarantee that only one local process can
-    # concurrently download model & vocab.
-    model_path = model_args.model
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        tie_word_embeddings=model_args.tie_word_embeddings,
-        trust_remote_code=model_args.trust_remote_code_model,
-    )
-    teacher_config = (
-        AutoConfig.from_pretrained(
-            model_args.distill_teacher,
-            use_auth_token=True if model_args.use_auth_token else None,
-            tie_word_embeddings=model_args.tie_word_embeddings,
-            trust_remote_code=model_args.trust_remote_code_model,
+        teacher = (
+            AutoModelForCausalLM.from_pretrained(
+                model_args.distill_teacher,
+                **teacher_kwargs,
+            )
+            if model_args.distill_teacher is not None
+            else None
         )
-        if model_args.distill_teacher
-        else None
-    )
+        if teacher is not None and "sequence_length" in teacher_kwargs:
+            teacher.seqlen = teacher_kwargs["sequence_length"]
 
-    model_path = (
-        last_checkpoint or model_args.model
-        if hasattr(model_args, "model")
-        else model_args.model_name_or_path
-    )
-
-    # Set seed before initializing model.
-    set_seed(training_args.seed)
-
-    # Fallback to CPU if GPU requested and not available
-    training_args.oneshot_device = fallback_to_cpu(training_args.oneshot_device)
-
-    # Trainer handles device assignment for FSDP and training, don't do mapping here
-    # if running oneshot outside of FSDP, apply user device settings
-    device_map = None
-    fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-    if not fsdp_enabled and training_args.do_oneshot:
-        device_map = training_args.oneshot_device
-        logger.warning(f"Moving {model_path} to device {device_map} for One-Shot")
-    elif not fsdp_enabled:
-        device_map = "auto"
-    model_kwargs = {
-        "config": config,
-        "cache_dir": model_args.cache_dir,
-        "revision": model_args.model_revision,
-        "use_auth_token": True if model_args.use_auth_token else None,
-        "torch_dtype": parse_dtype(model_args.precision),
-        "device_map": device_map,
-        "trust_remote_code": model_args.trust_remote_code_model,
-    }
-    teacher_device_map = None if fsdp_enabled else "auto"
-    teacher_kwargs = {
-        "config": teacher_config,
-        "cache_dir": model_args.cache_dir,
-        "use_auth_token": True if model_args.use_auth_token else None,
-        "torch_dtype": parse_dtype(model_args.precision),
-        "device_map": teacher_device_map,
-        "trust_remote_code": model_args.trust_remote_code_model,
-    }
-    # this calls from_pretrained under the hood so should be FSDP safe
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        **model_kwargs,
-    )
-    if "sequence_length" in model_kwargs:
-        model.seqlen = model_kwargs["sequence_length"]
-
-    teacher = (
-        AutoModelForCausalLM.from_pretrained(
-            model_args.distill_teacher,
-            **teacher_kwargs,
-        )
-        if model_args.distill_teacher is not None
-        else None
-    )
-    if teacher is not None and "sequence_length" in teacher_kwargs:
-        teacher.seqlen = teacher_kwargs["sequence_length"]
-
-    return teacher, model_path, model
+    # return teacher, model_path, model
+    return model, teacher
 
 
 def initialize_processor_from_path(
@@ -370,6 +306,7 @@ def main(
     model_args: ModelArguments,
     data_args: DataTrainingArguments,
     training_args: TrainingArguments,
+    recipe_args: RecipeArguments,
 ):
     """
     Main entrypoint for finetuning text generation models. A model can be loaded from
@@ -403,14 +340,14 @@ def main(
         )
 
     # Setup based on stage types if running stage mode
-    if training_args.run_stages and training_args.recipe is not None:
-        recipe_obj = Recipe.create_instance(training_args.recipe)
+    if training_args.run_stages and recipe_args.recipe is not None:
+        recipe_obj = Recipe.create_instance(recipe_args.recipe)
         for stage in recipe_obj.stages:
             run_type = stage.infer_run_type()
             if run_type is StageRunType.ONESHOT:
-                training_args.do_oneshot = True
+                recipe_args.do_oneshot = True
             elif run_type is StageRunType.TRAIN:
-                training_args.do_train = True
+                recipe_args.do_train = True
 
     # Summary on each process
     logger.warning(
@@ -428,7 +365,7 @@ def main(
 
     model = model_args.model
     if isinstance(model, str) or isinstance(model, PosixPath):
-        (teacher, _model_path, model) = initialize_model_from_path(
+        (model, teacher) = initialize_model_from_path(
             model_args,
             training_args,
         )
@@ -451,7 +388,10 @@ def main(
 
     # Load datasets
     stage_runner = StageRunner(
-        model_args=model_args, data_args=data_args, training_args=training_args
+        model_args=model_args,
+        data_args=data_args,
+        training_args=training_args,
+        recipe_args=recipe_args,
     )
     add_labels = training_args.do_train or training_args.run_stages
     stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
@@ -462,8 +402,8 @@ def main(
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
-        recipe=training_args.recipe,
-        recipe_args=training_args.recipe_args,
+        recipe=recipe_args.recipe,
+        recipe_args=recipe_args.recipe_args,
         args=training_args,
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
@@ -512,17 +452,17 @@ def main(
 
     # save if model was provided as a string or custom output_dir was set
     if isinstance(model_args.model, str) or (
-        training_args.output_dir
+        model_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
         model.save_pretrained(
-            training_args.output_dir, save_compressed=training_args.save_compressed
+            model_args.output_dir, save_compressed=model_args.save_compressed
         )
         if processor is not None:
-            processor.save_pretrained(training_args.output_dir)
+            processor.save_pretrained(model_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
-    if training_args.clear_sparse_session:
+    if recipe_args.clear_sparse_session:
         reset_session()
 
 

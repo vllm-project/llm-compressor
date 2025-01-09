@@ -3,23 +3,21 @@ from typing import Optional
 
 from loguru import logger
 from torch.utils.data import DataLoader
-from transformers import HfArgumentParser
 
 from llmcompressor.core.lifecycle import CompressionLifecycle
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     get_calibration_dataloader,
 )
-from llmcompressor.transformers.finetune.model_args import OneshotModelArguments
+from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.text_generation import (
-    initialize_oneshot_model,
+    initialize_model_from_path,
     initialize_processor_from_path,
+    parse_args,
 )
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
-from llmcompressor.transformers.utils.recipe_args import RecipeArguments
 
 
 class Oneshot:
@@ -50,9 +48,8 @@ class Oneshot:
     """
 
     def __init__(self, **kwargs):
-        self.model_args, self.data_args, self.recipe_args = parse_oneshot_args(**kwargs)
+        self.model_args, self.data_args, self.recipe_args, _ = parse_args(**kwargs)
 
-        # Singleton for consecutive oneshot calls to keep applied recipe history
         self.lifecycle = CompressionLifecycle()
 
         # model, tokenizer/processor instantiation
@@ -107,7 +104,7 @@ class Oneshot:
 
         model = self.model_args.model
         if isinstance(model, str) or isinstance(model, PosixPath):
-            model = initialize_oneshot_model(self.model_args)
+            model, _ = initialize_model_from_path(self.model_args)
 
         # patch a shared tensor bug in HF transformers
         # https://github.com/huggingface/transformers/issues/33689
@@ -132,7 +129,7 @@ class Oneshot:
         # save if model was provided as a string or custom output_dir was set
         if isinstance(self.model_args.model, str) or (
             self.model_args.output_dir
-            != OneshotModelArguments.__dataclass_fields__["output_dir"].default
+            != ModelArguments.__dataclass_fields__["output_dir"].default
         ):
             self.model_args.model.save_pretrained(
                 self.model_args.output_dir,
@@ -149,31 +146,3 @@ class Oneshot:
     def reset_lifecycle(self):
         """Reset the CompressionLifecycle"""
         self.lifecycle.reset()
-
-
-def parse_oneshot_args(**kwargs):
-    """Parse oneshot arguments into model_args, data_args and recipe_args"""
-    parser = HfArgumentParser(
-        (OneshotModelArguments, DataTrainingArguments, RecipeArguments)
-    )
-    if not kwargs:
-        model_args, data_args, recipe_args = parser.parse_args_into_dataclasses()
-    else:
-        model_args, data_args, recipe_args = parser.parse_dict(kwargs)
-
-    if recipe_args.recipe_args is not None:
-        if not isinstance(recipe_args.recipe_args, dict):
-            arg_dict = {}
-            for recipe_arg in recipe_args.recipe_args:
-                key, value = recipe_arg.split("=")
-                arg_dict[key] = value
-            recipe_args.recipe_args = arg_dict
-
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor")
-
-        logger.debug("Overwriting processor with tokenizer")
-        model_args.processor = model_args.tokenizer
-
-    return model_args, data_args, recipe_args

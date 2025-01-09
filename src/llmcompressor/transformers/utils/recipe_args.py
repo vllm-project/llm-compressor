@@ -23,5 +23,10 @@ class RecipeArguments:
     )
     clear_sparse_session: Optional[bool] = field(
         default=False,
-        metadata={"help": "Whether to clear CompressionSession data between runs."},
+        metadata={
+            "help": (
+                "Whether to clear CompressionSession/CompressionLifecycle ",
+                "data between runs.",
+            )
+        },
     )
