@@ -124,8 +124,8 @@ class GPTQModifier(Modifier, HooksMixin):
     # private variables
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr(default=None)
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
+    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
