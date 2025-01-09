@@ -23,7 +23,7 @@ def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
-    callback_modifier: Optional[Modifier] = None,
+    callback_modifier: Optional["Modifier"] = None,
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:

@@ -18,7 +18,7 @@ __all__ = ["run_pipeline"]
 def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    callback_modifier: Optional[Modifier] = None,
+    callback_modifier: Optional["Modifier"] = None,
 ):
     """
     Run a basic data pipeline.

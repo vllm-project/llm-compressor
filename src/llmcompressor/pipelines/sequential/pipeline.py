@@ -21,7 +21,7 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
-    callback_modifier: Optional[Modifier] = None,
+    callback_modifier: Optional["Modifier"] = None,
 ):
     """
     Run a sequential data pipeline according to the following steps:
