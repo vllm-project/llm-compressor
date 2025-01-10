@@ -21,6 +21,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 
 __all__ = ["Oneshot"]
 
+
 class Oneshot:
     """
     Class responsible for carrying out oneshot calibration.
