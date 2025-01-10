@@ -83,13 +83,23 @@ class TestQuantizationMatches(unittest.TestCase):
         )
 
     def test_compressed_matches_uncompressed(self):
+        decompressed_device = self.decompressed_model.device
+        compressed_device = self.compressed_model.device
+
+        self.decompressed_model = self.decompressed_model.to(decompressed_device)
+        self.compressed_model = self.compressed_model.to(compressed_device)
+
         for input in self.SAMPLE_INPUTS:
             inputs = self.tokenizer(input, return_tensors="pt", padding=True).to(
                 self.compressed_model.device
             )
+
             compressed_output = self.tokenizer.batch_decode(
                 self.compressed_model.generate(**inputs, max_length=50)
             )
+
+            inputs = inputs.to(self.decompressed_model.device)
+
             uncompressed_output = self.tokenizer.batch_decode(
                 self.decompressed_model.generate(**inputs, max_length=50)
             )
