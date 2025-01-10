@@ -31,12 +31,6 @@ class TestRunCompressedDecompression(unittest.TestCase):
 
         All modules should be linear, runs default foward calls
 
-    Test the run_compressed input arg to AutoModelForCausalLM, where HFQuantizer is
-    responsible for decompressing if model is compressed.
-
-    Diagram flow https://tinyurl.com/2ynb6wbu
-
-
     """
 
     compressed_model_stub = None
@@ -148,7 +142,7 @@ class TestRunCompressedForward(unittest.TestCase):
         # some linear models are not compressed - ex. lm_head
         assert compressed_linear_counts > 0
 
-    def test_compressed_matches_uncompressed(self):
+    def test_compressed_matches_decompressed__hf_quantizer(self):
         SAMPLE_INPUT = [
             "I love 4-bit quantization because",
             "What is the capital of France?",
