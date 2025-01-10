@@ -31,12 +31,6 @@ class TestRunCompressedDecompression(unittest.TestCase):
 
         All modules should be linear, runs default foward calls
 
-    Test the run_compressed input arg to AutoModelForCausalLM, where HFQuantizer is
-    responsible for decompressing if model is compressed.
-
-    Diagram flow https://tinyurl.com/2ynb6wbu
-
-
     """
 
     compressed_model_stub = None
@@ -69,12 +63,23 @@ class TestRunCompressedDecompression(unittest.TestCase):
             "def fibonacci(n):",
         ]
 
+        decompressed_device = self.decompressed_model.device
+        uncompressed_device = self.uncompressed_model.device
+
+        # overwrite weights in cpu to cuda
+        self.decompressed_model = self.decompressed_model.to(decompressed_device)
+        self.uncompressed_model = self.uncompressed_model.to(uncompressed_device)
+
         inputs = self.tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
-            self.decompressed_model.device
+            decompressed_device
         )
+
         decompressed_output = self.tokenizer.batch_decode(
             self.decompressed_model.generate(**inputs, max_length=50)
         )
+
+        inputs = inputs.to(uncompressed_device)
+
         uncompressed_output = self.tokenizer.batch_decode(
             self.uncompressed_model.generate(**inputs, max_length=50)
         )
@@ -137,23 +142,35 @@ class TestRunCompressedForward(unittest.TestCase):
         # some linear models are not compressed - ex. lm_head
         assert compressed_linear_counts > 0
 
-    def test_compressed_matches_uncompressed(self):
+    def test_compressed_matches_decompressed__hf_quantizer(self):
         SAMPLE_INPUT = [
             "I love 4-bit quantization because",
             "What is the capital of France?",
             "def fibonacci(n):",
         ]
 
+        decompressed_device = self.decompressed_model.device
+        compressed_device = self.compressed_model.device
+
+        # overwrite weights in cpu to cuda
+        self.decompressed_model = self.decompressed_model.to(decompressed_device)
+        self.compressed_model = self.compressed_model.to(compressed_device)
+
         inputs = self.tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
-            self.decompressed_model.device
+            decompressed_device
         )
-        compressed_model_out = self.tokenizer.batch_decode(
-            self.decompressed_model.generate(**inputs, max_length=50)
-        )
+
         decompressed_model_out = self.tokenizer.batch_decode(
             self.decompressed_model.generate(**inputs, max_length=50)
         )
 
+        inputs = inputs.to(compressed_device)
+
+        compressed_model_out = self.tokenizer.batch_decode(
+            self.compressed_model.generate(**inputs, max_length=50)
+        )
+
+        # Compare outputs for each input
         for idx in range(len(SAMPLE_INPUT)):
             assert compressed_model_out[idx] == decompressed_model_out[idx]
 
