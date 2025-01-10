@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.utils.offload import is_module_offloaded
@@ -14,7 +14,11 @@ from llmcompressor.modifiers.smoothquant.utils import (
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
-from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
+from llmcompressor.utils.pytorch.module import (
+    get_layers,
+    get_matching_layer,
+    match_targets,
+)
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
 
@@ -95,7 +99,7 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: Optional[List[Tuple]] = None
+    mappings: Optional[List[Union[Tuple, List]]] = None
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
@@ -176,7 +180,7 @@ class SmoothQuantModifier(Modifier):
         for to_balance, to_smooth in self.mappings:
             to_smooth_layers = get_layers(to_smooth, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
-                if layer_name not in self.ignore:
+                if not match_targets(layer_name, self.ignore)[0]:
                     balance_layers = []
                     for balance_suffix in to_balance:
                         # find the submodule that matches the activation layer
