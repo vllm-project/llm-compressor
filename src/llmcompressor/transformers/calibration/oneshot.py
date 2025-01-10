@@ -27,12 +27,12 @@ class Oneshot:
     Usage:
 
     ```python
-    oneshot_calibrator = Oneshot(model=model, recipe=recipe, dataset=dataset)
-    oneshot_calibrator.run()
+    compressor = Oneshot(model=model, recipe=recipe, dataset=dataset)
+    compressor.run()
 
-    model = oneshot_calibrator.model
-    tokenizer_or_processor = oneshot_calibrator.tokenizer_or_processor
-    recipe = oneshot_calibrator.recipe
+    model = compressor.model
+    tokenizer_or_processor = compressor.tokenizer_or_processor
+    recipe = compressor.recipe
     ```
     """
 
@@ -58,7 +58,7 @@ class Oneshot:
         self.modifiers = self.lifecycle.modifiers
 
     def run(self):
-        """Perform oneshot calibration."""
+        """Perform oneshot calibration"""
         calibration_dataloader = get_calibration_dataloader(
             self.data_args, self.tokenizer_or_processor
         )
@@ -66,7 +66,7 @@ class Oneshot:
         self._post_process()
 
     def _apply_recipe_modifiers(self, calibration_dataloader: Optional[DataLoader]):
-        """Apply recipe modifiers to the model."""
+        """Apply recipe modifiers to the model"""
         for action in self.MODIFIER_LIFECYCLE_ACTIONS:
             lifecycle = getattr(self.lifecycle, action)
             lifecycle(
@@ -106,7 +106,7 @@ class Oneshot:
                 "The tie_word_embeddings flag is by default set to False. "
                 "This guarantees that the one-shot algorithm saves the final "
                 "weights without errors. Detected tie_word_embeddings=True. "
-                "This may cause issues with the one-shot algorithm on save."
+                "This may cause issues with the one-shot algorithm on save"
             )
 
     def _post_process(self):
@@ -131,5 +131,5 @@ class Oneshot:
             self.tokenizer_or_processor.save_pretrained(self.output_dir)
 
     def reset_lifecycle(self):
-        """Reset the CompressionLifecycle."""
+        """Reset the CompressionLifecycle"""
         self.lifecycle.reset()

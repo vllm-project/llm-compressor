@@ -50,7 +50,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     one_of_sparse_weights = "model.layers.1.mlp.up_proj.weight"
 
     # create a sparse model
-    oneshot_calibrator = oneshot(
+    compressor = oneshot(
         model=model_path,
         dataset=dataset,
         output_dir=output_dir,
@@ -84,7 +84,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     )
 
     inferred_structure = SparsityConfigMetadata.infer_sparsity_structure(
-        model, oneshot_calibrator.lifecycle.modifiers
+        model, compressor.lifecycle.modifiers
     )
     assert inferred_structure == "0:0"
 

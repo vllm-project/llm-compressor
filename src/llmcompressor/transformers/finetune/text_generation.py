@@ -85,9 +85,9 @@ def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
-    oneshot_calibrator = Oneshot(**kwargs)
-    oneshot_calibrator.run()
-    return oneshot_calibrator
+    compressor = Oneshot(**kwargs)
+    compressor.run()
+    return compressor
 
 
 # alias
