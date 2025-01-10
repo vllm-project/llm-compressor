@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # flake8: noqa
+import unittest
+
 import pytest
 
 
@@ -124,3 +126,19 @@ def induce_sparsity(tensor, sparsity_ratio) -> "torch.Tensor":
         sparse_tensor = tensor
 
     return sparse_tensor
+
+
+def is_gpu_available():
+    """
+    :return: True if a GPU is available, False otherwise
+    """
+    try:
+        import torch  # noqa: F401
+
+        return torch.cuda.device_count() > 0
+    except ImportError:
+        return False
+
+
+def requires_gpu(test_case):
+    return unittest.skipUnless(is_gpu_available(), "test requires GPU")(test_case)

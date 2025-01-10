@@ -14,8 +14,9 @@
 
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
+import numpy
 import torch
 from transformers import AutoConfig
 
@@ -29,6 +30,10 @@ __all__ = [
     "getattr_chain",
     "deprecated",
     "Aliasable",
+    "combine_shards",
+    "shard_tensor",
+    "pack_bitmasks",
+    "unpack_bitmasks",
 ]
 
 FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
@@ -214,3 +219,108 @@ class Aliasable:
     def __hash__(self):
         canonical_value = self.aliases.get(self.value, self.value)
         return hash(canonical_value)
+
+
+def shard_tensor(
+    tensor: torch.Tensor, shard_sizes: List[int], dim: int = 0
+) -> List[torch.Tensor]:
+    """
+    Shards a tensor into a list of tensors along a given dimension.
+
+    raises: ValueError: If the sum of shard_sizes does not match the
+        size of the tensor along the given dimension.
+
+    :param tensor: The input tensor to shard.
+    :param shard_sizes : List of sizes for each shard along the specified dimension.
+    :param dim : The dimension along which to shard the tensor.
+    :returns: A list of tensors sharded along the specified dimension.
+    """
+    if sum(shard_sizes) != tensor.size(dim):
+        raise ValueError(
+            "Sum of shard_sizes must equal the size of the tensor "
+            "along the specified dimension."
+        )
+
+    shards = []
+    start_idx = 0
+
+    for size in shard_sizes:
+        end_idx = start_idx + size
+        shard = tensor.narrow(dim, start_idx, size)
+        shards.append(shard)
+        start_idx = end_idx
+
+    return shards
+
+
+def combine_shards(shards, dim=0):
+    """
+    Combine decompressed shards along a given dimension using `narrow`.
+
+    :param shards: List of decompressed shard tensors.
+    :param dim: Dimension to combine along (default: 0).
+    :return: Combined decompressed tensor.
+    """
+    if not shards:
+        raise ValueError("The list of shards is empty.")
+
+    # Assert that all shards have the same dtype
+    shard_dtypes = {shard.dtype for shard in shards}
+    if len(shard_dtypes) > 1:
+        raise ValueError("All shards must have the same dtype.")
+
+    # Determine the total shape of the combined tensor
+    total_shape = list(shards[0].shape)
+    total_shape[dim] = sum(shard.shape[dim] for shard in shards)
+
+    # Create the combined tensor
+    combined = torch.zeros(total_shape, dtype=shards[0].dtype, device=shards[0].device)
+
+    # Fill the combined tensor using narrow
+    shard_offset = 0
+    for shard in shards:
+        shard_size = shard.shape[dim]
+        combined.narrow(dim, shard_offset, shard_size).copy_(shard)
+        shard_offset += shard_size
+
+    return combined
+
+
+def pack_bitmasks(bytemasks: torch.Tensor) -> torch.Tensor:
+    """
+    Converts a bytemask tensor to a bitmask tensor to reduce memory. Shape RxC will be
+    compressed to R x ceil(C/8)
+
+    :param bytemasks: mask tensor where each byte corresponds to a weight
+    :return: mask tensor where each bit corresounds to a weight
+    """
+    packed_bits_numpy = numpy.packbits(bytemasks.numpy(), axis=-1, bitorder="little")
+    packed_bits_torch = torch.from_numpy(packed_bits_numpy)
+
+    return packed_bits_torch
+
+
+def unpack_bitmasks(
+    packed_bitmasks: torch.Tensor, original_shape: torch.Size
+) -> torch.Tensor:
+    """
+    Converts a bitmask tensor back to a bytemask tensor for use during decompression
+
+    :param packed_bitmasks: mask tensor where each bit corresponds to a weight
+    :param original_shape: dense shape to decompress to
+    :return: boolean mask of weights in the original dense shape
+    """
+    # Unpack the bits
+    unpacked_bits = numpy.unpackbits(
+        packed_bitmasks.cpu().numpy(),
+        axis=-1,
+        count=original_shape[-1],
+        bitorder="little",
+    )
+
+    # Reshape to match the original shape
+    unpacked_bitmasks_torch = torch.from_numpy(
+        unpacked_bits.reshape(original_shape).astype(bool)
+    )
+
+    return unpacked_bitmasks_torch

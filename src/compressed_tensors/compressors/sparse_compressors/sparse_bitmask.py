@@ -14,13 +14,12 @@
 
 from typing import Dict, List, Tuple, Union
 
-import numpy
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.compressors.sparse_compressors.base import BaseSparseCompressor
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import FP8_DTYPE
-from compressed_tensors.utils import merge_names
+from compressed_tensors.utils import merge_names, pack_bitmasks, unpack_bitmasks
 from torch import Tensor
 
 
@@ -29,8 +28,6 @@ __all__ = [
     "BitmaskTensor",
     "bitmask_compress",
     "bitmask_decompress",
-    "pack_bitmasks",
-    "unpack_bitmasks",
 ]
 
 
@@ -164,37 +161,3 @@ def bitmask_decompress(
     decompressed_tensor[bytemasks_unpacked] = values
 
     return decompressed_tensor
-
-
-def pack_bitmasks(bytemasks: Tensor) -> Tensor:
-    """
-    Converts a bytemask tensor to a bitmask tensor to reduce memory. Shape RxC will be
-    compressed to R x ceil(C/8)
-    :param bytemasks: mask tensor where each byte corresponds to a weight
-    :return: mask tensor where each bit corresounds to a weight
-    """
-    packed_bits_numpy = numpy.packbits(bytemasks.numpy(), axis=-1, bitorder="little")
-    packed_bits_torch = torch.from_numpy(packed_bits_numpy)
-
-    return packed_bits_torch
-
-
-def unpack_bitmasks(packed_bitmasks: Tensor, original_shape: torch.Size) -> Tensor:
-    """
-    Converts a bitmask tensor back to a bytemask tensor for use during decompression
-
-    :param packed_bitmasks: mask tensor where each bit corresponds to a weight
-    :param original_shape: dense shape to decompress to
-    :return: boolean mask of weights in the original dense shape
-    """
-    # Unpack the bits
-    unpacked_bits = numpy.unpackbits(
-        packed_bitmasks.numpy(), axis=-1, count=original_shape[-1], bitorder="little"
-    )
-
-    # Reshape to match the original shape
-    unpacked_bitmasks_torch = torch.from_numpy(
-        unpacked_bits.reshape(original_shape).astype(bool)
-    )
-
-    return unpacked_bitmasks_torch
