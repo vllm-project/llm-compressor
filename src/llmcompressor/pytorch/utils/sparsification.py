@@ -107,10 +107,11 @@ class ModuleSparsificationInfo:
         """
         num_params = 0
         for name, layer in get_quantized_layers(self.module):
-            num_param = torch.numel(
-                self.trainable_params.get(f"{name}.weight", torch.tensor([]))
+            num_param_weight = torch.numel(
+                self.trainable_params.get(f"{name}.weight", 0)
             )
-            if num_param is None:
+            num_params += num_param_weight
+            if num_param_weight:
                 logger.warning(f"{name} is not recognized in trainable_params")
                 continue
             if hasattr(layer, "bias") and layer.bias is not None:
