@@ -1,0 +1,135 @@
+from pathlib import PosixPath
+from typing import Optional
+
+from loguru import logger
+from torch.utils.data import DataLoader
+
+from llmcompressor.core.lifecycle import CompressionLifecycle
+from llmcompressor.transformers.finetune.data.data_helpers import (
+    get_calibration_dataloader,
+)
+from llmcompressor.transformers.finetune.text_generation import (
+    initialize_model_from_path,
+    initialize_processor_from_path,
+    parse_args,
+)
+from llmcompressor.transformers.finetune.training_args import DEFAULT_OUTPUT_DIR
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_save_pretrained,
+    patch_tied_tensors_bug,
+)
+
+
+class Oneshot:
+    """
+    Class responsible for carrying out oneshot calibration.
+
+    Usage:
+
+    ```python
+    oneshot_calibrator = Oneshot(model=model, recipe=recipe, dataset=dataset)
+    oneshot_calibrator.run()
+
+    model = oneshot_calibrator.model
+    tokenizer_or_processor = oneshot_calibrator.tokenizer_or_processor
+    recipe = oneshot_calibrator.recipe
+    ```
+    """
+
+    MODIFIER_LIFECYCLE_ACTIONS = (
+        "initialize",
+        "finalize",
+    )
+
+    def __init__(self, **kwargs):
+        self.model_args, self.data_args, self.recipe_args, training_args = parse_args(
+            **kwargs
+        )
+        self.lifecycle = CompressionLifecycle()
+        self.output_dir = training_args.output_dir
+
+        # Preprocess the model and tokenizer/processor
+        self._pre_process()
+
+        # Set instance attributes
+        self.model = self.model_args.model
+        self.tokenizer_or_processor = self.model_args.processor
+        self.recipe = self.recipe_args.recipe
+        self.modifiers = self.lifecycle.modifiers
+
+    def run(self):
+        """Perform oneshot calibration."""
+        calibration_dataloader = get_calibration_dataloader(
+            self.data_args, self.tokenizer_or_processor
+        )
+        self._apply_recipe_modifiers(calibration_dataloader)
+        self._post_process()
+
+    def _apply_recipe_modifiers(self, calibration_dataloader: Optional[DataLoader]):
+        """Apply recipe modifiers to the model."""
+        for action in self.MODIFIER_LIFECYCLE_ACTIONS:
+            lifecycle = getattr(self.lifecycle, action)
+            lifecycle(
+                model=self.model,
+                recipe=self.recipe,
+                recipe_args=self.recipe_args.recipe_args,
+                calib_data=calibration_dataloader,
+                start=-1,  # oneshot-specific argument
+                copy_data=False,
+                min_tokens_per_module=getattr(self, "min_tokens_per_module", None),
+            )
+
+    def _pre_process(self):
+        """Preprocess model and tokenizer/processor"""
+        self._warn_tied_embeddings()
+
+        # Initialize model
+        if isinstance(self.model_args.model, (str, PosixPath)):
+            self.model_args.model, _ = initialize_model_from_path(self.model_args)
+
+        patch_tied_tensors_bug(self.model_args.model)
+        modify_save_pretrained(self.model_args.model)
+
+        # Initialize processor
+        if isinstance(self.model_args.processor, (str, type(None))):
+            self.model_args.processor = initialize_processor_from_path(
+                self.model_args, self.model_args.model
+            )
+
+        # Set minimum tokens per module if data arguments are provided
+        if self.data_args:
+            self.min_tokens_per_module = self.data_args.min_tokens_per_module
+
+    def _warn_tied_embeddings(self):
+        if self.model_args.tie_word_embeddings:
+            logger.debug(
+                "The tie_word_embeddings flag is by default set to False. "
+                "This guarantees that the one-shot algorithm saves the final "
+                "weights without errors. Detected tie_word_embeddings=True. "
+                "This may cause issues with the one-shot algorithm on save."
+            )
+
+    def _post_process(self):
+        """Save model and reset the lifecycle if requested"""
+        if (
+            isinstance(self.model_args.model, str)
+            or self.output_dir != DEFAULT_OUTPUT_DIR
+        ):
+            self.save()
+
+        if self.recipe_args.clear_sparse_session:
+            self.reset_lifecycle()
+
+    def save(self):
+        """Save the model and tokenizer/processor to the output directory"""
+        self.model.save_pretrained(
+            self.output_dir,
+            save_compressed=self.model_args.save_compressed,
+            stage_modifiers=self.lifecycle.modifiers,
+        )
+        if self.tokenizer_or_processor:
+            self.tokenizer_or_processor.save_pretrained(self.output_dir)
+
+    def reset_lifecycle(self):
+        """Reset the CompressionLifecycle."""
+        self.lifecycle.reset()

@@ -26,11 +26,10 @@ class TestSparsities(unittest.TestCase):
         self.output = "./oneshot_output"
 
     def test_sparsities(self):
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.transformers import oneshot
 
-        oneshot(
+        compressor = oneshot(
             model=self.model,
             dataset=self.dataset,
             oneshot_device=self.device,
@@ -42,7 +41,7 @@ class TestSparsities(unittest.TestCase):
             output_dir=self.output,
         )
 
-        model = get_session_model()
+        model = compressor.model
 
         layer_1_sparse = tensor_sparsity(model.model.layers[1].self_attn.k_proj.weight)
         assert math.isclose(layer_1_sparse.item(), self.sparsity, rel_tol=1e-4)

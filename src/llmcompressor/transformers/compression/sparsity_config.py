@@ -5,7 +5,8 @@ from compressed_tensors.quantization.utils import is_model_quantized
 from torch import Tensor
 from torch.nn import Module
 
-from llmcompressor.core import active_session
+from llmcompressor.core import CompressionLifecycle, active_session
+from llmcompressor.modifiers.stage import StageModifiers
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.compression.helpers import (
     infer_sparse_targets_and_ignores,
@@ -40,7 +41,10 @@ class SparsityConfigMetadata:
         return global_sparsity
 
     @staticmethod
-    def infer_sparsity_structure(model: Optional[Module] = None) -> str:
+    def infer_sparsity_structure(
+        model: Optional[Module] = None,
+        stage_modifiers: Optional[CompressionLifecycle] = None,
+    ) -> str:
         """
         Determines what sparsity structure, if any, was applied.
 
@@ -58,7 +62,7 @@ class SparsityConfigMetadata:
         sparsity_structure = None
 
         current_session = active_session()
-        stage_modifiers = current_session.lifecycle.modifiers
+        stage_modifiers = stage_modifiers or current_session.lifecycle.modifiers
         if stage_modifiers:
             sparsity_structure = infer_sparsity_structure_from_stage_modifiers(
                 stage_modifiers
@@ -74,6 +78,7 @@ class SparsityConfigMetadata:
         model: Module,
         state_dict: Optional[Dict[str, Tensor]] = None,
         compress: bool = False,
+        stage_modifiers: Optional[StageModifiers] = None,
     ) -> Optional["SparsityCompressionConfig"]:
         """
         Determines compression type and informational parameters for a given model
@@ -93,7 +98,8 @@ class SparsityConfigMetadata:
             return None
 
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
-            model=model
+            model=model,
+            stage_modifiers=stage_modifiers,
         )
         if is_model_quantized(model):
             # compressing a sparse quantized model is not supported yet

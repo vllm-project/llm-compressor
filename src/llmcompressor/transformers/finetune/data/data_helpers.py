@@ -1,9 +1,11 @@
 import logging
 import os
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from datasets import Dataset, load_dataset
+from loguru import logger
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers.data import default_data_collator
 
@@ -15,6 +17,7 @@ __all__ = [
     "get_raw_dataset",
     "make_dataset_splits",
     "get_custom_datasets_from_path",
+    "get_calibration_dataloader",
 ]
 
 
@@ -243,3 +246,76 @@ def transform_dataset_keys(data_files: Dict[str, Any]):
             transform_dataset_key(dataset_key)
 
     return data_files
+
+
+def get_calibration_dataloader(
+    data_args,
+    processor,
+    add_labels: bool = False,  # for oneshot
+    do_oneshot=True,
+):
+    """
+    Loads datasets for each flow based on data_args, stores a Dataset for each
+    enabled flow in self.datasets
+
+    :param processor: processor or tokenizer to use for dataset tokenization
+    :param add_labels: if True, add labels column to dataset splits
+    """
+    if data_args.dataset is None:
+        logger.info(
+            "Running oneshot without calibration data. This is expected for "
+            "weight-only and dynamic quantization"
+        )
+        return
+
+    splits = data_args.splits
+    tokenized_datasets = {}
+
+    def _get_split_name(inp_str):
+        # strip out split name, for ex train[60%:] -> train
+        match = re.match(r"(\w*)\[.*\]", inp_str)
+        if match is not None:
+            return match.group(1)
+        return inp_str
+
+    if splits is None:
+        splits = {"all": None}
+    elif isinstance(splits, str):
+        splits = {_get_split_name(splits): splits}
+    elif isinstance(splits, List):
+        splits = {_get_split_name(s): s for s in splits}
+
+    # default to custom dataset if dataset provided isn't a string
+    registry_id = data_args.dataset if isinstance(data_args.dataset, str) else "custom"
+    for split_name, split_str in splits.items():
+        dataset = data_args.dataset
+        if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
+            # dataset is already tokenized
+            tokenized_datasets[split_name] = dataset
+        else:
+            # dataset needs to be tokenized
+            from llmcompressor.transformers.finetune.data.base import (
+                TextGenerationDataset,
+            )
+
+            dataset_manager = TextGenerationDataset.load_from_registry(
+                registry_id,
+                data_args=data_args,
+                split=split_str,
+                processor=processor,
+            )
+            tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
+
+    datasets = make_dataset_splits(
+        tokenized_datasets,
+        do_oneshot=do_oneshot,
+    )
+
+    calibration_dataset = datasets.get("calibration")
+
+    return format_calibration_data(
+        tokenized_dataset=calibration_dataset,
+        num_calibration_samples=data_args.num_calibration_samples,
+        do_shuffle=data_args.shuffle_calibration_samples,
+        collate_fn=data_args.data_collator,
+    )

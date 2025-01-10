@@ -31,6 +31,7 @@ from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
 )
+from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
@@ -69,11 +70,13 @@ class SessionManagerMixIn:
         recipe: Optional[str] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         data_args: Optional["DataTrainingArguments"] = None,
+        model_args: Optional["ModelArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):
         self.recipe = recipe
         self.recipe_args = recipe_args
+        self.model_args = model_args
         self.teacher = teacher
 
         # parse training and metadata args
@@ -374,8 +377,8 @@ class SessionManagerMixIn:
         self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
 
         # do not save checkpoints as compressed
-        original_save_compressed = self.args.save_compressed
-        self.args.save_compressed = False
+        original_save_compressed = self.model_args.save_compressed
+        self.model_args.save_compressed = False
 
         # train with accelerator
         self.accelerator.wait_for_everyone()
@@ -383,7 +386,7 @@ class SessionManagerMixIn:
         self.accelerator.wait_for_everyone()
 
         # restore original setting for saving final model
-        self.args.save_compressed = original_save_compressed
+        self.model_args.save_compressed = original_save_compressed
 
         # lifecycle
         self.finalize_session()
@@ -474,7 +477,7 @@ class SessionManagerMixIn:
         if not is_fsdp_model(self.model):
             self.model.save_pretrained(
                 output_dir,
-                save_compressed=self.args.save_compressed,
+                save_compressed=self.model_args.save_compressed,
                 safe_serialization=self.args.save_safetensors,
             )
         else:  # FSDP model
@@ -482,7 +485,7 @@ class SessionManagerMixIn:
                 model=self.model,
                 accelerator=self.accelerator,
                 output_dir=output_dir,
-                save_compressed=self.args.save_compressed,
+                save_compressed=self.model_args.save_compressed,
                 save_safetensors=self.metadata.get("save_safetensors", False),
             )
 
