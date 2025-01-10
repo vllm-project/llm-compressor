@@ -3,18 +3,18 @@ from typing import List, Type, Union, Optional
 import argparse
 
 import torch
-from transformers import AutoProcessor
 import transformers
+from transformers import AutoProcessor, PreTrainedModel
 
+from llmcompressor.transformers import tracing
+from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers import DataTrainingArguments, TextGenerationDataset
-from llmcompressor.utils.pytorch.module import get_no_split_params
-from llmcompressor.transformers import tracing
 
 
 def attempt_trace(
     model_id: str,
-    model_class: Type,
+    model_class: Type[PreTrainedModel],
     multimodal_data: bool,
     sequential_targets: Optional[Union[List[str], str]] = None,
     ignore: Union[List[str], str] = [],
@@ -57,6 +57,7 @@ def attempt_trace(
     print(
         "\nAttempting trace\n"
         f"    model_id={model_id}\n"
+        f"    model_class={model_class.__name__}\n"
         f"    dataset={data_args.dataset}\n"
         f"    split={dataset.split}\n"
         f"    inputs={sample_input.keys()}\n"
@@ -67,7 +68,7 @@ def attempt_trace(
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
 
-def get_model_class(model_class: str):
+def get_model_class(model_class: str) -> Type[PreTrainedModel]:
     model_cls = getattr(tracing, model_class, getattr(transformers, model_class, None))
     if model_cls is None:
         raise ValueError(f"Could not import model class {model_class}")

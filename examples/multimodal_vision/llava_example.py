@@ -23,8 +23,8 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
         sequential_targets=["LlamaDecoderLayer"],
+        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
     ),
 ]
 

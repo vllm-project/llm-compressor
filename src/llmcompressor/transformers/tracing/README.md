@@ -3,7 +3,7 @@ This guide explains the concepts of tracing as they relate to LLM Compressor and
 modify your model or configuration to support recipes which require using the 
 [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
 
-You will learn
+Through reading this guide, you will learn
 1. Why tracing is required when compressing with recipes involving the
 [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py) and modifiers
 like the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
@@ -11,6 +11,7 @@ like the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 3. How to modify your model definition to be traceable
 
 ## Why is Tracing Required? ##
+
 
 
 ## Determining Traceability ##
@@ -153,29 +154,46 @@ if False:
 torch.fx.proxy.TraceError: Proxy object cannot be iterated.
 ```
 
-https://pytorch.org/docs/main/fx.html#torch.fx.Proxy
+Because the size and contents of symbolic variables are subject to change at runtime,
+symbolic variables cannot be iterated.
 
+For example, this blcok cannot be traced because it iterates through the contents of
+`features`, a symbolically traced variable
+```python3
+accumulated_features = torch.zeros(config.model_dims)
+for feature in features:
+    accumulated_features += feature
+```
+
+In this instance, this block of code can be restructured to use a vector operation which
+does not require explicit iteration through the `features` variable.
+```python3
+accumulated_features = torch.sum(features, dim=0)
+```
+
+However, in more complex instances, such as iterating through a list of images to
+process each image, vectorization is not feasible. In these instances, wrapping the
+parent function is highly recommended, see [Wrapping Functions](#wrapping-functions).
+
+For more information, see the relevant [Pytorch Documentation](https://pytorch.org/docs/main/fx.html#torch.fx.Proxy).
 
 ### Wrapping Functions ###
-When tracing the [`MllamaForConditionalGeneration`](/src/llmcompressor/transformers/tracing/mllama.py)
+Wrapping is a technique whereby the internals of certain functions can be ignored from
+tracing in the model graph
+
+For example, when tracing the [`MllamaForConditionalGeneration`](/src/llmcompressor/transformers/tracing/mllama.py)
 architecture, we encounter a `TraceError` on this line:
 ```python3
 batch_size, text_total_length, *_ = cross_attention_mask.shape
-# torch.fx.proxy.TraceError: Proxy object cannot be iterated
+```
+```
+torch.fx.proxy.TraceError: Proxy object cannot be iterated
 ```
 
-In this case, making this line traceable is fairly trivial
-```python3
-batch_size, text_total_length = cross_attention_mask.shape[:2]
-```
-
-However, 
-
-Since this function does not output any variable whose shapes require inference
+In this case, making this line traceable is fairly trivial. However, since this function
+does not output any variable whose shapes require inference
 (see [Correcting Shape Inference](#correcting-shape-inference)), we can simply wrap the
-function which performs the untraceable operation. This is equivalent to adding the
-function to an "ignore" list which ensures that its internals are not traced within the
-model graph.
+function, effectively ignoring its untraceable internals.
 
 ```python3
 @torch.fx.wrap
@@ -189,19 +207,30 @@ def _prepare_cross_attention_mask(...) -> ...:
     <img alt="Wrapped Function" src="assets/wrapped_function.jpg" height="20%" />
 </p>
 
-TODO: In the future, 
-https://github.com/pytorch/pytorch/blob/main/torch/fx/_symbolic_trace.py#L1246-L1247
+Please note that wrapped functions must be defined at the module-level, meaning that
+class and instance methods must be hoisted to the module level, see
+[Defining Your Own Functions to Wrap](#defining-your-own-functions-to-wrap)
+
+In the future, support will be added for wrapping functions by name rather than
+requiring the original function to be redefined. See [_symbolic_trace.py](https://github.com/pytorch/pytorch/blob/main/torch/fx/_symbolic_trace.py#L1246-L1247).
 
 ### Defining Your Own Functions to Wrap ###
+Wrapping is not limited to functions already defined by the model definition. We can
+also write our own functions to wrap if we want to wrap a particular chunk of code.
 
+For example, this chunk of code iterates through a symbolic variable, which is
+[not traceable](#conditional-iteration).
 ```python3
 ...
 for idx, feature in enumerate(features):
     process_feature(idx, feature)
 ...
 ```
-To resolve this, restructure the loop to use tensor operations or wrap the iteration in a function that will not be traced. For instance:
+```
+torch.fx.proxy.TraceError: Proxy object cannot be iterated
+```
 
+To resolve this, the iteration can be wrapped in a function that will not be traced.
 ```python3
 @torch.fx.wrap
 def process_all_features(features):
@@ -218,21 +247,102 @@ required by the function.
 
 
 ### Correcting Shape Inference ###
-When performing tracing with LLM Compressor, the shapes of some variables are assumed
-based on the shapes provided by a sample from the dataset. This is done to ensure some
-models which include basic [Conditional Logic and Asserts](#conditional-logic-and-asserts)
+When tracing with LLM Compressor, the shapes of some variables are assumed based on the
+shapes provided by a sample from the dataset. This is done to allow some models which
+include basic [Conditional Logic and Asserts](#conditional-logic-and-asserts) to be
 traceable without major changes to the model definition.
 
-However, there are some instances where the shape inferences is not properly
+Shape assumptions are implemented by modifying the `HFProxy` instance, which is used as
+a proxy for symbolic variables. The `_metadata` attribute of the `HFProxy` instance is
+set to a meta tensor whose shape and dtype correspond to the assumed shape and dtype of
+the symbolic variable.
+
+However, there are some instances where the shape inference is not properly
 implemented, leading to some variables whose shape is unknown. This is not always a
 problem, unless those variables are used for conditional logic later during execution.
 In these cases, rather than fixing every instance of condition logic, we can inject our
 own knowledge of variable shapes.
 
+Here we have a function which returns a variable `image_features` whose shape is unknown
+(this is because `get_image_features` calls the `self.multi_modal_projector`, which is
+typically part of the `ignore` list).
 ```python3
+image_features = self.get_image_features(
+    pixel_values=pixel_values,
+    vision_feature_layer=vision_feature_layer,
+    vision_feature_select_strategy=vision_feature_select_strategy,
+)
+```
+
+`image_features` is later used for conditional logic, so it would be nice if this
+variable had a known shape. Luckily, `get_image_features` includes documentation which
+describes the known shape of its output.
+```python3
+Returns:
+    image_features (`torch.Tensor`): Image feature tensor of shape `(num_images, image_length, embed_dim)`).
+```
+
+Using this information, we can define our own helper function to install the known shape
+information as metadata into the `image_features` variable.
+```python3
+def maybe_install_metadata_image_features(
+    image_features: Union[torch.Tensor, HFProxy],
+    pixel_values: Union[torch.Tensor, HFProxy],
+    config: LlavaConfig,
+) -> Union[torch.Tensor, HFProxy]:
+    if isinstance(image_features, HFProxy):
+        # (num_images, image_length, embed_dim)
+        num_images = pixel_values._metadata.size(0)
+        image_length = config.image_seq_length
+        embed_dim = config.vision_config.intermediate_size
+
+        original_fn = image_features.tracer.patched_torch_methods["empty"][1]
+        metadata = original_fn(
+            (num_images, image_length, embed_dim), device=torch.device("meta")
+        )
+        image_features.install_metadata(metadata)
+
+    return image_features
+```
+
+The new function is inserted after the `get_image_features`
+```
+image_features = self.get_image_features(
+    pixel_values=pixel_values,
+    vision_feature_layer=vision_feature_layer,
+    vision_feature_select_strategy=vision_feature_select_strategy,
+)
+
+image_features = maybe_install_metadata_image_features(
+    image_features, pixel_values, self.config
+)
+```
+
+In another example from `TraceableLlavaForConditionalGeneration`, we find that shape
+inference for the `torch.Tensor.masked_scatter` function has not been implemented. We
+can determine the shape of this function's output by simulating it using the existing
+metadata.
+```python3
+def maybe_install_metadata_inputs_embeds(
+    inputs_embeds_masked: Union[torch.Tensor, HFProxy],
+    inputs_embeds: Union[torch.Tensor, HFProxy],
+    special_image_mask: Union[torch.Tensor, HFProxy],
+    image_features: Union[torch.Tensor, HFProxy],
+) -> Union[torch.Tensor, HFProxy]:
+    if isinstance(inputs_embeds_masked, HFProxy):
+        metadata = inputs_embeds._metadata.masked_scatter(
+            special_image_mask._metadata.to(bool), image_features._metadata
+        )
+        inputs_embeds_masked.install_metadata(metadata)
+
+    return inputs_embeds
+
+...
 inputs_embeds_masked = inputs_embeds.masked_scatter(special_image_mask, image_features)
-# TRACING: install metadata
-inputs_embeds_masked = maybe_install_metadata_inputs_embeds(inputs_embeds_masked, inputs_embeds, special_image_mask, image_features)
+inputs_embeds_masked = maybe_install_metadata_inputs_embeds(
+    inputs_embeds_masked, inputs_embeds, special_image_mask, image_features
+)
+...
 ```
 
 ### Ensuring Consistent Data Types ###
