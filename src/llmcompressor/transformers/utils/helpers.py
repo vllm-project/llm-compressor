@@ -79,6 +79,7 @@ def resolve_recipe(
     """
     Resolve the recipe to apply to the model.
     :param recipe: the recipe to apply to the model.
+
         It can be one of the following:
         - None
             This means that we are not either not applying
@@ -166,15 +167,15 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
 
 
 def recipe_from_huggingface_model_id(
-    model_path: str, RECIPE_FILE_NAME: str = RECIPE_FILE_NAME
+    model_path: str, recipe_file_name: str = RECIPE_FILE_NAME
 ) -> Tuple[Optional[str], bool]:
     """
     Attempts to download the recipe from the huggingface model id.
 
     :param model_path: Assumed to be the huggingface model id.
         If it is not, this function will return None.
-    :param RECIPE_FILE_NAME: The name of the recipe file to download.
-        Defaults to RECIPE_FILE_NAME.
+    :param recipe_file_name: The name of the recipe file to download.
+        Defaults to recipe_file_name.
     :return: tuple:
         - the path to the recipe file if found, None otherwise
         - True if model_path is a valid huggingface model id, False otherwise
@@ -194,11 +195,11 @@ def recipe_from_huggingface_model_id(
         f"{HUGGINGFACE_CO_URL_HOME}"
     )
     try:
-        recipe = hf_hub_download(repo_id=model_path, filename=RECIPE_FILE_NAME)
-        logger.info(f"Found recipe: {RECIPE_FILE_NAME} for model id: {model_path}.")
+        recipe = hf_hub_download(repo_id=model_path, filename=recipe_file_name)
+        logger.info(f"Found recipe: {recipe_file_name} for model id: {model_path}.")
     except Exception as e:
         logger.info(
-            f"Unable to to find recipe {RECIPE_FILE_NAME} "
+            f"Unable to to find recipe {recipe_file_name} "
             f"for model id: {model_path}: {e}. "
             "Skipping recipe resolution."
         )
