@@ -33,6 +33,7 @@ class Oneshot:
     model = compressor.model
     tokenizer_or_processor = compressor.tokenizer_or_processor
     recipe = compressor.recipe
+
     ```
     """
 
