@@ -1,5 +1,5 @@
 from itertools import cycle
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import torch
 from torch.nn import Module
@@ -25,7 +25,7 @@ class EarlyStopException(Exception):
     :param kwargs: keyword inputs passed to the layer where the excetion was raised
     """
 
-    def __init__(self, args: Tuple, kwargs: Dict):
+    def __init__(self, args: Tuple[Any, ...], kwargs: Dict[str, Any]):
         self.args = tensors_to_device(args, "cpu")
         self.kwargs = kwargs
 
@@ -34,7 +34,9 @@ def apply_pad_mask_to_batch(batch: Dict[str, torch.Tensor]) -> Dict[str, torch.T
     """
     Apply a mask to the input ids of a batch. This is used to zero out
     padding tokens so they do not contribute to the hessian calculation in the
-    SparseGPT algorithm
+    GPTQ and SparseGPT algorithms
+
+    Assumes that `attention_mask` only contains zeros and ones
 
     :param batch: batch to apply padding to if it exists
     :return: batch with padding zeroed out in the input_ids
@@ -58,7 +60,7 @@ def run_calibration_forward(
     :param model: PyTorch model to run
     :param calibration_dataloader: data to use for calibration
     :param num_calibration_steps: number of items in calibration_dataloader to process,
-    None or a negative number to process all available data
+        None or a negative number to process all available data
     :param calibration_function: option to pass a custom forward function for model
     :param device: option to move the model to a specific device before calibration
     :param mask_padding: whether to zero out padding tokens during calibration
