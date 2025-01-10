@@ -310,7 +310,10 @@ class ModelCompressor:
         model_path = get_safetensors_folder(model_path)
         sparse_decompressed = False
 
-        if self.sparsity_compressor is not None:
+        if (
+            self.sparsity_compressor is not None
+            and self.sparsity_config.format != CompressionFormat.dense.value
+        ):
             # Sparse decompression is applied on the model_path
             dense_gen = self.sparsity_compressor.decompress(model_path)
             self._replace_weights(dense_gen, model)
