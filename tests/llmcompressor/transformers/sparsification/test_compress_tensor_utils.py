@@ -12,6 +12,7 @@ from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
 from transformers import AutoConfig, AutoModelForCausalLM
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
@@ -171,9 +172,8 @@ def test_quant_model_reload(format, dtype, tmp_path):
         device = "cpu"
     dataset = "open_platypus"
     concatenate_data = False
-    num_calibration_samples = 64
+    num_calibration_samples = 16
     splits = {"calibration": "train[:10%]"}
-    empty_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
 
     # create a quantized model
     oneshot(
@@ -191,7 +191,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     # Fetch the oneshot model
     model = get_session_model()
     og_state_dict = model.state_dict()
-    path = tmp_path / "compressed"
+    save_path_compressed = tmp_path / "compressed"
 
     for _, module in model.named_modules():
         if hasattr(module, "quantization_scheme"):
@@ -200,32 +200,24 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
     # Save to disk
     model.save_pretrained(
-        path,
+        save_path_compressed,
         quantization_format=format,
         save_compressed=True,
     )
 
     # Verify config on disk
-    config = AutoConfig.from_pretrained(path)
+    config = AutoConfig.from_pretrained(save_path_compressed)
     compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
     quant_config = ModelCompressor.parse_quantization_config(compression_config)
     assert quant_config["format"] == format
 
-    # As HFQuantizer doesn't decompress the model, use the compressor to decompress
-    # the model instead
-    compressor = ModelCompressor.from_compression_config(compression_config)
-    compressor.quantization_config.quantization_status = QuantizationStatus.FROZEN
-    compressor.decompress(model_path=path, model=empty_model)
-
-    # eventually use this pathway once HFQuant Decompression works
-    """
-    dense_model = SparseAutoModelForCausalLM.from_pretrained(
-        "compress_out", torch_dtype="auto", device_map=device
+    decompressed_model = AutoModelForCausalLM.from_pretrained(
+        save_path_compressed,
+        torch_dtype=dtype,
+        quantization_config=CompressedTensorsConfig(run_compressed=False),
     )
-    """
-    # Verify the abs difference between the decompressed model
-    # and the original model
-    reconstructed_state_dict = empty_model.state_dict()
+
+    reconstructed_state_dict = decompressed_model.state_dict()
     assert len(og_state_dict) == len(reconstructed_state_dict)
     for key in og_state_dict.keys():
         dense_tensor = og_state_dict[key].to(device)
