@@ -50,10 +50,10 @@ torch.fx.proxy.TraceError: symbolically traced variables cannot be used as input
 ### Choosing Sequential Targets ###
 Sequential targets are the modules which determine the granularity of error propagation
 and activation offloading when performing forward passes of the model. These are
-typically the "transformer blocks" of the model, also referred to as layers with
+typically the "transformer blocks" of the model, also referred to as "layers" with
 llm-compressor.
 
-Choosing sequential targets with a higher granularity (for example `"Linear"` instead of
+Choosing sequential targets with higher granularity (for example `"Linear"` instead of
 `"LlamaDecoderLayer"`) will result in fewer hessians being allocated at the same time,
 decreasing the memory requirements for compression. This may also increase the recovered
 accuracy of the model, as compression error is propagated at a higher granularity.
@@ -61,7 +61,7 @@ However, using higher granularity sequential targets may also increase compressi
 as more time is spent offloading and onloading activations.
 
 <p align="center">
-    <img alt="Sequential Targets" src="assets/sequential_targets.jpg" height="20%" />
+    <img alt="Sequential Targets" src="assets/sequential_targets.jpg" height="5%" />
 </p>
 
 ### Choosing Modules to Ignore ###
@@ -72,44 +72,49 @@ tracing the internals of those modules, thereby avoid the untraceable operations
 For example, in this model graph, the internals of the `MllamaVisionModel` are not
 traced (we don't see the individual `MllamaVisionEncoder` layers, ect.). However, we can
 no longer target the modules within the `MllamaVisionModel` such as the
-`MllamaVisionEncoder` as sequential targets, if any modules within the
+`MllamaVisionEncoder` as sequential targets. If any modules within the
 `MllamaVisionModel` are being compressed, their hessians be all be allocated at the same
 time, increasing peak memory usage.
 
 <p align="center">
-    <img alt="Ignored Modules" src="assets/ignored_modules.jpg" height="20%" />
+    <img alt="Ignored Modules" src="assets/ignored_modules.jpg" height="5%" />
 </p>
 
 Note that in the image above, the `multi_modal_projector` is also ignored.
 
 ## Defining your own Traceable Model Definitions ##
-Before defining your own traceable model definition, make sure that the untraceable
-parts of your model are not a part of a module that can be
-[ignored](#choosing-modules-to-ignore).
+If you discover that your model is not traceable through `llm-compressor.attempt_trace`,
+you may want to modify your model definition to make the model traceable. Before
+attempting to ∂efine your own traceable model definition, make sure that the untraceable
+parts of your model are not a part of a module that can be [ignored](#choosing-modules-to-ignore).
 
 To define your own traceable model definition, follow the steps below:
-1. Copy the original model definition into the [tracing folder](/src/llmcompressor/transformers/tracing/).
-The original model definition can usually be found in the [`transformers/models`](https://github.com/huggingface/transformers/tree/main/src/transformers/models)
+1. Copy the original model definition into the [tracing folder](/src/llmcompressor/transformers/tracing/)
+    * The original model definition can usually be found in the [`transformers/models`](https://github.com/huggingface/transformers/tree/main/src/transformers/models)
 folder or the `modeling_X.py` file when using models with remote code.
-2. Add your new model class to [tracing/\_\_init\_\_.py](/src/llmcompressor/transformers/tracing/__init__.py).
-3. Use the `attempt_trace` function as show in [Determining Traceability](#determining-traceability)
-to find the untraceable line of code in your model. **Remember to replace `model_class`
-with your own model definition**.
+2. Add your new model class to [tracing/\_\_init\_\_.py](/src/llmcompressor/transformers/tracing/__init__.py)
+    * Make sure to alias your model name using the template `TraceableXForY`
+3. Use `llm-compressor.attempt_trace` to find the untraceable line of code in your model
+    * See [Determining Traceability](#determining-traceability) for an example
+    * **Remember to replace `model_class` with your own model definition**
 4. Find the untraceable line of code in your model definition and modify the code to
-make it traceable. Examples of how to do this for each of the common errors can be found
-below. If you encounter a tracing issue which is not documented below, please create an
-issue!
+make it traceable
+    * Examples of how to do this for each of the common errors can be found below
+    * If you encounter a tracing issue which is not documented below, please create an issue!
 5. Add a comment above the line which has been modified explaining why the operation is
-untraceable. For example, `# TRACING: Assume that the attention mask is always present`
+untraceable
+    * For example, `# TRACING: Assume that the attention mask is always present`
 6. Repeat steps 3-5 until all of the untraceable operations have been replaced with
-traceable operations.
+traceable operations
 7. Once your model traces successfully, remove any class definitions you did not use and
-import them if necessary. Note that this cannot be done for models with remote code.
-8. Commit your changes to a branch and open a PR so that others like yourself can
-benefit from the changes! LLM Compressor is an open-source project that relies on
-community contribution to support the wide range of model architectures available on
-huggingface. P.S., remember to add `# vllm-project: no copyright` underneath any
-copyright notices at the top of the file. TODO: revisit the tone here
+import them if necessary
+    * Note that this cannot be done for models with remote code, as all code is required
+8. Commit your changes to a branch and open a pull request so that others like yourself can
+benefit from the changes!
+    * LLM Compressor is an open-source project that relies on community contribution to
+    support the wide range of model architectures available on huggingface
+    * P.S., remember to add `# vllm-project: no copyright` underneath any copyright
+    notices at the top of the file
 
 ### Conditional Logic and Asserts ###
 ```
@@ -121,7 +126,7 @@ ie inputs provided from the dataset sample, cannot be used as inputs to control 
 To resolve these issues, you can replace the logic with an assumption which bypasses the
 problematic control flow.
 
-For example, the following block:
+For example, the following block in [`LlavaForConditionalGeneration`](/src/llmcompressor/transformers/tracing/llava.py)
 ```python3
 if n_image_tokens != n_image_features:
     raise ValueError(
@@ -147,8 +152,8 @@ torch.fx.proxy.TraceError: Proxy object cannot be iterated.
 Because the size and contents of symbolic variables are subject to change at runtime,
 symbolic variables cannot be iterated.
 
-For example, this blcok cannot be traced because it iterates through the contents of
-`features`, a symbolically traced variable
+For example, this code block cannot be traced because it iterates through the contents
+of `features`, a symbolically traced variable
 ```python3
 accumulated_features = torch.zeros(config.model_dims)
 for feature in features:
@@ -164,8 +169,6 @@ accumulated_features = torch.sum(features, dim=0)
 However, in more complex instances, such as iterating through a list of images to
 process each image, vectorization is not feasible. In these instances, wrapping the
 parent function is highly recommended, see [Wrapping Functions](#wrapping-functions).
-
-For more information, see the relevant [Pytorch Documentation](https://pytorch.org/docs/main/fx.html#torch.fx.Proxy).
 
 ### Wrapping Functions ###
 Wrapping is a technique whereby the internals of certain functions can be ignored from
@@ -194,7 +197,7 @@ def _prepare_cross_attention_mask(...) -> ...:
 ```
 
 <p align="center">
-    <img alt="Wrapped Function" src="assets/wrapped_function.jpg" height="20%" />
+    <img alt="Wrapped Function" src="assets/wrapped_function.jpg" height="5%" />
 </p>
 
 Please note that wrapped functions must be defined at the module-level, meaning that
@@ -206,15 +209,14 @@ requiring the original function to be redefined. See [_symbolic_trace.py](https:
 
 ### Defining Your Own Functions to Wrap ###
 Wrapping is not limited to functions already defined by the model definition. We can
-also write our own functions to wrap if we want to wrap a particular chunk of code.
+also write our own functions to wrap if we want to wrap a particular chunk of code or
+wrap a function which is defined a non-module level.
 
 For example, this chunk of code iterates through a symbolic variable, which is
 [not traceable](#conditional-iteration).
 ```python3
-...
 for idx, feature in enumerate(features):
     process_feature(idx, feature)
-...
 ```
 ```
 torch.fx.proxy.TraceError: Proxy object cannot be iterated
@@ -227,14 +229,11 @@ def process_all_features(features):
     for idx, feature in enumerate(features):
         process_feature(idx, feature)
 
-...
 process_all_features(features)
-...
 ```
 
 Make sure to define your new function at the top module-level and pass in any arguments
 required by the function.
-
 
 ### Correcting Shape Inference ###
 When tracing with LLM Compressor, the shapes of some variables are assumed based on the
@@ -243,19 +242,22 @@ include basic [Conditional Logic and Asserts](#conditional-logic-and-asserts) to
 traceable without major changes to the model definition.
 
 Shape assumptions are implemented by modifying the `HFProxy` instance, which is used as
-a proxy for symbolic variables. The `_metadata` attribute of the `HFProxy` instance is
-set to a meta tensor whose shape and dtype correspond to the assumed shape and dtype of
-the symbolic variable.
+a proxy for symbolic variables during tracing. The `_metadata` attribute of the
+`HFProxy` instance is assigned to a meta tensor whose shape and dtype correspond to the
+assumed shape and dtype of the symbolic variable.
 
 However, there are some instances where the shape inference is not properly
-implemented, leading to some variables whose shape is unknown. This is not always a
-problem, unless those variables are used for conditional logic later during execution.
-In these cases, rather than fixing every instance of condition logic, we can inject our
-own knowledge of variable shapes.
+implemented, leading to some variables whose shape is unknown. This can happen if the
+proxy variable passes through an ignored module or wrapped function, or if a shape
+inference is missing for a particular operation. This is not always a problem, unless
+those variables are used for conditional logic later during execution. In these cases,
+rather than fixing every instance of condition logic, we can inject our own knowledge of
+variable shapes.
 
-Here we have a function which returns a variable `image_features` whose shape is unknown
-(this is because `get_image_features` calls the `self.multi_modal_projector`, which is
-typically part of the `ignore` list).
+For example, when tracing the [LlavaForConditionalGeneration](/src/llmcompressor/transformers/tracing/llava.py)
+architecture, we have a function which returns a variable `image_features` whose shape
+is unknown (this is because `get_image_features` calls the `self.multi_modal_projector`,
+which is typically part of the `ignore` list).
 ```python3
 image_features = self.get_image_features(
     pixel_values=pixel_values,
@@ -308,10 +310,10 @@ image_features = maybe_install_metadata_image_features(
 )
 ```
 
-In another example from `TraceableLlavaForConditionalGeneration`, we find that shape
-inference for the `torch.Tensor.masked_scatter` function has not been implemented. We
-can determine the shape of this function's output by simulating it using the existing
-metadata.
+In another example from [LlavaForConditionalGeneration](/src/llmcompressor/transformers/tracing/llava.py),
+we find that shape inference for the `torch.Tensor.masked_scatter` function has not been
+implemented. We can determine the shape of this function's output by simulating it using
+the existing metadata.
 ```python3
 def maybe_install_metadata_inputs_embeds(
     inputs_embeds_masked: Union[torch.Tensor, HFProxy],
@@ -341,11 +343,11 @@ TypeError: __bool__ should return bool, returned Tensor
 ```
 
 In rare cases, some variables are assigned to a different type than the type they were
-initialized with. This is a problem for the torch.fx tracing module, as it requires that
-all variables maintain the same type.
+initialized with. This is a problem for the torch.fx tracing module, as the
+implementation requires that all variables maintain the same type.
 
 In this case, the variable `legacy_processing` is initially assigned to the `bool` type.
-Howver, it is later reassigned to the type `torch.Tensor[bool]`.
+However, it is later reassigned to the type `torch.Tensor[bool]`.
 ```python3
 legacy_processing = False
 ...
@@ -355,8 +357,7 @@ legacy_processing = (
 ```
 
 In this example, we can fix the type of `legacy_processing` by ensuring that the new
-assignment matches the original type `bool`
-
+assignment matches the original type `bool`.
 ```python3
 legacy_processing = False
 ...
