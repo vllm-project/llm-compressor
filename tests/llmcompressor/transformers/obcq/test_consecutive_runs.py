@@ -5,13 +5,18 @@ from pathlib import Path
 import pytest
 import yaml
 from parameterized import parameterized_class
+from transformers import AutoModelForCausalLM
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.transformers.utils.helpers import resolve_recipe
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
 GPU_CONFIGS_DIRECTORY = (
     "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/gpu"
 )
+
+quantization_config = CompressedTensorsConfig(run_compressed=False)
 
 
 class TestConsecutiveRuns(unittest.TestCase):
@@ -20,6 +25,8 @@ class TestConsecutiveRuns(unittest.TestCase):
     ):
         import math
 
+        from llmcompressor.core import active_session
+        from llmcompressor.pytorch.model_load.helpers import initialize_recipe
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
@@ -34,16 +41,26 @@ class TestConsecutiveRuns(unittest.TestCase):
             oneshot_device=self.device,
             clear_sparse_session=False,
         )
-        first_tiny_model = compressor.model
+
+        first_model = AutoModelForCausalLM.from_pretrained(
+            self.output_first,
+            device_map="auto",
+            quantization_config=quantization_config,
+        )
+
         layer_0_sparse = tensor_sparsity(
-            first_tiny_model.model.layers[0].self_attn.k_proj.weight
+            first_model.model.layers[0].self_attn.k_proj.weight
         )
         assert math.isclose(layer_0_sparse.item(), 0.5, rel_tol=tolerance)
-        assert qat_active(first_tiny_model)
+        assert qat_active(first_model)
 
         lifecycle_recipe = compressor.lifecycle.recipe_container.compiled_recipe
         stages = [stage.group for stage in lifecycle_recipe.stages]
         self.assertEqual(len(stages), 1)
+
+        recipe = resolve_recipe(recipe=self.first_recipe, model_path=self.output_first)
+        if recipe:
+            initialize_recipe(model=first_model, recipe_path=recipe)
 
         # reload saved model and up sparsity to 0.7
         second_compressor = oneshot(
@@ -55,13 +72,17 @@ class TestConsecutiveRuns(unittest.TestCase):
             oneshot_device=self.device,
             clear_sparse_session=False,
         )
+        second_model = AutoModelForCausalLM.from_pretrained(
+            self.output_second,
+            device_map="auto",
+            quantization_config=quantization_config,
+        )
 
-        second_tiny_model = second_compressor.model
         layer_0_sparse = tensor_sparsity(
-            second_tiny_model.model.layers[0].self_attn.k_proj.weight
+            second_model.model.layers[0].self_attn.k_proj.weight
         )
         assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
-        assert qat_active(second_tiny_model)
+        assert qat_active(second_model)
 
         lifecycle_recipe = compressor.lifecycle.recipe_container.compiled_recipe
         stages = [stage.group for stage in lifecycle_recipe.stages]
@@ -114,7 +135,9 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         from transformers import AutoModelForCausalLM
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.model, device_map=self.device
+            self.model,
+            device_map=self.device,
+            quantization_config=quantization_config,
         )
 
         self.output = "./oneshot_output"
