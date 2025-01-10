@@ -1,6 +1,5 @@
 import contextlib
 import warnings
-from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
@@ -124,9 +123,9 @@ class GPTQModifier(Modifier, HooksMixin):
 
     # private variables
     _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr(default=None)
+    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    _update_size: Optional[int] = PrivateAttr(default=None)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -206,25 +205,23 @@ class GPTQModifier(Modifier, HooksMixin):
         if not self.quantize:
             raise ValueError("To use the GPTQModifier, quantization must be enabled.")
 
+        # prepare module names
+        self._module_names = {m: name for name, m in state.model.named_modules()}
+
         # register hooks
-        for name, module in state.model.named_modules():
+        for module in state.model.modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
                 # but in the FUTURE this should be ignored by the user
                 if not isinstance(module, torch.nn.Embedding):
-                    post_hook = partial(self.compress_module, name)
-                    self.register_hook(module, post_hook, "forward")
+                    self.register_hook(module, self.calibrate_module, "forward")
 
         # infer sequential targets
         if self.sequential_targets is None:
             self.sequential_targets = get_no_split_params(state.model)
         if isinstance(self.sequential_targets, str):
             self.sequential_targets = [self.sequential_targets]
-
-        # infer update size
-        if self._update_size is None:
-            self._update_size = len(state.data.calib)
 
         # infer pipeline
         model_name = state.model.__class__.__name__
@@ -240,6 +237,7 @@ class GPTQModifier(Modifier, HooksMixin):
                 state.data.calib,
                 self.sequential_targets,
                 self.ignore,
+                self,
             )
             return True
 
@@ -255,6 +253,7 @@ class GPTQModifier(Modifier, HooksMixin):
                     state.model,
                     state.data.calib,
                     self.sequential_targets,
+                    self,
                 )
                 return True
 
@@ -269,7 +268,7 @@ class GPTQModifier(Modifier, HooksMixin):
                     "may result in decreased accuracy. Consider using "
                     "`offload_hessians=True`"
                 )
-                run_basic(state.model, state.data.calib)
+                run_basic(state.model, state.data.calib, self)
                 return True
 
     def on_finalize(self, state: "State", **kwargs) -> bool:
@@ -288,9 +287,8 @@ class GPTQModifier(Modifier, HooksMixin):
 
         return True
 
-    def compress_module(
+    def calibrate_module(
         self,
-        name: str,
         module: torch.nn.Module,
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
@@ -306,7 +304,6 @@ class GPTQModifier(Modifier, HooksMixin):
         """
         # Assume that first argument is the input
         inp = args[0]
-        quant_args = getattr_chain(module, "quantization_scheme.weights")
 
         # Initialize hessian if not present
         if module not in self._num_samples:
@@ -325,9 +322,17 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-        # After enough samples are accumulated, perform quantization
-        if self._num_samples[module] >= self._update_size:
-            logger.info(f"Quantizing {name} using {self._num_samples[module]} samples")
+    def on_sequential_batch_end(self):
+        """
+        Quantize modules.
+        TODO: implement with event callback
+        """
+        for module in list(self._num_samples.keys()):
+            name = self._module_names[module]
+            num_samples = self._num_samples[module]
+            quant_args = getattr_chain(module, "quantization_scheme.weights")
+
+            logger.info(f"Quantizing {name} using {num_samples} samples")
             with (
                 torch.no_grad(),
                 align_module_device(module),
