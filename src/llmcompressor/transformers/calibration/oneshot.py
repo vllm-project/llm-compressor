@@ -19,6 +19,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 
+__all__ = ["Oneshot"]
 
 class Oneshot:
     """
