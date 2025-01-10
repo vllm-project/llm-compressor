@@ -129,7 +129,7 @@ folder or the `modeling_X.py` file when using models with remote code.
 2. Add your new model class to [tracing/\_\_init\_\_.py](/src/llmcompressor/transformers/tracing/__init__.py)
     * Make sure to alias your model name using the template `TraceableXForY`
 3. Use `llm-compressor.attempt_trace` to find the untraceable line of code in your model
-    * See [Determining Traceability](#determining-traceability) for an example
+    * See [Determining Traceability](#2-determining-traceability) for an example
     * **Remember to replace `model_class` with your own model definition**
 4. Find the untraceable line of code in your model definition and modify the code to
 make it traceable
