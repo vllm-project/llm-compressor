@@ -1,20 +1,54 @@
 # Model Tracing Guide #
 This guide explains the concepts of tracing as they relate to LLM Compressor and how to
-modify your model or configuration to support recipes which require using the 
-[Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
+modify your model to support recipes which require using the 
+[Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py).
 
 Through reading this guide, you will learn
 1. Why tracing is required when compressing with recipes involving the
 [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py) and modifiers
-like the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
+such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 2. How to determine if your model is traceable for your dataset
 3. How to modify your model definition to be traceable
 
-## Why is Tracing Required? ##
+## 1. Why is Tracing Required? ##
+Due to the memory-intensive nature of some modifiers such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
+and [SparseGPTModifier](/src/llmcompressor/modifiers/obcq/base.py), a [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
+is required in order to offload activations and reduce memory usage as well as propagate
+the activation error induced by compression.
 
+For example, let's say we want to quantize a basic `3` layer model using the
+[GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py) and `512`
+calibration samples. The [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
+first identifies each of the layers (sequential targets) within the model. Then, the
+pipeline runs each of the `512` samples, one sample at a time, through the first layer.
+When one sample completes its forward pass through the layer, its activations recorded
+by the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py) via the
+hessian and the layer output is offloaded to the cpu. After all `512` samples have been
+passed through the layer, the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
+uses the recorded activations to compress the weights of the modules within the layer.
+Once module compression is complete, the offloaded activations are used to perform the
+forward pass of the next layer.
 
+The [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py) relies on
+the ability to know what the inputs and outputs are of each model layer in order to
+faithfully "replay" the model's forward pass one layer at a time. While assuming that
+"the input to the next layer is the output of the previous layer" holds for most
+decoder-only LLMs, this assumption breaks for more complex models such as
+encoder-decoder architectures and models which pass RoPE embeddings as an input to each
+layer. For this reason, in order to faithfully capture the data flow between model
+layers, the model's call graph must be traced.
 
-## Determining Traceability ##
+Tracing is done by sampling one batch from the provided dataset, capturing all
+of the operations that are performed during the model forward pass, and encoding those
+operations into a model graph which is then broken into sequential layers to be executed
+independently at calibration time. For a visual example of a model call graph, see
+[Llama_3.2-Vision.svg](/src/llmcompressor/transformers/tracing/assets/Llama_3.2-Vision.svg).
+
+<p align="center">
+    <img alt="Model Graph" src="assets/model_graph.jpg" height="5%" />
+</p>
+
+## 2. Determining Traceability ##
 In order to determine if a model is traceable for a given dataset, you can use the
 `llmcompressor.attempt_trace` function. This function determines whether a model is
 traceable for a given dataset, sequential targets list, and ignore list.
@@ -82,7 +116,7 @@ time, increasing peak memory usage.
 
 Note that in the image above, the `multi_modal_projector` is also ignored.
 
-## Defining your own Traceable Model Definitions ##
+## 3. Defining your own Traceable Model Definitions ##
 If you discover that your model is not traceable through `llm-compressor.attempt_trace`,
 you may want to modify your model definition to make the model traceable. Before
 attempting to ∂efine your own traceable model definition, make sure that the untraceable
