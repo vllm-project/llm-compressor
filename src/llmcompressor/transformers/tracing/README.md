@@ -16,23 +16,17 @@ like the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 
 ## Determining Traceability ##
 In order to determine if a model is traceable for a given dataset, you can use the
-`attempt_trace` function. This function determines whether a model is traceable for a
-given dataset, sequential targets list, and ignore list.
-
+`llmcompressor.attempt_trace` function. This function determines whether a model is
+traceable for a given dataset, sequential targets list, and ignore list.
 
 For example this script demonstrates that the `Qwen2-VL` model is traceable when
 using inputs from a text-only dataset
-```python
-from transformers import Qwen2VLForConditionalGeneration
-from llmcompressor.transformers.tracing.debug import attempt_trace
-
-attempt_trace(
-    model_id="Qwen/Qwen2-VL-2B-Instruct",
-    model_class=Qwen2VLForConditionalGeneration,
-    multimodal_data=False,
-    sequential_targets=["Qwen2VLDecoderLayer"],
-    ignore=["lm_head", "re:visual.*"],
-)
+```bash
+llmcompressor.attempt_trace \
+    --model_id Qwen/Qwen2-VL-2B-Instruct \
+    --model_class Qwen2VLForConditionalGeneration \
+    --sequential_targets Qwen2VLDecoderLayer \
+    --ignore "lm_head" "re:visual.*"
 ```
 ```
 Successfully traced model into 29 subgraphs!
@@ -41,17 +35,13 @@ Successfully traced model into 29 subgraphs!
 However, attempting to trace the `Qwen2-VL` with multimodal inputs (text and images)
 results in a `TraceError` due to untraceable operations within the `Qwen2-VL` model
 definition
-```python
-from transformers import Qwen2VLForConditionalGeneration
-from llmcompressor.transformers.tracing.debug import attempt_trace
-
-attempt_trace(
-    model_id="Qwen/Qwen2-VL-2B-Instruct",
-    model_class=Qwen2VLForConditionalGeneration,
-    multimodal_data=True,
-    sequential_targets=["Qwen2VLDecoderLayer"],
-    ignore=["lm_head", "re:visual.*"],
-)
+```bash
+llmcompressor.attempt_trace \
+    --model_id Qwen/Qwen2-VL-2B-Instruct \
+    --model_class Qwen2VLForConditionalGeneration \
+    --sequential_targets Qwen2VLDecoderLayer \
+    --ignore "lm_head" "re:visual.*" \
+    --multimodal_data
 ```
 ```
 torch.fx.proxy.TraceError: symbolically traced variables cannot be used as inputs to control flow
@@ -103,8 +93,8 @@ The original model definition can usually be found in the [`transformers/models`
 folder or the `modeling_X.py` file when using models with remote code.
 2. Add your new model class to [tracing/\_\_init\_\_.py](/src/llmcompressor/transformers/tracing/__init__.py).
 3. Use the `attempt_trace` function as show in [Determining Traceability](#determining-traceability)
-to find the untraceable line of code in your model. **Remember to replace the original
-`model_class` with your own imported custom traceable model definition**.
+to find the untraceable line of code in your model. **Remember to replace `model_class`
+with your own model definition**.
 4. Find the untraceable line of code in your model definition and modify the code to
 make it traceable. Examples of how to do this for each of the common errors can be found
 below. If you encounter a tracing issue which is not documented below, please create an

@@ -86,7 +86,7 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
 
     attempt_trace(
@@ -96,3 +96,7 @@ if __name__ == "__main__":
         sequential_targets=args.sequential_targets,
         ignore=args.ignore,
     )
+
+
+if __name__ == "__main__":
+    main()
