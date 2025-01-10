@@ -73,6 +73,8 @@ class TestOneshotThenFinetune(unittest.TestCase):
             )
 
         # test reloading checkpoint and final model
+        # verify checkpoint reloading and can carry out finetune
+        # with the saved model
         model = AutoModelForCausalLM.from_pretrained(output_dir, device_map="auto")
         with create_session():
             train(
