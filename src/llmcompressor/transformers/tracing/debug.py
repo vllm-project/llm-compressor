@@ -1,11 +1,15 @@
 from typing import List, Type, Union, Optional
 
+import argparse
+
 import torch
 from transformers import AutoProcessor
+import transformers
 
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers import DataTrainingArguments, TextGenerationDataset
 from llmcompressor.utils.pytorch.module import get_no_split_params
+from llmcompressor.transformers import tracing
 
 
 def attempt_trace(
@@ -63,16 +67,31 @@ def attempt_trace(
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
 
+def get_model_class(model_class: str):
+    model_cls = getattr(tracing, model_class, getattr(transformers, model_class, None))
+    if model_cls is None:
+        raise ValueError(f"Could not import model class {model_class}")
+
+    return model_cls
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Trace a model into subgraphs.")
+    parser.add_argument("--model_id", type=str, required=True, help="The model ID to load.")  # noqa: E501
+    parser.add_argument("--model_class", type=str, required=True, help="The class name of the model.")  # noqa: E501
+    parser.add_argument("--multimodal_data", action="store_true", help="Use multimodal data if set.")  # noqa: E501
+    parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing.")  # noqa: E501
+    parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing.")  # noqa: E501
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    # TODO: use argparse
-    from llmcompressor.transformers.tracing import TraceableMllamaForConditionalGeneration
-    TraceableMllamaForConditionalGeneration
-    from llmcompressor.transformers.tracing.debug import attempt_trace
+    args = parse_args()
 
     attempt_trace(
-        model_id="meta-llama/Llama-3.2-11B-Vision-Instruct",
-        model_class=TraceableMllamaForConditionalGeneration,
-        multimodal_data=True,
-        sequential_targets=None,
-        ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
+        model_id=args.model_id,
+        model_class=get_model_class(args.model_class),
+        multimodal_data=args.multimodal_data,
+        sequential_targets=args.sequential_targets,
+        ignore=args.ignore,
     )

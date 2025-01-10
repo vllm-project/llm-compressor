@@ -150,7 +150,7 @@ if False:
 
 ### Conditional Iteration ###
 ```
-torch.fx.proxy.TraceError: Proxy object cannot be iterated. This can be attempted when the Proxy is used in a loop or as a *args or **kwargs function argument. See the torch.fx docs on pytorch.org for a more detailed explanation of what types of control flow can be traced, and check out the Proxy docstring for help troubleshooting Proxy iteration errors
+torch.fx.proxy.TraceError: Proxy object cannot be iterated.
 ```
 
 https://pytorch.org/docs/main/fx.html#torch.fx.Proxy
