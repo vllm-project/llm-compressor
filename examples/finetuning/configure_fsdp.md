@@ -14,4 +14,4 @@ An FSDP config file can be passed to the LLM Compressor finetuning script like t
 accelerate launch --config_file example_fsdp_config.yaml --no_python llmcompressor.transformers.text_generation.finetune --model {hf_model}
 ```
 
-where model_path_or_stub is the huggingface model stub 
+where `hf_model` is the huggingface model stub 
