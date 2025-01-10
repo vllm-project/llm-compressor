@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM
 
 __all__ = [
     "SparseAutoModelForCausalLM",
-    "get_shared_tokenizer_src",
+    "get_shared_processor_src",
 ]
 
 
@@ -20,14 +20,14 @@ class SparseAutoModelForCausalLM:
         return AutoModelForCausalLM.from_pretrained(*args, **kwargs)
 
 
-def get_shared_tokenizer_src(student: Module, teacher: Optional[Module]) -> str:
+def get_shared_processor_src(student: Module, teacher: Optional[Module]) -> str:
     """
-    Get a tokenizer source used for both student and teacher, assuming
+    Get a processor/tokenizer source used for both student and teacher, assuming
     that they could be shared
 
     :param student: the student model
     :param teacher: the teacher model
-    :return: the source for the tokenizer shared between teacher and model
+    :return: the source for the processor/tokenizer shared between teacher and model
     """
 
     if teacher is not None and teacher not in ("disable", "self"):
