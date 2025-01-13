@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.examples.utils import copy_and_run_script, gen_cmd_fail_message
+from tests.examples.utils import (
+    copy_and_run_script,
+    gen_cmd_fail_message,
+    requires_gpu_count,
+)
 
 
 @pytest.fixture
@@ -10,6 +14,7 @@ def example_dir() -> str:
     return "examples/sparse_2of4_quantization_fp8"
 
 
+@requires_gpu_count(1)
 class TestSparse2of4QuantizationFP8:
     """
     Tests for examples in the "sparse_2of4_quantization_fp8" example folder.
