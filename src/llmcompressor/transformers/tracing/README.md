@@ -119,7 +119,7 @@ Note that in the image above, the `multi_modal_projector` is also ignored.
 ## 3. Defining your own Traceable Model Definitions ##
 If you discover that your model is not traceable through `llm-compressor.attempt_trace`,
 you may want to modify your model definition to make the model traceable. Before
-attempting to ∂efine your own traceable model definition, make sure that the untraceable
+attempting to define your own traceable model definition, make sure that the untraceable
 parts of your model are not a part of a module that can be [ignored](#choosing-modules-to-ignore).
 
 To define your own traceable model definition, follow the steps below:
