@@ -45,7 +45,7 @@ oneshot(
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-conversation = [
+messages = [
     {
         "role": "user",
         "content": [
@@ -54,7 +54,7 @@ conversation = [
         ],
     },
 ]
-prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
+prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
 image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
 raw_image = Image.open(requests.get(image_url, stream=True).raw)
 
