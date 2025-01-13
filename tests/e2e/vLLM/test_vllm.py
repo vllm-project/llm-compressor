@@ -135,9 +135,9 @@ class TestvLLM:
 
         self.api.create_repo(
             repo_id=stub,
-            exist_ok=False,  # if repo already exists, do not raise an error
+            exist_ok=True,
             repo_type="model",
-            private=False,  # Set to True if you want a private repo
+            private=False,
         )
 
         self.api.upload_folder(
