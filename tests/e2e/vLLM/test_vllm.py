@@ -168,6 +168,9 @@ class TestvLLM:
         self.tear_down()
 
     def tear_down(self):
+        import torch
+        torch.cuda.empty_cache()
+
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
 
