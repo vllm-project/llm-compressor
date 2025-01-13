@@ -4,12 +4,16 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.obcq import SparseGPTModifier
-from llmcompressor.modifiers.pruning import ConstantPruningModifier
+from llmcompressor.modifiers.pruning import (
+    ConstantPruningModifier,
+    WandaPruningModifier,
+)
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
 # Configuration
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 512
@@ -42,7 +46,8 @@ def tokenize(sample):
 def get_recipe(fp8_enabled):
     """Generate the compression recipe and save directory based on the FP8 flag."""
     base_recipe = [
-        SparseGPTModifier(
+        # SparseGPTModifier(
+        WandaPruningModifier(
             sparsity=0.5,
             mask_structure="2:4",
             sequential_update=True,
