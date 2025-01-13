@@ -70,7 +70,7 @@ def maybe_install_metadata_inputs_embeds(
         )
         inputs_embeds_masked.install_metadata(metadata)
 
-    return inputs_embeds
+    return inputs_embeds_masked
 
 
 # TRACING: override `__init__` and `forward`
