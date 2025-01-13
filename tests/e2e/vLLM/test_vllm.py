@@ -22,7 +22,6 @@ except ImportError:
     logger.warning("vllm is not installed. This test will be skipped")
 
 HF_MODEL_HUB_NAME = "nm-testing"
-HF_MODEL_HUB_NAME = "horheynm"
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
 
