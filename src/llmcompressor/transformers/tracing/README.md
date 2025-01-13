@@ -50,13 +50,13 @@ independently at calibration time. For a visual example of a model call graph, s
 
 ## 2. Determining Traceability ##
 In order to determine if a model is traceable for a given dataset, you can use the
-`llmcompressor.attempt_trace` function. This function determines whether a model is
+`llmcompressor.trace` function. This function determines whether a model is
 traceable for a given dataset, sequential targets list, and ignore list.
 
 For example this script demonstrates that the `Qwen2-VL` model is traceable when
 using inputs from a text-only dataset
 ```bash
-llmcompressor.attempt_trace \
+llmcompressor.trace \
     --model_id Qwen/Qwen2-VL-2B-Instruct \
     --model_class Qwen2VLForConditionalGeneration \
     --sequential_targets Qwen2VLDecoderLayer \
@@ -70,7 +70,7 @@ However, attempting to trace the `Qwen2-VL` with multimodal inputs (text and ima
 results in a `TraceError` due to untraceable operations within the `Qwen2-VL` model
 definition
 ```bash
-llmcompressor.attempt_trace \
+llmcompressor.trace \
     --model_id Qwen/Qwen2-VL-2B-Instruct \
     --model_class Qwen2VLForConditionalGeneration \
     --sequential_targets Qwen2VLDecoderLayer \
@@ -117,7 +117,7 @@ time, increasing peak memory usage.
 Note that in the image above, the `multi_modal_projector` is also ignored.
 
 ## 3. Defining your own Traceable Model Definitions ##
-If you discover that your model is not traceable through `llm-compressor.attempt_trace`,
+If you discover that your model is not traceable through `llm-compressor.trace`,
 you may want to modify your model definition to make the model traceable. Before
 attempting to define your own traceable model definition, make sure that the untraceable
 parts of your model are not a part of a module that can be [ignored](#choosing-modules-to-ignore).
@@ -128,7 +128,7 @@ To define your own traceable model definition, follow the steps below:
 folder or the `modeling_X.py` file when using models with remote code.
 2. Add your new model class to [tracing/\_\_init\_\_.py](/src/llmcompressor/transformers/tracing/__init__.py)
     * Make sure to alias your model name using the template `TraceableXForY`
-3. Use `llm-compressor.attempt_trace` to find the untraceable line of code in your model
+3. Use `llm-compressor.trace` to find the untraceable line of code in your model
     * See [Determining Traceability](#2-determining-traceability) for an example
     * **Remember to replace `model_class` with your own model definition**
 4. Find the untraceable line of code in your model definition and modify the code to

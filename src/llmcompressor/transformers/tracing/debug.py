@@ -12,7 +12,17 @@ from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers import DataTrainingArguments, TextGenerationDataset
 
 
-def attempt_trace(
+def parse_args():
+    parser = argparse.ArgumentParser(description="Trace a model into subgraphs.")
+    parser.add_argument("--model_id", type=str, required=True, help="The model ID to load.")  # noqa: E501
+    parser.add_argument("--model_class", type=str, required=True, help="The class name of the model.")  # noqa: E501
+    parser.add_argument("--multimodal_data", action="store_true", help="Use multimodal data if set.")  # noqa: E501
+    parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing.")  # noqa: E501
+    parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing.")  # noqa: E501
+    return parser.parse_args()
+
+
+def trace(
     model_id: str,
     model_class: Type[PreTrainedModel],
     multimodal_data: bool,
@@ -76,20 +86,10 @@ def get_model_class(model_class: str) -> Type[PreTrainedModel]:
     return model_cls
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Trace a model into subgraphs.")
-    parser.add_argument("--model_id", type=str, required=True, help="The model ID to load.")  # noqa: E501
-    parser.add_argument("--model_class", type=str, required=True, help="The class name of the model.")  # noqa: E501
-    parser.add_argument("--multimodal_data", action="store_true", help="Use multimodal data if set.")  # noqa: E501
-    parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing.")  # noqa: E501
-    parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing.")  # noqa: E501
-    return parser.parse_args()
-
-
 def main():
     args = parse_args()
 
-    attempt_trace(
+    trace(
         model_id=args.model_id,
         model_class=get_model_class(args.model_class),
         multimodal_data=args.multimodal_data,
