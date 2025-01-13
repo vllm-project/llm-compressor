@@ -39,45 +39,25 @@ def process_and_tokenize(example):
 ds = ds.map(process_and_tokenize, remove_columns=ds.column_names)
 
 
-# TODO: weight quant through the QuantizationModifier does not need data
-# R1 on inputs/embeddings - makes sense to be a modifier then? If touching embeddings/outputs?
-# May also need to be transposed?
-# R1: Global - same transfrom
-# R2: Layer specific
 recipe = """
 quant_stage:
     quant_modifiers:
         QuantizationModifier:
+            transforms:
+                weights:
+                    type: identical
+                    targets: ["Linear"]
+                    transpose: false
             ignore: ["lm_head"]
             config_groups:
                 group_0:
                     weights:
                         num_bits: 8
                         type: float
-                        strategy: tensor
+                        strategy: channel
                         dynamic: false
                         symmetric: true
-                        transform: ["r1"]
-                    targets: [
-                        're:.*q_proj',
-                        're:.*k_proj', 
-                        're:.*gate_proj',
-                        're:.*up_proj',
-                        're:.*down_proj',
-                    ]
-                group_1:
-                    weights:
-                        num_bits: 8
-                        type: float
-                        strategy: tensor
-                        dynamic: false
-                        symmetric: true
-                        transform: ["r1", "r2"]
-                    targets: [
-                        're:.*v_proj',
-                        're:.*o_proj',
-                    ]
-
+                    targets: ["Linear"]
 """
 
 # Apply quantization.

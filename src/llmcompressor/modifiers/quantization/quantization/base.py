@@ -82,6 +82,7 @@ class QuantizationModifier(Modifier):
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
+    transforms: Any = None
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
@@ -209,7 +210,7 @@ class QuantizationModifier(Modifier):
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
         # Add step to attach kv_cache to the model, if present within the config
-        apply_quantization_config(model, modifier_as_config)
+        apply_quantization_config(model, modifier_as_config, transforms=self.transforms)
         model.apply(set_unset_kv_cache)
         return modifier_as_config
 

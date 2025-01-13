@@ -118,23 +118,6 @@ def update_weight_zp_scale(module: Module):
             "to re-calibrate a frozen module"
         )
 
-    if module.quantization_scheme.weights is not None:
-        # set weight scale and zero_point up front, calibration data doesn't affect it
-        if module.quantization_scheme.weights.transform:
-            for t, transform in module.quantization_scheme.weights.transform.items():
-                """
-                if t == "r2":
-                    # know during set-up using the model shape?
-                    module.weight = module.weight @ transform
-                """
-                if t == "r1":
-                    transform = transform.to(module.weight.dtype)
-                    try:
-                        new_data = module.weight @ transform
-                    except:
-                        new_data = transform.T @ module.weight
-                    finally:
-                        module.weight.data.copy_(new_data)
         call_observer(module=module, base_name="weight")
 
 
