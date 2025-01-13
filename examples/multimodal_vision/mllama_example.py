@@ -48,7 +48,7 @@ messages = [
     {
         "role": "user",
         "content": [
-            {"type": "text", "text": "Please describe the image"},
+            {"type": "text", "text": "Please describe the animal in this image\n"},
             {"type": "image"},
         ],
     },
@@ -58,8 +58,8 @@ image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
 raw_image = Image.open(requests.get(image_url, stream=True).raw)
 
 inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda")
-output = model.generate(**inputs, max_new_tokens=200, do_sample=False)
-print(processor.decode(output[0][2:], skip_special_tokens=True))
+output = model.generate(**inputs, max_new_tokens=100)
+print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
 
 # Save to disk compressed.
