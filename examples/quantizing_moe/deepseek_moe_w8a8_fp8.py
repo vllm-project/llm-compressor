@@ -1,14 +1,10 @@
 from datasets import load_dataset
-from packaging import version
-from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
-if version.parse(__version__) == version.parse("4.48.0"):
-    import warnings
-
-    warnings.warn("transformers 4.48.0 has an import error with DeepSeek.")
+# NOTE: transformers 4.48.0 has an import error with DeepSeek. Consider downgrading
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
