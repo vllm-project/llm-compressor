@@ -18,14 +18,15 @@ CONFIG_DIR = "tests/llmcompressor/transformers/compression/decompression_configs
 
 @requires_gpu
 @parameterized_class(parse_params(CONFIG_DIR))
-class TestQuantizationMatches(unittest.TestCase):
+class TestDecompression(unittest.TestCase):
     """
-    Test decompression - given a skeleton model and path to the optimized model,
-    write the optimized model's safetensors to the skeleton model and decompress
-    Ex. write weight_scale to skeleton model and then fp4 -> fp16
+    Check that HFQuantizer decompression is working as expected.
+    Manually decompress a compressed model and compare the generations
 
-    Check that HFQuantizer decompression and manual decompressed generates the
-    same output
+    Decompression:
+    Given a skeleton model and path to the optimized model,
+    write the optimized model's safetensors to the skeleton model and decompress
+    Ex. write weight_scale to the skeleton model and then convert from fp4 to fp16
 
     """
 
@@ -43,30 +44,25 @@ class TestQuantizationMatches(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.tokenizer = AutoTokenizer.from_pretrained(self.compressed_model_stub)
 
-        self.compressed_model = AutoModelForCausalLM.from_pretrained(
-            self.compressed_model_stub,
-            torch_dtype="auto",
-            device_map="auto",
-        )
-        self.decompressed_model = AutoModelForCausalLM.from_pretrained(
+        # Decompress using HFQuantizer from AutoModelForCausalLM
+        self.decompressed_model_hf_quantizer = AutoModelForCausalLM.from_pretrained(
             self.compressed_model_stub,
             torch_dtype="auto",
             device_map="auto",
             quantization_config=CompressedTensorsConfig(run_compressed=False),
         )
 
-        # manually decompress this model
+        # Manually decompress this model
         self.dense_model = AutoModelForCausalLM.from_pretrained(
             self.skeleton_model_stub,
-            torch_dtype=self.compressed_model.dtype,
-            device_map=self.compressed_model.device,
+            torch_dtype=self.decompressed_model_hf_quantizer.dtype,
+            device_map=self.decompressed_model_hf_quantizer.device,
         )
 
         assert not hasattr(
             self.dense_model.model.layers[0].self_attn.q_proj, "weight_scale"
         )
 
-        self.decompressed_model_manual = None
         config = AutoConfig.from_pretrained(self.compressed_model_stub)
 
         compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
@@ -94,47 +90,39 @@ class TestQuantizationMatches(unittest.TestCase):
             "weight_scale",
         )
 
-    def test_compressed_matches_uncompressed(self):
+    def test_hf_quantizer_decompress_match_manual_decompress(self):
         decompressed_model_manual = self.decompressed_model_manual.device
-        compressed_device = self.compressed_model.device
-        decompressed_model_device = self.decompressed_model.device
+        decompressed_model_hf_quantizer = self.decompressed_model_hf_quantizer.device
 
         self.decompressed_model_manual = self.decompressed_model_manual.to(
             decompressed_model_manual
         )
-        self.compressed_model = self.compressed_model.to(compressed_device)
-        self.decompressed_model = self.decompressed_model.to(decompressed_model_device)
+        self.decompressed_model_hf_quantizer = self.decompressed_model_hf_quantizer.to(
+            decompressed_model_hf_quantizer
+        )
 
         for input in self.SAMPLE_INPUTS:
             inputs = self.tokenizer(input, return_tensors="pt", padding=True).to(
-                self.compressed_model.device
+                self.decompressed_model_manual.device
             )
-
-            compressed_output = self.tokenizer.batch_decode(
-                self.compressed_model.generate(**inputs, max_length=50)
-            )
-
             inputs = inputs.to(self.decompressed_model_manual.device)
 
             decompressed_model_manual_output = self.tokenizer.batch_decode(
                 self.decompressed_model_manual.generate(**inputs, max_length=50)
             )
 
-            decompressed_model_out = self.tokenizer.batch_decode(
-                self.decompressed_model.generate(**inputs, max_length=50)
+            decompressed_model_hf_quantizer_out = self.tokenizer.batch_decode(
+                self.decompressed_model_hf_quantizer.generate(**inputs, max_length=50)
             )
 
             assert (
-                compressed_output
-                == decompressed_model_manual_output
-                == decompressed_model_out
+                decompressed_model_hf_quantizer_out == decompressed_model_manual_output
             )
 
     @classmethod
     def tearDownClass(self):
         shutil.rmtree(self.test_dir)
-        del self.compressed_model
         del self.dense_model
-        del self.decompressed_model
+        del self.decompressed_model_hf_quantizer
         del self.decompressed_model_manual
         torch.cuda.empty_cache()

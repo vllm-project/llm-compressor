@@ -18,18 +18,15 @@ COMPRESSED_LINEAR_CONFIG_DIR = (
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
-class TestRunCompressedDecompression(unittest.TestCase):
+class TestUncompressedDecompressed(unittest.TestCase):
     """
-    Test the run_compressed input arg to AutoModelForCausalLM, where HFQuantizer is
-    responsible for decompressing if model is compressed.
+    Uncompressed-decompressed check
 
-    Diagram flow https://tinyurl.com/2ynb6wbu
+    Uncompressed:  Optimized model saved as run_compressed=False, no need to decompress
+    Decompressed:  Optimized model saved as run_compressed=True, and decompressed using
+        AutoModelForCausalLM decompression
 
-        Given an optimized model that was saved (uncompressed),
-        and saved as run_compressed (compressed), decompress the compressed model
-        and check the outputs.
-
-        All modules should be linear, runs default foward calls
+    AutoModelForCausalLM decompression diagram flow https://tinyurl.com/2ynb6wbu
 
     """
 
@@ -97,11 +94,13 @@ class TestRunCompressedDecompression(unittest.TestCase):
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
-class TestRunCompressedForward(unittest.TestCase):
+class TestCompressedDecompressed(unittest.TestCase):
     """
-    Given an optimized model that was saved (uncompressed),
-    and saved as run_compressed (compressed), do not decompressed the compressed model
-    and check the outputs.
+    Compressed-decompressed check
+
+    Compressed:    Optimized model saved as run_compressed=True, no decompression
+    Decompressed:  Optimized model saved as run_compressed=True, and decompressed using
+        AutoModelForCausalLM decompression
 
     All compressed model should have CompressedLinear, which has its custom forward call
 
