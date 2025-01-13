@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -22,6 +23,13 @@ except ImportError:
 
 HF_MODEL_HUB_NAME = "nm-testing"
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
+
+EXPECTED_SAVED_FILES = [
+    "config.json",
+    r"^model(?:-\d{5}-of-\d{5})?\.safetensors$",
+    "recipe.yaml",
+    "tokenizer.json",
+]
 
 
 @pytest.fixture
@@ -100,10 +108,16 @@ class TestvLLM:
             quant_type=self.quant_type,
         )
 
+        # check that session contains recipe
+        self._check_session_contains_recipe()
+
         logger.info("================= SAVING TO DISK ======================")
         oneshot_model.save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+
+        # check that expected files exist
+        self._check_save_dir_has_expected_files()
 
         # Use the session to fetch the recipe;
         # Reset session for next test case
@@ -146,3 +160,35 @@ class TestvLLM:
     def tear_down(self):
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
+
+    def _check_session_contains_recipe(self) -> None:
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        assert recipe_yaml_str is not None
+
+    def _check_save_dir_has_expected_files(self):
+        files = os.listdir(self.save_dir)
+        logger.debug("Saved files: ", files)
+
+        matched_patterns = set()
+
+        for expected in EXPECTED_SAVED_FILES:
+            # Find all files matching the expected pattern
+            matches = [
+                file
+                for file in files
+                if (
+                    re.fullmatch(expected, file)
+                    if expected.startswith("^")
+                    else file == expected
+                )
+            ]
+            if len(matches) > 0:
+                matched_patterns.add(expected)
+
+        assert len(matched_patterns) == len(EXPECTED_SAVED_FILES), (
+            "expected: ",
+            EXPECTED_SAVED_FILES,
+            "\n saved: ",
+            list(matched_patterns),
+        )
