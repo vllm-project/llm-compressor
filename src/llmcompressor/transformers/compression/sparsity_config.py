@@ -74,7 +74,7 @@ class SparsityConfigMetadata:
         model: Module,
         state_dict: Optional[Dict[str, Tensor]] = None,
         compress: bool = False,
-        is_marlin: bool = False,
+        quantization_format: Optional[CompressionFormat] = None,
     ) -> Optional["SparsityCompressionConfig"]:
         """
         Determines compression type and informational parameters for a given model
@@ -83,7 +83,8 @@ class SparsityConfigMetadata:
         :param state_dict: optional state_dict to replace that in model, used for
         gathering global FSDP model info
         :param compress: whether or not to compress the model on disk
-        :param is_marlin: whether or not marlin compression is being used
+        :param quantization_format: the quantization compression format being used
+            for the model
         :return: compression config inferred from the model
         """
 
@@ -97,17 +98,12 @@ class SparsityConfigMetadata:
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
             model=model
         )
-        if is_marlin:
+        if quantization_format == CompressionFormat.marlin_24:
             # sparse compressor should be dense for marlin
             # compression
             format = CompressionFormat.dense.value
-        if compress:
-            format = (
-                CompressionFormat.sparse_24_bitmask.value
-                if sparsity_structure == SparsityStructure.TWO_FOUR.value
-                else CompressionFormat.sparse_bitmask.value
-            )
-
+        elif compress and sparsity_structure == SparsityStructure.TWO_FOUR.value:
+            format = CompressionFormat.sparse_24_bitmask.value
         else:
             format = CompressionFormat.dense.value
 

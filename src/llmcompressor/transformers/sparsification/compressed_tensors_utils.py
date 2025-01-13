@@ -281,13 +281,12 @@ def get_model_compressor(
         state_dict = get_state_dict_offloaded_model(model)
 
     sparsity_stucture = SparsityConfigMetadata.infer_sparsity_structure(model)
-    quantization_format = infer_quantization_format(
+    quantization_format: Optional[CompressionFormat] = infer_quantization_format(
         model=model,
         quantization_format=quantization_format,
         save_compressed=save_compressed,
         sparsity_structure=sparsity_stucture,
     )
-    is_marlin = quantization_format == CompressionFormat.marlin_24.value
 
     if sparsity_config is not None:
         sparsity_config.global_sparsity = SparsityConfigMetadata.infer_global_sparsity(
@@ -306,7 +305,8 @@ def get_model_compressor(
             model,
             state_dict=state_dict,
             compress=save_compressed,
-            is_marlin=is_marlin,
+            # is_marlin=is_marlin,
+            quantization_format=quantization_format,
         )
 
     return ModelCompressor.from_pretrained_model(
