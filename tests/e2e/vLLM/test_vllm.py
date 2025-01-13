@@ -22,6 +22,8 @@ except ImportError:
     logger.warning("vllm is not installed. This test will be skipped")
 
 HF_MODEL_HUB_NAME = "nm-testing"
+HF_MODEL_HUB_NAME = "horheynm"
+
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
 
 EXPECTED_SAVED_FILES = [
@@ -128,9 +130,19 @@ class TestvLLM:
         session.reset()
 
         logger.info("================= UPLOADING TO HUB ======================")
+        # breakpoint()
+
+        stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+
+        self.api.create_repo(
+            repo_id=stub,
+            exist_ok=False,  # if repo already exists, do not raise an error
+            repo_type="model",
+            private=False,  # Set to True if you want a private repo
+        )
 
         self.api.upload_folder(
-            repo_id=f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e",
+            repo_id=stub,
             folder_path=self.save_dir,
         )
 
