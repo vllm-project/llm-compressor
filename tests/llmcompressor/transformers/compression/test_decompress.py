@@ -3,7 +3,6 @@ import shutil
 import tempfile
 import unittest
 
-import torch
 from compressed_tensors import QUANTIZATION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.quantization import QuantizationStatus
@@ -59,6 +58,13 @@ class TestDecompression(unittest.TestCase):
             device_map=self.decompressed_model_hf_quantizer.device,
         )
 
+        # decompression from HFQuantizer should populate weight_scale
+        assert hasattr(
+            self.decompressed_model_hf_quantizer.model.layers[0].self_attn.q_proj,
+            "weight_scale",
+        )
+
+        # dense model should not have weight_scale populated
         assert not hasattr(
             self.dense_model.model.layers[0].self_attn.q_proj, "weight_scale"
         )
@@ -91,11 +97,11 @@ class TestDecompression(unittest.TestCase):
         )
 
     def test_hf_quantizer_decompress_match_manual_decompress(self):
-        decompressed_model_manual = self.decompressed_model_manual.device
+        manual_device = self.decompressed_model_manual.device
         decompressed_model_hf_quantizer = self.decompressed_model_hf_quantizer.device
 
         self.decompressed_model_manual = self.decompressed_model_manual.to(
-            decompressed_model_manual
+            manual_device
         )
         self.decompressed_model_hf_quantizer = self.decompressed_model_hf_quantizer.to(
             decompressed_model_hf_quantizer
@@ -125,4 +131,3 @@ class TestDecompression(unittest.TestCase):
         del self.dense_model
         del self.decompressed_model_hf_quantizer
         del self.decompressed_model_manual
-        torch.cuda.empty_cache()

@@ -55,7 +55,6 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
             torch_dtype=cls.decompressed_model.dtype,
             device_map=cls.decompressed_model.device,
         )
-        breakpoint()
 
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
 
@@ -186,4 +185,3 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.compressed_model
-        torch.cuda.empty_cache()
