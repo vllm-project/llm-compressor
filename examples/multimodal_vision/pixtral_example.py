@@ -1,3 +1,5 @@
+import requests
+from PIL import Image
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
@@ -43,9 +45,22 @@ oneshot(
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(processor.decode(output[0]))
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Please describe the animal in this image\n"},
+            {"type": "image"},
+        ],
+    },
+]
+prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
+image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
+raw_image = Image.open(requests.get(image_url, stream=True).raw)
+
+inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda")
+output = model.generate(**inputs, max_new_tokens=100)
+print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
 
 # Save to disk compressed.
