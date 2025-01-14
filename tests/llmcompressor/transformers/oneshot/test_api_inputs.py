@@ -5,7 +5,7 @@ import pytest
 from parameterized import parameterized_class
 
 from tests.llmcompressor.transformers.oneshot.dataset_processing import get_data_utils
-from tests.testing_utils import parse_params, requires_torch
+from tests.testing_utils import parse_params
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/oneshot/oneshot_configs"
 
@@ -15,7 +15,6 @@ CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/oneshot/oneshot_configs"
 
 @pytest.mark.smoke
 @pytest.mark.integration
-@requires_torch
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneShotInputs(unittest.TestCase):
     model = None
@@ -45,10 +44,7 @@ class TestOneShotInputs(unittest.TestCase):
         # to the loaded dataset.
         if self.tokenize:
             loaded_dataset = data_utils.get("dataload")()
-            self.dataset = loaded_dataset.map(
-                wrapped_preprocess_func,
-                remove_columns=data_utils.get("remove_columns"),
-            )
+            self.dataset = loaded_dataset.map(wrapped_preprocess_func)
             self.tokenizer = None
 
     def test_one_shot_inputs(self):

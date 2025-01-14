@@ -11,7 +11,7 @@ from compressed_tensors import (
     ModelCompressor,
     SparsityCompressionConfig,
     is_module_offloaded,
-    update_parameter_data,
+    update_offload_parameter,
 )
 from loguru import logger
 from safetensors.torch import storage_ptr
@@ -24,6 +24,8 @@ from llmcompressor.transformers.compression.quantization_format import (
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
+from llmcompressor.transformers.utils import RECIPE_FILE_NAME
+from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import (
     find_and_move_state_dicts_to_cpu,
     unwrap_and_export_model,
@@ -32,7 +34,7 @@ from llmcompressor.utils.fsdp.helpers import (
 __all__ = ["modify_save_pretrained", "modify_fsdp_model_save_pretrained"]
 
 
-def modify_fsdp_model_save_pretrained(trainer, tokenizer):
+def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
     supports compression for fsdp model
@@ -77,7 +79,7 @@ def modify_fsdp_model_save_pretrained(trainer, tokenizer):
                     model=trainer.model,
                     accelerator=trainer.accelerator,
                     output_dir=save_directory,
-                    tokenizer=tokenizer,
+                    processor=processor,
                 )
                 # only allow the main process move the state
                 # dicts to cpu
@@ -189,7 +191,7 @@ def modify_save_pretrained(model: torch.nn.Module):
                 )
                 compressor.update_config(save_directory)
 
-            recipe_path = os.path.join(save_directory, "recipe.yaml")
+            recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
             session = active_session()
 
             if (recipe_yaml_str := session.get_serialized_recipe()) is not None:
@@ -234,16 +236,21 @@ def patch_tied_tensors_bug(model: torch.nn.Module):
         input_embed = model.get_input_embeddings()
         output_embed = model.get_output_embeddings()
 
+        if input_embed is None or output_embed is None:
+            # some models fail to properly override the abstract methods
+            return
+
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
             for module in (input_embed, output_embed):
-                offloaded = is_module_offloaded(module)
-                if offloaded:
-                    module._hf_hook.pre_forward(module)
-
-                update_parameter_data(module, module.weight.data.clone(), "weight")
-
-                if offloaded:
-                    module._hf_hook.post_forward(module, None)
+                if not is_module_offloaded(module):
+                    # create new storage ptr for onloaded weight
+                    untied_data = module.weight.data.clone()
+                    module.weight.data = untied_data
+                else:
+                    # create new storage ptr for offloaded weight
+                    # note `update_offload_parameter` does not create a new storage ptr
+                    untied_data = module._hf_hook.weights_map["weight"].clone()
+                    update_offload_parameter(module, "weight", untied_data)
 
 
 def get_model_compressor(

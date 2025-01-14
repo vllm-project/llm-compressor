@@ -9,7 +9,7 @@ from typing import List, Optional, Union
 
 import yaml
 from datasets import Dataset
-from transformers import AutoTokenizer
+from transformers import PreTrainedTokenizer
 
 from tests.data import CustomTestConfig, TestConfig
 
@@ -35,10 +35,6 @@ def is_gpu_available():
         return torch.cuda.device_count() > 0
     except ImportError:
         return False
-
-
-def requires_torch(test_case):
-    return unittest.skipUnless(is_torch_available(), "test requires PyTorch")(test_case)
 
 
 def requires_gpu(test_case):
@@ -130,7 +126,7 @@ def run_cli_command(cmd: List[str], cwd: Optional[Union[str, Path]] = None):
 
 
 def preprocess_tokenize_dataset(
-    ds: Dataset, tokenizer: AutoTokenizer, max_seq_length: int
+    ds: Dataset, tokenizer: PreTrainedTokenizer, max_seq_length: int
 ) -> Dataset:
     """
     Helper function to preprocess and tokenize a dataset according to presets

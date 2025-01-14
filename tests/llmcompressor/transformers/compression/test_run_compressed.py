@@ -9,12 +9,11 @@ from compressed_tensors.quantization import QuantizationStatus
 from parameterized import parameterized_class
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIG_DIR = "tests/llmcompressor/transformers/compression/run_compressed_configs"
 
 
-@requires_torch
 @requires_gpu
 @parameterized_class(parse_params(CONFIG_DIR))
 class TestQuantizationMatches(unittest.TestCase):

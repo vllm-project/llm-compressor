@@ -6,7 +6,6 @@ from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
-from tests.testing_utils import requires_torch
 
 recipe_str = """
 quant_stage:
@@ -51,7 +50,6 @@ recipe_modifier_shorthand_b = GPTQModifier(
 )
 
 
-@requires_torch
 @parameterized_class(
     [
         {"recipe": recipe_str},

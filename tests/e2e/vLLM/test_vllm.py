@@ -1,6 +1,8 @@
 import os
+import re
 import shutil
 from pathlib import Path
+from typing import Callable
 
 import pytest
 import yaml
@@ -20,7 +22,20 @@ except ImportError:
     logger.warning("vllm is not installed. This test will be skipped")
 
 HF_MODEL_HUB_NAME = "nm-testing"
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
+
+EXPECTED_SAVED_FILES = [
+    "config.json",
+    r"^model(?:-\d{5}-of-\d{5})?\.safetensors$",
+    "recipe.yaml",
+    "tokenizer.json",
+]
+
+
+@pytest.fixture
+def record_config_file(record_testsuite_property: Callable[[str, object], None]):
+    test_data_file_name = TEST_DATA_FILE.split("configs/")[-1]
+    record_testsuite_property("TEST_DATA_FILE_NAME", test_data_file_name)
 
 
 # Will run each test case in its own process through run_tests.sh
@@ -33,13 +48,12 @@ class TestvLLM:
     runs the model using vLLM, and then pushes the model to the hub for
     future use. Each test case is focused on a specific quantization type
     (e.g W4A16 with grouped quantization, W4N16 with channel quantization).
-    To add a new test case, a new config has to be added to one of the folders
-    listed in the `CONFIGS` folder. If the test case is for a data type not listed
-    in `CONFIGS`, a new folder can be created and added to the list. The tests
-    run on a cadence defined by the `cadence` field. Each config defines the model
-    to quantize. Optionally, a dataset id and split can be provided for calibration.
-    Finally, all config files must list a scheme. The scheme can be a preset scheme
-    from https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
+    To add a new test case, a new config has to be added to the `configs` folder.
+    The tests run on a cadence defined by the `cadence` field. Each config defines
+    the model to quantize. Optionally, a dataset id and split can be provided for
+    calibration. Finally, all config files must list a scheme. The scheme can be a
+    preset scheme from
+    https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
     or another identifier which can be used for the particular test case. If a recipe
     is not provided, it is assumed that the scheme provided is a preset scheme and will
     be used for quantization. Otherwise, the recipe will always be used if given.
@@ -73,6 +87,7 @@ class TestvLLM:
         ]
         self.api = HfApi()
 
+    @pytest.mark.usefixtures("record_config_file")
     def test_vllm(self):
         # Run vLLM with saved model
         import torch
@@ -93,10 +108,16 @@ class TestvLLM:
             quant_type=self.quant_type,
         )
 
+        # check that session contains recipe
+        self._check_session_contains_recipe()
+
         logger.info("================= SAVING TO DISK ======================")
         oneshot_model.save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+
+        # check that expected files exist
+        self._check_save_dir_has_expected_files()
 
         # Use the session to fetch the recipe;
         # Reset session for next test case
@@ -139,3 +160,35 @@ class TestvLLM:
     def tear_down(self):
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
+
+    def _check_session_contains_recipe(self) -> None:
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        assert recipe_yaml_str is not None
+
+    def _check_save_dir_has_expected_files(self):
+        files = os.listdir(self.save_dir)
+        logger.debug("Saved files: ", files)
+
+        matched_patterns = set()
+
+        for expected in EXPECTED_SAVED_FILES:
+            # Find all files matching the expected pattern
+            matches = [
+                file
+                for file in files
+                if (
+                    re.fullmatch(expected, file)
+                    if expected.startswith("^")
+                    else file == expected
+                )
+            ]
+            if len(matches) > 0:
+                matched_patterns.add(expected)
+
+        assert len(matched_patterns) == len(EXPECTED_SAVED_FILES), (
+            "expected: ",
+            EXPECTED_SAVED_FILES,
+            "\n saved: ",
+            list(matched_patterns),
+        )

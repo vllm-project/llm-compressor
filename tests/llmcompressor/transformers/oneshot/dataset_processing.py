@@ -56,7 +56,6 @@ def get_data_utils(dataset_name: str) -> Dict:
     Includes:
         1. dataload: function to load the dataset
         2. preprocess: preprocessing function to apply to the dataset
-        3. remove_columns: specific columns which should be removed from the dataset
 
     :param dataset_name: the name of the dataset
     :returns dictionary of preprocessing functions/utils.
@@ -65,12 +64,10 @@ def get_data_utils(dataset_name: str) -> Dict:
         "open_platypus": {
             "preprocess": _preprocess_alpaca,
             "dataload": _fetch_open_platypus_dataset,
-            "remove_columns": ["input", "output", "instruction", "data_source"],
         },
         "gsm8k": {
             "preprocess": _preprocess_gsm,
             "dataload": _fetch_gsm8k_data,
-            "remove_columns": ["question", "answer"],
         },
     }
     return data_mapping.get(dataset_name)

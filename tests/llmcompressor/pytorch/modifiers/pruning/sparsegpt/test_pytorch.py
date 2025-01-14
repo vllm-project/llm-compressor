@@ -13,11 +13,9 @@ from tests.llmcompressor.modifiers.conf import (
     setup_modifier_factory,
 )
 from tests.llmcompressor.pytorch.helpers import LinearNet
-from tests.testing_utils import requires_torch
 
 
 @pytest.mark.unit
-@requires_torch
 class TestInvalidLayerwiseRecipesRaiseExceptions(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
@@ -45,7 +43,6 @@ class TestInvalidLayerwiseRecipesRaiseExceptions(unittest.TestCase):
 
 
 @pytest.mark.unit
-@requires_torch
 class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
@@ -66,7 +63,6 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
 
 
 @pytest.mark.unit
-@requires_torch
 class TestCreateDefaultQuantModifier(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
@@ -75,15 +71,15 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         kwargs = dict(block_size=128)
 
         modifier = GPTQModifier(**kwargs)
-        assert modifier.quantization_modifier_ is None
+        assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
         modifier.on_initialize_structure(testing_harness.get_state())
         assert modifier.quantize
-        assert isinstance(modifier.quantization_modifier_, QuantizationModifier)
-        modifier.quantization_modifier_.create_init_config()
+        assert isinstance(modifier._quantization_modifier, QuantizationModifier)
+        modifier._quantization_modifier.create_init_config()
         default_config_group_name = "group_0"
-        should_be_default_quant_scheme = modifier.quantization_modifier_.config_groups[
+        should_be_default_quant_scheme = modifier._quantization_modifier.config_groups[
             default_config_group_name
         ]
         assert should_be_default_quant_scheme.input_activations is None
@@ -91,7 +87,6 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
 
 
 @pytest.mark.unit
-@requires_torch
 class TestSetQuantIfModifierAlreadyExists(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
@@ -113,7 +108,7 @@ class TestSetQuantIfModifierAlreadyExists(unittest.TestCase):
 
         kwargs = dict(block_size=128)
         modifier = GPTQModifier(**kwargs)
-        assert not modifier.quantization_modifier_
+        assert not modifier._quantization_modifier
 
         modifier.on_initialize_structure(testing_harness.get_state())
         # since quantization modifier is already applied, quantization must be set in
@@ -150,14 +145,14 @@ class TestSetQuantInGPTQ(unittest.TestCase):
         kwargs = dict(block_size=128, quantize=self.quant_config)
 
         modifier = GPTQModifier(**kwargs)
-        assert modifier.quantization_modifier_ is None
+        assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
         modifier.on_initialize_structure(testing_harness.get_state())
         assert modifier.quantize
-        self.assertIsInstance(modifier.quantization_modifier_, QuantizationModifier)
+        self.assertIsInstance(modifier._quantization_modifier, QuantizationModifier)
 
-        dict_scheme = dict(modifier.quantization_modifier_.config_groups)
+        dict_scheme = dict(modifier._quantization_modifier.config_groups)
         self._check_config(
             dict(dict_scheme["config_group_0"].weights),
             self.quant_kwargs["config_groups"]["config_group_0"]["weights"],

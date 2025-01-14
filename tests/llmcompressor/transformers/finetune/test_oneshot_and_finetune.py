@@ -7,7 +7,7 @@ from compressed_tensors.compressors import ModelCompressor
 from parameterized import parameterized_class
 from transformers import AutoConfig
 
-from tests.testing_utils import parse_params, requires_gpu, requires_torch
+from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_oneshot_configs"
 GPU_CONFIGS_DIRECTORY = (
@@ -56,7 +56,6 @@ class TestOneshotAndFinetune(unittest.TestCase):
         shutil.rmtree(self.output)
 
 
-@requires_torch
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
@@ -77,7 +76,6 @@ class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
         self._test_oneshot_and_finetune()
 
 
-@requires_torch
 @requires_gpu
 @pytest.mark.integration
 @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
