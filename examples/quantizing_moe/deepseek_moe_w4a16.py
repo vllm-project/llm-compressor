@@ -1,3 +1,4 @@
+from llmcompressor.transformers.tracing.deepseek_v2.configuration_deepseek import DeepseekV2Config
 import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -18,14 +19,20 @@ MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 device_map = calculate_offload_device_map(
     MODEL_ID,
     reserve_for_hessians=True,
-    num_gpus=2,
+    num_gpus=1,
     torch_dtype=torch.bfloat16,
     trust_remote_code=True,
 )
 
 #model = AutoModelForCausalLM.from_pretrained(
+config = DeepseekV2Config.from_pretrained(MODEL_ID)
+config.moe_top_k_activation = True
 model = TraceableDeepseekV2ForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16, trust_remote_code=True
+    MODEL_ID,
+    device_map=device_map,
+    torch_dtype=torch.bfloat16,
+    trust_remote_code=True,
+    config=config
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
