@@ -14,7 +14,7 @@ from llmcompressor.transformers.utils.data_collator import qwen2_vl_data_collato
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
 model = TraceableQwen2VLForConditionalGeneration.from_pretrained(
     model_id,
-    device_map="cuda:0",
+    device_map="auto",
     torch_dtype="auto",
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
