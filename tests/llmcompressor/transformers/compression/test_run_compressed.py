@@ -18,9 +18,9 @@ COMPRESSED_LINEAR_CONFIG_DIR = (
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
-class TestUncompressedDecompressed(unittest.TestCase):
+class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
     """
-    Uncompressed-decompressed check
+    Uncompressed-Linear-forward decompressed-Linear-foward check
 
     Uncompressed:  Optimized model saved as run_compressed=False, no need to decompress
     Decompressed:  Optimized model saved as run_compressed=True, and decompressed using
@@ -38,6 +38,9 @@ class TestUncompressedDecompressed(unittest.TestCase):
         cls.test_dir = tempfile.mkdtemp()
 
         quantization_config = CompressedTensorsConfig(run_compressed=False)
+
+        # Decompressed using HFQuantizer
+        # Linear foward
         cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
             cls.compressed_model_stub,
             torch_dtype="auto",
@@ -45,11 +48,14 @@ class TestUncompressedDecompressed(unittest.TestCase):
             quantization_config=quantization_config,
         )
 
+        # Load model as is at the uncompressed state
+        # Linear forward
         cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
             cls.uncompressed_model_stub,
             torch_dtype=cls.decompressed_model.dtype,
             device_map=cls.decompressed_model.device,
         )
+        breakpoint()
 
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
 
@@ -94,9 +100,9 @@ class TestUncompressedDecompressed(unittest.TestCase):
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
-class TestCompressedDecompressed(unittest.TestCase):
+class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
     """
-    Compressed-decompressed check
+    Compressed-CompresesdLinear, Decompressed-Linear check
 
     Compressed:    Optimized model saved as run_compressed=True, no decompression
     Decompressed:  Optimized model saved as run_compressed=True, and decompressed using
@@ -113,6 +119,7 @@ class TestCompressedDecompressed(unittest.TestCase):
         cls.test_dir = tempfile.mkdtemp()
 
         # Should have CompressedLinear modules
+        # Compressed Linear forward
         cls.compressed_model = AutoModelForCausalLM.from_pretrained(
             cls.compressed_model_stub,
             torch_dtype="auto",
@@ -120,6 +127,7 @@ class TestCompressedDecompressed(unittest.TestCase):
         )
 
         # Should just be linear modules
+        # Linear forward
         quantization_config = CompressedTensorsConfig(run_compressed=False)
         cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
             cls.compressed_model_stub,

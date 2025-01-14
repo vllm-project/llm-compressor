@@ -1,4 +1,4 @@
 cadence: "commit"
 test_type: "regression"
-compressed_model_stub: horheynm/TinyLlama_1.1B_Chat_v1.0_W4A16_G128_compressed
-uncompressed_model_stub: horheynm/TinyLlama_1.1B_Chat_v1.0_W4A16_G128_uncompressed
+compressed_model_stub: nm-testing/TinyLlama_1.1B_Chat_v1.0_W4A16_G128_compressed
+uncompressed_model_stub: nm-testing/TinyLlama_1.1B_Chat_v1.0_W4A16_G128_uncompressed
