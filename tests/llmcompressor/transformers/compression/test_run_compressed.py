@@ -3,70 +3,96 @@ import tempfile
 import unittest
 
 import torch
-from compressed_tensors import QUANTIZATION_CONFIG_NAME
-from compressed_tensors.compressors import ModelCompressor
-from compressed_tensors.quantization import QuantizationStatus
+from compressed_tensors.linear.compressed_linear import CompressedLinear
+from compressed_tensors.quantization.utils import iter_named_leaf_modules
 from parameterized import parameterized_class
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIG_DIR = "tests/llmcompressor/transformers/compression/run_compressed_configs"
+COMPRESSED_LINEAR_CONFIG_DIR = (
+    "tests/llmcompressor/transformers/compression/run_compressed_configs"
+)
 
 
 @requires_gpu
-@parameterized_class(parse_params(CONFIG_DIR))
-class TestQuantizationMatches(unittest.TestCase):
-    model_stub = None
-    empty_model = None
+@parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
+class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
+    """
+    Uncompressed-Linear-forward decompressed-Linear-foward check
+
+    Uncompressed:  Optimized model saved as run_compressed=False, no need to decompress
+    Decompressed:  Optimized model saved as run_compressed=True, and decompressed using
+        AutoModelForCausalLM decompression
+
+    AutoModelForCausalLM decompression diagram flow https://tinyurl.com/2ynb6wbu
+
+    """
+
+    compressed_model_stub = None
+    uncompressed_model_stub = None
 
     @classmethod
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp()
 
-        # TODO: Give option on HFQuantizer to run run_compressed True/False
-        # currently hardcoded to True
-        cls.compressed_model = AutoModelForCausalLM.from_pretrained(
-            cls.model_stub,
+        quantization_config = CompressedTensorsConfig(run_compressed=False)
+
+        # Decompressed using HFQuantizer
+        # Linear foward
+        cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
+            cls.compressed_model_stub,
             torch_dtype="auto",
             device_map="auto",
-            # run_compressed=True, # TODO: Give option on HFQuantizer
+            quantization_config=quantization_config,
         )
-        # TODO: Use ModelCompressor until decompression is supported through
-        # HFQuant/run_compressed can be turned off.
+
+        # Load model as is at the uncompressed state
+        # Linear forward
         cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
-            cls.empty_model,
-            torch_dtype=cls.compressed_model.dtype,
-            device_map=cls.compressed_model.device,
+            cls.uncompressed_model_stub,
+            torch_dtype=cls.decompressed_model.dtype,
+            device_map=cls.decompressed_model.device,
         )
-        breakpoint()
 
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
 
-    def test_compressed_matches_uncompressed(self):
+    def test_compressed_matches_decompressed(self):
         SAMPLE_INPUT = [
             "I love 4-bit quantization because",
             "What is the capital of France?",
             "def fibonacci(n):",
         ]
 
+        decompressed_device = self.decompressed_model.device
+        uncompressed_device = self.uncompressed_model.device
+
+        # overwrite weights in cpu to cuda
+        self.decompressed_model = self.decompressed_model.to(decompressed_device)
+        self.uncompressed_model = self.uncompressed_model.to(uncompressed_device)
+
         inputs = self.tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
-            self.compressed_model.device
+            decompressed_device
         )
-        compressed_output = self.tokenizer.batch_decode(
-            self.compressed_model.generate(**inputs, max_length=50)
+
+        decompressed_output = self.tokenizer.batch_decode(
+            self.decompressed_model.generate(**inputs, max_length=50)
         )
+
+        inputs = inputs.to(uncompressed_device)
+
         uncompressed_output = self.tokenizer.batch_decode(
             self.uncompressed_model.generate(**inputs, max_length=50)
         )
 
         for idx in range(len(SAMPLE_INPUT)):
-            assert compressed_output[idx] == uncompressed_output[idx]
+            assert decompressed_output[idx] == uncompressed_output[idx]
 
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.test_dir)
-        del cls.compressed_model
+        del cls.decompressed_model
         del cls.uncompressed_model
         torch.cuda.empty_cache()
 
@@ -159,4 +185,3 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.compressed_model
-        torch.cuda.empty_cache()
