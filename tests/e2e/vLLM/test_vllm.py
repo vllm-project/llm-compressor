@@ -13,7 +13,6 @@ from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 
-"""
 try:
     from vllm import LLM, SamplingParams
 
@@ -21,7 +20,7 @@ try:
 except ImportError:
     vllm_installed = False
     logger.warning("vllm is not installed. This test will be skipped")
-"""
+
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
@@ -44,7 +43,7 @@ def record_config_file(record_testsuite_property: Callable[[str, object], None])
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
-# @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
+@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
     The following test quantizes a model using a preset scheme or recipe,
@@ -149,7 +148,6 @@ class TestvLLM:
             folder_path=self.save_dir,
         )
 
-        """
         logger.info("================= RUNNING vLLM =========================")
 
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
@@ -172,7 +170,6 @@ class TestvLLM:
             logger.info(generated_text)
 
         self.tear_down()
-        """
 
     def tear_down(self):
         if self.save_dir is not None:
