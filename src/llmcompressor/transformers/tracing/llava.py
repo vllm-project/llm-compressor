@@ -58,7 +58,7 @@ def maybe_install_metadata_image_features(
 
 # TRACING: The shape of inputs_embeds is known. This function compensates for
 # the fact that shape inference through `masked_scatter` is not implemented yet
-def maybe_install_metadata_inputs_embeds(
+def maybe_install_metadata_inputs_embeds_masked(
     inputs_embeds_masked: Union[torch.Tensor, HFProxy],
     inputs_embeds: Union[torch.Tensor, HFProxy],
     special_image_mask: Union[torch.Tensor, HFProxy],
@@ -70,7 +70,7 @@ def maybe_install_metadata_inputs_embeds(
         )
         inputs_embeds_masked.install_metadata(metadata)
 
-    return inputs_embeds
+    return inputs_embeds_masked
 
 
 # TRACING: override `__init__` and `forward`
@@ -153,6 +153,7 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 vision_feature_select_strategy=vision_feature_select_strategy,
             )
 
+            # TRACING: install metadata
             image_features = maybe_install_metadata_image_features(
                 image_features, pixel_values, self.config
             )
@@ -223,7 +224,7 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
             inputs_embeds_masked = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
             # TRACING: install metadata
-            inputs_embeds_masked = maybe_install_metadata_inputs_embeds(inputs_embeds_masked, inputs_embeds, special_image_mask, image_features)
+            inputs_embeds_masked = maybe_install_metadata_inputs_embeds_masked(inputs_embeds_masked, inputs_embeds, special_image_mask, image_features)
             inputs_embeds = inputs_embeds_masked
 
         outputs = self.language_model(
