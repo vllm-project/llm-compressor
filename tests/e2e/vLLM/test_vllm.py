@@ -21,6 +21,7 @@ except ImportError:
     vllm_installed = False
     logger.warning("vllm is not installed. This test will be skipped")
 
+
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
@@ -74,6 +75,7 @@ class TestvLLM:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
+        self.save_compressed = eval_config.get("save_compressed", True)
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
@@ -113,7 +115,9 @@ class TestvLLM:
         self._check_session_contains_recipe()
 
         logger.info("================= SAVING TO DISK ======================")
-        oneshot_model.save_pretrained(self.save_dir)
+        oneshot_model.save_pretrained(
+            self.save_dir, save_compressed=self.save_compressed
+        )
         tokenizer.save_pretrained(self.save_dir)
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
