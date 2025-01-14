@@ -14,13 +14,13 @@ quant_stage:
                     weights:
                         num_bits: 8
                         type: float
-                        strategy: tensor
+                        strategy: channel
                         dynamic: false
                         symmetric: true
                     input_activations:
                         num_bits: 8
                         type: float
-                        strategy: tensor
+                        strategy: token
                         dynamic: true
                         symmetric: true
                     targets: ["Linear"]

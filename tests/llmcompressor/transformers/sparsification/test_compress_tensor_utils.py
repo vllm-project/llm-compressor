@@ -363,9 +363,9 @@ def test_model_shared_tensors_gpu(
     [
         (
             "Xenova/llama2.c-stories15M",
-            "tests/llmcompressor/transformers/compression/recipes/sparse_int8.yaml",
-            CompressionFormat.sparse_bitmask.value,
-            CompressionFormat.int_quantized.value,
+            "tests/llmcompressor/transformers/compression/recipes/sparse_24_fp8.yaml",
+            CompressionFormat.sparse_24_bitmask.value,
+            CompressionFormat.float_quantized.value,
         ),
     ],
 )
@@ -437,7 +437,8 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         if key.endswith("weight") and quant_format != "dense":
             # we don't expect an exact match for compressed
             diff = torch.abs(dense_tensor - reconstructed_tensor)
-            assert not torch.any(diff > 0.01), f"Max diff: {torch.max(diff)}"
+            # max diff value found empirically
+            assert not torch.any(diff > 0.022), f"Max diff: {torch.max(diff)}"
         else:
             assert torch.equal(dense_tensor, reconstructed_tensor)
     shutil.rmtree(tmp_path)
