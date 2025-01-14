@@ -23,6 +23,7 @@ __all__ = [
     "apply_calibration_status",
 ]
 
+
 def initialize_observer(
     module: Module,
     base_name: str,
@@ -37,7 +38,6 @@ def initialize_observer(
     :param base_name: str used to name the observer attribute
 
     """
-
     arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
     quantization_scheme = getattr(module, "quantization_scheme", None)
     if not quantization_scheme:
@@ -118,7 +118,8 @@ def update_weight_zp_scale(module: Module):
             "to re-calibrate a frozen module"
         )
 
-        call_observer(module=module, base_name="weight")
+        if module.quantization_scheme.weights is not None:
+            call_observer(module=module, base_name="weight")
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):

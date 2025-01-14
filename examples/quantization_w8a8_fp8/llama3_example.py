@@ -1,9 +1,11 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.spinquant import SpinQuantModifier
 from llmcompressor.transformers import oneshot
 
-#MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
@@ -39,15 +41,17 @@ def process_and_tokenize(example):
 ds = ds.map(process_and_tokenize, remove_columns=ds.column_names)
 
 
-recipe = """
+"""
+recipe = 
 quant_stage:
     quant_modifiers:
         QuantizationModifier:
             transforms:
-                weights:
-                    type: identical
-                    targets: ["Linear"]
-                    transpose: false
+                group_0:    
+                    weights:
+                        type: identical
+                        targets: ["Linear"]
+                        transpose: false
             ignore: ["lm_head"]
             config_groups:
                 group_0:
@@ -60,8 +64,15 @@ quant_stage:
                     targets: ["Linear"]
 """
 
+recipe = SpinQuantModifier(scheme="FP8", targets="Linear", ignore=["lm_head"])
 # Apply quantization.
-oneshot(model=model, recipe=recipe)
+oneshot(
+    model=model,
+    dataset=ds,
+    recipe=recipe,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
