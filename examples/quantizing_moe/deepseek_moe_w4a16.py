@@ -4,13 +4,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
+from llmcompressor.transformers.tracing import TraceableDeepseekV2ForCausalLM
 
 # NOTE: transformers 4.48.0 has an import error with DeepSeek.
 # Please consider either downgrading your transformers version to a
 # previous version or upgrading to a version where this bug is fixed
 
 # select a Mixture of Experts model for quantization
-MODEL_ID = "deepseek-ai/DeepSeek-V2.5"
+MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 
 # adjust based off number of desired GPUs
 # if not enough memory is available, some layers will automatically be offlaoded to cpu
@@ -22,7 +23,8 @@ device_map = calculate_offload_device_map(
     trust_remote_code=True,
 )
 
-model = AutoModelForCausalLM.from_pretrained(
+#model = AutoModelForCausalLM.from_pretrained(
+model = TraceableDeepseekV2ForCausalLM.from_pretrained(
     MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16, trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -91,35 +93,35 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 
-# Run the model on vLLM
-try:
-    from vllm import LLM, SamplingParams
+# # Run the model on vLLM
+# try:
+#     from vllm import LLM, SamplingParams
 
-    vllm_installed = True
-except ImportError:
-    vllm_installed = False
+#     vllm_installed = True
+# except ImportError:
+#     vllm_installed = False
 
-if vllm_installed:
-    print("vLLM installed, running using vLLM")
-    sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-    llm = LLM(
-        model=SAVE_DIR,
-        tensor_parallel_size=2,
-        trust_remote_code=True,
-        max_model_len=1042,
-        dtype=torch.half,
-    )
-    prompts = [
-        "The capital of France is",
-        "The president of the US is",
-        "My name is",
-    ]
+# if vllm_installed:
+#     print("vLLM installed, running using vLLM")
+#     sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
+#     llm = LLM(
+#         model=SAVE_DIR,
+#         tensor_parallel_size=2,
+#         trust_remote_code=True,
+#         max_model_len=1042,
+#         dtype=torch.half,
+#     )
+#     prompts = [
+#         "The capital of France is",
+#         "The president of the US is",
+#         "My name is",
+#     ]
 
-    outputs = llm.generate(prompts, sampling_params)
-    print("================= vLLM GENERATION ======================")
-    for output in outputs:
-        assert output
-        prompt = output.prompt
-        generated_text = output.outputs[0].text
-        print("PROMPT", prompt)
-        print("GENERATED TEXT", generated_text)
+#     outputs = llm.generate(prompts, sampling_params)
+#     print("================= vLLM GENERATION ======================")
+#     for output in outputs:
+#         assert output
+#         prompt = output.prompt
+#         generated_text = output.outputs[0].text
+#         print("PROMPT", prompt)
+#         print("GENERATED TEXT", generated_text)
