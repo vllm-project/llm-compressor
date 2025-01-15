@@ -157,7 +157,7 @@ def match_layers_params(
 
     missed = [target for found, target in zip(targets_found, targets) if not found]
     if len(missed) > 0:
-        raise ValueError(f"Could not find targets {missed} in module {module}")
+        raise ValueError(f"Could not find targets {missed} in module {type(module)}")
 
     return resolved
 

@@ -176,25 +176,36 @@ class SmoothQuantModifier(Modifier):
         would match model.layer.0.p_proj to model.layer.0.self_attn_layer_norm and
         repeat for model.layer.1 and so on
         """
-        resolved_mappings = []
-        for to_balance, to_smooth in self.mappings:
-            to_smooth_layers = get_layers(to_smooth, model)
-            for layer_name, smooth_layer in to_smooth_layers.items():
-                if not match_targets(layer_name, self.ignore)[0]:
+        try:
+            resolved_mappings = []
+            for to_balance, to_smooth in self.mappings:
+                to_smooth_layers = get_layers(to_smooth, model)
+                for layer_name, smooth_layer in to_smooth_layers.items():
+                    if match_targets(layer_name, self.ignore)[0]:
+                        continue
                     balance_layers = []
                     for balance_suffix in to_balance:
                         # find the submodule that matches the activation layer
-                        _, balance_layer = get_matching_layer(
-                            balance_suffix, layer_name, model
-                        )
-                        if balance_layer:
-                            balance_layers.append(balance_layer)
+                        res = get_matching_layer(balance_suffix, layer_name, model)
+                        if res is None:
+                            raise ValueError(
+                                f"fCould not find target {balance_suffix} "
+                                f"in module {type(model)}"
+                            )
+                        balance_layer = res[1]
+                        balance_layers.append(balance_layer)
                     # each mapping can contain multiple layers to balance, but only
                     # one layer to smooth
                     mapping = SmoothQuantMapping(
                         layer_name, smooth_layer, balance_layers
                     )
                     resolved_mappings.append(mapping)
+        except ValueError as exception:
+            raise ValueError(
+                f"Failed to resolve smoothquant mappings `{exception}`. "
+                "For more information regarding adding your own smoothquant mappings, "
+                "see `src/llmcompressor/modifiers/smoothquant/README.md`"
+            )
         return resolved_mappings
 
     def _setup_scale_hooks(self):
