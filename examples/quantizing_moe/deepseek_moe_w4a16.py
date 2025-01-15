@@ -1,11 +1,13 @@
-from llmcompressor.transformers.tracing.deepseek_v2.configuration_deepseek import DeepseekV2Config
 import torch
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 from llmcompressor.transformers.tracing import TraceableDeepseekV2ForCausalLM
+from llmcompressor.transformers.tracing.deepseek_v2.configuration_deepseek import (
+    DeepseekV2Config,
+)
 
 # NOTE: transformers 4.48.0 has an import error with DeepSeek.
 # Please consider either downgrading your transformers version to a
@@ -24,7 +26,7 @@ device_map = calculate_offload_device_map(
     trust_remote_code=True,
 )
 
-#model = AutoModelForCausalLM.from_pretrained(
+# model = AutoModelForCausalLM.from_pretrained(
 config = DeepseekV2Config.from_pretrained(MODEL_ID)
 config.moe_top_k_activation = True
 model = TraceableDeepseekV2ForCausalLM.from_pretrained(
@@ -32,7 +34,7 @@ model = TraceableDeepseekV2ForCausalLM.from_pretrained(
     device_map=device_map,
     torch_dtype=torch.bfloat16,
     trust_remote_code=True,
-    config=config
+    config=config,
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

@@ -5,7 +5,9 @@ from .mistral import MistralForCausalLM as TraceableMistralForCausalLM
 from .mllama import (
     MllamaForConditionalGeneration as TraceableMllamaForConditionalGeneration,
 )
-from .deepseek_v2.modeling_deepseek import DeepseekV2ForCausalLM as TraceableDeepseekV2ForCausalLM
+from .deepseek_v2.modeling_deepseek import (
+    DeepseekV2ForCausalLM as TraceableDeepseekV2ForCausalLM
+)
 
 __all__ = [
     "TraceableLlavaForConditionalGeneration",
