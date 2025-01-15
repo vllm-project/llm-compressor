@@ -54,18 +54,16 @@ METADATA_ARGS = [
 class Trainer(HFTrainer):
     def __init__(
         self,
-        training_dataset,
-        eval_dataset,
         lifecycle,
-        recipe_args: Optional["RecipeArguments"] = None,
+        recipe: Optional[str] = None,
+        recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         data_args: Optional["DataTrainingArguments"] = None,
-        model_args: Optional["ModelArguments"] = None,
+        teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):
-        self.recipe = recipe_args.recipe
-        self.recipe_args = recipe_args.recipe_args
-        self.model_args = model_args
-        self.teacher = model_args.distill_teacher
+        self.recipe = recipe
+        self.recipe_args = recipe_args
+        self.teacher = teacher
         self.lifecycle = lifecycle
 
         self.callbacks = LifecycleCallbacks()
@@ -86,13 +84,16 @@ class Trainer(HFTrainer):
         self.logger_manager = LoggerManager(log_python=False)
 
         # call Trainer initialization
+        # dict_keys(['model_init', 'args', 'train_dataset', 'eval_dataset', 'processing_class', 'data_collator'])
+        # breakpoint()
         super().__init__(
-            model=model_args.model,
-            args=training_args,
-            train_dataset=training_dataset,
-            eval_dataset=eval_dataset,
-            processing_class=model_args.processor,
-            data_collator=data_args.data_collator,
+            **kwargs,
+            # model=model_args.model,
+            # args=training_args,
+            # train_dataset=train_dataset,
+            # eval_dataset=eval_dataset,
+            # processing_class=model_args.processor,
+            # data_collator=data_args.data_collator,
         )
         self.accelerator.wait_for_everyone()
 
@@ -432,7 +433,7 @@ class Train:
         # Preprocess the model and tokenizer/processor
         self._pre_process()
 
-        training_dataset, eval_dataset = get_calibration_dataloader(
+        self.training_dataset, self.eval_dataset = get_calibration_dataloader(
             self.data_args,
             self.model_args.processor,
             add_labels=True,
@@ -440,13 +441,40 @@ class Train:
             do_train=True,
         )
 
+        #     # Initialize our Trainer
+        # self.trainer = Trainer(
+        #     model_args=self.model_args,
+        #     training_args=self.training_args,
+        #     data_args=self.data_args,
+        #     train_dataset=training_dataset,
+        #     eval_dataset=eval_dataset,
+
+        #     recipe=self.model_args.recipe,
+        #     recipe_args=self.recipe_args.recipe_args,
+        #     data_args=self.data_args,
+        #     teacher=self.model_args.distill_teacher,
+
+        #     # model_init=self.model_args.model,
+        #     # args=self.training_args,
+        #     # train_dataset=training_dataset,
+        #     # eval_dataset=eval_dataset,
+        #     # processing_class=self.model_args.processor,
+        #     # data_collator=self.data_args.data_collator,
+        # )
+
         self.trainer = Trainer(
-            model_args=self.model_args,
+            recipe=self.recipe_args.recipe,
+            recipe_args=self.recipe_args.recipe_args,
             data_args=self.data_args,
-            recipe_args=self.recipe_args,
-            training_dataset=training_dataset,
-            eval_dataset=eval_dataset,
+            teacher=self.model_args.distill_teacher,
             lifecycle=self.lifecycle,
+            # model_init=get_session_model,
+            model=self.model_args.model,
+            args=self.training_args,
+            train_dataset=self.training_dataset,  # or calib_dataset,
+            eval_dataset=self.eval_dataset,
+            processing_class=self.model_args.processor,
+            data_collator=self.data_args.data_collator,
         )
 
         # Set instance attributes
@@ -491,6 +519,7 @@ class Train:
         torch.cuda.empty_cache()
 
         self.trainer.accelerator.wait_for_everyone()
+
         output = self.trainer.train()
         self.trainer.accelerator.wait_for_everyone()
 
@@ -502,7 +531,7 @@ class Train:
         torch.cuda.empty_cache()
         self.trainer.accelerator.wait_for_everyone()
 
-        self._post_process()
+        self._post_process(output=output)
         return output
 
     def save(self):
@@ -564,13 +593,20 @@ class Train:
                 "This may cause issues with the one-shot algorithm on save"
             )
 
-    def _post_process(self):
+    def _post_process(self, output):
         """Save model and reset the lifecycle if requested"""
         if (
             isinstance(self.model_args.model, str)
             or self.output_dir != DEFAULT_OUTPUT_DIR
         ):
             self.save()
+
+        # log metrics
+        metrics = output.metrics
+        metrics["train_samples"] = len(self.training_dataset)
+        metrics["perplexity"] = math.exp(metrics["train_loss"])
+        self.trainer.log_metrics("train", metrics)
+        self.trainer.save_metrics("train", metrics)
 
     def _calculate_checkpoint_info(self, **kwargs) -> Tuple[Optional[str], float]:
         """

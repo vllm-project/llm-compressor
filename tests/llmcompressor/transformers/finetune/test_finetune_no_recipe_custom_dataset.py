@@ -33,6 +33,8 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
 
         concatenate_data = False
 
+        print(self.num_train_epochs)
+
         train(
             model=self.model,
             dataset=self.file_extension,
@@ -48,7 +50,6 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
             precision="bfloat16",
             bf16=True,
         )
-        breakpoint()
 
     def _create_mock_custom_dataset_folder_structure(
         self, tmp_dir_data, file_extension
