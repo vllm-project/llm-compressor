@@ -5,19 +5,25 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from llmcompressor.core.lifecycle import CompressionLifecycle
+from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     get_calibration_dataloader,
 )
+from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.text_generation import (
     initialize_model_from_path,
     initialize_processor_from_path,
     parse_args,
 )
-from llmcompressor.transformers.finetune.training_args import DEFAULT_OUTPUT_DIR
+from llmcompressor.transformers.finetune.training_args import (
+    DEFAULT_OUTPUT_DIR,
+    TrainingArguments,
+)
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
+from llmcompressor.transformers.utils.recipe_args import RecipeArguments
 
 __all__ = ["Oneshot"]
 
@@ -44,11 +50,33 @@ class Oneshot:
         "finalize",
     )
 
-    def __init__(self, **kwargs):
-        self.model_args, self.data_args, self.recipe_args, training_args = parse_args(
-            **kwargs
+    def __init__(
+        self,
+        lifecycle: Optional[CompressionLifecycle] = None,
+        model_args: Optional["ModelArguments"] = None,
+        data_args: Optional["DataTrainingArguments"] = None,
+        recipe_args: Optional["RecipeArguments"] = None,
+        training_args: Optional["TrainingArguments"] = None,
+        **kwargs,
+    ):
+        if any(
+            arg is not None
+            for arg in [model_args, data_args, recipe_args, training_args]
+        ):
+            self.model_args, self.data_args, self.recipe_args, training_args = (
+                model_args,
+                data_args,
+                recipe_args,
+                training_args,
+            )
+        else:
+            self.model_args, self.data_args, self.recipe_args, training_args = (
+                parse_args(**kwargs)
+            )
+
+        self.lifecycle = (
+            lifecycle or CompressionLifecycle()  # lifecycle from stage runner
         )
-        self.lifecycle = CompressionLifecycle()
         self.output_dir = training_args.output_dir
 
         # Preprocess the model and tokenizer/processor
@@ -60,12 +88,14 @@ class Oneshot:
         self.recipe = self.recipe_args.recipe
         self.modifiers = self.lifecycle.modifiers
 
-    def run(self):
+    def run(self, **kwargs):
         """Perform oneshot calibration"""
         calibration_dataloader = get_calibration_dataloader(
             self.data_args, self.tokenizer_or_processor
         )
-        self._apply_recipe_modifiers(calibration_dataloader)
+        self._apply_recipe_modifiers(
+            calibration_dataloader=calibration_dataloader, **kwargs
+        )
         self._post_process()
 
     def save(self):
@@ -78,7 +108,9 @@ class Oneshot:
         if self.tokenizer_or_processor:
             self.tokenizer_or_processor.save_pretrained(self.output_dir)
 
-    def _apply_recipe_modifiers(self, calibration_dataloader: Optional[DataLoader]):
+    def _apply_recipe_modifiers(
+        self, calibration_dataloader: Optional[DataLoader], **kwargs
+    ):
         """Apply recipe modifiers to the model"""
         for action in self.MODIFIER_LIFECYCLE_ACTIONS:
             lifecycle = getattr(self.lifecycle, action)
@@ -90,6 +122,7 @@ class Oneshot:
                 start=-1,  # oneshot-specific argument
                 copy_data=False,
                 min_tokens_per_module=getattr(self, "min_tokens_per_module", None),
+                **kwargs,
             )
 
     def _pre_process(self):

@@ -209,8 +209,9 @@ def modify_save_pretrained(
         save_pretrained_wrapper._overriden = True
         return save_pretrained_wrapper
 
-    # wrap save_pretrained
-    model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+    # wrap save_pretrained if not already
+    if not getattr(model.save_pretrained, "_overriden", False):
+        model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
 # HACK: Override the dtype_byte_size function in transformers to support float8 types
