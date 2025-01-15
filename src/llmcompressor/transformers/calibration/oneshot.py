@@ -5,22 +5,21 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from llmcompressor.core.session_functions import active_session
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     get_calibration_dataloader,
 )
-from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.text_generation import (
     initialize_model_from_path,
     initialize_processor_from_path,
     parse_args,
 )
-from llmcompressor.transformers.finetune.training_args import DEFAULT_OUTPUT_DIR
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
-from llmcompressor.transformers.utils.recipe_args import RecipeArguments
+from llmcompressor.transformers.utils.arg_parser.training_arguments import (
+    DEFAULT_OUTPUT_DIR,
+)
 
 __all__ = ["Oneshot"]
 
@@ -49,22 +48,14 @@ class Oneshot:
 
     def __init__(
         self,
-        model_args: Optional["ModelArguments"] = None,
-        data_args: Optional["DataTrainingArguments"] = None,
-        recipe_args: Optional["RecipeArguments"] = None,
         output_dir: Optional[str] = None,
         **kwargs,
     ):
-        if any(arg is not None for arg in [model_args, data_args, recipe_args]):
-            self.model_args = model_args
-            self.data_args = self.data_args
-            self.recipe_args = self.recipe_args
-        else:
-            self.model_args, self.data_args, self.recipe_args, _, output_dir = (
-                parse_args(**kwargs)
-            )
+        self.model_args, self.data_args, self.recipe_args, _, output_dir_parser = (
+            parse_args(**kwargs)
+        )
 
-        self.output_dir = output_dir
+        self.output_dir = output_dir or output_dir_parser
 
         # Preprocess the model and tokenizer/processor
         self._pre_process()

@@ -1,6 +1,7 @@
 import math
 import os
 import re
+from dataclasses import asdict
 from typing import List, Optional
 
 import torch
@@ -16,14 +17,19 @@ from llmcompressor.pytorch.model_load.helpers import (
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     format_calibration_data,
     make_dataset_splits,
 )
-from llmcompressor.transformers.finetune.model_args import ModelArguments
-from llmcompressor.transformers.finetune.training_args import TrainingArguments
-from llmcompressor.transformers.utils.recipe_args import RecipeArguments
+from llmcompressor.transformers.utils.arg_parser import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
+from llmcompressor.transformers.utils.arg_parser.training_arguments import (
+    DEFAULT_OUTPUT_DIR,
+)
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
@@ -47,7 +53,7 @@ class StageRunner:
 
     def __init__(
         self,
-        data_args: "DataTrainingArguments",
+        data_args: "DatasetArguments",
         model_args: "ModelArguments",
         training_args: "TrainingArguments",
         recipe_args: "RecipeArguments",
@@ -260,11 +266,13 @@ class StageRunner:
                 self._model_args.model = model
 
                 oneshot = Oneshot(
-                    # lifecycle=active_session()._lifecycle,
-                    model_args=self._model_args,
-                    data_args=self._data_args,
-                    recipe_args=self._recipe_args,
-                    # training_args=self._training_args,
+                    # model_args=self._model_args,
+                    # data_args=self._data_args,
+                    # recipe_args=self._recipe_args,
+                    # output_dir=self._training_args.output_dir,
+                    **asdict(self._model_args),
+                    **asdict(self._data_args),
+                    **asdict(self._recipe_args),
                     output_dir=self._training_args.output_dir,
                 )
                 oneshot.run(stage_name=stage_name)
@@ -272,10 +280,7 @@ class StageRunner:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
-            if (
-                self._training_args.output_dir
-                != TrainingArguments.__dataclass_fields__["output_dir"].default
-            ):
+            if self._training_args.output_dir != DEFAULT_OUTPUT_DIR:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,

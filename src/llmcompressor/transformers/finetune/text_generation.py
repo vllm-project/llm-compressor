@@ -40,11 +40,8 @@ from llmcompressor.pytorch.model_load.helpers import (
     parse_dtype,
 )
 from llmcompressor.recipe import Recipe, StageRunType
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
-from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
@@ -53,8 +50,13 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.transformers.sparsification.sparse_model import (
     get_processor_from_model,
 )
+from llmcompressor.transformers.utils.arg_parser import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
-from llmcompressor.transformers.utils.recipe_args import RecipeArguments
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
@@ -111,7 +113,7 @@ def compress(**kwargs):
 
 def load_dataset(dataset_name: str, **kwargs):
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, RecipeArguments, TrainingArguments)
+        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
     )
     _, data_args, _, _ = parser.parse_dict(kwargs)
     data_args["dataset_name"] = dataset_name
@@ -130,7 +132,7 @@ def parse_args(**kwargs):
     """
 
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, RecipeArguments, TrainingArguments)
+        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
     )
 
     if not kwargs:
@@ -297,7 +299,7 @@ def initialize_processor_from_path(
 
 def main(
     model_args: ModelArguments,
-    data_args: DataTrainingArguments,
+    data_args: DatasetArguments,
     recipe_args: RecipeArguments,
     training_args: TrainingArguments,
 ):

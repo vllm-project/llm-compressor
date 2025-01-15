@@ -31,14 +31,15 @@ from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
 )
-from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers import DataTrainingArguments
-
+    from llmcompressor.transformers.utils.arg_parser import (
+        DatasetArguments,
+        ModelArguments,
+    )
 
 __all__ = [
     "SessionManagerMixIn",
@@ -69,7 +70,7 @@ class SessionManagerMixIn:
         self,
         recipe: Optional[str] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional["DataTrainingArguments"] = None,
+        data_args: Optional["DatasetArguments"] = None,
         model_args: Optional["ModelArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         **kwargs,
