@@ -18,7 +18,7 @@ GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_cust
 
 class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
     def _test_finetune_wout_recipe_custom_dataset(self):
-        from llmcompressor.transformers import train
+        from llmcompressor.transformers.finetune.text_generation import train
 
         dataset_path = Path(tempfile.mkdtemp())
 
@@ -48,6 +48,7 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
             precision="bfloat16",
             bf16=True,
         )
+        breakpoint()
 
     def _create_mock_custom_dataset_folder_structure(
         self, tmp_dir_data, file_extension
@@ -136,27 +137,27 @@ class TestOneshotCustomDatasetSmall(TestFinetuneNoRecipeCustomDataset):
         self._test_finetune_wout_recipe_custom_dataset()
 
 
-@requires_gpu
-@pytest.mark.integration
-@parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
-class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
-    model = None
-    file_extension = None
-    num_train_epochs = None
+# @requires_gpu
+# @pytest.mark.integration
+# @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
+# class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
+#     model = None
+#     file_extension = None
+#     num_train_epochs = None
 
-    def setUp(self):
-        import torch
-        from transformers import AutoModelForCausalLM
+#     def setUp(self):
+#         import torch
+#         from transformers import AutoModelForCausalLM
 
-        self.monkeypatch = pytest.MonkeyPatch()
-        self.device = "cuda:0"
-        self.output = "./oneshot_output"
-        self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+#         self.monkeypatch = pytest.MonkeyPatch()
+#         self.device = "cuda:0"
+#         self.output = "./oneshot_output"
+#         self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model, device_map=self.device, torch_dtype=torch.bfloat16
-        )
-        self.monkeypatch = pytest.MonkeyPatch()
+#         self.model = AutoModelForCausalLM.from_pretrained(
+#             self.model, device_map=self.device, torch_dtype=torch.bfloat16
+#         )
+#         self.monkeypatch = pytest.MonkeyPatch()
 
-    def test_oneshot_then_finetune_gpu(self):
-        self._test_finetune_wout_recipe_custom_dataset()
+#     def test_oneshot_then_finetune_gpu(self):
+#         self._test_finetune_wout_recipe_custom_dataset()

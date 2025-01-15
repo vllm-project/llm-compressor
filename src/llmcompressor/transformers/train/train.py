@@ -2,46 +2,44 @@ import inspect
 import math
 import os
 from dataclasses import asdict
+from pathlib import PosixPath
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from loguru import logger
 from torch.nn import Module
 from torch.utils.data import DataLoader, IterableDataset
+from transformers import Trainer as HFTrainer
 from transformers.trainer_callback import TrainerState
-from transformers.trainer_utils import get_last_checkpoint
 
-from llmcompressor.core import (  # callbacks,
-    active_session,
-    apply,
-    create_session,
-    finalize,
-    initialize,
-    pre_initialize_structure,
-)
+from llmcompressor.core.lifecycle import CompressionLifecycle
+from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.metrics import LoggerManager
-from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
-    KDModelWrapper,
-)
-from llmcompressor.pytorch.model_load.helpers import get_session_model
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
-from llmcompressor.transformers import RECIPE_FILE_NAME
+from llmcompressor.transformers import DataTrainingArguments
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
 )
+from llmcompressor.transformers.finetune.data.data_helpers import (
+    get_calibration_dataloader,
+)
 from llmcompressor.transformers.finetune.model_args import ModelArguments
+from llmcompressor.transformers.finetune.text_generation import (
+    initialize_model_from_path,
+    initialize_processor_from_path,
+    parse_args,
+)
+from llmcompressor.transformers.finetune.training_args import DEFAULT_OUTPUT_DIR
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    modify_save_pretrained,
+    patch_tied_tensors_bug,
+)
+from llmcompressor.transformers.utils.recipe_args import RecipeArguments
 from llmcompressor.utils.fsdp.context import summon_full_params_context
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
-from llmcompressor.utils.pytorch import qat_active
 
-if TYPE_CHECKING:
-    from llmcompressor.transformers import DataTrainingArguments
+__all__ = ["Train"]
 
-
-__all__ = [
-    "SessionManagerMixIn",
-]
 
 TRAINER_STATE_NAME = "trainer_state.json"
 METADATA_ARGS = [
@@ -53,30 +51,24 @@ METADATA_ARGS = [
 ]
 
 
-class SessionManagerMixIn:
-    """
-    Mix-In class to extend the Hugging Face Trainer class to support LLM Compressor
-    recipes for one-shot and finetuning flows.
-
-    :param recipe: path to recipe file to apply during training
-    :param recipe_args: additional kwargs to use for evaluating recipe
-    :param data_args: kwargs for configuring dataset loading
-    :param teacher: optional teacher model to use for distillation
-    """
-
+class Trainer(HFTrainer):
     def __init__(
         self,
-        recipe: Optional[str] = None,
-        recipe_args: Optional[Union[Dict[str, Any], str]] = None,
+        training_dataset,
+        eval_dataset,
+        lifecycle,
+        recipe_args: Optional["RecipeArguments"] = None,
         data_args: Optional["DataTrainingArguments"] = None,
         model_args: Optional["ModelArguments"] = None,
-        teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):
-        self.recipe = recipe
-        self.recipe_args = recipe_args
+        self.recipe = recipe_args.recipe
+        self.recipe_args = recipe_args.recipe_args
         self.model_args = model_args
-        self.teacher = teacher
+        self.teacher = model_args.distill_teacher
+        self.lifecycle = lifecycle
+
+        self.callbacks = LifecycleCallbacks()
 
         # parse training and metadata args
         training_args = kwargs.get("args")
@@ -92,14 +84,22 @@ class SessionManagerMixIn:
 
         # setup metrics and session
         self.logger_manager = LoggerManager(log_python=False)
-        create_session()
 
         # call Trainer initialization
-        super().__init__(**kwargs)
+        super().__init__(
+            model=model_args.model,
+            args=training_args,
+            train_dataset=training_dataset,
+            eval_dataset=eval_dataset,
+            processing_class=model_args.processor,
+            data_collator=data_args.data_collator,
+        )
         self.accelerator.wait_for_everyone()
 
         # setup callbacks and loss
-        self.optim_callbacks = TrainingLoopCallbacks(self)
+        self.optim_callbacks = TrainingLoopCallbacks(
+            trainer=self, callbacks=self.callbacks
+        )
         self.callback_handler.add_callback(self.optim_callbacks)
         self.callback_disable_fp16 = DisableHalfPrecisionCallback(self)
         self.callback_handler.add_callback(self.callback_disable_fp16)
@@ -108,7 +108,7 @@ class SessionManagerMixIn:
         model_signature = inspect.signature(self.model.forward)
         self._signature_columns = list(model_signature.parameters.keys())
 
-        if self.teacher is not None and teacher not in ("disable", "self"):
+        if self.teacher is not None and self.teacher not in ("disable", "self"):
             teacher_signature = inspect.signature(self.teacher.forward)
             self._teacher_signature_columns = list(teacher_signature.parameters.keys())
         else:
@@ -119,90 +119,6 @@ class SessionManagerMixIn:
 
         if data_args is not None:
             self.min_tokens_per_module = data_args.min_tokens_per_module
-
-    def initialize_session(
-        self,
-        epoch: float,
-        checkpoint: Optional[str] = None,
-        stage: Optional[str] = None,
-    ):
-        """
-        Initialize the CompressionSession from the specified epoch, evaluates the recipe
-        and initialized the modifiers for the training session
-
-        :param epoch: Epoch to initialize session from, usually 0 unless loading
-        from a checkpoint
-        :param checkpoint: Optional checkpoint to initialize from to continue training
-        :param stage: Optional stage of recipe to run, or None to run all stages
-        """
-        session = active_session()
-        if session.lifecycle.initialized_ or session.lifecycle.finalized:
-            return False
-
-        train_data = self.get_train_dataloader()
-
-        self.accelerator.wait_for_everyone()
-        with summon_full_params_context(self.model, offload_to_cpu=True):
-            initialize(
-                model=self.model,
-                teacher_model=self.teacher,  # TODO: what about for self/disable?
-                recipe=self.recipe,
-                recipe_stage=stage,
-                recipe_args=self.recipe_args,
-                train_data=train_data,
-                start=epoch,
-                copy_data=False,
-                fsdp_active=self.is_fsdp_enabled,
-                metadata=self.metadata,
-            )
-        self.accelerator.wait_for_everyone()
-        model = get_session_model()
-        self.model_wrapped = self.model = model
-
-        if self.recipe is None:
-            logger.warning(
-                "No training recipe was provided, finetuning will be run "
-                "without event callbacks to LLM Compressor. To supply a recipe "
-                "pass a yaml file or string to the `recipe` argument."
-            )
-
-        torch.cuda.empty_cache()
-
-    def initialize_structure(self, stage: Optional[str] = None):
-        """
-        Initialize any recipe structural changes such as quantization on the model,
-        return immediately if session has already been initialized
-
-        :param stage: Optional stage of recipe to run, or None to run all stages
-        """
-        session = active_session()
-        if session.lifecycle.initialized_:
-            return False
-
-        pre_initialize_structure(
-            model=self.model,
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-        )
-        logger.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
-        torch.cuda.empty_cache()
-
-    def finalize_session(self):
-        """
-        Wrap up training by finalizing all modifiers initialized in the current session
-        """
-        session = active_session()
-        if not session.lifecycle.initialized_ or session.lifecycle.finalized:
-            return False
-
-        with summon_full_params_context(self.model, offload_to_cpu=True):
-            # in order to update each layer we need to gathers all its parameters
-            finalize()
-        logger.info("Finalized LLM Compressor session")
-        model = get_session_model()
-        self.model = model
-        torch.cuda.empty_cache()
 
     def create_optimizer(self):
         """
@@ -234,7 +150,9 @@ class SessionManagerMixIn:
                 len(self.train_dataset) / total_batch_size
             )
 
-        initialize(optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch)
+        self.lifecycle.initialize(
+            optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch
+        )
 
         return self.optimizer
 
@@ -272,7 +190,7 @@ class SessionManagerMixIn:
         """
         self._check_super_defined("training_step")
 
-        callbacks.batch_start(batch_data=inputs)
+        self.callbacks.batch_start(batch_data=inputs)
         model_outputs = super().training_step(
             model=model, inputs=inputs, num_items_in_batch=num_items_in_batch
         )
@@ -320,13 +238,13 @@ class SessionManagerMixIn:
             log["step_loss"] = loss.item()
             log["perplexity"] = torch.exp(loss).item()
 
-        if active_session().lifecycle.initialized_:
-            state = callbacks.loss_calculated(loss=loss)
-            if state and state.loss is not None:
-                loss = state.loss
-                if do_log:
-                    log["distill_step_loss"] = loss.item() - log["step_loss"]
-            callbacks.optim_pre_step()
+        # if active_session().lifecycle.initialized_:
+        state = self.callbacks.loss_calculated(loss=loss)
+        if state and state.loss is not None:
+            loss = state.loss
+            if do_log:
+                log["distill_step_loss"] = loss.item() - log["step_loss"]
+        self.callbacks.optim_pre_step()
 
         if do_log:
             self.log(log)
@@ -357,162 +275,6 @@ class SessionManagerMixIn:
             ignore_keys=ignore_keys,
         )
         return model_outputs
-
-    def train(self, *args, stage: Optional[str] = None, **kwargs):
-        """
-        Run a sparsification training cycle. Runs initialization for the sparse session
-        before calling super().train() and finalization of the session after.
-
-        Logs sparsification details for the trained model.
-
-        :param args: positional args to pass to super().train()
-        :param stage: Optional stage of recipe to run, or None to run all stages
-        :param kwargs: keyword args to pass to super().train()
-        :return: the output from super.train()
-        """
-
-        # lifecycle
-        checkpoint, epoch = self._calculate_checkpoint_info(kwargs)
-        self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
-
-        # do not save checkpoints as compressed
-        original_save_compressed = self.model_args.save_compressed
-        self.model_args.save_compressed = False
-
-        # train with accelerator
-        self.accelerator.wait_for_everyone()
-        output = super().train(*args, **kwargs)
-        self.accelerator.wait_for_everyone()
-
-        # restore original setting for saving final model
-        self.model_args.save_compressed = original_save_compressed
-
-        # lifecycle
-        self.finalize_session()
-        self.accelerator.wait_for_everyone()
-
-        # log model sparsity
-        self.maybe_log_model_sparsification()
-        self.accelerator.wait_for_everyone()
-
-        return output
-
-    def evaluate(self, *args, **kwargs):
-        """
-        Run a sparsification evaluation cycle.
-        Runs initialize_structure for the sparse session before calling
-        super().evaluate() and finalization of the session after.
-
-        :param args: positional args to pass to super().evaluate()
-        :param kwargs: keyword args to pass to super().evaluate()
-        :return: the output from super.evaluate()
-        """
-        self.initialize_structure()
-
-        output = super().evaluate(*args, **kwargs)
-        self.finalize_session()
-
-        return output
-
-    def predict(self, *args, **kwargs):
-        """
-        Run a sparsification prediction cycle.
-        Runs initialize_structure for the sparse session before calling
-        super().predict() and finalization of the session after.
-
-        :param args: positional args to pass to super().predict()
-        :param kwargs: keyword args to pass to super().predict()
-        :return: the output from super.predict()
-        """
-        self.initialize_structure()
-        output = super().predict(*args, **kwargs)
-        self.finalize_session()
-
-        return output
-
-    def one_shot(
-        self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
-    ):
-        """
-        Run oneshot calibration on the active model
-
-        :param stage: which stage of the recipe to run, or None to run whole recipe
-        :param calib_data: dataloader of calibration data
-        """
-        apply(
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-            model=self.model,
-            calib_data=calibration_data,
-            start=-1,
-            copy_data=False,
-            accelerator=self.accelerator,
-            min_tokens_per_module=self.min_tokens_per_module,
-        )
-
-        # log model sparsity
-        # self.maybe_log_model_sparsification()
-        self.accelerator.wait_for_everyone()
-
-    def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
-        """
-        Override of the save_model function and expects it to exist in the parent.
-        Calls into super() to save the model and additionally saves any recipes
-        that were used with the model within the model folder.
-
-        :param output_dir: the path to save the recipes into
-        """
-        if active_session() is None:
-            return  # nothing to save
-
-        if output_dir is None:
-            output_dir = self.args.output_dir
-
-        # knowledge distillation requires making wrappers transparent during
-        if isinstance(self.model, KDModelWrapper):
-            self.model.prepare_for_save()
-
-        if not is_fsdp_model(self.model):
-            self.model.save_pretrained(
-                output_dir,
-                save_compressed=self.model_args.save_compressed,
-                safe_serialization=self.args.save_safetensors,
-            )
-        else:  # FSDP model
-            save_pretrained_fsdp(
-                model=self.model,
-                accelerator=self.accelerator,
-                output_dir=output_dir,
-                save_compressed=self.model_args.save_compressed,
-                save_safetensors=self.metadata.get("save_safetensors", False),
-            )
-
-        self.save_state()
-        processor = getattr(self, "processing_class", self.tokenizer)
-        if processor is not None:
-            processor.save_pretrained(output_dir)
-
-        if not self.recipe:
-            return
-
-        if self.accelerator.is_main_process:
-            # save recipe, will contain modifiers from the model's original recipe as
-            # well as those added from self.recipe
-            recipe_path = os.path.join(output_dir, RECIPE_FILE_NAME)
-            session = active_session()
-            recipe_yaml_str = session.get_serialized_recipe()
-            with open(recipe_path, "w") as fp:
-                fp.write(recipe_yaml_str)
-
-            logger.info(
-                f"Saved LLM Compressor recipe with model state to {recipe_path}"
-            )
-
-        self.accelerator.wait_for_everyone()
-
-        if isinstance(self.model, KDModelWrapper):
-            self.model.finish_save()
 
     def maybe_log_model_sparsification(self):
         """
@@ -609,6 +371,208 @@ class SessionManagerMixIn:
             )
 
     def _calculate_checkpoint_info(self, kwargs) -> Tuple[Optional[str], float]:
+        """
+        If resuming from checkpoint is set, get checkpoint and epoch to resume from
+        """
+        checkpoint = None
+        epoch = 0.0
+
+        if not kwargs or "resume_from_checkpoint" not in kwargs:
+            logger.warning(
+                "resume_from_checkpoint not passed into LLM Compressor Trainer.train. "
+                "This will cause issues with restoring recipes when "
+                "running from a checkpoint."
+            )
+        elif kwargs["resume_from_checkpoint"]:
+            if (
+                isinstance(kwargs["resume_from_checkpoint"], bool)
+                and kwargs["resume_from_checkpoint"]
+            ):
+                checkpoint = get_last_checkpoint(self.args.output_dir)
+            else:
+                checkpoint = kwargs["resume_from_checkpoint"]
+            epoch = TrainerState.load_from_json(
+                os.path.join(checkpoint, TRAINER_STATE_NAME)
+            ).epoch
+
+        return checkpoint, epoch
+
+
+class Train:
+    """
+    Class responsible for carrying out oneshot calibration.
+
+    Usage:
+
+    ```python
+    trainer = Train(model=model, recipe=recipe, dataset=dataset)
+    trainer.run()
+
+    model = trainer.model
+    tokenizer_or_processor = trainer.tokenizer_or_processor
+    recipe = trainer.recipe
+
+    ```
+    """
+
+    MODIFIER_LIFECYCLE_ACTIONS = (
+        "initialize",
+        "finalize",
+    )
+
+    def __init__(self, **kwargs):
+        self.model_args, self.data_args, self.recipe_args, self.training_args = (
+            parse_args(**kwargs)
+        )
+
+        self.lifecycle = CompressionLifecycle()
+        self.output_dir = self.training_args.output_dir
+        self.checkpoint = None
+
+        # Preprocess the model and tokenizer/processor
+        self._pre_process()
+
+        training_dataset, eval_dataset = get_calibration_dataloader(
+            self.data_args,
+            self.model_args.processor,
+            add_labels=True,
+            do_oneshot=False,
+            do_train=True,
+        )
+
+        self.trainer = Trainer(
+            model_args=self.model_args,
+            data_args=self.data_args,
+            recipe_args=self.recipe_args,
+            training_dataset=training_dataset,
+            eval_dataset=eval_dataset,
+            lifecycle=self.lifecycle,
+        )
+
+        # Set instance attributes
+        self.model = self.model_args.model
+        self.teacher = self.model_args.distill_teacher
+        self.tokenizer_or_processor = self.model_args.processor
+        self.recipe = self.recipe_args.recipe
+        self.modifiers = self.lifecycle.modifiers
+
+    def run(self):
+        ############ initialize  ##################
+        train_data = self.trainer.get_train_dataloader()
+
+        self.trainer.accelerator.wait_for_everyone()
+        _, epoch = self._calculate_checkpoint_info(
+            resume_from_checkpoint=self.checkpoint
+        )
+
+        with summon_full_params_context(self.model, offload_to_cpu=True):
+            self.lifecycle.initialize(
+                model=self.model,
+                teacher_model=self.teacher,
+                recipe=self.recipe,
+                recipe_args=self.recipe_args,
+                train_data=train_data,
+                start=epoch,
+                copy_data=False,
+                fsdp_active=self.trainer.is_fsdp_enabled,
+                metadata=self.trainer.metadata,
+            )
+
+        self.trainer.accelerator.wait_for_everyone()
+        self.model_wrapped = self.model
+
+        if self.recipe is None:
+            logger.warning(
+                "No training recipe was provided, finetuning will be run "
+                "without event callbacks to LLM Compressor. To supply a recipe "
+                "pass a yaml file or string to the `recipe` argument."
+            )
+
+        torch.cuda.empty_cache()
+
+        self.trainer.accelerator.wait_for_everyone()
+        output = self.trainer.train()
+        self.trainer.accelerator.wait_for_everyone()
+
+        ############ finalize  ##################
+        self.trainer.accelerator.wait_for_everyone()
+        with summon_full_params_context(self.model, offload_to_cpu=True):
+            self.lifecycle.finalize()
+
+        torch.cuda.empty_cache()
+        self.trainer.accelerator.wait_for_everyone()
+
+        self._post_process()
+        return output
+
+    def save(self):
+        """Save the model and tokenizer/processor to the output directory"""
+        self.model.save_pretrained(
+            self.output_dir,
+            save_compressed=self.model_args.save_compressed,
+            stage_modifiers=self.lifecycle.modifiers,
+        )
+        if self.tokenizer_or_processor:
+            self.tokenizer_or_processor.save_pretrained(self.output_dir)
+
+    def _apply_recipe_modifiers(self, calibration_dataloader: Optional[DataLoader]):
+        """Apply recipe modifiers to the model"""
+        for action in self.MODIFIER_LIFECYCLE_ACTIONS:
+            lifecycle = getattr(self.lifecycle, action)
+            lifecycle(
+                model=self.model,
+                recipe=self.recipe,
+                recipe_args=self.recipe_args.recipe_args,
+                calib_data=calibration_dataloader,
+                start=-1,  # oneshot-specific argument
+                copy_data=False,
+                min_tokens_per_module=getattr(self, "min_tokens_per_module", None),
+            )
+
+    def _pre_process(self):
+        """Preprocess model and tokenizer/processor"""
+        self._warn_tied_embeddings()
+
+        # Initialize model
+        if isinstance(self.model_args.model, (str, PosixPath)):
+            self.model_args.model, self.model_args.distill_teacher = (
+                initialize_model_from_path(self.model_args)
+            )
+
+        patch_tied_tensors_bug(self.model_args.model)
+        modify_save_pretrained(self.model_args.model)
+
+        # Initialize processor
+        if isinstance(self.model_args.processor, (str, type(None))):
+            self.model_args.processor = initialize_processor_from_path(
+                self.model_args, self.model_args.model
+            )
+
+        # Set minimum tokens per module if data arguments are provided
+        if self.data_args:
+            self.min_tokens_per_module = self.data_args.min_tokens_per_module
+
+        if self.training_args.resume_from_checkpoint is not None:
+            self.checkpoint = self.training_args.resume_from_checkpoint
+
+    def _warn_tied_embeddings(self):
+        if self.model_args.tie_word_embeddings:
+            logger.debug(
+                "The tie_word_embeddings flag is by default set to False. "
+                "This guarantees that the one-shot algorithm saves the final "
+                "weights without errors. Detected tie_word_embeddings=True. "
+                "This may cause issues with the one-shot algorithm on save"
+            )
+
+    def _post_process(self):
+        """Save model and reset the lifecycle if requested"""
+        if (
+            isinstance(self.model_args.model, str)
+            or self.output_dir != DEFAULT_OUTPUT_DIR
+        ):
+            self.save()
+
+    def _calculate_checkpoint_info(self, **kwargs) -> Tuple[Optional[str], float]:
         """
         If resuming from checkpoint is set, get checkpoint and epoch to resume from
         """

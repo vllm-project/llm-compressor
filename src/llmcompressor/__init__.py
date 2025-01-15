@@ -34,10 +34,9 @@ __all__ = [
     "LoggerConfig",
 ]
 
-from llmcompressor.core.session_functions import (
+from llmcompressor.core.session_functions import (  # callbacks,
     active_session,
     apply,
-    callbacks,
     create_session,
     finalize,
     initialize,

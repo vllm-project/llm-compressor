@@ -15,7 +15,7 @@ __all__ = [
     "initialize",
     "finalize",
     "apply",
-    "callbacks",
+    # "callbacks",
     "LifecycleCallbacks",
 ]
 
@@ -281,4 +281,4 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
 
-callbacks = LifecycleCallbacks
+# callbacks = LifecycleCallbacks

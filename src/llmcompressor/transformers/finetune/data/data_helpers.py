@@ -253,6 +253,7 @@ def get_calibration_dataloader(
     processor,
     add_labels: bool = False,  # for oneshot
     do_oneshot=True,
+    do_train=False,
 ):
     """
     Loads datasets for each flow based on data_args, stores a Dataset for each
@@ -309,13 +310,17 @@ def get_calibration_dataloader(
     datasets = make_dataset_splits(
         tokenized_datasets,
         do_oneshot=do_oneshot,
+        do_train=do_train,
     )
 
-    calibration_dataset = datasets.get("calibration")
+    if do_oneshot:
+        calibration_dataset = datasets.get("calibration")
 
-    return format_calibration_data(
-        tokenized_dataset=calibration_dataset,
-        num_calibration_samples=data_args.num_calibration_samples,
-        do_shuffle=data_args.shuffle_calibration_samples,
-        collate_fn=data_args.data_collator,
-    )
+        return format_calibration_data(
+            tokenized_dataset=calibration_dataset,
+            num_calibration_samples=data_args.num_calibration_samples,
+            do_shuffle=data_args.shuffle_calibration_samples,
+            collate_fn=data_args.data_collator,
+        )
+    if do_train:
+        return datasets.get("train"), datasets.get("validation")

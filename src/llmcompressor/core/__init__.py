@@ -8,11 +8,10 @@ from llmcompressor.core.events import (
 from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.core.model_layer import ModelParameterizedLayer
 from llmcompressor.core.session import CompressionSession
-from llmcompressor.core.session_functions import (
+from llmcompressor.core.session_functions import (  # callbacks,
     LifecycleCallbacks,
     active_session,
     apply,
-    callbacks,
     create_session,
     finalize,
     initialize,
@@ -41,6 +40,6 @@ __all__ = [
     "initialize",
     "finalize",
     "apply",
-    "callbacks",
+    # "callbacks",
     "LifecycleCallbacks",
 ]

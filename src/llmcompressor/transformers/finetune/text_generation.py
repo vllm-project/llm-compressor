@@ -62,12 +62,17 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 def train(**kwargs):
+    from llmcompressor.transformers.train.train import Train
+
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_train = True
-    main(model_args, data_args, recipe_args, training_args)
+    # model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    # training_args.do_train = True
+    # main(model_args, data_args, recipe_args, training_args)
+    trainer = Train(**kwargs)
+    trainer.run()
+    return trainer
 
 
 def eval(**kwargs):
@@ -261,7 +266,6 @@ def initialize_model_from_path(
         if teacher is not None and "sequence_length" in teacher_kwargs:
             teacher.seqlen = teacher_kwargs["sequence_length"]
 
-    # return teacher, model_path, model
     return model, teacher
 
 

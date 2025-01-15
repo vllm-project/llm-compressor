@@ -4,7 +4,8 @@ from transformers import TrainerCallback, TrainerControl, TrainingArguments
 from transformers.trainer_callback import TrainerState
 
 from llmcompressor.core import active_session
-from llmcompressor.core import callbacks as session_callbacks
+
+# from llmcompressor.core import callbacks as self.callbacks
 
 __all__ = [
     "DisableHalfPrecisionCallback",
@@ -23,9 +24,10 @@ class TrainingLoopCallbacks(TrainerCallback):
     :param kwargs: key word arguments to be passed to base TrainerCallback
     """
 
-    def __init__(self, trainer, *args, **kwargs):
+    def __init__(self, trainer, callbacks, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trainer = trainer
+        self.callbacks = callbacks
 
     def on_train_begin(
         self,
@@ -39,8 +41,9 @@ class TrainingLoopCallbacks(TrainerCallback):
         model, as it will have changed to a wrapper if FSDP is enabled
         """
         super().on_train_begin(args, state, control, **kwargs)
-        session = active_session()
-        session.state.model = self.trainer.model
+        # session = active_session()
+        # session.state.model = self.trainer.model
+        self.trainer.lifecycle.state.model = self.trainer.model
 
     def on_step_end(
         self,
@@ -56,8 +59,8 @@ class TrainingLoopCallbacks(TrainerCallback):
         Triggers optimizer post_step and batch_end in the active CompressionSession
         """
         super().on_step_end(args, state, control, **kwargs)
-        session_callbacks.optim_post_step()
-        session_callbacks.batch_end()
+        self.callbacks.optim_post_step()
+        self.callbacks.batch_end()
 
     def on_substep_end(
         self,
@@ -72,8 +75,8 @@ class TrainingLoopCallbacks(TrainerCallback):
         Triggers optimizer post_step and batch_end in the active CompressionSession
         """
         super().on_substep_end(args, state, control, **kwargs)
-        session_callbacks.optim_post_step()
-        session_callbacks.batch_end()
+        self.callbacks.optim_post_step()
+        self.callbacks.batch_end()
 
 
 class DisableHalfPrecisionCallback(TrainerCallback):
@@ -95,8 +98,9 @@ class DisableHalfPrecisionCallback(TrainerCallback):
         """
         :return: True if a quantization modifier is active in the current session
         """
-        session = active_session()
-        return session.state.model.qat_active()
+        # session = active_session()
+        # return session.state.model.qat_active()
+        return self.trainer.lifecycle.state.model.qat_active()
 
     def on_epoch_begin(
         self,
