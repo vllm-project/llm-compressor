@@ -29,12 +29,12 @@ class Oneshot:
     Usage:
 
     ```python
-    compressor = Oneshot(model=model, recipe=recipe, dataset=dataset)
-    compressor.run()
+    oneshot = Oneshot(model=model, recipe=recipe, dataset=dataset)
+    oneshot.run()
 
-    model = compressor.model
-    tokenizer_or_processor = compressor.tokenizer_or_processor
-    recipe = compressor.recipe
+    model = oneshot.model
+    tokenizer_or_processor = oneshot.tokenizer_or_processor
+    recipe = oneshot.recipe
 
     ```
     """
@@ -67,6 +67,16 @@ class Oneshot:
         )
         self._apply_recipe_modifiers(calibration_dataloader)
         self._post_process()
+
+    def save(self):
+        """Save the model and tokenizer/processor to the output directory"""
+        self.model.save_pretrained(
+            self.output_dir,
+            save_compressed=self.model_args.save_compressed,
+            stage_modifiers=self.lifecycle.modifiers,
+        )
+        if self.tokenizer_or_processor:
+            self.tokenizer_or_processor.save_pretrained(self.output_dir)
 
     def _apply_recipe_modifiers(self, calibration_dataloader: Optional[DataLoader]):
         """Apply recipe modifiers to the model"""
@@ -119,20 +129,3 @@ class Oneshot:
             or self.output_dir != DEFAULT_OUTPUT_DIR
         ):
             self.save()
-
-        if self.recipe_args.clear_sparse_session:
-            self.reset_lifecycle()
-
-    def save(self):
-        """Save the model and tokenizer/processor to the output directory"""
-        self.model.save_pretrained(
-            self.output_dir,
-            save_compressed=self.model_args.save_compressed,
-            stage_modifiers=self.lifecycle.modifiers,
-        )
-        if self.tokenizer_or_processor:
-            self.tokenizer_or_processor.save_pretrained(self.output_dir)
-
-    def reset_lifecycle(self):
-        """Reset the CompressionLifecycle"""
-        self.lifecycle.reset()
