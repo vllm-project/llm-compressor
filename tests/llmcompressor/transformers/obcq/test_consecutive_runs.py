@@ -6,6 +6,7 @@ import pytest
 import yaml
 from parameterized import parameterized_class
 
+from llmcompressor.core import active_session
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
@@ -25,7 +26,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         from llmcompressor.utils.pytorch import qat_active
 
         # test recipe with 50% sparsity, quantization and smoothquant
-        compressor = oneshot(
+        oneshot = oneshot(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -34,19 +35,20 @@ class TestConsecutiveRuns(unittest.TestCase):
             oneshot_device=self.device,
             clear_sparse_session=False,
         )
-        first_tiny_model = compressor.model
+        first_tiny_model = oneshot.model
         layer_0_sparse = tensor_sparsity(
             first_tiny_model.model.layers[0].self_attn.k_proj.weight
         )
         assert math.isclose(layer_0_sparse.item(), 0.5, rel_tol=tolerance)
         assert qat_active(first_tiny_model)
 
-        lifecycle_recipe = compressor.lifecycle.recipe_container.compiled_recipe
-        stages = [stage.group for stage in lifecycle_recipe.stages]
+        session = active_session()
+        session_recipe = session.lifecycle.recipe_container.compiled_recipe
+        stages = [stage.group for stage in session_recipe.stages]
         self.assertEqual(len(stages), 1)
 
         # reload saved model and up sparsity to 0.7
-        second_compressor = oneshot(
+        second_oneshot = oneshot(
             model=self.output_first,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -56,15 +58,16 @@ class TestConsecutiveRuns(unittest.TestCase):
             clear_sparse_session=False,
         )
 
-        second_tiny_model = second_compressor.model
+        second_tiny_model = second_oneshot.model
         layer_0_sparse = tensor_sparsity(
             second_tiny_model.model.layers[0].self_attn.k_proj.weight
         )
         assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
         assert qat_active(second_tiny_model)
 
-        lifecycle_recipe = compressor.lifecycle.recipe_container.compiled_recipe
-        stages = [stage.group for stage in lifecycle_recipe.stages]
+        session = active_session()
+        session_recipe = session.lifecycle.recipe_container.compiled_recipe
+        stages = [stage.group for stage in session_recipe.stages]
         self.assertEqual(len(stages), 2)
 
         recipe_path = self.output_second / "recipe.yaml"

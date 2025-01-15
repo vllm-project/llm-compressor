@@ -59,7 +59,7 @@ class TestQuantizationMatches(unittest.TestCase):
         max_seq_length = 512
         pad_to_max_length = False
 
-        compressor = oneshot(
+        oneshot_run = oneshot(
             model=model,
             dataset=dataset,
             output_dir=output_dir,
@@ -72,7 +72,7 @@ class TestQuantizationMatches(unittest.TestCase):
             save_compressed=False,
         )
 
-        return compressor.model
+        return oneshot_run.model
 
     def _get_quant_info(self, model):
         quant_info_weights = {}

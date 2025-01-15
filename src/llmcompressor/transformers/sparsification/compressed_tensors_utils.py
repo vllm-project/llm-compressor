@@ -17,7 +17,6 @@ from loguru import logger
 from safetensors.torch import storage_ptr
 
 from llmcompressor.core import active_session
-from llmcompressor.modifiers.stage import StageModifiers
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
@@ -127,7 +126,7 @@ def modify_save_pretrained(
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
             skip_compression_stats: bool = False,
-            stage_modifiers: Optional[StageModifiers] = None,
+            # stage_modifiers: Optional[StageModifiers] = None,
             **kwargs,
         ):
             """
@@ -173,7 +172,7 @@ def modify_save_pretrained(
                 save_compressed=save_compressed,
                 skip_compression_stats=skip_compression_stats,
                 state_dict=state_dict,
-                stage_modifiers=stage_modifiers,
+                # stage_modifiers=stage_modifiers,
             )
 
             if compressor is None:
@@ -266,7 +265,7 @@ def get_model_compressor(
     save_compressed: bool = True,
     skip_compression_stats: bool = False,
     state_dict: Optional[Dict] = None,
-    stage_modifiers: Optional[StageModifiers] = None,
+    # stage_modifiers: Optional[StageModifiers] = None,
 ):
     """
     Obtain the compressor based on the config and the
@@ -305,7 +304,7 @@ def get_model_compressor(
             model,
             state_dict=state_dict,
             compress=save_compressed,
-            stage_modifiers=stage_modifiers,
+            # stage_modifiers=stage_modifiers,
         )
 
     quantization_format = infer_quantization_format(

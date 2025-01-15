@@ -22,7 +22,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
         splits = {"train": "train[:30%]", "calibration": "train[30%:40%]"}
         if self.dataset == "ultrachat-200k":
             splits = {"train": "train_gen[:30%]", "calibration": "train_gen[30%:40%]"}
-
+        shutil.rmtree(self.output)
         apply(
             model=self.model,
             dataset=self.dataset,
@@ -53,7 +53,8 @@ class TestOneshotAndFinetune(unittest.TestCase):
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
         # stored in results.json
-        shutil.rmtree(self.output)
+        # shutil.rmtree(self.output)
+        pass
 
 
 @pytest.mark.integration

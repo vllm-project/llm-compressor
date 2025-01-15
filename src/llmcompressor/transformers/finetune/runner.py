@@ -260,18 +260,14 @@ class StageRunner:
                 self._model_args.model = model
 
                 oneshot = Oneshot(
-                    lifecycle=active_session()._lifecycle,
+                    # lifecycle=active_session()._lifecycle,
                     model_args=self._model_args,
                     data_args=self._data_args,
                     recipe_args=self._recipe_args,
-                    training_args=self._training_args,
-                    # **asdict(self._model_args),
-                    # **asdict(self._data_args),
-                    # **asdict(self._recipe_args),
-                    # **asdict(self._training_args),
+                    # training_args=self._training_args,
+                    output_dir=self._training_args.output_dir,
                 )
                 oneshot.run(stage_name=stage_name)
-                # self.one_shot(stage=stage_name)
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None

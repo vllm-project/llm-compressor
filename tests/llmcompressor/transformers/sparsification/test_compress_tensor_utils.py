@@ -51,7 +51,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     one_of_sparse_weights = "model.layers.1.mlp.up_proj.weight"
 
     # create a sparse model
-    compressor = oneshot(
+    oneshot(
         model=model_path,
         dataset=dataset,
         output_dir=output_dir,
@@ -84,9 +84,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         rel_tol=1e-3,
     )
 
-    inferred_structure = SparsityConfigMetadata.infer_sparsity_structure(
-        model, compressor.lifecycle.modifiers
-    )
+    inferred_structure = SparsityConfigMetadata.infer_sparsity_structure(model)
     assert inferred_structure == "0:0"
 
     model.save_pretrained(
@@ -176,7 +174,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     splits = {"calibration": "train[:10%]"}
 
     # create a quantized model
-    oneshot_compressor = oneshot(
+    oneshot_run = oneshot(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -189,7 +187,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     )
 
     # Fetch the oneshot model
-    model = oneshot_compressor.model
+    model = oneshot_run.model
     og_state_dict = model.state_dict()
     save_path_compressed = tmp_path / "compressed"
 

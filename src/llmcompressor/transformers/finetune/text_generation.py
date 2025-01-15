@@ -83,9 +83,9 @@ def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
-    compressor = Oneshot(**kwargs)
-    compressor.run()
-    return compressor
+    oneshot = Oneshot(**kwargs)
+    oneshot.run()
+    return oneshot
 
 
 # alias
@@ -163,7 +163,9 @@ def parse_args(**kwargs):
         model_args.processor = model_args.tokenizer
     model_args.tokenizer = None
 
-    return model_args, data_args, recipe_args, training_args
+    output_dir = training_args.output_dir
+
+    return model_args, data_args, recipe_args, training_args, output_dir
 
 
 def initialize_model_from_path(
@@ -259,7 +261,6 @@ def initialize_model_from_path(
         if teacher is not None and "sequence_length" in teacher_kwargs:
             teacher.seqlen = teacher_kwargs["sequence_length"]
 
-    # return teacher, model_path, model
     return model, teacher
 
 

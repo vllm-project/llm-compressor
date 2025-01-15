@@ -53,7 +53,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
         tolerance = 1e-3
         num_calibration_samples = 16
 
-        compressor = oneshot(
+        oneshot = oneshot(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -63,7 +63,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
             clear_sparse_session=False,
             save_compressed=False,
         )
-        first_tiny_model = compressor.model
+        first_tiny_model = oneshot.model
         targetted_layer = first_tiny_model.model.layers[0].self_attn.k_proj
         target_layer_sparsity = tensor_sparsity(targetted_layer.weight)
         initial_mask = first_tiny_model.model.layers[0].self_attn.k_proj.weight == 0
@@ -75,7 +75,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
         # mask structure is as expected, i.e same as self.recipe_mask_structure
         assert tensor_follows_mask_structure(initial_mask, self.recipe_mask_structure)
 
-        second_compressor = oneshot(
+        second_oneshot = oneshot(
             model=self.output_first,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -86,7 +86,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
             save_compressed=False,
         )
 
-        second_tiny_model = second_compressor.model
+        second_tiny_model = second_oneshot.model
 
         # model is loaded
         assert second_tiny_model is not None
