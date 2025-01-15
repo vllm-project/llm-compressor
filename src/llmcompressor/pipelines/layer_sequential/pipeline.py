@@ -1,4 +1,4 @@
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
 
 import torch
 import torch.utils.data.dataloader
@@ -13,6 +13,9 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
 )
 from llmcompressor.utils.helpers import calibration_forward_context
 
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
+
 __all__ = ["run_pipeline"]
 
 
@@ -20,6 +23,7 @@ def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
+    callback_modifier: Optional["Modifier"] = None,
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:
@@ -41,6 +45,7 @@ def run_pipeline(
     :param model: model being calibrated
     :param dataloader: loads data for calibration
     :param sequential_targets: patterns which match to the layer modules of the model
+    :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
     # find layers
     layers = match_modules(model, sequential_targets)
@@ -61,6 +66,10 @@ def run_pipeline(
             for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                 inputs = intermediates.fetch(batch_index)
                 layer(**inputs)
+
+            # TODO: replace with a lifecycle event
+            if callback_modifier:
+                callback_modifier.on_sequential_batch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
