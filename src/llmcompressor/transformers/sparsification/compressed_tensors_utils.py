@@ -305,7 +305,6 @@ def get_model_compressor(
             model,
             state_dict=state_dict,
             compress=save_compressed,
-            # is_marlin=is_marlin,
             quantization_format=quantization_format,
         )
 
