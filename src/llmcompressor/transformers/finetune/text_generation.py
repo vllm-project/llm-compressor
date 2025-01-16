@@ -65,7 +65,9 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(
+        include_training_args=True, **kwargs
+    )
     training_args.do_train = True
     main(model_args, data_args, recipe_args, training_args)
 
@@ -74,7 +76,9 @@ def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(
+        include_training_args=True, **kwargs
+    )
     training_args.do_eval = True
     main(model_args, data_args, recipe_args, training_args)
 
@@ -99,7 +103,10 @@ def apply(**kwargs):
     CLI entrypoint for any of training, eval, predict or oneshot
     """
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args, _ = parse_args(
+        include_training_args=True, **kwargs
+    )
+
     training_args.run_stages = True
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
@@ -119,7 +126,7 @@ def load_dataset(dataset_name: str, **kwargs):
     data_args["dataset_name"] = dataset_name
 
 
-def parse_args(**kwargs):
+def parse_args(include_training_args: bool = False, **kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in src/llmcompressor/transformers/finetune/model_args.py
@@ -127,45 +134,59 @@ def parse_args(**kwargs):
         * recipe_args in src/llmcompressor/transformers/utils/recipe_args.py
         * training_args in src/llmcompressor/transformers/finetune/training_args.py
 
-    Throws depreciation warnings
+    Throws deprecation warnings
+
+    :param include_training_args: Add training_args in the output if set to True.
+        Note that instating trainng_args will reset HF accelerator and change its
+        internal state. This dataclass should only be instatiated once to avoid
+        conflict with accelerate library's accelerator.
 
     """
 
-    parser = HfArgumentParser(
-        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
-    )
-
-    if not kwargs:
-        model_args, data_args, recipe_args, training_args = (
-            parser.parse_args_into_dataclasses()
+    if include_training_args:
+        parser = HfArgumentParser(
+            (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
         )
     else:
-        model_args, data_args, recipe_args, training_args = parser.parse_dict(kwargs)
+        parser = HfArgumentParser((ModelArguments, DatasetArguments, RecipeArguments))
+
+    if not kwargs:
+        parsed_args = parser.parse_args_into_dataclasses()
+    else:
+        parsed_args = parser.parse_dict(kwargs)
+
+    # Unpack parsed arguments based on the presence of training arguments
+    if include_training_args:
+        model_args, data_args, recipe_args, training_args = parsed_args
+    else:
+        model_args, data_args, recipe_args = parsed_args
+        training_args = None
 
     if recipe_args.recipe_args is not None:
         if not isinstance(recipe_args.recipe_args, dict):
-            arg_dict = {}
-            for recipe_arg in recipe_args.recipe_args:
-                key, value = recipe_arg.split("=")
-                arg_dict[key] = value
-            recipe_args.recipe_args = arg_dict
+            recipe_args.recipe_args = {
+                key: value
+                for arg in recipe_args.recipe_args
+                for key, value in [arg.split("=")]
+            }
 
-    # raise depreciation warnings
+    # Raise deprecation warnings
     if data_args.remove_columns is not None:
         warnings.warn(
-            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
-            "columns which are invalid inputs the tokenizer will be removed",
+            "`remove_columns` argument is deprecated. When tokenizing datasets, all "
+            "columns which are invalid inputs to the tokenizer will be removed.",
             DeprecationWarning,
         )
 
-    # silently assign tokenizer to processor
+    # Silently assign tokenizer to processor
     if model_args.tokenizer:
         if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor")
+            raise ValueError("Cannot use both a tokenizer and processor.")
         model_args.processor = model_args.tokenizer
-    model_args.tokenizer = None
+        model_args.tokenizer = None
 
-    output_dir = training_args.output_dir
+    # Handle output_dir only if training arguments are included
+    output_dir = training_args.output_dir if training_args else None
 
     return model_args, data_args, recipe_args, training_args, output_dir
 

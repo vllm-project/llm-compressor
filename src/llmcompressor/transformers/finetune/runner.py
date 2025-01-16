@@ -1,7 +1,6 @@
 import math
 import os
 import re
-from dataclasses import asdict
 from typing import List, Optional
 
 import torch
@@ -30,6 +29,7 @@ from llmcompressor.transformers.utils.arg_parser import (
 from llmcompressor.transformers.utils.arg_parser.training_arguments import (
     DEFAULT_OUTPUT_DIR,
 )
+from llmcompressor.transformers.utils.arg_parser.utils import get_dataclass_as_dict
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
@@ -266,15 +266,12 @@ class StageRunner:
                 self._model_args.model = model
 
                 oneshot = Oneshot(
-                    # model_args=self._model_args,
-                    # data_args=self._data_args,
-                    # recipe_args=self._recipe_args,
-                    # output_dir=self._training_args.output_dir,
-                    **asdict(self._model_args),
-                    **asdict(self._data_args),
-                    **asdict(self._recipe_args),
                     output_dir=self._training_args.output_dir,
+                    **get_dataclass_as_dict(self._model_args, ModelArguments),
+                    **get_dataclass_as_dict(self._data_args, DatasetArguments),
+                    **get_dataclass_as_dict(self._recipe_args, RecipeArguments),
                 )
+
                 oneshot.run(stage_name=stage_name)
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
