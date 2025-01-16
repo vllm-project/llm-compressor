@@ -17,9 +17,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
-from llmcompressor.transformers.utils.arg_parser.training_arguments import (
-    DEFAULT_OUTPUT_DIR,
-)
+from llmcompressor.transformers.utils.arg_parser import DEFAULT_OUTPUT_DIR
 
 __all__ = ["Oneshot"]
 
@@ -28,18 +26,60 @@ class Oneshot:
     """
     Class responsible for carrying out oneshot calibration.
 
+    - Input Keyword Arguments:
+
+        kwargs are parsed into
+        - model_args
+            - responsible for handling Pretrained model loading args
+            ex. AutoModelForCausalLM
+        - data_args
+            - responsible for handling dataset related arguments
+        - recipe_args
+            - resposible for handling recipe related arguments
+
+        Parsers are defined in
+            src/llmcompressor/transformers/utils/arg_parser
+
+    - Lifecycle
+
+        Broken down into three steps
+        - Pre-processing
+            - Instantiate pretrainined model and tokenizer/processor
+            - Untie input and output embedding layers share the same underlying tensor
+              which needs to be in a separate address for calibration
+            - Wrap the model.save_pretrained model to add
+              compressed-tensors quantization config
+
+        - Carrying out oneshot calibration logic
+            - Use the global CompressionSession to carry out optimizations
+              to the given model.
+              Optimizations are based on recipes or preset schemes (ex. W4A16).
+              Every optimization method is encapsulated as a Modifier,
+               refer to src/llmcompressor/modifiers,
+               allowing the session to apply each modifier one by one to the model.
+
+              Ex. Apply just GPTQ -> "GPTQModifier".
+               Refer to examples/quantization_w4a16/llama3_example.py
+              Ex. Apply sparsification using "SparseGPTModifier" and then
+               apply quantization using "GPTQModifier".
+               Refer to examples/quantization_2of4_sparse_w4a16/llama7b_sparse_w4a16.py
+
+        - Post-processing
+            - Save the model, tokenizer, config and recipe if custom output_dir is
+              is specified (not ./output)
+
 
     Usage:
 
-    ```python
-    oneshot = Oneshot(model=model, recipe=recipe, dataset=dataset)
-    oneshot.run()
+        ```python
+        oneshot = Oneshot(model=model, recipe=recipe, dataset=dataset)
+        oneshot.run()
 
-    model = oneshot.model
-    tokenizer_or_processor = oneshot.tokenizer_or_processor
-    recipe = oneshot.recipe
+        model = oneshot.model
+        tokenizer_or_processor = oneshot.tokenizer_or_processor
+        recipe = oneshot.recipe
 
-    ```
+        ```
     """
 
     MODIFIER_LIFECYCLE_ACTIONS = (

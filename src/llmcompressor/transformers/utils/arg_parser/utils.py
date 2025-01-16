@@ -6,6 +6,10 @@ from .model_arguments import ModelArguments
 from .recipe_arguments import RecipeArguments
 from .training_arguments import TrainingArguments
 
+__all__ = [
+    "get_dataclass_as_dict",
+]
+
 
 def get_dataclass_as_dict(
     dataclass_instance: Union[
