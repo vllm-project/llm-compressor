@@ -28,6 +28,7 @@ class Oneshot:
     """
     Class responsible for carrying out oneshot calibration.
 
+
     Usage:
 
     ```python
@@ -48,14 +49,11 @@ class Oneshot:
 
     def __init__(
         self,
-        output_dir: Optional[str] = None,
         **kwargs,
     ):
-        self.model_args, self.data_args, self.recipe_args, _, output_dir_parser = (
+        self.model_args, self.data_args, self.recipe_args, _, self.output_dir = (
             parse_args(**kwargs)
         )
-
-        self.output_dir = output_dir or output_dir_parser
 
         # Preprocess the model and tokenizer/processor
         self._pre_process()

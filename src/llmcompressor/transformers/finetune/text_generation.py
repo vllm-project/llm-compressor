@@ -51,6 +51,7 @@ from llmcompressor.transformers.sparsification.sparse_model import (
     get_processor_from_model,
 )
 from llmcompressor.transformers.utils.arg_parser import (
+    DEFAULT_OUTPUT_DIR,
     DatasetArguments,
     ModelArguments,
     RecipeArguments,
@@ -65,7 +66,7 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, recipe_args, training_args = parse_args(
+    model_args, data_args, recipe_args, training_args, _ = parse_args(
         include_training_args=True, **kwargs
     )
     training_args.do_train = True
@@ -76,7 +77,7 @@ def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, recipe_args, training_args = parse_args(
+    model_args, data_args, recipe_args, training_args, _ = parse_args(
         include_training_args=True, **kwargs
     )
     training_args.do_eval = True
@@ -142,6 +143,7 @@ def parse_args(include_training_args: bool = False, **kwargs):
         conflict with accelerate library's accelerator.
 
     """
+    output_dir = kwargs.pop("output_dir", DEFAULT_OUTPUT_DIR)
 
     if include_training_args:
         parser = HfArgumentParser(
@@ -158,6 +160,8 @@ def parse_args(include_training_args: bool = False, **kwargs):
     # Unpack parsed arguments based on the presence of training arguments
     if include_training_args:
         model_args, data_args, recipe_args, training_args = parsed_args
+        if output_dir is not None:
+            training_args.output_dir = output_dir
     else:
         model_args, data_args, recipe_args = parsed_args
         training_args = None
@@ -184,9 +188,6 @@ def parse_args(include_training_args: bool = False, **kwargs):
             raise ValueError("Cannot use both a tokenizer and processor.")
         model_args.processor = model_args.tokenizer
         model_args.tokenizer = None
-
-    # Handle output_dir only if training arguments are included
-    output_dir = training_args.output_dir if training_args else None
 
     return model_args, data_args, recipe_args, training_args, output_dir
 
