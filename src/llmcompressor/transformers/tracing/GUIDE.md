@@ -21,8 +21,8 @@ For example, let's say we want to quantize a basic `3` layer model using the
 calibration samples. The [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
 first identifies each of the layers (sequential targets) within the model. Then, the
 pipeline runs each of the `512` samples, one sample at a time, through the first layer.
-When one sample completes its forward pass through the layer, its activations recorded
-by the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py) via the
+When one sample completes its forward pass through the layer, its activations are
+recorded by the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 hessian and the layer output is offloaded to the cpu. After all `512` samples have been
 passed through the layer, the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 uses the recorded activations to compress the weights of the modules within the layer.
@@ -31,9 +31,9 @@ forward pass of the next layer.
 
 The [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py) relies on
 the ability to know what the inputs and outputs are of each model layer in order to
-faithfully "replay" the model's forward pass one layer at a time. While assuming that
-"the input to the next layer is the output of the previous layer" holds for most
-decoder-only LLMs, this assumption breaks for more complex models such as
+faithfully "replay" the model's forward pass one layer at a time. While the basic
+assumption that "the input to the next layer is the output of the previous layer" holds
+for most decoder-only LLMs, this assumption breaks for more complex models such as
 encoder-decoder architectures and models which pass RoPE embeddings as an input to each
 layer. For this reason, in order to faithfully capture the data flow between model
 layers, the model's call graph must be traced.
