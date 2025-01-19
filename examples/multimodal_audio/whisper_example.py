@@ -92,7 +92,7 @@ oneshot(
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 sample_input = whisper_data_collator([next(iter(ds))])
-sample_input = {k: v.to("cuda:0") for k, v in sample_input.items()}
+sample_input = {k: v.to(model.device) for k, v in sample_input.items()}
 output = model.generate(**sample_input, language="en")
 print(processor.batch_decode(output, skip_special_tokens=True))
 print("==========================================\n\n")
