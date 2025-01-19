@@ -53,7 +53,7 @@ In order to determine if a model is traceable for a given dataset, you can use t
 `llmcompressor.trace` function. This function determines whether a model is
 traceable for a given dataset, sequential targets list, and ignore list.
 
-For example this script demonstrates that the `Qwen2-VL` model is traceable when
+For example, this script demonstrates that the `Qwen2-VL` model is traceable when
 using inputs from a text-only dataset
 ```bash
 llmcompressor.trace \
