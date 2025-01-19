@@ -1,5 +1,5 @@
 from datasets import load_dataset
-from transformers import WhisperProcessor
+from transformers import Qwen2AudioForConditionalGeneration, AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
@@ -7,15 +7,14 @@ from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGen
 from llmcompressor.transformers.utils.data_collator import whisper_data_collator
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-tiny"
+MODEL_ID = "Qwen/Qwen2-Audio-7B-Instruct"
 
-model = TraceableWhisperForConditionalGeneration.from_pretrained(
+model = Qwen2AudioForConditionalGeneration.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
 )
-model.config.forced_decoder_ids = None
-processor = WhisperProcessor.from_pretrained(MODEL_ID)
+processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "MLCommons/peoples_speech"
@@ -37,6 +36,18 @@ ds = load_dataset(
 
 
 def preprocess(example):
+    conversation = [
+        {"role": "user", "content": [
+            {"type": "audio", "audio_url": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/guess_age_gender.wav"},
+        ]},
+        {"role": "assistant", "content": "Yes, the speaker is female and in her twenties."},
+        {"role": "user", "content": [
+            {"type": "audio", "audio_url": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen2-Audio/audio/translate_to_chinese.wav"},
+        ]},
+    ]
+    return {
+        "text": processor.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
+    }
     return {
         "array": example["audio"]["array"],
         "sampling_rate": example["audio"]["sampling_rate"],
@@ -96,9 +107,10 @@ print("========== SAMPLE GENERATION ==============")
 sample_input = whisper_data_collator([next(iter(ds))])
 sample_input = {k: v.to("cuda:0") for k, v in sample_input.items()}
 output = model.generate(**sample_input, language="en")
-print(processor.batch_decode(output, skip_special_tokens=True))
+print(processor.batch_decode(output, skip_special_tokens=True)[0])
 print("==========================================\n\n")
-# The track appears on the compilation album "Kraftworks"
+# If you are interested in doing something to your house, go to the green building
+# adviser, look it up and see what the experts are talking about
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
