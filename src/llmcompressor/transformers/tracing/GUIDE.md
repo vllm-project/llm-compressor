@@ -399,3 +399,32 @@ legacy_processing = (
     (input_ids == self.config.image_token_index).sum(1).max() < self.config.image_seq_length
 ) or (input_ids.shape[-1] == 1 and pixel_values is not None).item()
 ```
+
+## Summary ##
+This guide provides a comprehensive overview of tracing concepts as they apply to
+LLM Compressor, enabling effective use of the [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
+and modifiers such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py).
+
+The following key points are covered by this guide:
+
+1. **Importance of Tracing**:  
+   Tracing is essential for compressing complex models and managing memory efficiently.
+   It ensures accurate data flow capture for layer-by-layer processing during
+   compression.  
+
+2. **Traceability**:  
+   A model's traceability depends on its ability to define clear input-output
+   operations. Using tools like `llmcompressor.trace`, users can identify traceability
+   issues and make necessary adjustments, such as modifying sequential targets or adding
+   modules to the ignore list.  
+
+3. **Model Modifications**:  
+   Non-traceable models can be modified by addressing common errors, such as conditional
+   logic and iteration issues, or by implementing techniques like function wrapping and
+   shape inference correction.  
+
+This guide empowers users to adapt their models for optimal performance with LLM
+Compressor while maintaining compatibility with its pipeline and modifier tools. The
+outlined steps, examples, and troubleshooting tips ensure that even complex
+architectures can be effectively traced and compressed with minimal memory usage and
+accuracy loss.
