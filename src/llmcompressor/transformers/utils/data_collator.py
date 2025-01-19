@@ -46,3 +46,10 @@ def qwen2_vl_data_collator(batch):
         "pixel_values": torch.tensor(batch[0]["pixel_values"]),
         "image_grid_thw": torch.tensor(batch[0]["image_grid_thw"]),
     }
+
+
+def whisper_data_collator(batch):
+    assert len(batch) == 1
+    return {
+        "input_features": torch.LongTensor(batch[0]["input_features"]),
+    }
