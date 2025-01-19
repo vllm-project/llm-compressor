@@ -24,12 +24,12 @@ import torch
 import torch.utils.checkpoint
 from torch import nn
 
-from ...activations import ACT2FN
-from ...cache_utils import Cache, EncoderDecoderCache, StaticCache
-from ...generation import GenerationMixin
-from ...modeling_outputs import BaseModelOutput, ModelOutput
-from ...modeling_utils import PreTrainedModel
-from ...utils import (
+from transformers.activations import ACT2FN
+from transformers.cache_utils import Cache, EncoderDecoderCache, StaticCache
+from transformers.generation import GenerationMixin
+from transformers.modeling_outputs import BaseModelOutput, ModelOutput
+from transformers.modeling_utils import PreTrainedModel
+from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     is_flash_attn_2_available,
@@ -37,12 +37,12 @@ from ...utils import (
     logging,
     replace_return_docstrings,
 )
-from ..auto import AutoModel, AutoModelForCausalLM
-from .configuration_qwen2_audio import Qwen2AudioConfig, Qwen2AudioEncoderConfig
+from transformers import AutoModel, AutoModelForCausalLM
+from transformers.models.qwen2_audio.configuration_qwen2_audio import Qwen2AudioConfig, Qwen2AudioEncoderConfig
 
 
 if is_flash_attn_2_available():
-    from ...modeling_flash_attention_utils import _flash_attention_forward
+    from transformers.modeling_flash_attention_utils import _flash_attention_forward
 
 
 logger = logging.get_logger(__name__)
@@ -1092,7 +1092,9 @@ class Qwen2AudioForConditionalGeneration(Qwen2AudioPreTrainedModel, GenerationMi
 
         audio_to_overwrite &= val
 
-        if audio_to_overwrite.sum() != num_audio_tokens.sum():
+        # TRACING
+        #if audio_to_overwrite.sum() != num_audio_tokens.sum():
+        if False:
             raise ValueError(
                 f"The input provided to the model are wrong. The number of audio tokens is {num_special_audio_tokens} while"
                 f" the number of audio given to the model is {num_audios}. This prevents correct indexing and breaks batch generation."
