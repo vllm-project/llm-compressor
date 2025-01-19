@@ -51,5 +51,6 @@ def qwen2_vl_data_collator(batch):
 def whisper_data_collator(batch):
     assert len(batch) == 1
     return {
-        "input_features": torch.LongTensor(batch[0]["input_features"]),
+        "input_features": torch.tensor(batch[0]["input_features"]),
+        "decoder_input_ids": torch.tensor(batch[0]["decoder_input_ids"]),
     }
