@@ -1,11 +1,10 @@
-import torch
 from datasets import load_dataset
 from transformers import WhisperProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.utils.data_collator import whisper_data_collator
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
+from llmcompressor.transformers.utils.data_collator import whisper_data_collator
 
 # Select model and load it.
 MODEL_ID = "openai/whisper-tiny"
@@ -20,11 +19,11 @@ processor = WhisperProcessor.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "hf-internal-testing/librispeech_asr_dummy"
-DATASET_SPLIT = f"validation[:1]"
+DATASET_SPLIT = "validation[:512]"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 1 # 512
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -40,27 +39,6 @@ def preprocess(example):
 
 ds = ds.map(preprocess, remove_columns=ds.column_names)
 
-r"""
-Returns:
-
-Example:
-    ```python
-    >>> import torch
-    >>> from transformers import AutoFeatureExtractor, WhisperModel
-    >>> from datasets import load_dataset
-
-    >>> model = WhisperModel.from_pretrained("openai/whisper-base")
-    >>> feature_extractor = AutoFeatureExtractor.from_pretrained("openai/whisper-base")
-    >>> ds = load_dataset("hf-internal-testing/librispeech_asr_dummy", "clean", split="validation")
-    >>> inputs = feature_extractor(ds[0]["audio"]["array"], return_tensors="pt")
-    >>> input_features = inputs.input_features
-    >>> decoder_input_ids = torch.tensor([[1, 1]]) * model.config.decoder_start_token_id
-    >>> last_hidden_state = model(input_features, decoder_input_ids=decoder_input_ids).last_hidden_state
-    >>> list(last_hidden_state.shape)
-    [1, 2, 512]
-    ```
-"""
-
 
 # Tokenize inputs.
 def tokenize(sample):
@@ -71,23 +49,29 @@ def tokenize(sample):
         return_tensors="pt",
     ).input_features
 
-    decoder_input_ids = torch.ones((batch_size, 1), dtype=torch.long) * model.config.decoder_start_token_id
+    generation_config, _kwargs = model._prepare_generation_config(None)
 
-    return {
-        "input_features": input_features,
-        "decoder_input_ids": decoder_input_ids
-    }
+    input_stride = (
+        model.model.encoder.conv1.stride[0] * model.model.encoder.conv2.stride[0]
+    )
+    num_segment_frames = input_stride * model.config.max_source_positions
+
+    decoder_input_ids = model._retrieve_init_tokens(
+        input_features,
+        batch_size=batch_size,
+        generation_config=generation_config,
+        config=model.config,
+        num_segment_frames=num_segment_frames,
+        kwargs={},
+    )
+
+    return {"input_features": input_features, "decoder_input_ids": decoder_input_ids}
 
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-#breakpoint()
-#sample_input = next(iter(ds))
-#output = model(**sample_input)
-
-
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
@@ -103,12 +87,11 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-sample_input = whisper_data_collator([next(iter(ds))]).to(model.device)
+sample_input = whisper_data_collator([next(iter(ds))])
 sample_input = {k: v.to("cuda:0") for k, v in sample_input.items()}
-output = model.generate(**sample_input)
-breakpoint()
+output = model.generate(**sample_input, language="en")
 print(processor.batch_decode(output, skip_special_tokens=True))
-#[' Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel.']
+# Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel
 print("==========================================\n\n")
 
 # Save to disk compressed.
