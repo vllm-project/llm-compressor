@@ -105,6 +105,7 @@ class TextGenerationDataset(RegistryMixin):
         dataset = self.rename_columns(dataset)
         logger.debug(f"Dataset after column renaming: {get_columns(dataset)}")
 
+        # TODO: investigate processor.model_input_names
         if "input_ids" not in get_columns(
             dataset
         ) and "input_features" not in get_columns(dataset):

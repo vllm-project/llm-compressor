@@ -7,7 +7,7 @@ from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGen
 from llmcompressor.transformers.utils.data_collator import whisper_data_collator
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-tiny"
+MODEL_ID = "openai/whisper-base"
 
 model = TraceableWhisperForConditionalGeneration.from_pretrained(
     MODEL_ID,
@@ -46,25 +46,23 @@ def preprocess(example):
 ds = ds.map(preprocess, remove_columns=ds.column_names)
 
 
-# Tokenize inputs.
-def tokenize(sample):
-    batch_size = 1
+# Process inputs.
+def process(sample):
     input_features = processor(
         sample["array"],
         sampling_rate=sample["sampling_rate"],
         return_tensors="pt",
     ).input_features
 
+    # decoder_input_ids define the task context
     generation_config, _kwargs = model._prepare_generation_config(None)
-
     input_stride = (
         model.model.encoder.conv1.stride[0] * model.model.encoder.conv2.stride[0]
     )
     num_segment_frames = input_stride * model.config.max_source_positions
-
     decoder_input_ids = model._retrieve_init_tokens(
         input_features,
-        batch_size=batch_size,
+        batch_size=1,
         generation_config=generation_config,
         config=model.config,
         num_segment_frames=num_segment_frames,
@@ -74,7 +72,7 @@ def tokenize(sample):
     return {"input_features": input_features, "decoder_input_ids": decoder_input_ids}
 
 
-ds = ds.map(tokenize, remove_columns=ds.column_names)
+ds = ds.map(process, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
