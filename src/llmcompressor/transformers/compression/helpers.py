@@ -151,7 +151,7 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     bytes_per_weight = max_precision // 8  # precision of hessians and cloned weights
     inverse_reserved = overall_max_column_size * overall_max_column_size
     return (
-        max_total_hessian_elems + inverse_reserved + overall_max_weight_size
+        max_total_hessian_elems + inverse_reserved + overall_max_weight_size + inverse_reserved  # TODO: fix
     ) * bytes_per_weight
 
 
