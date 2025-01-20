@@ -3,6 +3,8 @@ on:
   pull_request:
     branches: main
     types: [ labeled, synchronize ]
+  push:
+    branches: main
 
 env:
   CADENCE: "commit"
@@ -15,7 +17,7 @@ env:
 jobs:
   transformers-tests:
     runs-on: gcp-k8s-vllm-l4-solo
-    if: contains(github.event.pull_request.labels.*.name, 'ready')
+    if: contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push'
     steps:
       - uses: actions/setup-python@v5
         with:
