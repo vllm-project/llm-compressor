@@ -97,7 +97,9 @@ sample_input = {
 output = model.generate(**sample_input, language="en")
 print(processor.batch_decode(output, skip_special_tokens=True))
 print("==========================================\n\n")
-# The track appears on the compilation album "Kraftworks"
+# that's where you have a lot of windows in the south no actually that's passive solar
+# and passive solar is something that was developed and designed in the 1960s and 70s
+# and it was a great thing for what it was at the time but it's not a passive house
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
