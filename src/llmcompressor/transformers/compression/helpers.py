@@ -11,6 +11,7 @@ from torch.nn.modules import Linear
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM
 
+from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import GPTQ_PRECISION
 from llmcompressor.pytorch.utils import get_linear_layers
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils.pytorch import get_layers, get_no_split_params
@@ -123,22 +124,35 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     transformer_layers = get_layers(get_no_split_params(model), model)
     total_hessian_elems = {}
     max_column_size = {}
+    max_weight_size = {}
     for no_split_name, no_split_layer in transformer_layers.items():
         total_hessian_elems[no_split_name] = 0
         max_column_size[no_split_name] = 0
+        max_weight_size[no_split_name] = 0
+
         for _name, module in no_split_layer.named_modules():
             if isinstance(module, Linear) and hasattr(module, "weight"):
                 column_size = module.weight.shape[1]
+                # add hessian to layer
                 total_hessian_elems[no_split_name] += column_size * column_size
-                if column_size > max_column_size[no_split_name]:
-                    # max extra memory for inverse calculation
-                    max_column_size[no_split_name] = column_size
+                # max extra memory for inverse calculation
+                max_column_size[no_split_name] = max(
+                    max_column_size[no_split_name], column_size
+                )
+                # max extra memory for cloning weight (FUTURE: could be removed)
+                max_weight_size[no_split_name] = max(
+                    max_weight_size[no_split_name], module.weight.numel()
+                )
 
     max_total_hessian_elems = max(total_hessian_elems.values())
     overall_max_column_size = max(max_column_size.values())
-    bytes_per_weight = 32 // 8  # hessians are float32
+    overall_max_weight_size = max(max_weight_size.values())
+    max_precision = max(_get_dtype_bits(GPTQ_PRECISION))  # FUTURE: include sgpt
+    bytes_per_weight = max_precision // 8  # precision of hessians and cloned weights
     inverse_reserved = overall_max_column_size * overall_max_column_size
-    return (max_total_hessian_elems + inverse_reserved) * bytes_per_weight
+    return (
+        max_total_hessian_elems + inverse_reserved + overall_max_weight_size
+    ) * bytes_per_weight
 
 
 def quantization_memory_requirement(model: torch.nn.Module) -> int:
@@ -370,3 +384,12 @@ def _reduce_targets_and_ignores_into_lists(
             targets.extend(curr_targets)
             ignore.extend(curr_ignores)
     return targets, ignore
+
+
+def _get_dtype_bits(dtype: torch.dtype) -> int:
+    if dtype.is_complex:
+        return torch.finfo(dtype).bits * 2
+    if dtype.is_floating_point:
+        return torch.finfo(dtype).bits
+    else:
+        return torch.iinfo(dtype).bits
