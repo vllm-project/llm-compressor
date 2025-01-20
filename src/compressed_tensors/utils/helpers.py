@@ -301,7 +301,7 @@ def pack_bitmasks(bytemasks: torch.Tensor) -> torch.Tensor:
 
 
 def unpack_bitmasks(
-    packed_bitmasks: torch.Tensor, original_shape: torch.Size
+    packed_bitmasks: torch.Tensor, original_shape: List[int]
 ) -> torch.Tensor:
     """
     Converts a bitmask tensor back to a bytemask tensor for use during decompression

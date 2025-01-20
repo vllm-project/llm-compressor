@@ -103,8 +103,10 @@ class Sparse24BitMaskTensor:
         :param bitmask: 2d bitmask of non-zero values
         :return: instantiated Sparse24BitMaskTensor
         """
-        if isinstance(shape, Tensor):
-            shape = shape.tolist()
+        if isinstance(shape, list):
+            shape = torch.tensor(shape)
+        if isinstance(shape, torch.Tensor):
+            shape = shape.flatten().tolist()
         return Sparse24BitMaskTensor(
             shape=shape, compressed=compressed, bitmask=bitmask
         )
