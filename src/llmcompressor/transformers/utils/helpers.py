@@ -61,9 +61,14 @@ def detect_last_checkpoint(
     return last_checkpoint
 
 
-def is_model_quantized_from_path(path: str):
+def is_model_quantized_from_path(path: str) -> bool:
     """
-    Determine if model is quantized based on the config
+    Determine if model from path is quantized based
+    on the config
+
+    :param path: path to the model or HF stub
+    :return: Boolean if the path has the quantization_config
+
     """
     config = AutoConfig.from_pretrained(path)
     if config is not None:
