@@ -1,6 +1,8 @@
 import pytest
+import torch
 
 from llmcompressor.transformers.compression.helpers import (
+    _get_dtype_bits,
     _reduce_targets_and_ignores_into_lists,
 )
 
@@ -67,3 +69,10 @@ def _assert_list_contents_match(list1, list2):
     assert len(list1) == len(list2)
     for item in list1:
         assert item in list2
+
+
+def test_get_dtype_bits():
+    assert _get_dtype_bits(torch.int32) == 32
+    assert _get_dtype_bits(torch.float16) == 16
+    assert _get_dtype_bits(torch.float32) == 32
+    assert _get_dtype_bits(torch.complex64) == 64

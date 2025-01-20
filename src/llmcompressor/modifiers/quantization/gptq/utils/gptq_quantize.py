@@ -17,7 +17,12 @@ from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
 
-__all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
+__all__ = [
+    "make_empty_hessian",
+    "accumulate_hessian",
+    "quantize_weight",
+    "GPTQ_PRECISION",
+]
 
 
 def make_empty_hessian(
@@ -88,7 +93,7 @@ def quantize_weight(
     actorder = quant_args.actorder
     final_shape = module.weight.shape
     final_dtype = module.weight.dtype
-    W = module.weight.clone()
+    W = module.weight.clone()  # FUTURE: move rather than clone to save memory
     H = hessians_dict[module]  # unfortunately python does not have a `move` keyword
     del hessians_dict[module]  # so we have to delete the original reference manually
 

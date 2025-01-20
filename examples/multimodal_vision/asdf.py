@@ -13,11 +13,11 @@ from llmcompressor.transformers.tracing import TraceableQwen2VLForConditionalGen
 from llmcompressor.transformers.utils.data_collator import qwen2_vl_data_collator
 
 # Load model.
-model_id = "Qwen/Qwen2-VL-72B-Instruct"
+model_id = "Qwen/Qwen2-VL-2B-Instruct"
 device_map = calculate_offload_device_map(
     model_id,
     reserve_for_hessians=True,
-    num_gpus=3,
+    num_gpus=1,
     torch_dtype=torch.bfloat16,
     trust_remote_code=True,
     model_cls=TraceableQwen2VLForConditionalGeneration
@@ -25,7 +25,7 @@ device_map = calculate_offload_device_map(
 model = TraceableQwen2VLForConditionalGeneration.from_pretrained(
     model_id,
     device_map=device_map,
-    torch_dtype=torch.bfloat16,
+    torch_dtype="auto",
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
