@@ -7,7 +7,7 @@ from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGen
 from llmcompressor.transformers.utils.data_collator import whisper_data_collator
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-base"
+MODEL_ID = "openai/whisper-large-v2"
 
 model = TraceableWhisperForConditionalGeneration.from_pretrained(
     MODEL_ID,

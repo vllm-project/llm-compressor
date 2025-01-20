@@ -3,8 +3,10 @@ from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
+from llmcompressor.transformers.tracing import (
+    TraceableQwen2AudioForConditionalGeneration,
+)
 from llmcompressor.transformers.utils.data_collator import qwen2_audio_data_collator
-from llmcompressor.transformers.tracing import TraceableQwen2AudioForConditionalGeneration
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen2-Audio-7B-Instruct"
@@ -70,7 +72,11 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(
     targets="Linear",
     scheme="W4A16",
-    ignore=["re:audio_tower.*", "re:multi_modal_projector.*", "lm_head"]  # TODO: honestly, there's a decent number of parameters in the audio tower worth quantizing
+    ignore=[
+        "re:audio_tower.*",
+        "re:multi_modal_projector.*",
+        "lm_head",
+    ],  # TODO: honestly, there's a decent number of parameters in the audio tower worth quantizing
 )
 
 # Apply algorithms.
