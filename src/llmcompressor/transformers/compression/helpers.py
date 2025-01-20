@@ -147,7 +147,7 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     max_total_hessian_elems = max(total_hessian_elems.values())
     overall_max_column_size = max(max_column_size.values())
     overall_max_weight_size = max(max_weight_size.values())
-    max_precision = max(_get_dtype_bits(GPTQ_PRECISION))  # FUTURE: include sgpt
+    max_precision = max(_get_dtype_bits(GPTQ_PRECISION), 0)  # FUTURE: include sgpt
     bytes_per_weight = max_precision // 8  # precision of hessians and cloned weights
     inverse_reserved = overall_max_column_size * overall_max_column_size
     return (
