@@ -67,7 +67,7 @@ def is_model_quantized_from_path(path: str) -> bool:
     on the config
 
     :param path: path to the model or HF stub
-    :return: Boolean if the path has the quantization_config
+    :return: True if the path has the quantization_config
 
     """
     config = AutoConfig.from_pretrained(path)
