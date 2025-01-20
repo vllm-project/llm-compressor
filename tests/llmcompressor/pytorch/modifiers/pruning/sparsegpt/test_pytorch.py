@@ -68,9 +68,7 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         setup_modifier_factory()
 
     def test_create_default_quant_modifier(self):
-        kwargs = dict(block_size=128)
-
-        modifier = GPTQModifier(**kwargs)
+        modifier = GPTQModifier(block_size=128)
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
@@ -106,8 +104,7 @@ class TestSetQuantIfModifierAlreadyExists(unittest.TestCase):
         modifier.initialize(testing_harness.get_state())
         assert qat_active(testing_harness.get_state().model)
 
-        kwargs = dict(block_size=128)
-        modifier = GPTQModifier(**kwargs)
+        modifier = GPTQModifier(block_size=128)
         assert not modifier._quantization_modifier
 
         modifier.on_initialize_structure(testing_harness.get_state())
@@ -142,9 +139,7 @@ class TestSetQuantInGPTQ(unittest.TestCase):
         self.quant_config = {"QuantizationModifier": self.quant_kwargs}
 
     def test_set_quant_in_gptq(self):
-        kwargs = dict(block_size=128, quantize=self.quant_config)
-
-        modifier = GPTQModifier(**kwargs)
+        modifier = GPTQModifier(block_size=128, quantize=self.quant_config)
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
