@@ -444,6 +444,78 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     shutil.rmtree(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "model_stub, recipe, sparse_format",
+    [
+        (
+            "Xenova/llama2.c-stories15M",
+            "tests/llmcompressor/transformers/compression/recipes/sparse_24.yaml",
+            CompressionFormat.sparse_24_bitmask.value,
+        ),
+    ],
+)
+def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp_path):
+    from llmcompressor.pytorch.model_load.helpers import get_session_model
+
+    device = "cuda"
+    if not torch.cuda.is_available():
+        device = "cpu"
+    dataset = "open_platypus"
+    concatenate_data = False
+    num_calibration_samples = 64
+    splits = {"calibration": "train[:10%]"}
+    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
+
+    oneshot(
+        model=model_stub,
+        dataset=dataset,
+        num_calibration_samples=num_calibration_samples,
+        recipe=recipe,
+        concatenate_data=concatenate_data,
+        splits=splits,
+        oneshot_device=device,
+        clear_sparse_session=False,
+    )
+
+    # Fetch the oneshot model
+    model = get_session_model()
+    og_state_dict = model.state_dict()
+    path = tmp_path / "compressed"
+
+    # Compress and save
+    model.save_pretrained(
+        path,
+        save_compressed=True,
+    )
+
+    # Verify config on disk
+    config = AutoConfig.from_pretrained(path)
+    compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
+
+    # As HFQuantizer doesn't decompress the model, use the compressor to decompress
+    # the model instead
+    compressor = ModelCompressor.from_compression_config(compression_config)
+
+    assert (
+        compressor.sparsity_compressor is not None
+    ), "Sparse compressor not initialized"
+    assert compressor.sparsity_config.format == sparse_format
+
+    compressor.decompress(model_path=path, model=empty_model)
+
+    # Verify the abs difference between the decompressed model
+    # and the original model
+    reconstructed_state_dict = empty_model.state_dict()
+    assert len(og_state_dict) == len(reconstructed_state_dict)
+    for key in og_state_dict.keys():
+        dense_tensor = og_state_dict[key].to(device)
+        reconstructed_tensor = reconstructed_state_dict[key].to(device)
+        assert dense_tensor.dtype == reconstructed_tensor.dtype
+        if key.endswith("weight"):
+            assert torch.equal(dense_tensor, reconstructed_tensor)
+    shutil.rmtree(tmp_path)
+
+
 def test_no_sparse_compression_flag(tmp_path):
     two_four_sparse_model_id = "nm-testing/llama2.c-stories42M-pruned2.4"
     two_four_sparse_model = AutoModelForCausalLM.from_pretrained(
