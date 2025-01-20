@@ -16,10 +16,10 @@ GPU_CONFIGS_DIRECTORY = (
     "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/gpu"
 )
 
-quantization_config = CompressedTensorsConfig(run_compressed=False)
-
 
 class TestConsecutiveRuns(unittest.TestCase):
+    quantization_config = CompressedTensorsConfig(run_compressed=False)
+
     def _test_consecutive_runs(
         self, tolerance: float, num_calibration_samples: int = 16
     ):
@@ -45,7 +45,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         first_model = AutoModelForCausalLM.from_pretrained(
             self.output_first,
             device_map="auto",
-            quantization_config=quantization_config,
+            quantization_config=self.quantization_config,
         )
 
         layer_0_sparse = tensor_sparsity(
@@ -78,7 +78,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         second_model = AutoModelForCausalLM.from_pretrained(
             self.output_second,
             device_map="auto",
-            quantization_config=quantization_config,
+            quantization_config=self.quantization_config,
         )
 
         layer_0_sparse = tensor_sparsity(
@@ -141,7 +141,7 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model,
             device_map=self.device,
-            quantization_config=quantization_config,
+            quantization_config=self.quantization_config,
         )
 
         self.output = "./oneshot_output"
