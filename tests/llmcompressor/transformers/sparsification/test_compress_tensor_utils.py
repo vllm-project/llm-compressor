@@ -442,3 +442,24 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         else:
             assert torch.equal(dense_tensor, reconstructed_tensor)
     shutil.rmtree(tmp_path)
+
+
+def test_no_sparse_compression_flag(tmp_path):
+    two_four_sparse_model_id = "nm-testing/llama2.c-stories42M-pruned2.4"
+    two_four_sparse_model = AutoModelForCausalLM.from_pretrained(
+        two_four_sparse_model_id, torch_dtype="auto"
+    )
+    modify_save_pretrained(two_four_sparse_model)
+
+    save_path = tmp_path / "no_sparse_compression_model"
+    two_four_sparse_model.save_pretrained(save_path, no_sparse_compression=True)
+
+    config = AutoConfig.from_pretrained(save_path)
+    quantization_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
+
+    assert quantization_config
+    sparsity_config = quantization_config.get("sparsity_config")
+
+    assert sparsity_config
+    assert sparsity_config["format"] == "dense"
+    shutil.rmtree(tmp_path)
