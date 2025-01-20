@@ -105,7 +105,8 @@ class TextGenerationDataset(RegistryMixin):
         dataset = self.rename_columns(dataset)
         logger.debug(f"Dataset after column renaming: {get_columns(dataset)}")
 
-        if "input_ids" not in get_columns(dataset):
+        model_input_names = getattr(self.processor, "model_input_names", ["input_ids"])
+        if not any(col_name in model_input_names for col_name in get_columns(dataset)):
             # tokenize/ process
             dataset = self.filter_tokenizer_args(dataset)
             logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")
