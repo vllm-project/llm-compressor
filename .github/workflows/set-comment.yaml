@@ -17,7 +17,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: '👋 Hi! Thank you for contributing to llm-compressor. Please add the ready label when the PR is ready for review.'
+              body: '👋 Hi! Thank you for contributing to llm-compressor. Please add the ready label when the PR is ready for review.\n\n**Note:** This is required to complete the testing suite, please only add the label once the PR is code complete and local testing has been performed.'
             })
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
