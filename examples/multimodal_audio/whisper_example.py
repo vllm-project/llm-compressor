@@ -1,3 +1,4 @@
+import torch
 from datasets import load_dataset
 from transformers import WhisperProcessor
 
@@ -17,6 +18,9 @@ model = TraceableWhisperForConditionalGeneration.from_pretrained(
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
 
+# Configure processor the dataset task.
+processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")
+
 # Select calibration dataset.
 DATASET_ID = "MLCommons/peoples_speech"
 DATASET_SUBSET = "test"
@@ -24,7 +28,7 @@ DATASET_SPLIT = "test"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 1  # 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -40,6 +44,7 @@ def preprocess(example):
     return {
         "array": example["audio"]["array"],
         "sampling_rate": example["audio"]["sampling_rate"],
+        "text": " " + example["text"].capitalize(),
     }
 
 
@@ -48,28 +53,19 @@ ds = ds.map(preprocess, remove_columns=ds.column_names)
 
 # Process inputs.
 def process(sample):
-    input_features = processor(
-        sample["array"],
+    audio_inputs = processor(
+        audio=sample["array"],
         sampling_rate=sample["sampling_rate"],
         return_tensors="pt",
-    ).input_features
-
-    # decoder_input_ids define the task context
-    generation_config, _kwargs = model._prepare_generation_config(None)
-    input_stride = (
-        model.model.encoder.conv1.stride[0] * model.model.encoder.conv2.stride[0]
-    )
-    num_segment_frames = input_stride * model.config.max_source_positions
-    decoder_input_ids = model._retrieve_init_tokens(
-        input_features,
-        batch_size=1,
-        generation_config=generation_config,
-        config=model.config,
-        num_segment_frames=num_segment_frames,
-        kwargs={},
     )
 
-    return {"input_features": input_features, "decoder_input_ids": decoder_input_ids}
+    text_inputs = processor(
+        text=sample["text"], add_special_tokens=True, return_tensors="pt"
+    )
+    text_inputs["decoder_input_ids"] = text_inputs["input_ids"]
+    del text_inputs["input_ids"]
+
+    return dict(**audio_inputs, **text_inputs)
 
 
 ds = ds.map(process, remove_columns=ds.column_names)
@@ -91,8 +87,13 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-sample_input = whisper_data_collator([next(iter(ds))])
-sample_input = {k: v.to(model.device) for k, v in sample_input.items()}
+sample_features = next(iter(ds))["input_features"]
+sample_decoder_ids = [processor.tokenizer.prefix_tokens]
+sample_input = {
+    "input_features": torch.tensor(sample_features).to(model.device),
+    "decoder_input_ids": torch.tensor(sample_decoder_ids).to(model.device),
+}
+
 output = model.generate(**sample_input, language="en")
 print(processor.batch_decode(output, skip_special_tokens=True))
 print("==========================================\n\n")

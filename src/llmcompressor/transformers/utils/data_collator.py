@@ -53,6 +53,7 @@ def whisper_data_collator(batch):
     return {
         "input_features": torch.tensor(batch[0]["input_features"]),
         "decoder_input_ids": torch.tensor(batch[0]["decoder_input_ids"]),
+        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
     }
 
 
