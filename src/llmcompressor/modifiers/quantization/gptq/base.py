@@ -67,7 +67,8 @@ class GPTQModifier(Modifier, HooksMixin):
             - run_sequential / run_layer_sequential / run_basic
                 - make_empty_hessian
                 - accumulate_hessian
-                - quantize_weight
+        - on_sequential_batch_end
+            - quantize_weight
         - on_finalize
             - remove_hooks()
             - model.apply(freeze_module_quantization)
@@ -191,7 +192,7 @@ class GPTQModifier(Modifier, HooksMixin):
         if self._quantization_modifier:
             self._quantization_modifier.on_initialize_structure(state, **kwargs)
 
-    def on_initialize(self, state: "State", **kwargs) -> bool:
+    def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run the GPTQ algorithm on the current state
 
@@ -271,7 +272,7 @@ class GPTQModifier(Modifier, HooksMixin):
                 run_basic(state.model, state.data.calib, self)
                 return True
 
-    def on_finalize(self, state: "State", **kwargs) -> bool:
+    def on_finalize(self, state: State, **kwargs) -> bool:
         """
         disable the quantization observers used by the OBCQ algorithm
 
