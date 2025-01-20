@@ -1,7 +1,13 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from compressed_tensors import CompressionFormat, SparsityCompressionConfig
 from compressed_tensors.config import SparsityStructure
+from compressed_tensors.quantization import QuantizationType
+from compressed_tensors.quantization.utils import (
+    is_model_quantized,
+    is_module_quantized,
+    iter_named_leaf_modules,
+)
 from torch import Tensor
 from torch.nn import Module
 
@@ -107,7 +113,9 @@ class SparsityConfigMetadata:
             # when no_sparse_compression is True
             # or when marlin_24 is used
             format = CompressionFormat.dense.value
-        elif compress and sparsity_structure == SparsityStructure.TWO_FOUR.value:
+        elif compress and SparsityConfigMetadata.is_sparse24_bitmask_supported(
+            model, sparsity_structure
+        ):
             format = CompressionFormat.sparse_24_bitmask.value
         else:
             format = CompressionFormat.dense.value
@@ -144,3 +152,59 @@ class SparsityConfigMetadata:
             model, state_dict=state_dict
         )
         config.sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure()
+
+    @staticmethod
+    def is_sparse24_bitmask_supported(
+        model: Module,
+        sparsity_structure: Optional[str] = None,
+    ) -> bool:
+        """
+        Determines if sparse 24 bitmask sparse compressor is supported for a given model
+        and it's sparsity structure in vLLM
+
+        :param model: pytorch model to check for sparse 24 bit sparsity support
+        :param sparsity_structure: sparsity structure of the model, if
+            not supplied it will be inferred
+        :return: whether or not sparse 24 bitmask compression is supported
+            in vLLM for the given model
+        """
+
+        if sparsity_structure is None:
+            sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(model)
+
+        if sparsity_structure != SparsityStructure.TWO_FOUR.value:
+            # only supported for 2:4 sparsity
+            return False
+
+        if not is_model_quantized(model):
+            # non-quantized 2:4 sparse models are supported
+            return True
+
+        # when model is quantized, and has 2:4 sparsity
+
+        supported_scheme_types: List[str] = [
+            QuantizationType.INT.value,
+            QuantizationType.FLOAT.value,
+        ]
+
+        for _, submodule in iter_named_leaf_modules(model):
+            if is_module_quantized(submodule):
+                weight_scheme = submodule.quantization_scheme.weights
+                input_scheme = submodule.quantization_scheme.input_activations
+
+                if weight_scheme and input_scheme:
+                    # weight and activation quantization
+                    # check schemes are supported
+                    for scheme in [weight_scheme, input_scheme]:
+                        scheme_supported = (
+                            scheme.num_bits == 8
+                            and scheme.type in supported_scheme_types
+                        )
+                        if not scheme_supported:
+                            return False
+
+                elif weight_scheme or input_scheme:
+                    # weight only quantization
+                    return False
+
+        return True
