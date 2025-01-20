@@ -24,7 +24,11 @@ MAX_SEQUENCE_LENGTH = 2048
 # Define a oneshot data collator for multimodal inputs.
 def data_collator(batch):
     assert len(batch) == 1
-    return {key: torch.tensor(value) for key, value in batch[0].items()}
+    return {
+        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
+        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
+        "pixel_values": torch.tensor(batch[0]["pixel_values"])[0],
+    }
 
 
 # Recipe
