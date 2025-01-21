@@ -19,7 +19,27 @@ def infer_quantization_format(
     sparsity_structure: Optional[str] = None,
 ) -> str:
     """
-    Infers a quantization format based on model state and compression args
+    Infers the quantization format for a model based on its state and provided
+    compression arguments.
+
+    The following table outlines the possible quantization and sparsity formats
+    along with their corresponding compressor formats:
+
+        +---------------+----------+----------------------+---------------------+
+        | Quantization  | Sparsity | Quant Compressor     | Sparsity Compressor |
+        |               |          | Format               | Format              |
+        +---------------+----------+----------------------+---------------------+
+        | W8A8 - int    | None     | int_quantized        | Dense               |
+        | W8A8 - float  | None     | float_quantized      | Dense               |
+        | W4A16 - int   | None     | pack_quantized       | Dense               |
+        | W8A16 - int   | None     | pack_quantized       | Dense               |
+        | W8A16 - float | None     | naive_quantized      | Dense               |
+        | W8A8 - int    | 2:4      | int_quantized        | Sparse24            |
+        | W8A8 - float  | 2:4      | float_quantized      | Sparse24            |
+        | W4A16 - int   | 2:4      | marlin_24            | Dense               |
+        | W8A16 - int   | 2:4      | marlin_24            | Dense               |
+        | W8A16 - float | 2:4      | naive_quantized      | Dense               |
+        +---------------+----------+----------------------+---------------------+
 
     :param model: model to check for quantization, if the model is not quantized no
         quantization format is returned

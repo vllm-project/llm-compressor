@@ -9,8 +9,13 @@ from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import QUANTIZATION_CONFIG_NAME, CompressionFormat
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
-from compressed_tensors.quantization import QuantizationStatus
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationStatus,
+    quantize,
+)
 from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
+from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
@@ -21,6 +26,7 @@ from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    get_model_compressor,
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
@@ -535,3 +541,163 @@ def test_no_sparse_compression_flag(tmp_path):
     assert sparsity_config
     assert sparsity_config["format"] == "dense"
     shutil.rmtree(tmp_path)
+
+
+class DummyLinearModel(nn.Module):
+    """
+    A dummy linear model for testing purposes, simulating a quantized linear layer.
+    """
+
+    def __init__(self, weights, weight_scale=None, weight_zero_point=None):
+        super().__init__()
+        out_features, in_features = weights.shape
+
+        # Linear layer without bias
+        self.linear = nn.Linear(in_features, out_features, bias=False)
+        self.linear.weight = nn.Parameter(weights, requires_grad=False)
+
+        # Attach scale and zero-point if provided
+        if weight_scale is not None:
+            self.linear.weight_scale = nn.Parameter(
+                torch.tensor(weight_scale), requires_grad=False
+            )
+        if weight_zero_point is not None:
+            self.linear.weight_zero_point = nn.Parameter(
+                torch.tensor(weight_zero_point), requires_grad=False
+            )
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+def _create_quantization_config(
+    w_bits=8,
+    w_type="int",
+    w_strategy="tensor",
+    quantize_activations=False,
+    a_bits=8,
+    a_type="int",
+    a_strategy="tensor",
+):
+    """
+    Create a quantization configuration for testing.
+    """
+    config_dict = {
+        "global_compression_ratio": 1.0,
+        "quant_method": "compressed-tensors",
+        "config_groups": {
+            "group_0": {
+                "targets": ["Linear"],
+                "weights": {
+                    "num_bits": w_bits,
+                    "strategy": w_strategy,
+                    "symmetric": True,
+                    "type": w_type,
+                },
+            }
+        },
+    }
+
+    if quantize_activations:
+        config_dict["config_groups"]["group_0"]["input_activations"] = {
+            "num_bits": a_bits,
+            "strategy": a_strategy,
+            "symmetric": True,
+            "type": a_type,
+        }
+
+    return QuantizationConfig.model_validate(config_dict)
+
+
+def _quantization_config_from_string(config_str, q_type):
+    """
+    Parse quantization config from string and type.
+    """
+    w_bits = int(config_str[1])
+    a_bits = int(config_str[3:])
+    quantize_activations = a_bits < 16
+
+    return _create_quantization_config(
+        w_bits=w_bits,
+        w_type=q_type,
+        w_strategy="channel",
+        quantize_activations=quantize_activations,
+        a_bits=a_bits,
+        a_type=q_type,
+        a_strategy="channel",
+    )
+
+
+def _make_24_sparse(tensor):
+    """
+    Apply 2:4 sparsity pattern to the given tensor.
+    """
+    reshaped_tensor = tensor.view(tensor.size(0), -1, 4)
+    mask = torch.zeros_like(reshaped_tensor, dtype=torch.bool)
+    mask[..., :2] = True
+    sparsified_tensor = torch.where(
+        mask, reshaped_tensor, torch.tensor(0.0, dtype=tensor.dtype)
+    )
+    return sparsified_tensor.view_as(tensor)
+
+
+@pytest.mark.parametrize(
+    "quant_style, quant_type, is_24, expected_quant_compressor, "
+    "expected_sparsity_compressor",
+    [
+        ("W8A8", "int", False, "int-quantized", "dense"),
+        ("W4A16", "int", False, "pack-quantized", "dense"),
+        ("W8A16", "int", False, "pack-quantized", "dense"),
+        ("W8A8", "int", True, "int-quantized", "sparse-24-bitmask"),
+        ("W4A16", "int", True, "marlin-24", "dense"),
+        ("W8A16", "int", True, "marlin-24", "dense"),
+        ("W8A8", "float", False, "float-quantized", "dense"),
+        ("W8A16", "float", False, "naive-quantized", "dense"),
+        ("W8A8", "float", True, "float-quantized", "sparse-24-bitmask"),
+        ("W8A16", "float", True, "naive-quantized", "dense"),
+    ],
+)
+def test_correct_compressor_inferred(
+    quant_style,
+    quant_type,
+    is_24,
+    expected_quant_compressor,
+    expected_sparsity_compressor,
+):
+    """
+    Test if the correct compressor is inferred based on
+    quantization and sparsity configurations.
+    """
+    weights = torch.rand(10, 4)
+    if is_24:
+        weights = _make_24_sparse(weights)
+
+    quantization_config = _quantization_config_from_string(quant_style, quant_type)
+    quantization_args = quantization_config.config_groups["group_0"].weights
+
+    scale = (
+        torch.ones((weights.shape[0], 1))
+        if quantization_args.strategy == "channel"
+        else torch.tensor([1.0])
+    )
+    zero_point = torch.zeros_like(scale)
+
+    quantized_weights = quantize(
+        weights, scale=scale, zero_point=zero_point, args=quantization_args
+    )
+
+    model = DummyLinearModel(quantized_weights, scale, zero_point)
+    model.linear.quantization_scheme = quantization_config.config_groups["group_0"]
+    model.linear.quantization_status = QuantizationStatus.FROZEN
+
+    compressor = get_model_compressor(model)
+
+    assert compressor.quantization_config.format == expected_quant_compressor
+
+    if expected_sparsity_compressor == "dense":
+        assert (
+            compressor.sparsity_config is None
+            or compressor.sparsity_config.format == expected_sparsity_compressor
+        )
+    else:
+        assert compressor.sparsity_config.format == expected_sparsity_compressor
