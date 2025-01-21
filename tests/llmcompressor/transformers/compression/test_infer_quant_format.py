@@ -20,9 +20,6 @@ from tests.llmcompressor.pytorch.helpers import LinearNet
     ],
 )
 def test_infer_quant_format(preset, sparsity_structure, expected_format):
-    sparsity_config = SparsityCompressionConfig(
-        format="dense", sparsity_structure=sparsity_structure
-    )
     quant_scheme = preset_name_to_scheme(preset, targets=["Linear"])
 
     dummy_model = LinearNet()
@@ -30,6 +27,6 @@ def test_infer_quant_format(preset, sparsity_structure, expected_format):
         module.quantization_scheme = quant_scheme
 
     inferred_format = infer_quantization_format(
-        dummy_model, save_compressed=True, sparsity_config=sparsity_config
+        dummy_model, save_compressed=True, sparsity_structure=sparsity_structure
     )
     assert inferred_format.value == expected_format
