@@ -1,5 +1,4 @@
 import pytest
-from compressed_tensors.config import SparsityCompressionConfig
 from compressed_tensors.quantization import preset_name_to_scheme
 
 from llmcompressor.transformers.compression.quantization_format import (
