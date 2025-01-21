@@ -5,7 +5,6 @@ from transformers import WhisperProcessor
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
-from llmcompressor.transformers.utils.data_collator import whisper_data_collator
 
 # Select model and load it.
 MODEL_ID = "openai/whisper-large-v2"
@@ -70,6 +69,13 @@ def process(sample):
 
 ds = ds.map(process, remove_columns=ds.column_names)
 
+
+# Define a oneshot data collator for multimodal inputs.
+def data_collator(batch):
+    assert len(batch) == 1
+    return {key: torch.tensor(value) for key, value in batch[0].items()}
+
+
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
@@ -81,7 +87,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    data_collator=whisper_data_collator,
+    data_collator=data_collator,
 )
 
 # Confirm generations of the quantized model look sane.

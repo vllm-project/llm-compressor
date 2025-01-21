@@ -57,22 +57,3 @@ def phi3_vision_data_collator(batch):
         "pixel_values": torch.tensor(batch[0]["pixel_values"]),
         "image_sizes": torch.tensor(batch[0]["image_sizes"]),
     }
-
-
-def whisper_data_collator(batch):
-    assert len(batch) == 1
-    return {
-        "input_features": torch.tensor(batch[0]["input_features"]),
-        "decoder_input_ids": torch.tensor(batch[0]["decoder_input_ids"]),
-        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-    }
-
-
-def qwen2_audio_data_collator(batch):
-    assert len(batch) == 1
-    return {
-        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
-        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-        "input_features": torch.tensor(batch[0]["input_features"]),
-        "feature_attention_mask": torch.tensor(batch[0]["feature_attention_mask"]),
-    }

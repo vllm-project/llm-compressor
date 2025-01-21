@@ -1,3 +1,4 @@
+import torch
 from datasets import load_dataset
 from transformers import AutoProcessor
 
@@ -6,7 +7,6 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import (
     TraceableQwen2AudioForConditionalGeneration,
 )
-from llmcompressor.transformers.utils.data_collator import qwen2_audio_data_collator
 
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen2-Audio-7B-Instruct"
@@ -67,14 +67,21 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
+
+# Define a oneshot data collator for multimodal inputs.
+def data_collator(batch):
+    assert len(batch) == 1
+    return {key: torch.tensor(value) for key, value in batch[0].items()}
+
+
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = GPTQModifier(
     targets="Linear",
     scheme="W4A16",
     ignore=[
-        "re:audio_tower.*",
-        "re:multi_modal_projector.*",
+        # "re:audio_tower.*",
+        #"re:multi_modal_projector.*",
         "lm_head",
     ],  # TODO: honestly, there's a decent number of parameters in the audio tower worth quantizing
 )
@@ -86,14 +93,14 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    data_collator=qwen2_audio_data_collator,
+    data_collator=data_collator,
 )
 
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 breakpoint()
-sample_input = qwen2_audio_data_collator([next(iter(ds))])
+sample_input = data_collator([next(iter(ds))])
 sample_input = {k: v.to(model.device) for k, v in sample_input.items()}
 output = model.generate(**sample_input)
 print(processor.batch_decode(output, skip_special_tokens=True)[0])
