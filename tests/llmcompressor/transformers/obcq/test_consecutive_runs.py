@@ -8,7 +8,7 @@ from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.transformers.utils.helpers import resolve_recipe
+from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
@@ -60,7 +60,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         session.reset()
 
-        recipe = resolve_recipe(recipe=self.first_recipe, model_path=self.output_first)
+        recipe = infer_recipe_from_model_path(model_path=self.output_first)
         if recipe:
             initialize_recipe(model=first_model, recipe_path=recipe)
 
