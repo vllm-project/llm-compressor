@@ -106,7 +106,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
         return None
 
     # If the model path is a Hugging Face model ID
-    recipe = recipe_from_huggingface_model_id(model_path)
+    recipe = recipe_from_huggingface_model_id(hf_stub=model_path)
 
     if recipe is None:
         logger.info("Failed to infer the recipe from the model_path")
@@ -115,45 +115,42 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
 
 
 def recipe_from_huggingface_model_id(
-    model_path: str, recipe_file_name: str = RECIPE_FILE_NAME
+    hf_stub: str, recipe_file_name: str = RECIPE_FILE_NAME
 ) -> Optional[str]:
     """
     Attempts to download the recipe from the Hugging Face model ID.
 
-    :param model_path: Assumed to be the Hugging Face model ID.
+    :param hf_stub: Assumed to be the Hugging Face model ID.
     :param recipe_file_name: The name of the recipe file to download.
      Defaults to RECIPE_FILE_NAME.
     :return: A tuple:
         - The path to the recipe file if found, None otherwise.
-        - True if model_path is a valid Hugging Face model ID, False otherwise.
+        - True if hf_stub is a valid Hugging Face model ID, False otherwise.
     """
-    model_id_url = os.path.join(HUGGINGFACE_CO_URL_HOME, model_path)
-    request = requests.get(model_id_url)
+    model_id_url = os.path.join(HUGGINGFACE_CO_URL_HOME, hf_stub)
+    request = requests.head(model_id_url)
 
     if request.status_code != 200:
         logger.debug(
             (
-                "model_path is not a valid Hugging Face model ID. ",
+                "hf_stub is not a valid Hugging Face model ID. ",
                 "Skipping recipe resolution.",
             )
         )
         return None
 
-    logger.info(
-        (
-            "model_path is a Hugging Face model ID. ",
-            f"Attempting to download recipe from {HUGGINGFACE_CO_URL_HOME}",
-        )
-    )
-
     try:
-        recipe = hf_hub_download(repo_id=model_path, filename=recipe_file_name)
-        logger.info(f"Found recipe: {recipe_file_name} for model ID: {model_path}.")
+        logger.info(
+            "Attempting to download a recipe ",
+            f"{hf_stub} " f"from {HUGGINGFACE_CO_URL_HOME}",
+        )
+        recipe = hf_hub_download(repo_id=hf_stub, filename=recipe_file_name)
+        logger.info(f"Found recipe: {recipe_file_name} for model ID: {hf_stub}.")
     except Exception as e:
         logger.error(
             (
                 f"Unable to find recipe {recipe_file_name} "
-                f"for model ID: {model_path}: {e}."
+                f"for model ID: {hf_stub}: {e}."
                 "Skipping recipe resolution."
             )
         )
