@@ -2,6 +2,7 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.utils.data_collator import phi3_vision_data_collator
 
@@ -61,6 +62,7 @@ ds = ds.map(tokenize, writer_batch_size=1, remove_columns=ds.column_names)
 
 # Recipe
 recipe = [
+    SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
