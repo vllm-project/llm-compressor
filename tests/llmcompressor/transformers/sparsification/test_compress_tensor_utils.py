@@ -522,7 +522,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     shutil.rmtree(tmp_path)
 
 
-def test_no_sparse_compression_flag(tmp_path):
+def test_disable_sparse_compression_flag(tmp_path):
     two_four_sparse_model_id = "nm-testing/llama2.c-stories42M-pruned2.4"
     two_four_sparse_model = AutoModelForCausalLM.from_pretrained(
         two_four_sparse_model_id, torch_dtype="auto"
@@ -530,7 +530,7 @@ def test_no_sparse_compression_flag(tmp_path):
     modify_save_pretrained(two_four_sparse_model)
 
     save_path = tmp_path / "no_sparse_compression_model"
-    two_four_sparse_model.save_pretrained(save_path, no_sparse_compression=True)
+    two_four_sparse_model.save_pretrained(save_path, disable_sparse_compression=True)
 
     config = AutoConfig.from_pretrained(save_path)
     quantization_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
