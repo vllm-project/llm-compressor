@@ -27,7 +27,7 @@ class SparsityConfigMetadata:
     metadata from the model
     """
 
-    SPARSITY_THRESHOLD: float = 0.5
+    SPARSITY_THRESHOLD: float = 0.49
 
     @staticmethod
     def infer_global_sparsity(
