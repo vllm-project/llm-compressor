@@ -111,11 +111,11 @@ Output Directories:
 To save the model on disk without sparse compression:
 
 ```python
-model.save_pretrained(save_dir, save_compressed=True, no_sparse_compression=True)
+model.save_pretrained(save_dir, save_compressed=True, disable_sparse_compression=True)
 tokenizer.save_pretrained(save_dir)
 ```
 
-> **Note:** This will compress the model using the quantization compressor; however, instead of using the optimal sparsity compressor, the dense sparsity compressor will be used. This affects only how the model is saved on disk and does not change the actual pruning/quantization process.
+> **Note:** Saving a model with both the `save_compressed` and `disable_sparse_compression` options will compress the model using the quantization compressor; however, instead of using the more disk-efficient sparsity compressor(s), the dense sparsity compressor will be used. The `dense` sparsity compressor saves model params as is, and does not leverage sparsity for disk-efficient storage. These options only affect how the model(s) are saved on disk and do not impact the actual pruning or quantization processes.
 
 ### Validation
 

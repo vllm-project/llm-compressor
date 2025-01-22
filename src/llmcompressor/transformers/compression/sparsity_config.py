@@ -8,6 +8,7 @@ from compressed_tensors.quantization.utils import (
     is_module_quantized,
     iter_named_leaf_modules,
 )
+from loguru import logger
 from torch import Tensor
 from torch.nn import Module
 
@@ -81,7 +82,7 @@ class SparsityConfigMetadata:
         state_dict: Optional[Dict[str, Tensor]] = None,
         compress: bool = False,
         quantization_format: Optional[CompressionFormat] = None,
-        no_sparse_compression: bool = False,
+        disable_sparse_compression: bool = False,
     ) -> Optional["SparsityCompressionConfig"]:
         """
         Determines compression type and informational parameters for a given model
@@ -92,7 +93,7 @@ class SparsityConfigMetadata:
         :param compress: whether or not to compress the model on disk
         :param quantization_format: the quantization compression format being used
             for the model
-        :param no_sparse_compression: whether or not to compress the model with
+        :param disable_sparse_compression: whether or not to compress the model with
             sparse compressors, If True, the sparse compression format will
             be dense, default is False.
         :return: compression config inferred from the model
@@ -108,7 +109,10 @@ class SparsityConfigMetadata:
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
             model=model
         )
-        if no_sparse_compression or quantization_format == CompressionFormat.marlin_24:
+        if (
+            disable_sparse_compression
+            or quantization_format == CompressionFormat.marlin_24
+        ):
             # sparse compressor should be dense
             # when no_sparse_compression is True
             # or when marlin_24 is used
@@ -160,7 +164,7 @@ class SparsityConfigMetadata:
     ) -> bool:
         """
         Determines if sparse 24 bitmask sparse compressor is supported for a given model
-        and it's sparsity structure in vLLM
+        and its sparsity structure in vLLM
 
         :param model: pytorch model to check for sparse 24 bit sparsity support
         :param sparsity_structure: sparsity structure of the model, if
@@ -201,10 +205,19 @@ class SparsityConfigMetadata:
                             and scheme.type in supported_scheme_types
                         )
                         if not scheme_supported:
+                            logger.info(
+                                "Quantization scheme not supported,"
+                                " turning off sparse 24 compression."
+                                f" Invalid Scheme: {scheme}"
+                            )
                             return False
 
                 elif weight_scheme or input_scheme:
                     # weight only quantization
+                    logger.info(
+                        "Weight only quantization detected, "
+                        "turning off sparse 24 compression."
+                    )
                     return False
 
         return True
