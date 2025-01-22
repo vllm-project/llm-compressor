@@ -109,8 +109,8 @@ class ModuleSparsificationInfo:
         for name, layer in get_quantized_layers(self.module):
             if getattr(layer, "weight", None) is not None:
                 num_params += torch.numel(layer.weight)
-                if getattr(layer, "bias", None) is not None:
-                    num_params += torch.numel(layer.bias)
+            if getattr(layer, "bias", None) is not None:
+                num_params += torch.numel(layer.bias)
 
         return num_params
 
