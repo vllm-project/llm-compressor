@@ -8,6 +8,7 @@ from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.core.session_functions import create_session
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -31,73 +32,75 @@ class TestConsecutiveRuns(unittest.TestCase):
         from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
 
-        # test recipe with 50% sparsity, quantization and smoothquant
-        oneshot(
-            model=self.model,
-            dataset=self.dataset,
-            num_calibration_samples=num_calibration_samples,
-            recipe=self.first_recipe,
-            output_dir=self.output_first,
-            oneshot_device=self.device,
-            clear_sparse_session=False,
-        )
+        with create_session():
+            # test recipe with 50% sparsity, quantization and smoothquant
+            oneshot(
+                model=self.model,
+                dataset=self.dataset,
+                num_calibration_samples=num_calibration_samples,
+                recipe=self.first_recipe,
+                output_dir=self.output_first,
+                oneshot_device=self.device,
+                clear_sparse_session=False,
+            )
 
-        first_model = AutoModelForCausalLM.from_pretrained(
-            self.output_first,
-            device_map="auto",
-            quantization_config=self.quantization_config,
-        )
+            first_model = AutoModelForCausalLM.from_pretrained(
+                self.output_first,
+                device_map="auto",
+                quantization_config=self.quantization_config,
+            )
 
-        layer_0_sparse = tensor_sparsity(
-            first_model.model.layers[0].self_attn.k_proj.weight
-        )
-        assert math.isclose(layer_0_sparse.item(), 0.5, rel_tol=tolerance)
-        assert qat_active(first_model)
+            layer_0_sparse = tensor_sparsity(
+                first_model.model.layers[0].self_attn.k_proj.weight
+            )
+            assert math.isclose(layer_0_sparse.item(), 0.5, rel_tol=tolerance)
+            assert qat_active(first_model)
 
-        session = active_session()
-        session_recipe = session.lifecycle.recipe_container.compiled_recipe
-        stages = [stage.group for stage in session_recipe.stages]
-        self.assertEqual(len(stages), 1)
-        session.reset()
+            session = active_session()
+            session_recipe = session.lifecycle.recipe_container.compiled_recipe
+            stages = [stage.group for stage in session_recipe.stages]
+            self.assertEqual(len(stages), 1)
+            # session.reset()
 
-        recipe = infer_recipe_from_model_path(model_path=self.output_first)
-        if recipe:
-            initialize_recipe(model=first_model, recipe_path=recipe)
+        with create_session():
+            recipe = infer_recipe_from_model_path(model_path=self.output_first)
+            if recipe:
+                initialize_recipe(model=first_model, recipe_path=recipe)
 
-        # reload saved model and up sparsity to 0.7
-        oneshot(
-            model=self.output_first,
-            dataset=self.dataset,
-            num_calibration_samples=num_calibration_samples,
-            recipe=self.second_recipe,
-            output_dir=self.output_second,
-            oneshot_device=self.device,
-            clear_sparse_session=False,
-        )
+            # reload saved model and up sparsity to 0.7
+            oneshot(
+                model=self.output_first,
+                dataset=self.dataset,
+                num_calibration_samples=num_calibration_samples,
+                recipe=self.second_recipe,
+                output_dir=self.output_second,
+                oneshot_device=self.device,
+                clear_sparse_session=False,
+            )
 
-        second_model = AutoModelForCausalLM.from_pretrained(
-            self.output_second,
-            device_map="auto",
-            quantization_config=self.quantization_config,
-        )
+            second_model = AutoModelForCausalLM.from_pretrained(
+                self.output_second,
+                device_map="auto",
+                quantization_config=self.quantization_config,
+            )
 
-        layer_0_sparse = tensor_sparsity(
-            second_model.model.layers[0].self_attn.k_proj.weight
-        )
-        assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
-        assert qat_active(second_model)
+            layer_0_sparse = tensor_sparsity(
+                second_model.model.layers[0].self_attn.k_proj.weight
+            )
+            assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
+            assert qat_active(second_model)
 
-        session = active_session()
-        session_recipe = session.lifecycle.recipe_container.compiled_recipe
-        stages = [stage.group for stage in session_recipe.stages]
-        self.assertEqual(len(stages), 2)
+            session = active_session()
+            session_recipe = session.lifecycle.recipe_container.compiled_recipe
+            stages = [stage.group for stage in session_recipe.stages]
+            self.assertEqual(len(stages), 2)
 
-        recipe_path = self.output_second / "recipe.yaml"
-        recipe_data = yaml.safe_load(recipe_path.read_text())
-        stage_keys = recipe_data.keys()
-        self.assertEqual(len(stage_keys), 2)
-        self.assertIn("test_stage_0", stage_keys)
-        self.assertIn("test_stage_1", stage_keys)
+            recipe_path = self.output_second / "recipe.yaml"
+            recipe_data = yaml.safe_load(recipe_path.read_text())
+            stage_keys = recipe_data.keys()
+            self.assertEqual(len(stage_keys), 2)
+            self.assertIn("test_stage_0", stage_keys)
+            self.assertIn("test_stage_1", stage_keys)
 
     def tearDown(self):
         shutil.rmtree(self.output)
