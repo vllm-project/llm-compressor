@@ -126,7 +126,6 @@ def modify_save_pretrained(
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
             skip_compression_stats: bool = False,
-            # stage_modifiers: Optional[StageModifiers] = None,
             **kwargs,
         ):
             """
@@ -265,7 +264,6 @@ def get_model_compressor(
     save_compressed: bool = True,
     skip_compression_stats: bool = False,
     state_dict: Optional[Dict] = None,
-    # stage_modifiers: Optional[StageModifiers] = None,
 ):
     """
     Obtain the compressor based on the config and the

@@ -77,7 +77,6 @@ class SparsityConfigMetadata:
         model: Module,
         state_dict: Optional[Dict[str, Tensor]] = None,
         compress: bool = False,
-        # stage_modifiers: Optional[StageModifiers] = None,
     ) -> Optional["SparsityCompressionConfig"]:
         """
         Determines compression type and informational parameters for a given model
