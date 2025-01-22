@@ -171,7 +171,6 @@ def modify_save_pretrained(
                 save_compressed=save_compressed,
                 skip_compression_stats=skip_compression_stats,
                 state_dict=state_dict,
-                # stage_modifiers=stage_modifiers,
             )
 
             if compressor is None:
@@ -302,7 +301,6 @@ def get_model_compressor(
             model,
             state_dict=state_dict,
             compress=save_compressed,
-            # stage_modifiers=stage_modifiers,
         )
 
     quantization_format = infer_quantization_format(

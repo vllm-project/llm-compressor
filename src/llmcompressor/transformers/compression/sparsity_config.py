@@ -97,7 +97,6 @@ class SparsityConfigMetadata:
 
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
             model=model,
-            # stage_modifiers=stage_modifiers,
         )
         if is_model_quantized(model):
             # compressing a sparse quantized model is not supported yet
