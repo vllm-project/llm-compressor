@@ -13,7 +13,6 @@ from transformers.trainer_utils import get_last_checkpoint
 
 from llmcompressor.core import (
     active_session,
-    apply,
     callbacks,
     create_session,
     finalize,

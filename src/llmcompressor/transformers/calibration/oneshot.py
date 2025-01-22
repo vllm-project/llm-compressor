@@ -24,62 +24,82 @@ __all__ = ["Oneshot"]
 
 class Oneshot:
     """
-    Class responsible for carrying out oneshot calibration.
+    Class responsible for carrying out one-shot calibration on a pretrained model.
 
-    - Input Keyword Arguments:
+    This class handles the entire lifecycle of one-shot calibration, including
+    preprocessing (model and tokenizer/processor initialization), model optimization
+    (quantization or sparsification), and postprocessing (saving outputs). The
+    intructions for model optimization can be specified by using a recipe (fine-grain
+    details) or by using a scheme (ex. W4A16, W8A8, W4A8).
 
-        kwargs are parsed into
-        - model_args
-            - responsible for handling Pretrained model loading args
-            ex. AutoModelForCausalLM
-        - data_args
-            - responsible for handling dataset related arguments
-        - recipe_args
-            - resposible for handling recipe related arguments
+    - **Input Keyword Arguments:**
+        `kwargs` are parsed into:
+        - `model_args`: Arguments for loading and configuring a pretrained model
+          (e.g., `AutoModelForCausalLM`).
+        - `data_args`: Arguments for dataset-related configurations, such as
+          calibration dataloaders.
+        - `recipe_args`: Arguments for defining and configuring recipes that specify
+          optimization actions.
 
-        Parsers are defined in
-            src/llmcompressor/transformers/utils/arg_parser
+        Parsers are defined in `src/llmcompressor/transformers/utils/arg_parser`.
 
-    - Lifecycle
+    - **Lifecycle Overview:**
+        The calibration lifecycle consists of three steps:
+        1. **Preprocessing**:
+            - Instantiates a pretrained model and tokenizer/processor.
+            - Ensures input and output embedding layers are untied if they share
+              tensors.
+            - Patches the model to include additional functionality for saving with
+              quantization configurations.
+        2. **Oneshot Calibration**:
+            - Optimizes the model using a global `CompressionSession` and applies
+              recipe-defined modifiers (e.g., `GPTQModifier`, `SparseGPTModifier`)
+        3. **Postprocessing**:
+            - Saves the model, tokenizer/processor, and configuration to the specified
+              `output_dir`.
 
-        Broken down into three steps
-        - Pre-processing
-            - Instantiate pretrainined model and tokenizer/processor
-            - Untie input and output embedding layers share the same underlying tensor
-              which needs to be in a separate address for calibration
-            - Wrap the model.save_pretrained model to add
-              compressed-tensors quantization config
-
-        - Carrying out oneshot calibration logic
-            - Use the global CompressionSession to carry out optimizations
-              to the given model.
-              Optimizations are based on recipes or preset schemes (ex. W4A16).
-              Every optimization method is encapsulated as a Modifier,
-               refer to src/llmcompressor/modifiers,
-               allowing the session to apply each modifier one by one to the model.
-
-              Ex. Apply just GPTQ -> "GPTQModifier".
-               Refer to examples/quantization_w4a16/llama3_example.py
-              Ex. Apply sparsification using "SparseGPTModifier" and then
-               apply quantization using "GPTQModifier".
-               Refer to examples/quantization_2of4_sparse_w4a16/llama7b_sparse_w4a16.py
-
-        - Post-processing
-            - Save the model, tokenizer, config and recipe if custom output_dir is
-              is specified (not ./output)
-
-
-    Usage:
-
+    - **Usage:**
         ```python
         oneshot = Oneshot(model=model, recipe=recipe, dataset=dataset)
         oneshot.run()
 
+        # Access the processed components
         model = oneshot.model
         tokenizer_or_processor = oneshot.tokenizer_or_processor
         recipe = oneshot.recipe
-
         ```
+
+    Methods:
+        __init__(**kwargs):
+            Initializes the `Oneshot` object by parsing input arguments, performing
+            preprocessing, and setting instance attributes.
+
+        run(**kwargs):
+            Performs the one-shot calibration process by preparing a calibration
+            dataloader, applying recipe modifiers to the model, and executing
+            postprocessing steps.
+
+        save():
+            Saves the calibrated model and tokenizer/processor to the specified
+            `output_dir`. Supports saving in compressed formats based on model
+            arguments.
+
+        _apply_recipe_modifiers(calibration_dataloader, **kwargs):
+            Applies lifecycle actions (e.g., `initialize`, `finalize`) using modifiers
+            defined in the recipe. Each action is executed via the global
+            `CompressionSession`.
+
+        _pre_process():
+            Handles preprocessing steps, including model initialization,
+            tokenizer/processor setup, and resolving tied embedding issues.
+
+        _warn_tied_embeddings():
+            Logs a warning if `tie_word_embeddings=True`, which may interfere with
+            saving in the one-shot workflow.
+
+        _post_process():
+            Executes postprocessing steps such as saving the model and resetting
+            lifecycle actions, especially when a custom `output_dir` is specified.
     """
 
     MODIFIER_LIFECYCLE_ACTIONS = (
@@ -87,10 +107,18 @@ class Oneshot:
         "finalize",
     )
 
-    def __init__(
-        self,
-        **kwargs,
-    ):
+    def __init__(self, **kwargs):
+        """
+        Initializes the `Oneshot` class with provided arguments.
+
+        Parses the input keyword arguments into `model_args`, `data_args`, and
+        `recipe_args`. Performs preprocessing to initialize the model and
+        tokenizer/processor.
+
+        Args:
+            kwargs: Arbitrary keyword arguments for model, data, and recipe
+            configurations.
+        """
         self.model_args, self.data_args, self.recipe_args, _, self.output_dir = (
             parse_args(**kwargs)
         )
@@ -104,7 +132,17 @@ class Oneshot:
         self.recipe = self.recipe_args.recipe
 
     def run(self, **kwargs):
-        """Perform oneshot calibration"""
+        """
+        Performs one-shot calibration.
+
+        This method prepares a calibration dataloader using dataset arguments and
+        applies recipe-based modifiers to optimize the model. The lifecycle actions
+        are executed sequentially, and the modified model is saved during
+        postprocessing.
+
+        Args:
+            kwargs: Additional keyword arguments for the recipe modifiers.
+        """
         calibration_dataloader = get_calibration_dataloader(
             self.data_args, self.tokenizer_or_processor
         )
@@ -114,7 +152,15 @@ class Oneshot:
         self._post_process()
 
     def save(self):
-        """Save the model and tokenizer/processor to the output directory"""
+        """
+        Saves the model and tokenizer/processor to the output directory.
+
+        The model is saved in a compressed format if specified in `model_args`.
+        The tokenizer or processor, if available, is also saved.
+
+        Raises:
+            ValueError: If saving fails due to an invalid `output_dir` or other issues.
+        """
         self.model.save_pretrained(
             self.output_dir,
             save_compressed=self.model_args.save_compressed,
@@ -125,10 +171,22 @@ class Oneshot:
     def _apply_recipe_modifiers(
         self, calibration_dataloader: Optional[DataLoader], **kwargs
     ):
-        """Apply recipe modifiers to the model"""
+        """
+        Applies recipe modifiers to the model during the lifecycle.
+
+        The modifiers are defined in the recipe and executed via lifecycle actions
+        (`initialize`, `finalize`) through the global `CompressionSession`.
+
+        Args:
+            calibration_dataloader (Optional[DataLoader]): Dataloader for calibration
+            data.
+            kwargs: Additional arguments for lifecycle actions.
+
+        Raises:
+            RuntimeError: If any modifier fails during execution.
+        """
         for action in self.MODIFIER_LIFECYCLE_ACTIONS:
             session = active_session()
-
             session_action = getattr(session, action)
             session_action(
                 model=self.model,
@@ -142,7 +200,18 @@ class Oneshot:
             )
 
     def _pre_process(self):
-        """Preprocess model and tokenizer/processor"""
+        """
+        Prepares the model and tokenizer/processor for calibration.
+
+        - Initializes the model if it's specified as a path or string.
+        - Applies patches to fix tied tensor issues and modifies `save_pretrained`
+          behavior.
+        - Initializes the processor if specified as a path or `None`.
+        - Sets the minimum tokens per module if `data_args` are provided.
+
+        Raises:
+            FileNotFoundError: If the model or processor path is invalid.
+        """
         self._warn_tied_embeddings()
 
         # Initialize model
@@ -163,16 +232,30 @@ class Oneshot:
             self.min_tokens_per_module = self.data_args.min_tokens_per_module
 
     def _warn_tied_embeddings(self):
+        """
+        Logs a warning if the model has tied word embeddings.
+
+        The `tie_word_embeddings` flag may cause issues during saving in the one-shot
+        calibration workflow due to shared tensor addresses.
+        """
         if self.model_args.tie_word_embeddings:
             logger.debug(
                 "The tie_word_embeddings flag is by default set to False. "
                 "This guarantees that the one-shot algorithm saves the final "
                 "weights without errors. Detected tie_word_embeddings=True. "
-                "This may cause issues with the one-shot algorithm on save"
+                "This may cause issues with the one-shot algorithm on save."
             )
 
     def _post_process(self):
-        """Save model and reset the lifecycle if requested"""
+        """
+        Executes post-calibration steps.
+
+        This method saves the model and resets lifecycle actions if the `output_dir`
+        is not the default directory.
+
+        Raises:
+            ValueError: If saving fails due to invalid configurations.
+        """
         if (
             isinstance(self.model_args.model, str)
             or self.output_dir != DEFAULT_OUTPUT_DIR

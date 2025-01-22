@@ -5,6 +5,7 @@ from llmcompressor.transformers import oneshot
 
 # Select model and load it.
 MODEL_ID = "google/gemma-2-9b-it"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",

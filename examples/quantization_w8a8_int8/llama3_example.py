@@ -7,7 +7,6 @@ from llmcompressor.transformers import oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,

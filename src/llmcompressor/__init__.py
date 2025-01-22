@@ -36,7 +36,6 @@ __all__ = [
 
 from llmcompressor.core.session_functions import (
     active_session,
-    apply,
     callbacks,
     create_session,
     finalize,
