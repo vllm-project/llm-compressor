@@ -55,7 +55,7 @@ from llmcompressor.transformers.sparsification.sparse_model import (
 )
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
-    is_model_quantized_from_path,
+    is_model_ct_quantized_from_path,
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
@@ -230,7 +230,7 @@ def initialize_model_from_path(
     # this calls from_pretrained under the hood so should be FSDP safe
 
     # optimized models must be decompressed to carry out oneshot/train/etc
-    if is_model_quantized_from_path(model_path):
+    if is_model_ct_quantized_from_path(model_path):
         model_kwargs["quantization_config"] = CompressedTensorsConfig(
             run_compressed=False
         )

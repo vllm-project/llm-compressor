@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 __all__ = [
     "RECIPE_FILE_NAME",
     "detect_last_checkpoint",
-    "is_model_quantized_from_path",
+    "is_model_ct_quantized_from_path",
 ]
 
 RECIPE_FILE_NAME = "recipe.yaml"
@@ -61,7 +61,7 @@ def detect_last_checkpoint(
     return last_checkpoint
 
 
-def is_model_quantized_from_path(path: str) -> bool:
+def is_model_ct_quantized_from_path(path: str) -> bool:
     """
     Determine if model from path is quantized based
     on the config
@@ -72,7 +72,10 @@ def is_model_quantized_from_path(path: str) -> bool:
     """
     config = AutoConfig.from_pretrained(path)
     if config is not None:
-        if hasattr(config, "quantization_config"):
+        if (
+            hasattr(config, "quantization_config")
+            and config.quantization_config["quant_method"] == "compressed-tensors"
+        ):
             return True
     return False
 
