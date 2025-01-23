@@ -1,0 +1,4 @@
+cadence: "commit"
+test_type: "regression"
+compressed_model_stub: "nm-testing/tinyllama-w8a8-compressed"
+skeleton_model_stub: "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
