@@ -39,7 +39,7 @@ class TestConsecutiveRuns(unittest.TestCase):
             recipe=self.first_recipe,
             output_dir=self.output_first,
             oneshot_device=self.device,
-            clear_sparse_session=True,
+            clear_sparse_session=False,
         )
 
         first_model = AutoModelForCausalLM.from_pretrained(
@@ -58,6 +58,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         session_recipe = session.lifecycle.recipe_container.compiled_recipe
         stages = [stage.group for stage in session_recipe.stages]
         self.assertEqual(len(stages), 1)
+        session.reset()
 
         recipe = infer_recipe_from_model_path(model_path=self.output_first)
         if recipe:
@@ -71,7 +72,6 @@ class TestConsecutiveRuns(unittest.TestCase):
             recipe=self.second_recipe,
             output_dir=self.output_second,
             oneshot_device=self.device,
-            clear_sparse_session=False,
         )
 
         second_model = AutoModelForCausalLM.from_pretrained(
