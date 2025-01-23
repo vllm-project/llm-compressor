@@ -109,10 +109,10 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     dynamic: bool = False
     actorder: Union[ActivationOrdering, bool, None] = None
     observer: Optional[str] = Field(
-        default="minmax",
+        default=None,
         description=(
-            "The class to use to compute the quantization param - "
-            "scale and zero-point'"
+            "Determines the method of computing quantization parameters (scales and "
+            "zero-points). Defaults to min-max when not using dynamic quantization"
         ),
     )
     observer_kwargs: Dict[str, Any] = Field(
