@@ -134,19 +134,19 @@ class TestvLLM:
 
         logger.info("================= UPLOADING TO HUB ======================")
 
-        stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+        # stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
 
-        self.api.create_repo(
-            repo_id=stub,
-            exist_ok=True,
-            repo_type="model",
-            private=False,
-        )
+        # self.api.create_repo(
+        #     repo_id=stub,
+        #     exist_ok=True,
+        #     repo_type="model",
+        #     private=False,
+        # )
 
-        self.api.upload_folder(
-            repo_id=stub,
-            folder_path=self.save_dir,
-        )
+        # self.api.upload_folder(
+        #     repo_id=stub,
+        #     folder_path=self.save_dir,
+        # )
 
         logger.info("================= RUNNING vLLM =========================")
 
@@ -172,8 +172,9 @@ class TestvLLM:
         self.tear_down()
 
     def tear_down(self):
-        if self.save_dir is not None:
-            shutil.rmtree(self.save_dir)
+        # if self.save_dir is not None:
+        #     shutil.rmtree(self.save_dir)
+        pass
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
