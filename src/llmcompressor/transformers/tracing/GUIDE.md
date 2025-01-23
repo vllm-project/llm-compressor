@@ -36,16 +36,19 @@ assumption that "the input to the next layer is the output of the previous layer
 for most decoder-only LLMs, this assumption breaks for more complex models such as
 encoder-decoder architectures and models which pass RoPE embeddings as an input to each
 layer. For this reason, in order to faithfully capture the data flow between model
-layers, the model's call graph must be traced.
+layers, the model's execution graph must be traced.
 
 Tracing is done by sampling one batch from the provided dataset, capturing all
 of the operations that are performed during the model forward pass, and encoding those
 operations into a model graph which is then broken into sequential layers to be executed
-independently at calibration time. For a visual example of a model call graph, see
+independently at calibration time. For a visual example of a model execution graph, see
 [Llama_3.2-Vision.svg](/src/llmcompressor/transformers/tracing/assets/Llama_3.2-Vision.svg).
 
 <p align="center">
     <img alt="Model Graph" src="assets/model_graph.jpg" height="5%" />
+</p>
+<p align="center">
+    <em>This image depicts some of the operations performed when executing the Llama3.2-Vision model</em>
 </p>
 
 ## 2. Determining Traceability ##
@@ -98,6 +101,9 @@ as more time is spent offloading and onloading activations.
 <p align="center">
     <img alt="Sequential Targets" src="assets/sequential_targets.jpg" height="5%" />
 </p>
+<p align="center">
+    <em>This image depicts the sequential text decoder layers of the Llama3.2-Vision model. Some of the inputs, such as the cross attention features, are fed into the layers from modules computed earlier in the graph</em>
+</p>
 
 ### Choosing Modules to Ignore ###
 If your model is not traceable for your desired dataset, first consider adding any
@@ -108,14 +114,15 @@ For example, in this model graph, the internals of the `MllamaVisionModel` are n
 traced (we don't see the individual `MllamaVisionEncoder` layers, ect.). However, we can
 no longer target the modules within the `MllamaVisionModel` such as the
 `MllamaVisionEncoder` as sequential targets. If any modules within the
-`MllamaVisionModel` are being compressed, their hessians be all be allocated at the same
+`MllamaVisionModel` are being compressed, their hessians will all be allocated at the same
 time, increasing peak memory usage.
 
 <p align="center">
     <img alt="Ignored Modules" src="assets/ignored_modules.jpg" height="5%" />
 </p>
-
-Note that in the image above, the `multi_modal_projector` is also ignored.
+<p align="center">
+    <em>Visualization of the internals of the <code>vision_model</code> module being ignored and replaced with a single <code>call_module</code> operation. Note that, in this example, the <code>multi_modal_projector</code> module is also ignored.</em>
+</p>
 
 ## 3. Defining your own Traceable Model Definitions ##
 If you discover that your model is not traceable through `llm-compressor.trace`,
@@ -233,6 +240,9 @@ def _prepare_cross_attention_mask(...) -> ...:
 
 <p align="center">
     <img alt="Wrapped Function" src="assets/wrapped_function.jpg" height="5%" />
+</p>
+<p align="center">
+    <em>This image dicts how the internals of the <code>_prepare_cross_attention_mask</code> function are replaced by a single <code>call_module</code> operation, similar to how modules can be ignored as featured in section 1
 </p>
 
 Please note that wrapped functions must be defined at the module-level, meaning that

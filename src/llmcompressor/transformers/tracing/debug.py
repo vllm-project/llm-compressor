@@ -13,12 +13,12 @@ from llmcompressor.transformers import DataTrainingArguments, TextGenerationData
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Trace a model into subgraphs.")
-    parser.add_argument("--model_id", type=str, required=True, help="The model ID to load.")  # noqa: E501
-    parser.add_argument("--model_class", type=str, required=True, help="The class name of the model.")  # noqa: E501
-    parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing.")  # noqa: E501
-    parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing.")  # noqa: E501
-    parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text.")  # noqa: E501
+    parser = argparse.ArgumentParser(description="Trace a model into subgraphs")
+    parser.add_argument("--model_id", type=str, required=True, help="The stub of the model to load")  # noqa: E501
+    parser.add_argument("--model_class", type=str, required=True, help="The class name of the model")  # noqa: E501
+    parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing")  # noqa: E501
+    parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
+    parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
     return parser.parse_args()
 
 
@@ -29,6 +29,25 @@ def trace(
     ignore: Union[List[str], str] = [],
     modality: str = "text",
 ):
+    """
+    Debug traceability by tracing a pre-trained model into subgraphs
+
+    :param model_id: stub of the model to load
+    :param model_class: class constructor of the pre-trained model. Can use either
+        HF transformers classes or `Traceable` classes defined by LLM Compressor
+    :param sequential_targets: targets for sequential tracing, defaults to automatic
+        inference
+    :param ignore: patterns to ignore during tracing
+    :param modality: data modality for dummy tracing data, defaults to 'text'
+
+    Example usage from CLI
+    llmcompressor.trace \
+        --model_id Qwen/Qwen2-VL-2B-Instruct \
+        --model_class Qwen2VLForConditionalGeneration \
+        --sequential_targets Qwen2VLDecoderLayer \
+        --ignore "lm_head" "re:visual.*" \
+        --modality text
+    """
     # Load model
     model = model_class.from_pretrained(
         model_id,
