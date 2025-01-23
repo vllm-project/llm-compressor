@@ -1,10 +1,10 @@
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.utils.data_collator import phi3_vision_data_collator
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"
@@ -60,6 +60,12 @@ def tokenize(sample):
 ds = ds.map(tokenize, writer_batch_size=1, remove_columns=ds.column_names)
 
 
+# Define a oneshot data collator for multimodal inputs.
+def data_collator(batch):
+    assert len(batch) == 1
+    return {key: torch.tensor(value) for key, value in batch[0].items()}
+
+
 # Recipe
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
@@ -79,7 +85,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    data_collator=phi3_vision_data_collator,
+    data_collator=data_collator,
 )
 
 # Confirm generations of the quantized model look sane.
