@@ -244,7 +244,11 @@ class GPTQModifier(Modifier, HooksMixin):
 
         except Exception as exception:
             if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(f"Failed to trace {model_name} with inputs {input_names}")
+                warnings.warn(
+                    f"Failed to trace {model_name} with inputs {input_names}. For more "
+                    "information on tracing with the sequential pipeline, see "
+                    "`src/llmcompressor/transformers/tracing/GUIDE.md`"
+                )
             if isinstance(exception, unfixable_errors):
                 raise exception
 
