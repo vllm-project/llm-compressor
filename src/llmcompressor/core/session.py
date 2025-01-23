@@ -40,8 +40,9 @@ class CompressionSession:
     and state for the current compression session
     """
 
-    def __init__(self):
+    def __init__(self, exclude_reset: List[str] = []):
         self._lifecycle = CompressionLifecycle()
+        self.exclude_reset = exclude_reset
 
     @property
     def lifecycle(self) -> CompressionLifecycle:
@@ -253,7 +254,7 @@ class CompressionSession:
         """
         Reset the session to its initial state
         """
-        self._lifecycle.reset()
+        self._lifecycle.reset(exclude_reset=self.exclude_reset)
 
     def reset_stage(self):
         """

@@ -6,6 +6,7 @@ events, including initialization, finalization, and event handling.
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, List, Optional
 
 from loguru import logger
@@ -19,6 +20,14 @@ from llmcompressor.core.events import (
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import StageModifiers
 from llmcompressor.recipe import RecipeContainer
+
+
+class CompressionLifecyleAttributes(Enum):
+    state = "STATE"
+    recipe_container = "RECIPE_CONTAINER"
+    modifers = "MODIFIERS"
+    event_lifecycle = "EVENT_LIFECYCLE"
+
 
 __all__ = ["CompressionLifecycle"]
 
@@ -48,7 +57,7 @@ class CompressionLifecycle:
     finalized: bool = False
     event_called: bool = False
 
-    def reset(self):
+    def reset(self, exclude_reset: List[str] = []):
         """
         Reset the compression lifecycle, finalizing any active modifiers
         and resetting all attributes.
@@ -60,19 +69,26 @@ class CompressionLifecycle:
                 continue
             try:
                 mod.finalize(self.state)
-                logger.debug("Finalized modifier: {}", mod)
+                logger.debug(f"Finalized modifier: {mod}")
             except Exception as e:
                 logger.warning(f"Exception during finalizing modifier: {e}")
 
-        self.state = None
-        self.recipe_container = RecipeContainer()
-        self.modifiers = []
-        self.event_lifecycle = None
+        # Reset attributes based on exclude_reset
+        reset_attributes = {
+            "state": None,
+            "recipe_container": RecipeContainer(),
+            "modifiers": [],
+            "event_lifecycle": None,
+            "initialized_structure": False,
+            "initialized_": False,
+            "finalized": False,
+            "event_called": False,
+        }
 
-        self.initialized_structure = False
-        self.initialized_ = False
-        self.finalized = False
-        self.event_called = False
+        for attr, value in reset_attributes.items():
+            if attr not in exclude_reset:
+                setattr(self, attr, value)
+
         logger.info("Compression lifecycle reset")
 
     def pre_initialize_structure(self, **kwargs) -> List[Any]:

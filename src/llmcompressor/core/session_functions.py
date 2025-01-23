@@ -26,7 +26,7 @@ _local_storage.session = _global_session
 
 
 @contextmanager
-def create_session() -> CompressionSession:
+def create_session(exclude_reset: Optional[List[str]] = None) -> CompressionSession:
     """
     Context manager to create and yield a new session for sparsification.
     This will set the active session to the new session for the duration
@@ -36,8 +36,16 @@ def create_session() -> CompressionSession:
     """
     global _local_storage
     orig_session = getattr(_local_storage, "session", None)
-    new_session = CompressionSession()
+    new_session = CompressionSession(exclude_reset=exclude_reset)
     _local_storage.session = new_session
+    print()
+    print()
+    print()
+    print(new_session)
+    print()
+    print()
+    print()
+
     try:
         yield new_session
     finally:
