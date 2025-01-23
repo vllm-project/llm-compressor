@@ -1,0 +1,27 @@
+LLM Compressor
+
+This product includes software developed in association with the vLLM Project (https://github.com/vllm-project).
+
+Source code in this repository is variously licensed under the Apache License
+Version 2.0, an Apache-compatible license.
+
+* For a copy of the Apache License Version 2.0, please see [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).
+
+* For a copy of all other Apache-compatible licenses and notices,
+  they will be listed below.
+
+========================================================================
+NOTICES
+========================================================================
+
+Package dependencies are defined in the Python setup.py file in this repository's top-level directory and have their own Apache-compatible licenses and terms.
+
+Hugging Face Transformers License https://github.com/huggingface/transformers/blob/master/LICENSE
+
+Some model implementations subclass and include code snippets from Hugging Face Transformers.
+These snippets include and are subject to the Hugging Face Copyright and are
+provided under the Apache License, Version 2.0 https://github.com/huggingface/transformers/blob/master/LICENSE
+
+PyTorch License https://github.com/pytorch/pytorch/blob/master/LICENSE
+
+Other external dependencies, if referenced in this repository's various subdirectories, are subject to their associated licenses and terms.
