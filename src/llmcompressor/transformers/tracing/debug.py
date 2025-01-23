@@ -1,4 +1,4 @@
-from typing import List, Type, Union, Optional
+from typing import List, Type, Union, Optional, Dict
 
 import argparse
 
@@ -16,18 +16,18 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Trace a model into subgraphs.")
     parser.add_argument("--model_id", type=str, required=True, help="The model ID to load.")  # noqa: E501
     parser.add_argument("--model_class", type=str, required=True, help="The class name of the model.")  # noqa: E501
-    parser.add_argument("--multimodal_data", action="store_true", help="Use multimodal data if set.")  # noqa: E501
     parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing.")  # noqa: E501
     parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing.")  # noqa: E501
+    parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text.")  # noqa: E501
     return parser.parse_args()
 
 
 def trace(
     model_id: str,
     model_class: Type[PreTrainedModel],
-    multimodal_data: bool,
     sequential_targets: Optional[Union[List[str], str]] = None,
     ignore: Union[List[str], str] = [],
+    modality: str = "text",
 ):
     # Load model
     model = model_class.from_pretrained(
@@ -39,10 +39,7 @@ def trace(
     print("Loaded model")
 
     # Prepare sample data
-    data_args = DataTrainingArguments(
-        dataset="flickr" if multimodal_data else "ultrachat-200k",
-        splits={"calibration": "test[:1]" if multimodal_data else "test_sft[:1]"}
-    )
+    data_args = DataTrainingArguments(**get_dataset_kwargs(modality))
     dataset = TextGenerationDataset.load_from_registry(
         data_args.dataset,
         data_args=data_args,
@@ -86,15 +83,33 @@ def get_model_class(model_class: str) -> Type[PreTrainedModel]:
     return model_cls
 
 
+def get_dataset_kwargs(modality: str) -> Dict[str, str]:
+    dataset_kwargs = {
+        "text": {
+            "dataset": "ultrachat-200k",
+            "splits": {"calibration": "test_sft[:1]"},
+        },
+        "vision": {
+            "dataset": "flickr",
+            "splits": {"calibration": "test[:1]"},
+        },
+    }
+
+    if modality not in dataset_kwargs:
+        raise ValueError(f"Modality must be one of {list(dataset_kwargs.keys())}")
+
+    return dataset_kwargs[modality]
+
+
 def main():
     args = parse_args()
 
     trace(
         model_id=args.model_id,
         model_class=get_model_class(args.model_class),
-        multimodal_data=args.multimodal_data,
         sequential_targets=args.sequential_targets,
         ignore=args.ignore,
+        modality=args.modality,
     )
 
 

@@ -60,13 +60,14 @@ llmcompressor.trace \
     --model_id Qwen/Qwen2-VL-2B-Instruct \
     --model_class Qwen2VLForConditionalGeneration \
     --sequential_targets Qwen2VLDecoderLayer \
-    --ignore "lm_head" "re:visual.*"
+    --ignore "lm_head" "re:visual.*" \
+    --modality text
 ```
 ```
 Successfully traced model into 29 subgraphs!
 ```
 
-However, attempting to trace the `Qwen2-VL` with multimodal inputs (text and images)
+However, attempting to trace the `Qwen2-VL` with vision inputs (text and images)
 results in a `TraceError` due to untraceable operations within the `Qwen2-VL` model
 definition
 ```bash
@@ -75,7 +76,7 @@ llmcompressor.trace \
     --model_class Qwen2VLForConditionalGeneration \
     --sequential_targets Qwen2VLDecoderLayer \
     --ignore "lm_head" "re:visual.*" \
-    --multimodal_data
+    --modality vision
 ```
 ```
 torch.fx.proxy.TraceError: symbolically traced variables cannot be used as inputs to control flow
