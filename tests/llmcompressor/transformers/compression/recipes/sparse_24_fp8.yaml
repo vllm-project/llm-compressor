@@ -1,0 +1,38 @@
+pruning_stage:
+    obcq_modifiers:
+        SparseGPTModifier:
+            sparsity: 0.5
+            sequential_update: true
+            mask_structure: "2:4"
+            targets: ['re:model.layers.\d*$']
+quant_stage:
+    quant_modifiers:
+        QuantizationModifier:
+            ignore: ["lm_head"]
+            config_groups:
+                group_0:
+                    weights:
+                        num_bits: 8
+                        type: float
+                        strategy: channel
+                        dynamic: false
+                        symmetric: true
+                    input_activations:
+                        num_bits: 8
+                        type: float
+                        strategy: token
+                        dynamic: true
+                        symmetric: true
+                    targets: ["Linear"]
+    pruning_modifiers:
+        ConstantPruningModifier:
+            targets: [
+                're:.*q_proj.weight',
+                're:.*k_proj.weight', 
+                're:.*v_proj.weight',
+                're:.*o_proj.weight',
+                're:.*gate_proj.weight',
+                're:.*up_proj.weight',
+                're:.*down_proj.weight',
+            ]
+            start: 0
