@@ -14,11 +14,15 @@
 
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import numpy
 import torch
 from transformers import AutoConfig
+
+
+if TYPE_CHECKING:
+    from compressed_tensors.compressors import ModelCompressor
 
 
 __all__ = [
