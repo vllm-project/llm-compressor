@@ -8,7 +8,7 @@ from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.transformers.utils import is_model_ct_quantized
+from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -139,11 +139,9 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         from transformers import AutoModelForCausalLM
 
         kwargs = {}
-        # if optimized model is passed, then must be using Linear Modules
-        if is_model_ct_quantized(self.model):
-            kwargs["quantization_config"] = CompressedTensorsConfig(
-                run_compressed=False
-            )
+        # if optimized self.model is passed, then must be using Linear Modules
+        if is_model_ct_quantized_from_path(self.model):
+            kwargs["quantization_config"] = self.quantization_config
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model,
