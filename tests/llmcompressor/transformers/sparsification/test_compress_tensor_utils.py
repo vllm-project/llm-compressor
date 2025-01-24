@@ -6,12 +6,18 @@ import pytest
 import torch
 from accelerate import cpu_offload
 from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors import QUANTIZATION_CONFIG_NAME
+from compressed_tensors import QUANTIZATION_CONFIG_NAME, CompressionFormat
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
-from compressed_tensors.quantization import QuantizationStatus
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationStatus,
+    quantize,
+)
 from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
+from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
@@ -20,6 +26,7 @@ from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    get_model_compressor,
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
@@ -171,9 +178,8 @@ def test_quant_model_reload(format, dtype, tmp_path):
         device = "cpu"
     dataset = "open_platypus"
     concatenate_data = False
-    num_calibration_samples = 64
+    num_calibration_samples = 16
     splits = {"calibration": "train[:10%]"}
-    empty_model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=dtype)
 
     # create a quantized model
     oneshot(
@@ -191,7 +197,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     # Fetch the oneshot model
     model = get_session_model()
     og_state_dict = model.state_dict()
-    path = tmp_path / "compressed"
+    save_path_compressed = tmp_path / "compressed"
 
     for _, module in model.named_modules():
         if hasattr(module, "quantization_scheme"):
@@ -200,32 +206,24 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
     # Save to disk
     model.save_pretrained(
-        path,
+        save_path_compressed,
         quantization_format=format,
         save_compressed=True,
     )
 
     # Verify config on disk
-    config = AutoConfig.from_pretrained(path)
+    config = AutoConfig.from_pretrained(save_path_compressed)
     compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
     quant_config = ModelCompressor.parse_quantization_config(compression_config)
     assert quant_config["format"] == format
 
-    # As HFQuantizer doesn't decompress the model, use the compressor to decompress
-    # the model instead
-    compressor = ModelCompressor.from_compression_config(compression_config)
-    compressor.quantization_config.quantization_status = QuantizationStatus.FROZEN
-    compressor.decompress(model_path=path, model=empty_model)
-
-    # eventually use this pathway once HFQuant Decompression works
-    """
-    dense_model = SparseAutoModelForCausalLM.from_pretrained(
-        "compress_out", torch_dtype="auto", device_map=device
+    decompressed_model = AutoModelForCausalLM.from_pretrained(
+        save_path_compressed,
+        torch_dtype=dtype,
+        quantization_config=CompressedTensorsConfig(run_compressed=False),
     )
-    """
-    # Verify the abs difference between the decompressed model
-    # and the original model
-    reconstructed_state_dict = empty_model.state_dict()
+
+    reconstructed_state_dict = decompressed_model.state_dict()
     assert len(og_state_dict) == len(reconstructed_state_dict)
     for key in og_state_dict.keys():
         dense_tensor = og_state_dict[key].to(device)
@@ -364,3 +362,342 @@ def test_model_shared_tensors_gpu(
     test_model_shared_tensors(
         offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
     )
+
+
+@pytest.mark.parametrize(
+    "model_stub, recipe, sparse_format, quant_format",
+    [
+        (
+            "Xenova/llama2.c-stories15M",
+            "tests/llmcompressor/transformers/compression/recipes/sparse_24_fp8.yaml",
+            CompressionFormat.sparse_24_bitmask.value,
+            CompressionFormat.float_quantized.value,
+        ),
+    ],
+)
+def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tmp_path):
+    from llmcompressor.pytorch.model_load.helpers import get_session_model
+
+    device = "cuda"
+    if not torch.cuda.is_available():
+        device = "cpu"
+    dataset = "open_platypus"
+    concatenate_data = False
+    num_calibration_samples = 64
+    splits = {"calibration": "train[:10%]"}
+    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
+
+    oneshot(
+        model=model_stub,
+        dataset=dataset,
+        num_calibration_samples=num_calibration_samples,
+        recipe=recipe,
+        concatenate_data=concatenate_data,
+        splits=splits,
+        oneshot_device=device,
+        clear_sparse_session=False,
+    )
+
+    # Fetch the oneshot model
+    model = get_session_model()
+    og_state_dict = model.state_dict()
+    path = tmp_path / "compressed"
+
+    # Compress and save
+    model.save_pretrained(
+        path,
+        quantization_format=quant_format,
+        save_compressed=True,
+    )
+
+    # Verify config on disk
+    config = AutoConfig.from_pretrained(path)
+    compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
+    quant_config = ModelCompressor.parse_quantization_config(compression_config)
+
+    # As HFQuantizer doesn't decompress the model, use the compressor to decompress
+    # the model instead
+    compressor = ModelCompressor.from_compression_config(compression_config)
+
+    assert (
+        compressor.sparsity_compressor is not None
+    ), "Sparse compressor not initialized"
+    assert compressor.sparsity_config.format == sparse_format
+
+    assert (
+        compressor.quantization_compressor is not None
+    ), "Quantization compressor not initialized"
+    assert quant_config["format"] == quant_format
+
+    compressor.quantization_config.quantization_status = QuantizationStatus.FROZEN
+    compressor.decompress(model_path=path, model=empty_model)
+
+    # Verify the abs difference between the decompressed model
+    # and the original model
+    reconstructed_state_dict = empty_model.state_dict()
+    assert len(og_state_dict) == len(reconstructed_state_dict)
+    for key in og_state_dict.keys():
+        dense_tensor = og_state_dict[key].to(device)
+        reconstructed_tensor = reconstructed_state_dict[key].to(device)
+        assert dense_tensor.dtype == reconstructed_tensor.dtype
+        if key.endswith("weight") and quant_format != "dense":
+            # we don't expect an exact match for compressed
+            diff = torch.abs(dense_tensor - reconstructed_tensor)
+            # max diff value found empirically
+            assert not torch.any(diff > 0.022), f"Max diff: {torch.max(diff)}"
+        else:
+            assert torch.equal(dense_tensor, reconstructed_tensor)
+    shutil.rmtree(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "model_stub, recipe, sparse_format",
+    [
+        (
+            "Xenova/llama2.c-stories15M",
+            "tests/llmcompressor/transformers/compression/recipes/sparse_24.yaml",
+            CompressionFormat.sparse_24_bitmask.value,
+        ),
+    ],
+)
+def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp_path):
+    from llmcompressor.pytorch.model_load.helpers import get_session_model
+
+    device = "cuda"
+    if not torch.cuda.is_available():
+        device = "cpu"
+    dataset = "open_platypus"
+    concatenate_data = False
+    num_calibration_samples = 64
+    splits = {"calibration": "train[:10%]"}
+    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
+
+    oneshot(
+        model=model_stub,
+        dataset=dataset,
+        num_calibration_samples=num_calibration_samples,
+        recipe=recipe,
+        concatenate_data=concatenate_data,
+        splits=splits,
+        oneshot_device=device,
+        clear_sparse_session=False,
+    )
+
+    # Fetch the oneshot model
+    model = get_session_model()
+    og_state_dict = model.state_dict()
+    path = tmp_path / "compressed"
+
+    # Compress and save
+    model.save_pretrained(
+        path,
+        save_compressed=True,
+    )
+
+    # Verify config on disk
+    config = AutoConfig.from_pretrained(path)
+    compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
+
+    # As HFQuantizer doesn't decompress the model, use the compressor to decompress
+    # the model instead
+    compressor = ModelCompressor.from_compression_config(compression_config)
+
+    assert (
+        compressor.sparsity_compressor is not None
+    ), "Sparse compressor not initialized"
+    assert compressor.sparsity_config.format == sparse_format
+
+    compressor.decompress(model_path=path, model=empty_model)
+
+    # Verify the abs difference between the decompressed model
+    # and the original model
+    reconstructed_state_dict = empty_model.state_dict()
+    assert len(og_state_dict) == len(reconstructed_state_dict)
+    for key in og_state_dict.keys():
+        dense_tensor = og_state_dict[key].to(device)
+        reconstructed_tensor = reconstructed_state_dict[key].to(device)
+        assert dense_tensor.dtype == reconstructed_tensor.dtype
+        if key.endswith("weight"):
+            assert torch.equal(dense_tensor, reconstructed_tensor)
+    shutil.rmtree(tmp_path)
+
+
+def test_disable_sparse_compression_flag(tmp_path):
+    two_four_sparse_model_id = "nm-testing/llama2.c-stories42M-pruned2.4"
+    two_four_sparse_model = AutoModelForCausalLM.from_pretrained(
+        two_four_sparse_model_id, torch_dtype="auto"
+    )
+    modify_save_pretrained(two_four_sparse_model)
+
+    save_path = tmp_path / "no_sparse_compression_model"
+    two_four_sparse_model.save_pretrained(save_path, disable_sparse_compression=True)
+
+    config = AutoConfig.from_pretrained(save_path)
+    quantization_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
+
+    assert quantization_config
+    sparsity_config = quantization_config.get("sparsity_config")
+
+    assert sparsity_config
+    assert sparsity_config["format"] == "dense"
+    shutil.rmtree(tmp_path)
+
+
+class DummyLinearModel(nn.Module):
+    """
+    A dummy linear model for testing purposes, simulating a quantized linear layer.
+    """
+
+    def __init__(self, weights, weight_scale=None, weight_zero_point=None):
+        super().__init__()
+        out_features, in_features = weights.shape
+
+        # Linear layer without bias
+        self.linear = nn.Linear(in_features, out_features, bias=False)
+        self.linear.weight = nn.Parameter(weights, requires_grad=False)
+
+        # Attach scale and zero-point if provided
+        if weight_scale is not None:
+            self.linear.weight_scale = nn.Parameter(
+                torch.tensor(weight_scale), requires_grad=False
+            )
+        if weight_zero_point is not None:
+            self.linear.weight_zero_point = nn.Parameter(
+                torch.tensor(weight_zero_point), requires_grad=False
+            )
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+def _create_quantization_config(
+    w_bits=8,
+    w_type="int",
+    w_strategy="tensor",
+    quantize_activations=False,
+    a_bits=8,
+    a_type="int",
+    a_strategy="tensor",
+):
+    """
+    Create a quantization configuration for testing.
+    """
+    config_dict = {
+        "global_compression_ratio": 1.0,
+        "quant_method": "compressed-tensors",
+        "config_groups": {
+            "group_0": {
+                "targets": ["Linear"],
+                "weights": {
+                    "num_bits": w_bits,
+                    "strategy": w_strategy,
+                    "symmetric": True,
+                    "type": w_type,
+                },
+            }
+        },
+    }
+
+    if quantize_activations:
+        config_dict["config_groups"]["group_0"]["input_activations"] = {
+            "num_bits": a_bits,
+            "strategy": a_strategy,
+            "symmetric": True,
+            "type": a_type,
+        }
+
+    return QuantizationConfig.model_validate(config_dict)
+
+
+def _quantization_config_from_string(config_str, q_type):
+    """
+    Parse quantization config from string and type.
+    """
+    w_bits = int(config_str[1])
+    a_bits = int(config_str[3:])
+    quantize_activations = a_bits < 16
+
+    return _create_quantization_config(
+        w_bits=w_bits,
+        w_type=q_type,
+        w_strategy="channel",
+        quantize_activations=quantize_activations,
+        a_bits=a_bits,
+        a_type=q_type,
+        a_strategy="channel",
+    )
+
+
+def _make_24_sparse(tensor):
+    """
+    Apply 2:4 sparsity pattern to the given tensor.
+    """
+    reshaped_tensor = tensor.view(tensor.size(0), -1, 4)
+    mask = torch.zeros_like(reshaped_tensor, dtype=torch.bool)
+    mask[..., :2] = True
+    sparsified_tensor = torch.where(
+        mask, reshaped_tensor, torch.tensor(0.0, dtype=tensor.dtype)
+    )
+    return sparsified_tensor.view_as(tensor)
+
+
+@pytest.mark.parametrize(
+    "quant_style, quant_type, is_24, expected_quant_compressor, "
+    "expected_sparsity_compressor",
+    [
+        ("W8A8", "int", False, "int-quantized", "dense"),
+        ("W4A16", "int", False, "pack-quantized", "dense"),
+        ("W8A16", "int", False, "pack-quantized", "dense"),
+        ("W8A8", "int", True, "int-quantized", "sparse-24-bitmask"),
+        ("W4A16", "int", True, "marlin-24", "dense"),
+        ("W8A16", "int", True, "marlin-24", "dense"),
+        ("W8A8", "float", False, "float-quantized", "dense"),
+        ("W8A16", "float", False, "naive-quantized", "dense"),
+        ("W8A8", "float", True, "float-quantized", "sparse-24-bitmask"),
+        ("W8A16", "float", True, "naive-quantized", "dense"),
+    ],
+)
+def test_correct_compressor_inferred(
+    quant_style,
+    quant_type,
+    is_24,
+    expected_quant_compressor,
+    expected_sparsity_compressor,
+):
+    """
+    Test if the correct compressor is inferred based on
+    quantization and sparsity configurations.
+    """
+    weights = torch.rand(10, 4)
+    if is_24:
+        weights = _make_24_sparse(weights)
+
+    quantization_config = _quantization_config_from_string(quant_style, quant_type)
+    quantization_args = quantization_config.config_groups["group_0"].weights
+
+    scale = (
+        torch.ones((weights.shape[0], 1))
+        if quantization_args.strategy == "channel"
+        else torch.tensor([1.0])
+    )
+    zero_point = torch.zeros_like(scale)
+
+    quantized_weights = quantize(
+        weights, scale=scale, zero_point=zero_point, args=quantization_args
+    )
+
+    model = DummyLinearModel(quantized_weights, scale, zero_point)
+    model.linear.quantization_scheme = quantization_config.config_groups["group_0"]
+    model.linear.quantization_status = QuantizationStatus.FROZEN
+
+    compressor = get_model_compressor(model)
+
+    assert compressor.quantization_config.format == expected_quant_compressor
+
+    if expected_sparsity_compressor == "dense":
+        assert (
+            compressor.sparsity_config is None
+            or compressor.sparsity_config.format == expected_sparsity_compressor
+        )
+    else:
+        assert compressor.sparsity_config.format == expected_sparsity_compressor

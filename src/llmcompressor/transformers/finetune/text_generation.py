@@ -15,9 +15,10 @@
 # limitations under the License.
 
 # Adapted from https://github.com/huggingface/transformers
-# neuralmagic: no copyright
+# vllm-project: no copyright
 
 import os
+import warnings
 from pathlib import PosixPath
 
 from loguru import logger
@@ -25,11 +26,11 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoProcessor,
-    DefaultDataCollator,
     HfArgumentParser,
     PreTrainedModel,
     set_seed,
 )
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.core import pre_initialize_structure, reset_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -52,7 +53,10 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_processor_src,
 )
-from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
+from llmcompressor.transformers.utils.helpers import (
+    detect_last_checkpoint,
+    is_model_ct_quantized_from_path,
+)
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
@@ -119,6 +123,8 @@ def parse_args(**kwargs):
         * model_args in src/llmcompressor/transformers/finetune/model_args.py
         * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
         * training_args in src/llmcompressor/transformers/finetune/training_args.py
+
+    Throws depreciation warnings
     """
     parser = HfArgumentParser(
         (ModelArguments, DataTrainingArguments, TrainingArguments)
@@ -135,6 +141,14 @@ def parse_args(**kwargs):
                 key, value = recipe_arg.split("=")
                 arg_dict[key] = value
             training_args.recipe_args = arg_dict
+
+    # raise depreciation warnings
+    if data_args.remove_columns is not None:
+        warnings.warn(
+            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "columns which are invalid inputs the tokenizer will be removed",
+            DeprecationWarning,
+        )
 
     # silently assign tokenizer to processor
     if model_args.tokenizer:
@@ -214,6 +228,13 @@ def initialize_model_from_path(
         "trust_remote_code": model_args.trust_remote_code_model,
     }
     # this calls from_pretrained under the hood so should be FSDP safe
+
+    # optimized models must be decompressed to carry out oneshot/train/etc
+    if is_model_ct_quantized_from_path(model_path):
+        model_kwargs["quantization_config"] = CompressedTensorsConfig(
+            run_compressed=False
+        )
+
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         **model_kwargs,
@@ -240,14 +261,27 @@ def initialize_processor_from_path(
 ) -> Processor:
     processor_src = model_args.processor
     processor_src = processor_src or get_shared_processor_src(model, teacher)
-    processor = AutoProcessor.from_pretrained(
-        processor_src,
-        cache_dir=model_args.cache_dir,
-        use_fast=True,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        trust_remote_code=model_args.trust_remote_code_model,
-    )
+    # The use_fast=True option is not currently supported safely in Transformers
+    # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
+    try:
+        processor = AutoProcessor.from_pretrained(
+            processor_src,
+            cache_dir=model_args.cache_dir,
+            use_fast=True,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=model_args.trust_remote_code_model,
+        )
+    except Exception:
+        logger.debug("Could not load fast processor, loading slow processor instead")
+        processor = AutoProcessor.from_pretrained(
+            processor_src,
+            cache_dir=model_args.cache_dir,
+            use_fast=False,
+            revision=model_args.model_revision,
+            use_auth_token=True if model_args.use_auth_token else None,
+            trust_remote_code=model_args.trust_remote_code_model,
+        )
 
     return processor
 
@@ -346,7 +380,6 @@ def main(
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     # Initialize our Trainer
-    data_collator = DefaultDataCollator()
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
@@ -357,7 +390,7 @@ def main(
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
         processing_class=processor,
-        data_collator=data_collator,
+        data_collator=data_args.data_collator,
     )
 
     # wrap model.save_pretrained
