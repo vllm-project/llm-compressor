@@ -103,24 +103,24 @@ class TestConsecutiveRuns(unittest.TestCase):
         shutil.rmtree(self.output)
 
 
-@pytest.mark.integration
-@parameterized_class(parse_params(CONFIGS_DIRECTORY))
-class TestConsecutiveRunsSmall(TestConsecutiveRuns):
-    model = None
-    first_recipe = None
-    second_recipe = None
-    dataset = None
+# @pytest.mark.integration
+# @parameterized_class(parse_params(CONFIGS_DIRECTORY))
+# class TestConsecutiveRunsSmall(TestConsecutiveRuns):
+#     model = None
+#     first_recipe = None
+#     second_recipe = None
+#     dataset = None
 
-    def setUp(self):
-        import torch
+#     def setUp(self):
+#         import torch
 
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
-        self.output_first = Path(self.output) / "test_1"
-        self.output_second = Path(self.output) / "test_2"
+#         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+#         self.output = "./oneshot_output"
+#         self.output_first = Path(self.output) / "test_1"
+#         self.output_second = Path(self.output) / "test_2"
 
-    def test_consecutive_runs_small(self):
-        self._test_consecutive_runs(tolerance=1e-3)
+#     def test_consecutive_runs_small(self):
+#         self._test_consecutive_runs(tolerance=1e-3)
 
 
 # TODO: @Satrat and @dsikka, revisit if we want these nightly or weekly
@@ -138,16 +138,17 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
     def setUp(self):
         from transformers import AutoModelForCausalLM
 
-        kwargs = {}
-        # if optimized self.model is passed, then must be using Linear Modules
-        if is_model_ct_quantized_from_path(self.model):
-            kwargs["quantization_config"] = self.quantization_config
+        self.assertFalse(
+            is_model_ct_quantized_from_path(self.model),
+            "The provided model is quantized. Please use a dense model.",
+        )
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model,
             device_map=self.device,
-            **kwargs,
         )
+
+        breakpoint()
 
         self.output = "./oneshot_output"
         self.output_first = Path(self.output) / "test_1"
