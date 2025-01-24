@@ -6,7 +6,6 @@ import pytest
 import yaml
 from parameterized import parameterized_class
 
-from llmcompressor.core import active_session
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
@@ -21,12 +20,14 @@ class TestConsecutiveRuns(unittest.TestCase):
     ):
         import math
 
+        from llmcompressor.core import active_session
+        from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
 
         # test recipe with 50% sparsity, quantization and smoothquant
-        oneshot = oneshot(
+        oneshot(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -35,7 +36,7 @@ class TestConsecutiveRuns(unittest.TestCase):
             oneshot_device=self.device,
             clear_sparse_session=False,
         )
-        first_tiny_model = oneshot.model
+        first_tiny_model = get_session_model()
         layer_0_sparse = tensor_sparsity(
             first_tiny_model.model.layers[0].self_attn.k_proj.weight
         )
@@ -46,9 +47,10 @@ class TestConsecutiveRuns(unittest.TestCase):
         session_recipe = session.lifecycle.recipe_container.compiled_recipe
         stages = [stage.group for stage in session_recipe.stages]
         self.assertEqual(len(stages), 1)
+        session.reset()
 
         # reload saved model and up sparsity to 0.7
-        second_oneshot = oneshot(
+        oneshot(
             model=self.output_first,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -58,7 +60,7 @@ class TestConsecutiveRuns(unittest.TestCase):
             clear_sparse_session=False,
         )
 
-        second_tiny_model = second_oneshot.model
+        second_tiny_model = get_session_model()
         layer_0_sparse = tensor_sparsity(
             second_tiny_model.model.layers[0].self_attn.k_proj.weight
         )
