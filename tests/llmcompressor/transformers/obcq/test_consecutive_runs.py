@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 import yaml
+from compressed_tensors.quantization.utils import is_model_path_quantized
 from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -139,7 +139,7 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         from transformers import AutoModelForCausalLM
 
         self.assertFalse(
-            is_model_ct_quantized_from_path(self.model),
+            is_model_path_quantized(self.model),
             "The provided model is quantized. Please use a dense model.",
         )
 
