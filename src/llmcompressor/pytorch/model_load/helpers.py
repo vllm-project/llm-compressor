@@ -8,13 +8,11 @@ from safetensors import safe_open
 from torch.nn import Module
 
 from llmcompressor.core import active_session, create_session, pre_initialize_structure
-from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.typing import Processor
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
 __all__ = [
-    "log_model_load",
     "initialize_recipe",
     "save_model_and_recipe",
     "copy_python_files_from_model_cache",
@@ -24,45 +22,6 @@ __all__ = [
     "get_completed_stages",
     "save_completed_stages",
 ]
-
-
-def log_model_load(
-    model: Module, model_name_or_path: str, model_type: str, delayed_load: bool
-):
-    """
-    Log the state of a loaded model including sparsity and
-    prunable params information.
-
-    :param model: the loaded model
-    :param model_name_or_path: the original name of or path to the model that loaded
-    :param model_type: specify the type of model loaded for logging;
-        ex one of [model, student, teacher]
-    :param delayed_load: True if this model load was delayed until after
-        recipe instantiation due to QAT or other architectural state changes
-    """
-    if delayed_load:
-        logger.info(
-            f"Delayed load of model {model_name_or_path} detected. "
-            f"Will print out model information once LLMCompressor recipes have loaded"
-        )
-        return
-
-    sparsification_info = ModuleSparsificationInfo(model)
-
-    logger.info(
-        f"Loaded {model_type} from {model_name_or_path} "
-        f"with {sparsification_info.params_total} total params. "
-        f"Of those there are {sparsification_info.params_prunable_total} prunable "
-        f"params which have {sparsification_info.params_prunable_sparse_percent} "
-        "avg sparsity."
-    )
-    model_type = (
-        "sparse" if sparsification_info.params_prunable_sparse_percent > 5 else "dense"
-    )
-    logger.info(
-        f"{model_type} model detected, "
-        f"all sparsification info: {sparsification_info}"
-    )
 
 
 def initialize_recipe(model: Module, recipe_path: str):
