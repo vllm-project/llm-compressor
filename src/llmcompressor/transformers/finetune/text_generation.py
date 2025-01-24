@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # Adapted from https://github.com/huggingface/transformers
-# neuralmagic: no copyright
+# vllm-project: no copyright
 
 import os
 import warnings
@@ -30,6 +30,7 @@ from transformers import (
     PreTrainedModel,
     set_seed,
 )
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.core import pre_initialize_structure, reset_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -52,7 +53,10 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_processor_src,
 )
-from llmcompressor.transformers.utils.helpers import detect_last_checkpoint
+from llmcompressor.transformers.utils.helpers import (
+    detect_last_checkpoint,
+    is_model_ct_quantized_from_path,
+)
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
@@ -224,6 +228,13 @@ def initialize_model_from_path(
         "trust_remote_code": model_args.trust_remote_code_model,
     }
     # this calls from_pretrained under the hood so should be FSDP safe
+
+    # optimized models must be decompressed to carry out oneshot/train/etc
+    if is_model_ct_quantized_from_path(model_path):
+        model_kwargs["quantization_config"] = CompressedTensorsConfig(
+            run_compressed=False
+        )
+
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         **model_kwargs,
