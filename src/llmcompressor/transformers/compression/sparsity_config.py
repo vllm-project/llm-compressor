@@ -12,7 +12,7 @@ from loguru import logger
 from torch import Tensor
 from torch.nn import Module
 
-from llmcompressor.core import active_session
+from llmcompressor.core import CompressionLifecycle, active_session
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.compression.helpers import (
     infer_sparse_targets_and_ignores,
@@ -47,7 +47,10 @@ class SparsityConfigMetadata:
         return global_sparsity
 
     @staticmethod
-    def infer_sparsity_structure(model: Optional[Module] = None) -> str:
+    def infer_sparsity_structure(
+        model: Optional[Module] = None,
+        stage_modifiers: Optional[CompressionLifecycle] = None,
+    ) -> str:
         """
         Determines what sparsity structure, if any, was applied.
 
@@ -107,7 +110,7 @@ class SparsityConfigMetadata:
             return None
 
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
-            model=model
+            model=model,
         )
         if (
             disable_sparse_compression
