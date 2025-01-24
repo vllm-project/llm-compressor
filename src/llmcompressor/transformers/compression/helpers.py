@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Type, Union
 
 import psutil
 import torch
@@ -172,6 +172,7 @@ def custom_offload_device_map(
     model_stub: str,
     max_memory_per_gpu: Union[str, int],
     num_gpus: int = 1,
+    model_cls: Type = AutoModelForCausalLM,
     **model_kwargs,
 ) -> Dict[Union[int, str], Union[int, str]]:
     """
@@ -182,6 +183,8 @@ def custom_offload_device_map(
     :param max_memory_per_gpu: Max memory to allocate on each GPU, as either a string
         such as "10GB" or an integer number of bytes
     :param num_gpus: number of gpus to utilize
+    :param model_cls: model class to use when initializing model structure,
+        default is AutoModelForCausalLM
     :param model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
@@ -191,7 +194,7 @@ def custom_offload_device_map(
 
     device_map = {}
     with init_empty_weights():
-        dummy_model = AutoModelForCausalLM.from_pretrained(model_stub, **model_kwargs)
+        dummy_model = model_cls.from_pretrained(model_stub, **model_kwargs)
         device_map = infer_auto_device_map(
             dummy_model,
             max_memory=memory_limits,
@@ -207,6 +210,7 @@ def calculate_offload_device_map(
     reserve_for_hessians=False,
     num_gpus: int = 1,
     torch_dtype: torch.dtype = torch.float16,
+    model_cls: Type = AutoModelForCausalLM,
     **model_kwargs,
 ) -> Dict[Union[int, str], Union[int, str]]:
     """
@@ -216,6 +220,8 @@ def calculate_offload_device_map(
     :param model_stub: local path or HF stub to calculate mapping for
     :param reserve_for_hessians: whether to reserve memory for GPTQ
     :param num_gpus: number of gpus to utilize
+    :param model_cls: model class to use when initializing model structure,
+        default is AutoModelForCausalLM
     :param model_kwargs: keyword arguments to pass to model initializer
     :return: memory mapping for layers of model_stub to be passed to from_pretrained()
     """
@@ -230,7 +236,7 @@ def calculate_offload_device_map(
 
     device_map = {}
     with init_empty_weights():
-        dummy_model = AutoModelForCausalLM.from_pretrained(
+        dummy_model = model_cls.from_pretrained(
             model_stub, torch_dtype=torch_dtype, **model_kwargs
         )
 

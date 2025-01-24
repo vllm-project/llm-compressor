@@ -124,7 +124,7 @@ class CompressionLogger:
 
         if self.start_tick is not None:
             duration = stop_tick - self.start_tick
-            patch.log("METRIC", f"time {duration:.2f}")
+            patch.log("METRIC", f"time {duration:.2f}s")
         if self.loss is not None:
             patch.log("METRIC", f"error {self.loss:.2f}")
 
