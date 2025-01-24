@@ -1,3 +1,4 @@
+# flake8: noqa
 # coding=utf-8
 # Copyright 2024 the HuggingFace Inc. team. All rights reserved.
 #
