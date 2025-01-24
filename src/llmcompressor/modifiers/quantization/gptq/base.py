@@ -247,7 +247,8 @@ class GPTQModifier(Modifier, HooksMixin):
                 warnings.warn(
                     f"Failed to trace {model_name} with inputs {input_names}. For more "
                     "information on tracing with the sequential pipeline, see "
-                    "`src/llmcompressor/transformers/tracing/GUIDE.md`"
+                    "https://github.com/vllm-project/llm-compressor/blob/main/"
+                    "src/llmcompressor/transformers/tracing/GUIDE.md"
                 )
             if isinstance(exception, unfixable_errors):
                 raise exception

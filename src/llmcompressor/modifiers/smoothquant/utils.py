@@ -1,5 +1,4 @@
 import functools
-import pathlib
 from collections import namedtuple
 from typing import Dict, List, Tuple, Union
 
@@ -94,7 +93,10 @@ def handle_mapping_resolution_errors(func):
         try:
             return func(*args, **kwargs)
         except Exception as original_exception:
-            readme_location = pathlib.Path(__file__).parent / "README.md"
+            readme_location = (
+                "https://github.com/vllm-project/llm-compressor/tree/main/"
+                "src/llmcompressor/modifiers/smoothquant"
+            )
             raise RuntimeError(
                 f"Error resolving mappings for given architecture."
                 f"Please refer to the README at {readme_location} for more information."

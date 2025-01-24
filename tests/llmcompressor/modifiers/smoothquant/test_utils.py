@@ -12,7 +12,10 @@ smoothquant_utils = "llmcompressor.modifiers.smoothquant.utils"
 
 @pytest.mark.unit
 def test_handle_mapping_resolution_errors():
-    README_LOCATION = "llmcompressor/modifiers/smoothquant/README.md"
+    README_LOCATION = (
+        "https://github.com/vllm-project/llm-compressor/tree/main/"
+        "src/llmcompressor/modifiers/smoothquant"
+    )
 
     @handle_mapping_resolution_errors
     def func_that_raises_exception():
