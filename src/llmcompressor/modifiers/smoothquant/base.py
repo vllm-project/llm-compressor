@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.utils.offload import is_module_offloaded
 from loguru import logger
 from torch.nn import Module
 
@@ -13,7 +14,11 @@ from llmcompressor.modifiers.smoothquant.utils import (
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
-from llmcompressor.utils.pytorch.module import get_layers, get_matching_layer
+from llmcompressor.utils.pytorch.module import (
+    get_layers,
+    get_matching_layer,
+    match_targets,
+)
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
 
@@ -94,7 +99,7 @@ class SmoothQuantModifier(Modifier):
     """
 
     smoothing_strength: float = 0.5
-    mappings: Optional[List[Tuple]] = None
+    mappings: Optional[List[Union[Tuple, List]]] = None
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
@@ -175,7 +180,7 @@ class SmoothQuantModifier(Modifier):
         for to_balance, to_smooth in self.mappings:
             to_smooth_layers = get_layers(to_smooth, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
-                if layer_name not in self.ignore:
+                if not match_targets(layer_name, self.ignore)[0]:
                     balance_layers = []
                     for balance_suffix in to_balance:
                         # find the submodule that matches the activation layer
@@ -282,6 +287,10 @@ class SmoothQuantModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
+                offloaded = is_module_offloaded(module)
+                if offloaded:
+                    module._hf_hook.pre_forward(module)
+
                 if module in balance_layers:
                     module.weight.mul_(scales.view(1, -1))
                 elif module == smooth_layer:
@@ -291,6 +300,9 @@ class SmoothQuantModifier(Modifier):
                         module.weight.div_(scales.view(-1, 1))
                     if hasattr(module, "bias") and module.bias is not None:
                         module.bias.div_(scales)
+
+                if offloaded:
+                    module._hf_hook.post_forward(module, None)
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -318,8 +330,16 @@ class SmoothQuantModifier(Modifier):
         # get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
+            offloaded = is_module_offloaded(layer)
+            if offloaded:
+                layer._hf_hook.pre_forward(layer)
+
             scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
             weight_scales.append(scale)
+
+            if offloaded:
+                layer._hf_hook.post_forward(layer, None)
+
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
         # calculate the amount of smoothing to apply
@@ -329,4 +349,5 @@ class SmoothQuantModifier(Modifier):
             1 - self.smoothing_strength
         )
         scales = torch.where(weight_scales > 0.0, scales, activation_scales)
+
         return scales
