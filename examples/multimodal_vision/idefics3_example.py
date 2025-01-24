@@ -1,14 +1,15 @@
 import requests
-from PIL import Image
-from transformers import AutoProcessor
 import torch
 from datasets import load_dataset
+from PIL import Image
+from transformers import AutoProcessor
+
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableIdefics3ForConditionalGeneration
 
 # Load model.
-model_id = "HuggingFaceM4/Idefics3-8B-Llama3"  # or "HuggingFaceTB/SmolVLM-Instruct" 
+model_id = "HuggingFaceM4/Idefics3-8B-Llama3"  # or "HuggingFaceTB/SmolVLM-Instruct"
 model = TraceableIdefics3ForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
@@ -18,12 +19,14 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 DATASET_ID = "lmms-lab/flickr30k"
 DATASET_SPLIT = "test[:512]"
 NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 4096   # Seems to be required here
+MAX_SEQUENCE_LENGTH = 4096  # Seems to be required here
+
 
 # Define a oneshot data collator for multimodal inputs.
 def data_collator(batch):
     assert len(batch) == 1
     return {key: torch.tensor(value) for key, value in batch[0].items()}
+
 
 # Recipe
 recipe = [
@@ -39,6 +42,7 @@ recipe = [
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
+
 # Apply chat template
 def preprocess(example):
     messages = [
@@ -47,9 +51,9 @@ def preprocess(example):
             "content": [
                 {"type": "text", "text": "What does the image show?"},
                 {"type": "image"},
-                ]
-                }
-            ]
+            ],
+        }
+    ]
     return {
         "text": processor.apply_chat_template(
             messages,
@@ -58,7 +62,9 @@ def preprocess(example):
         "images": example["image"],
     }
 
+
 ds = ds.map(preprocess)
+
 
 # Tokenize inputs.
 def tokenize(sample):
@@ -69,6 +75,7 @@ def tokenize(sample):
         max_length=MAX_SEQUENCE_LENGTH,
         truncation=True,
     )
+
 
 # long data lengths produced by the phi3_vision processor
 # can lead to integer overflows when mapping, avoid with writer_batch_size
