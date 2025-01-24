@@ -5,7 +5,7 @@ import unittest
 
 import pytest
 import torch
-from compressed_tensors.quantization.utils import is_submodule_quantized
+from compressed_tensors.quantization.utils import is_module_quantized
 from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
@@ -81,7 +81,7 @@ class TestQuantizationMatches(unittest.TestCase):
         quant_info_weights = {}
         quant_info_inputs = {}
         for name, module in model.named_modules():
-            if is_submodule_quantized(module):
+            if is_module_quantized(module):
                 if module.quantization_scheme.weights is not None:
                     quant_info_weights[name] = (
                         module.weight_scale,

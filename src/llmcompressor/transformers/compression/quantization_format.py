@@ -5,7 +5,7 @@ from compressed_tensors.config import SparsityStructure
 from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
 from compressed_tensors.quantization.utils import (
     is_model_quantized,
-    is_submodule_quantized,
+    is_module_quantized,
     iter_named_leaf_modules,
 )
 
@@ -102,7 +102,7 @@ def _get_unique_quant_args(model):
     quant_info_weight = []
     quant_info_inputs = []
     for _, submodule in iter_named_leaf_modules(model):
-        if is_submodule_quantized(submodule):
+        if is_module_quantized(submodule):
             weight_scheme = submodule.quantization_scheme.weights
             input_scheme = submodule.quantization_scheme.input_activations
             if weight_scheme is not None:

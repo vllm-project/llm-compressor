@@ -7,7 +7,7 @@ import re
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization.utils import is_submodule_quantized
+from compressed_tensors.quantization.utils import is_module_quantized
 from packaging import version
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
@@ -271,7 +271,7 @@ def qat_active(module: Module) -> bool:
     for _, layer in module.named_modules():
         if isinstance(layer, torch.quantization.FakeQuantize):
             return True
-        if is_submodule_quantized(layer):
+        if is_module_quantized(layer):
             return True
 
     return False
