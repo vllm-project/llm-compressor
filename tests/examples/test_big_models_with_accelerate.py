@@ -7,7 +7,6 @@ from tests.examples.utils import (
     copy_and_run_script,
     gen_cmd_fail_message,
     requires_gpu_count,
-    requires_gpu_mem,
 )
 
 
@@ -43,16 +42,14 @@ class TestBigModelsWithAccelerate:
                 "",
                 id="multi_gpu_int8",
                 marks=[
-                    requires_gpu_mem(630),
                     requires_gpu_count(2),
                     pytest.mark.multi_gpu,
                 ],
             ),
             pytest.param(
                 "mult_gpus_int8_device_map.py",
-                "",
+                "0",
                 id="mult_gpus_int8_device_map",
-                marks=[requires_gpu_count(2), pytest.mark.multi_gpu],
             ),
         ],
     )

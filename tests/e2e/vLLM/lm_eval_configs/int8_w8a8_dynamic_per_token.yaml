@@ -1,0 +1,11 @@
+cadence: "weekly"
+model: meta-llama/Meta-Llama-3-8B-Instruct
+scheme: INT8_dyn_per_token
+recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
+num_fewshot: 5
+limit: 1000
+task: "gsm8k"
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+exact_match,flexible-extract: 0.77
+exact_match,strict-match: 0.76

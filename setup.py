@@ -71,6 +71,7 @@ setup(
             "pytest-mock>=3.6.0",
             "pytest-rerunfailures>=13.0",
             "parameterized",
+            "lm_eval==0.4.5",
             # example test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
@@ -93,6 +94,7 @@ setup(
             "llmcompressor.transformers.text_generation.finetune=llmcompressor.transformers.finetune.text_generation:train",  # noqa 501
             "llmcompressor.transformers.text_generation.eval=llmcompressor.transformers.finetune.text_generation:eval",  # noqa 501
             "llmcompressor.transformers.text_generation.oneshot=llmcompressor.transformers.finetune.text_generation:oneshot",  # noqa 501
+            "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
     python_requires=">=3.8",

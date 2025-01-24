@@ -6,7 +6,6 @@ from typing import List, Optional
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
-from transformers import AutoTokenizer
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -24,6 +23,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 )
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
 
@@ -38,7 +38,7 @@ class StageRunner:
         - set_trainer()
         - train() / evaluate() / predict()
 
-    :param model_args: Arguments pertaining to model/config/tokenizer
+    :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows
     :param training_args: Arguments pertaining to training loop configuration
     :model: unwrapped model to run flows on
@@ -56,19 +56,20 @@ class StageRunner:
 
         self.datasets = {}
         self.trainer = None
-        self.tokenizer = None
+        self.processor = None
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
-    def populate_datasets(self, tokenizer: "AutoTokenizer", add_labels: bool = True):
+    def populate_datasets(self, processor: Processor, add_labels: bool = True):
         """
         Loads datasets for each flow based on data_args, stores a Dataset for each
         enabled flow in self.datasets
 
-        :param tokenizer: tokenizer to use for dataset tokenization
+        :param processor: processor or tokenizer to use for dataset tokenization
+        :param add_labels: if True, add labels column to dataset splits
         """
         if self._data_args.dataset is None:
-            self.tokenizer = self._model_args.tokenizer
+            self.processor = self._model_args.processor
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
                 "weight-only and dynamic quantization"
@@ -93,29 +94,25 @@ class StageRunner:
             splits = {_get_split_name(s): s for s in splits}
 
         # default to custom dataset if dataset provided isn't a string
-        registry_id = self._data_args.dataset
-
-        if not isinstance(registry_id, str):
-            registry_id = "custom"
+        registry_id = (
+            self._data_args.dataset
+            if isinstance(self._data_args.dataset, str)
+            else "custom"
+        )
         for split_name, split_str in splits.items():
-            dataset_manager = TextGenerationDataset.load_from_registry(
-                registry_id,
-                data_args=self._data_args,
-                split=split_str,
-                tokenizer=tokenizer,
-            )
-
             dataset = self._data_args.dataset
             if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
                 # dataset is already tokenized
                 tokenized_datasets[split_name] = dataset
             else:
                 # dataset needs to be tokenized
-                raw_dataset = dataset_manager.get_raw_dataset()
-                tokenized_dataset = dataset_manager.tokenize_and_process(
-                    raw_dataset, add_labels=add_labels
+                dataset_manager = TextGenerationDataset.load_from_registry(
+                    registry_id,
+                    data_args=self._data_args,
+                    split=split_str,
+                    processor=processor,
                 )
-                tokenized_datasets[split_name] = tokenized_dataset
+                tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
 
         self.datasets = make_dataset_splits(
             tokenized_datasets,
@@ -124,7 +121,6 @@ class StageRunner:
             do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
-        self.tokenizer = tokenizer
 
     def get_dataset_split(self, split_name: str) -> Dataset:
         """
@@ -149,6 +145,7 @@ class StageRunner:
                 tokenized_dataset=self.get_dataset_split("calibration"),
                 num_calibration_samples=self._data_args.num_calibration_samples,
                 do_shuffle=self._data_args.shuffle_calibration_samples,
+                collate_fn=self._data_args.data_collator,
                 accelerator=self.trainer.accelerator,
             )
 
@@ -266,7 +263,7 @@ class StageRunner:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
-                    tokenizer=self.tokenizer,
+                    processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._training_args.save_compressed,
                 )
