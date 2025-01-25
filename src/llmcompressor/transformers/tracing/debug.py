@@ -112,6 +112,10 @@ def get_dataset_kwargs(modality: str) -> Dict[str, str]:
             "dataset": "flickr",
             "splits": {"calibration": "test[:1]"},
         },
+        "audio": {
+            "dataset": "peoples_speech",
+            "splits": {"calibration": "test[:1]"},
+        },
     }
 
     if modality not in dataset_kwargs:
