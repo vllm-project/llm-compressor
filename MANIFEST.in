@@ -1,1 +1,2 @@
 include LICENSE
+include src/llmcompressor/transformers/tracing/glm/LICENSE

@@ -7,9 +7,13 @@ from .mllama import (
 from .qwen2_vl import (
     Qwen2VLForConditionalGeneration as TraceableQwen2VLForConditionalGeneration,
 )
+from .glm.modeling_chatglm import (
+    ChatGLMForConditionalGeneration as TraceableChatGLMForConditionalGeneration,
+)
 
 __all__ = [
     "TraceableLlavaForConditionalGeneration",
     "TraceableMllamaForConditionalGeneration",
     "TraceableQwen2VLForConditionalGeneration",
+    "TraceableChatGLMForConditionalGeneration",
 ]
