@@ -77,8 +77,7 @@ def tokenize(sample):
     )
 
 
-# long data lengths produced by the phi3_vision processor
-# can lead to integer overflows when mapping, avoid with writer_batch_size
+# avoid errors with writer_batch_size
 ds = ds.map(tokenize, writer_batch_size=1, remove_columns=ds.column_names)
 
 # Perform oneshot
