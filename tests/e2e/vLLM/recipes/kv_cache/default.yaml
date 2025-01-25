@@ -1,0 +1,5 @@
+quant_stage:
+  quant_modifiers:
+    QuantizationModifier:
+      kv_cache_scheme:
+        {num_bits: 8, type: float, symmetric: true, strategy: tensor}

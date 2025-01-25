@@ -10,6 +10,7 @@ import torch
 import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
+    CompressionFormat,
     ModelCompressor,
     SparsityCompressionConfig,
     is_module_offloaded,
@@ -126,6 +127,7 @@ def modify_save_pretrained(model: torch.nn.Module):
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
             skip_compression_stats: bool = False,
+            disable_sparse_compression: bool = False,
             **kwargs,
         ):
             """
@@ -135,13 +137,15 @@ def modify_save_pretrained(model: torch.nn.Module):
 
             :param save_directory: output directory to save model to
             :param sparsity_config: optional sparsity config to compress model with,
-            if no config is provided it will be inferred from the model
+                if no config is provided it will be inferred from the model
             :param quantization_format: optional compression format for quantized
-            models. If none is provided it will be inferred from the model
+                models. If none is provided it will be inferred from the model
             :param save_compressed: whether or not to compress the model on disk
             :param skip_compression_stats: whether to skip the calculation of
-            compression statistics (such as global sparsity and sparsity structure) when
-            saving a model in dense format
+                compression statistics (such as global sparsity and sparsity structure)
+                when saving a model in dense format
+            :param disable_sparse_compression: whether to skip sparse compression
+                during save, default is False
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
@@ -162,6 +166,7 @@ def modify_save_pretrained(model: torch.nn.Module):
                 save_compressed=save_compressed,
                 skip_compression_stats=skip_compression_stats,
                 state_dict=state_dict,
+                disable_sparse_compression=disable_sparse_compression,
             )
 
             if compressor is None:
@@ -229,6 +234,10 @@ def patch_tied_tensors_bug(model: torch.nn.Module):
         input_embed = model.get_input_embeddings()
         output_embed = model.get_output_embeddings()
 
+        if input_embed is None or output_embed is None:
+            # some models fail to properly override the abstract methods
+            return
+
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
             for module in (input_embed, output_embed):
                 if not is_module_offloaded(module):
@@ -249,6 +258,7 @@ def get_model_compressor(
     save_compressed: bool = True,
     skip_compression_stats: bool = False,
     state_dict: Optional[Dict] = None,
+    disable_sparse_compression: bool = False,
 ):
     """
     Obtain the compressor based on the config and the
@@ -262,19 +272,26 @@ def get_model_compressor(
         format
     :param skip_compression_stats: bool allowing compression stats on std out
     :param state_dict: state_dict of the model
+    :param disable_sparse_compression: bool to skip sparse compression
     """
 
     # find offloaded state dict if none is provided
     if state_dict is None:
         state_dict = get_state_dict_offloaded_model(model)
 
+    sparsity_stucture = SparsityConfigMetadata.infer_sparsity_structure(model)
+    quantization_format: Optional[CompressionFormat] = infer_quantization_format(
+        model=model,
+        quantization_format=quantization_format,
+        save_compressed=save_compressed,
+        sparsity_structure=sparsity_stucture,
+    )
+
     if sparsity_config is not None:
         sparsity_config.global_sparsity = SparsityConfigMetadata.infer_global_sparsity(
             model, state_dict=state_dict
         )
-        sparsity_config.sparsity_structure = (
-            SparsityConfigMetadata.infer_sparsity_structure()
-        )
+        sparsity_config.sparsity_structure = sparsity_stucture
     elif not skip_compression_stats:
         # try to infer a sparsity config from the model if none is provided
         logger.info(
@@ -284,15 +301,13 @@ def get_model_compressor(
             "skip_compression_stats=True"
         )
         sparsity_config = SparsityConfigMetadata.from_pretrained(
-            model, state_dict=state_dict, compress=save_compressed
+            model,
+            state_dict=state_dict,
+            compress=save_compressed,
+            quantization_format=quantization_format,
+            disable_sparse_compression=disable_sparse_compression,
         )
 
-    quantization_format = infer_quantization_format(
-        model=model,
-        quantization_format=quantization_format,
-        save_compressed=save_compressed,
-        sparsity_config=sparsity_config,
-    )
     return ModelCompressor.from_pretrained_model(
         model,
         sparsity_config=sparsity_config,
