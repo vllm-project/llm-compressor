@@ -96,6 +96,7 @@ class TextGenerationDataset(RegistryMixin):
                 dataset,
                 self.preprocess,
                 batched=False,
+                keep_in_memory=True,  # TODO: figure out why map fails without this
                 num_proc=self.data_args.preprocessing_num_workers,
                 desc="Preprocessing",
             )
@@ -238,7 +239,7 @@ class TextGenerationDataset(RegistryMixin):
                 f"Found processor args `{tokenizer_args}`. Removing all other columns"
             )
         else:
-            logger.debug(f"Did not find any processor args. Keeping all columns")
+            logger.debug("Did not find any processor args. Keeping all columns")
             tokenizer_args = set(column_names)
 
         return dataset.remove_columns(

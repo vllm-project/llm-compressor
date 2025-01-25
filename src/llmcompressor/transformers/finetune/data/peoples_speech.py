@@ -25,7 +25,7 @@ class PeoplesSpeech(TextGenerationDataset):
 
     def dataset_template(self, example):
         return {
-            "array": example["audio"]["array"],
+            "audio": example["audio"]["array"],
             "sampling_rate": example["audio"]["sampling_rate"],
             "text": " " + example["text"].capitalize(),
         }
