@@ -105,7 +105,9 @@ class TextGenerationDataset(RegistryMixin):
         dataset = self.rename_columns(dataset)
         logger.debug(f"Dataset after column renaming: {get_columns(dataset)}")
 
-        if "input_ids" not in get_columns(dataset):
+        # use processor.model_input_names to determine if the ds is already tokenized
+        model_input_names = getattr(self.processor, "model_input_names", ["input_ids"])
+        if not any(col_name in model_input_names for col_name in get_columns(dataset)):
             # tokenize/ process
             dataset = self.filter_tokenizer_args(dataset)
             logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")
@@ -258,7 +260,7 @@ class TextGenerationDataset(RegistryMixin):
         # store unpadded prompt so we can mask out correct number of elements in labels
         if prompt is not None:
             data[self.PROMPT_KEY] = self.processor(
-                prompt,
+                text=prompt,
                 max_length=self.max_seq_length,
                 truncation=True,
             )["input_ids"]
