@@ -7,6 +7,7 @@ from compressed_tensors.registry import RegistryMixin
 from datasets import Dataset, IterableDataset
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
+from transformers import PreTrainedTokenizer
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -52,9 +53,11 @@ class TextGenerationDataset(RegistryMixin):
         # get tokenizer
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
 
-        if self.tokenizer is not None:
+        if isinstance(self.tokenizer, PreTrainedTokenizer):
             # fill in pad token
-            if not self.tokenizer.pad_token:
+            if not getattr(self.tokenizer, "pad_token", None) and getattr(
+                self.tokenizer, "eos_token", None
+            ):
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
             # configure sequence length
