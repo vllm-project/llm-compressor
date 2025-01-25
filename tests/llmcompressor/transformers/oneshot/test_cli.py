@@ -48,7 +48,7 @@ class TestOneShotCli(unittest.TestCase):
 
         if len(self.additional_args) > 0:
             cmd.extend(self.additional_args)
-
+        breakpoint()
         res = run_cli_command(cmd)
 
         # oneshot has return arg

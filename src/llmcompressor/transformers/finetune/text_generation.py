@@ -134,17 +134,21 @@ def load_dataset(dataset_name: str, **kwargs):
 def parse_args(include_training_args: bool = False, **kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
-        * model_args in src/llmcompressor/transformers/finetune/model_args.py
-        * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
-        * recipe_args in src/llmcompressor/transformers/utils/recipe_args.py
-        * training_args in src/llmcompressor/transformers/finetune/training_args.py
+        * model_args in
+            src/llmcompressor/transformers/utils/arg_parser/model_args.py
+        * data_args in
+            src/llmcompressor/transformers/utils/arg_parser/data_args.py
+        * recipe_args in
+            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
+        * training_args in
+            src/llmcompressor/transformers/utils/arg_parser/training_args.py
 
     Throws deprecation warnings
 
     :param include_training_args: Add training_args in the output if set to True.
-        Note that instating trainng_args will reset HF accelerator and change its
-        internal state. This dataclass should only be instatiated once to avoid
-        conflict with accelerate library's accelerator.
+        Note that instantiatng trainng_args will reset HF accelerator and change its
+        internal state. This dataclass should be instantiated only once to avoid
+        conflict with Accelerate library's accelerator.
 
     """
     output_dir = kwargs.pop("output_dir", DEFAULT_OUTPUT_DIR)
@@ -157,6 +161,21 @@ def parse_args(include_training_args: bool = False, **kwargs):
         parser = HfArgumentParser((ModelArguments, DatasetArguments, RecipeArguments))
 
     if not kwargs:
+        # if output_dir passed from cli, pop to avoid using training_args
+        def _get_output_dir_from_argv() -> Optional[str]:
+            import sys
+
+            output_dir = None
+            if "--output_dir" in sys.argv:
+                index = sys.argv.index("--output_dir")
+                sys.argv.pop(index)
+                if index < len(sys.argv):  # Check if value exists afer the flag
+                    output_dir = sys.argv.pop(index)
+
+            return output_dir
+
+        output_dir = _get_output_dir_from_argv() or output_dir
+
         parsed_args = parser.parse_args_into_dataclasses()
     else:
         parsed_args = parser.parse_dict(kwargs)
