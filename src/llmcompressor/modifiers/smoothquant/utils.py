@@ -43,6 +43,16 @@ BLOOM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
         smooth_layers="re:.*post_attention_layernorm",
     ),
 ]
+PHI3_VISION_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
+    LayerMap(
+        balance_layers=["re:.*qkv_proj"],
+        smooth_layers="re:.*input_layernorm",
+    ),
+    LayerMap(
+        balance_layers=["re:.*gate_up_proj"],
+        smooth_layers="re:.*post_attention_layernorm",
+    ),
+]
 
 
 # Registry of layer mappings for different architectures
@@ -54,6 +64,7 @@ MAPPINGS_REGISTRY: Dict[str, List[LayerMap]] = {
     "Qwen2ForCausalLM": DEFAULT_SMOOTHQUANT_MAPPINGS,
     "BloomForCausalLM": BLOOM_SMOOTHQUANT_MAPPINGS,
     "ChatGLMForConditionalGeneration": BLOOM_SMOOTHQUANT_MAPPINGS,
+    "Phi3VForCausalLM": PHI3_VISION_SMOOTHQUANT_MAPPINGS,
 }
 
 
