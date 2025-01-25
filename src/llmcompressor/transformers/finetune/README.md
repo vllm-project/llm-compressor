@@ -45,7 +45,7 @@ See [configure_fsdp.md](../../../../examples/finetuning/configure_fsdp.md) for a
 ```python
 from llmcompressor.transformers import train
 
-model = "./obcq_deployment"
+model = "./model_path"
 teacher_model = "Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
