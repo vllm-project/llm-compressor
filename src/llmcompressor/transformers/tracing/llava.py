@@ -19,19 +19,13 @@
 from typing import List, Optional, Tuple, Union
 
 import torch
-from transformers import AutoModel, AutoModelForCausalLM, LlavaForConditionalGeneration
+from transformers import LlavaForConditionalGeneration
 from transformers.models.llava.configuration_llava import LlavaConfig
 from transformers.models.llava.modeling_llava import (
     LlavaCausalLMOutputWithPast,
-    LlavaMultiModalProjector,
-    LlavaPreTrainedModel,
     logger,
 )
-from transformers.models.mistral.configuration_mistral import MistralConfig
 from transformers.utils.fx import HFProxy
-
-# TRACING: Reuse traceable subclass
-from .mistral import MistralForCausalLM as TraceableMistralForCausalLM
 
 
 # TRACING: The shape of image_features is known and documented by
@@ -58,7 +52,7 @@ def maybe_install_metadata_image_features(
 
 # TRACING: The shape of inputs_embeds is known. This function compensates for
 # the fact that shape inference through `masked_scatter` is not implemented yet
-def maybe_install_metadata_inputs_embeds(
+def maybe_install_metadata_inputs_embeds_masked(
     inputs_embeds_masked: Union[torch.Tensor, HFProxy],
     inputs_embeds: Union[torch.Tensor, HFProxy],
     special_image_mask: Union[torch.Tensor, HFProxy],
@@ -70,27 +64,11 @@ def maybe_install_metadata_inputs_embeds(
         )
         inputs_embeds_masked.install_metadata(metadata)
 
-    return inputs_embeds
+    return inputs_embeds_masked
 
 
 # TRACING: override `__init__` and `forward`
 class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
-    def __init__(self, config: LlavaConfig):
-        super(LlavaPreTrainedModel, self).__init__(config)
-        self.vision_tower = AutoModel.from_config(config.vision_config)
-
-        self.multi_modal_projector = LlavaMultiModalProjector(config)
-        self.vocab_size = config.text_config.vocab_size
-
-        # TRACING: Must use TraceableMistralForCausalLM which wraps an untraceable function
-        if isinstance(config.text_config, MistralConfig):
-            self.language_model = TraceableMistralForCausalLM(config.text_config)
-        else:
-            self.language_model = AutoModelForCausalLM.from_config(config.text_config)
-
-        self.pad_token_id = self.config.pad_token_id if self.config.pad_token_id is not None else -1
-        self.post_init()
-
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -153,6 +131,7 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
                 vision_feature_select_strategy=vision_feature_select_strategy,
             )
 
+            # TRACING: install metadata
             image_features = maybe_install_metadata_image_features(
                 image_features, pixel_values, self.config
             )
@@ -223,7 +202,7 @@ class LlavaForConditionalGeneration(LlavaForConditionalGeneration):
             inputs_embeds_masked = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
             # TRACING: install metadata
-            inputs_embeds_masked = maybe_install_metadata_inputs_embeds(inputs_embeds_masked, inputs_embeds, special_image_mask, image_features)
+            inputs_embeds_masked = maybe_install_metadata_inputs_embeds_masked(inputs_embeds_masked, inputs_embeds, special_image_mask, image_features)
             inputs_embeds = inputs_embeds_masked
 
         outputs = self.language_model(
