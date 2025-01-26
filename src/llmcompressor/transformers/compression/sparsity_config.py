@@ -49,7 +49,6 @@ class SparsityConfigMetadata:
     @staticmethod
     def infer_sparsity_structure(
         model: Optional[Module] = None,
-        stage_modifiers: Optional[CompressionLifecycle] = None,
     ) -> str:
         """
         Determines what sparsity structure, if any, was applied.
