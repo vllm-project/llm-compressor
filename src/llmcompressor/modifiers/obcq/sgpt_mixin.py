@@ -198,7 +198,6 @@ class SparsityModifierMixin(HooksMixin):
             groups[name] = torch.cat([item.flatten().cpu() for item in z])
 
         del activations
-        torch.cuda.empty_cache()
 
         outlier_ratios = {}
         for group in groups:
