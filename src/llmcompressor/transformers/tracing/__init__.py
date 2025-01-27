@@ -7,6 +7,9 @@ from .mllama import (
 from .qwen2_vl import (
     Qwen2VLForConditionalGeneration as TraceableQwen2VLForConditionalGeneration,
 )
+from .idefics3 import (
+    Idefics3ForConditionalGeneration as TraceableIdefics3ForConditionalGeneration
+)
 from .whisper import (
     WhisperForConditionalGeneration as TraceableWhisperForConditionalGeneration
 )
@@ -18,6 +21,7 @@ __all__ = [
     "TraceableLlavaForConditionalGeneration",
     "TraceableMllamaForConditionalGeneration",
     "TraceableQwen2VLForConditionalGeneration",
+    "TraceableIdefics3ForConditionalGeneration"
     "TraceableWhisperForConditionalGeneration",
     "TraceableQwen2AudioForConditionalGeneration",
 ]
