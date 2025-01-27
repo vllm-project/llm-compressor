@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import MagicMock
 
 import pytest
-from accelerate import init_empty_weights
 
 from llmcompressor.core.state import State
 from llmcompressor.modifiers.obcq import SparseGPTModifier
@@ -19,7 +18,7 @@ class TestLMHead(unittest.TestCase):
         self.model = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map=self.device
         )
-        
+
         self.kwargs = {
             "sparsity": 0.5,
             "block_size": 128,
