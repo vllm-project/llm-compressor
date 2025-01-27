@@ -14,7 +14,10 @@ from transformers import AutoConfig
 from transformers.trainer_utils import get_last_checkpoint
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers import ModelArguments, TrainingArguments
+    from llmcompressor.transformers.utils.arg_parser import (
+        ModelArguments,
+        TrainingArguments,
+    )
 
 __all__ = [
     "RECIPE_FILE_NAME",
