@@ -57,7 +57,7 @@ If your model is not traceable for your desired dataset, first consider adding a
 For example, in this model graph, the internals of the MllamaVisionModel are not traced (we don't see the individual MllamaVisionEncoder layers, ect.). However, we can no longer target the modules within the MllamaVisionModel such as the MllamaVisionEncoder as sequential targets. If any modules within the MllamaVisionModel are being compressed, their hessians will all be allocated at the same time, increasing peak memory usage.
 
 ## Tracing Errors ##
-Because the architectures of vision-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/README.md).
+Because the architectures of vision-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
 
 ## Adding Your Own Smoothquant Mappings ##
 For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuant Guide](/src/llmcompressor/modifiers/smoothquant/README.md).
