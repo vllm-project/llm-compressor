@@ -3,17 +3,17 @@
 <p align="center" style="text-align: center;">
     <img src=http://images.cocodataset.org/train2017/000000231895.jpg alt="sample image from MS COCO dataset"/>
 </p>
+<em>
 
-<div style="text-align: center;">
-    <pre><code>
+``` 
 <|system|>
 You are a helpful assistant.
 <|user|>
 Please describe the animal in this image
 <|assistant|>
 The animal in the image is a white kitten. It has a fluffy coat and is resting on a white keyboard. The kitten appears to be comfortable and relaxed, possibly enjoying the warmth of the keyboard.
-    </code></pre>
-</div>
+```
+</em>
 
 This directory contains example scripts for quantizing a variety of vision-language models using the GPTQ quantization. Most examples do not demonstrate quantizing separate vision encoder parameters if they exist, as compressing these parameters offers little benefit with repsect to performance-accuracy tradeoff.
 
