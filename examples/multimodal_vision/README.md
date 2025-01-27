@@ -54,8 +54,6 @@ Choosing sequential targets with higher granularity (for example "Linear" instea
 ### Ignore ###
 If your model is not traceable for your desired dataset, first consider adding any problematic modules to the ignore list. Doing this prevents the model tracer from tracing the internals of those modules, thereby avoid the untraceable operations.
 
-For example, in this model graph, the internals of the MllamaVisionModel are not traced (we don't see the individual MllamaVisionEncoder layers, ect.). However, we can no longer target the modules within the MllamaVisionModel such as the MllamaVisionEncoder as sequential targets. If any modules within the MllamaVisionModel are being compressed, their hessians will all be allocated at the same time, increasing peak memory usage.
-
 ## Tracing Errors ##
 Because the architectures of vision-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
 
