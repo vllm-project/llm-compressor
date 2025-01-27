@@ -23,12 +23,10 @@ class TestOBCQCompletion(unittest.TestCase):
         from transformers import AutoTokenizer, DefaultDataCollator
 
         from llmcompressor.transformers.finetune.data import TextGenerationDataset
-        from llmcompressor.transformers.finetune.data.data_args import (
-            DataTrainingArguments,
-        )
+        from llmcompressor.transformers.utils.arg_parser import DatasetArguments
 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        data_args = DataTrainingArguments(
+        data_args = DatasetArguments(
             dataset=dataset_name,
             max_seq_length=512,
             pad_to_max_length=False,
