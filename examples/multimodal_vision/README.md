@@ -11,7 +11,9 @@ You are a helpful assistant.
 <|user|>
 Please describe the animal in this image
 <|assistant|>
-The animal in the image is a white kitten. It has a fluffy coat and is resting on a white keyboard. The kitten appears to be comfortable and relaxed, possibly enjoying the warmth of the keyboard.
+The animal in the image is a white kitten.
+It has a fluffy coat and is resting on a white keyboard.
+The kitten appears to be comfortable and relaxed, possibly enjoying the warmth of the keyboard.
 ```
 </em>
 
