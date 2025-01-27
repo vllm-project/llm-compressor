@@ -8,8 +8,10 @@
 ``` 
 <|system|>
 You are a helpful assistant.
+
 <|user|>
 Please describe the animal in this image
+
 <|assistant|>
 The animal in the image is a white kitten.
 It has a fluffy coat and is resting on a white keyboard.
