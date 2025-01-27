@@ -19,7 +19,7 @@ The kitten appears to be comfortable and relaxed, possibly enjoying the warmth o
 ```
 </em>
 
-This directory contains example scripts for quantizing a variety of vision-language models using the GPTQ quantization. Most examples do not demonstrate quantizing separate vision encoder parameters if they exist, as compressing these parameters offers little benefit with repsect to performance-accuracy tradeoff.
+This directory contains example scripts for quantizing a variety of vision-language models using the GPTQ quantization. Most examples do not demonstrate quantizing separate vision encoder parameters if they exist, as compressing these parameters offers little benefit with respect to performance-accuracy tradeoff.
 
 ## Compressing Your Own Model ##
 To use your own multimodal modal, start with an existing example change the `model_id` to match your own model stub.
