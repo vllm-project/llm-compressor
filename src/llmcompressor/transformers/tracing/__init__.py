@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import sys
 import importlib
-from llmcompressor.utils.import_utils import _AliasableLazyModule
+from llmcompressor.utils.AliasableLazyModule import _AliasableLazyModule
 from transformers.utils.import_utils import define_import_structure
 
 _aliases = {
