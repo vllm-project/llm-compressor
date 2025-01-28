@@ -1,10 +1,8 @@
 # Quantizing Multimodal Audio Models #
 
-<audio controls>
-    <source src="https://datasets-server.huggingface.co/cached-assets/MLCommons/peoples_speech/--/f10597c5d3d3a63f8b6827701297c3afdf178272/--/clean/test/0/audio/audio.wav?Expires=1738010344&Signature=V6eMq7mQo1~wrkdswghsWaf9aklEQwoqw8FwJUiHAL75K7BcarTepBYcQkFIRi6usgU5J0TlX~wBwIlobAE7GzEXTUI7j5KA1MbFTiLo-nIYiq-WpA70EHW3mGy5HyCm01wKD49ngQDOgHX0-NrvTuXJCkTBhfYBwbQ5QsM8Wv3sbgEyadE~RMEGJLTfQL5fzQp3l1FWMdGuBJHDqSZa1SzTbOJYfmNQjGlfgWpm8Fhf5KWDl1NQSgWaiWRC0evbxt~C9Z8sEYwIEma7tTJafWqc2T9Awn8RdMqNKXnqSZ-mQBBxWVAV9cJbGKsj5JXJJwMPl23AUpzfSale71602g__&Key-Pair-Id=K3EI6M078Z3AC3">
-    Your browser does not support the audio element.
-</audio>
-<em>
+https://github.com/user-attachments/assets/6732c60b-1ebe-4bed-b409-c16c4415dff5
+
+Audio provided by Daniel Galvez et al. under creative commons license
 
 ``` 
 <|startoftranscript|> <|en|>
@@ -53,10 +51,38 @@ Choosing sequential targets with higher granularity (for example "Linear" instea
 If your model is not traceable for your desired dataset, first consider adding any problematic modules to the ignore list. Doing this prevents the model tracer from tracing the internals of those modules, thereby avoid the untraceable operations.
 
 ## Tracing Errors ##
-Because the architectures of vision-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
+Because the architectures of audio-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
 
 ## Adding Your Own Smoothquant Mappings ##
 For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuant Guide](/src/llmcompressor/modifiers/smoothquant/README.md).
 
 ## Adding Your Own Data Collator ##
 Most examples utilize a generic `data_collator` which correctly correlates data for most multimodal datasets. If you find that your model needs custom data collation (as is the case with [pixtral](/examples/multimodal_vision/pixtral_example.py)), you can modify this function to reflect these model-specific requirements.
+
+## Sample Audio Provided Under a Creative Commons Attribution License ##
+https://creativecommons.org/licenses/by/4.0/legalcode
+```
+@article{DBLP:journals/corr/abs-2111-09344,
+  author    = {Daniel Galvez and
+               Greg Diamos and
+               Juan Ciro and
+               Juan Felipe Cer{\'{o}}n and
+               Keith Achorn and
+               Anjali Gopi and
+               David Kanter and
+               Maximilian Lam and
+               Mark Mazumder and
+               Vijay Janapa Reddi},
+  title     = {The People's Speech: {A} Large-Scale Diverse English Speech Recognition
+               Dataset for Commercial Usage},
+  journal   = {CoRR},
+  volume    = {abs/2111.09344},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2111.09344},
+  eprinttype = {arXiv},
+  eprint    = {2111.09344},
+  timestamp = {Mon, 22 Nov 2021 16:44:07 +0100},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-2111-09344.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
