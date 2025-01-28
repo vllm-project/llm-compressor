@@ -62,3 +62,21 @@ For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuan
 
 ## Adding Your Own Data Collator ##
 Most examples utilize a generic `data_collator` which correctly correlates data for most multimodal datasets. If you find that your model needs custom data collation (as is the case with [pixtral](/examples/multimodal_vision/pixtral_example.py)), you can modify this function to reflect these model-specific requirements.
+
+## Sample Image Provided Under a Creative Commons Attribution License ##
+https://creativecommons.org/licenses/by/4.0/legalcode
+```
+@article{cocodataset,
+  author    = {Tsung{-}Yi Lin and Michael Maire and Serge J. Belongie and Lubomir D. Bourdev and Ross B. Girshick and James Hays and Pietro Perona and Deva Ramanan and Piotr Doll{'{a} }r and C. Lawrence Zitnick},
+  title     = {Microsoft {COCO:} Common Objects in Context},
+  journal   = {CoRR},
+  volume    = {abs/1405.0312},
+  year      = {2014},
+  url       = {http://arxiv.org/abs/1405.0312},
+  archivePrefix = {arXiv},
+  eprint    = {1405.0312},
+  timestamp = {Mon, 13 Aug 2018 16:48:13 +0200},
+  biburl    = {https://dblp.org/rec/bib/journals/corr/LinMBHPRDZ14},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
