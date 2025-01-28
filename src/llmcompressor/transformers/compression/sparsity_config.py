@@ -183,7 +183,8 @@ class SparsityConfigMetadata:
         if not is_model_quantized(model):
             logger.warning(
                 "Compressed Sparse-only 2:4 models are not supported in vLLM<=0.7.0, "
-                "consider saving with disable_sparse_compression=True"
+                "consider saving with `disable_sparse_compression` set, "
+                "`model.save_pretrained(..., disable_sparse_compression=True)`"
             )
             return True
 
