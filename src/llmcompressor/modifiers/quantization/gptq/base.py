@@ -251,6 +251,8 @@ class GPTQModifier(Modifier, HooksMixin):
                 )
             if isinstance(exception, unfixable_errors):
                 raise exception
+            
+            raise exception
 
             warnings.warn("Falling back to layer_sequential pipeline")
             try:

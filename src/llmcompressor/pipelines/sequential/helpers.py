@@ -70,11 +70,15 @@ def trace_subgraphs(
     tracer = get_tracer(model, sequential_targets, ignore)
     concrete_args = populate_concrete_args(model, sample_input)
 
+
     # trace
     with (
         calibration_forward_context(model),
         HooksMixin.disable_hooks(),
     ):
+        breakpoint()
+        model(**sample_input, **concrete_args)
+        exit(0)
         graph = GraphModule(
             model,
             tracer.trace(
