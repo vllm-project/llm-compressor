@@ -10,14 +10,10 @@ from .qwen2_vl import (
 from .whisper import (
     WhisperForConditionalGeneration as TraceableWhisperForConditionalGeneration
 )
-from .qwen2_audio import (
-    Qwen2AudioForConditionalGeneration as TraceableQwen2AudioForConditionalGeneration
-)
 
 __all__ = [
     "TraceableLlavaForConditionalGeneration",
     "TraceableMllamaForConditionalGeneration",
     "TraceableQwen2VLForConditionalGeneration",
     "TraceableWhisperForConditionalGeneration",
-    "TraceableQwen2AudioForConditionalGeneration",
 ]
