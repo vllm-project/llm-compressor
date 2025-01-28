@@ -1,6 +1,6 @@
 # Quantizing Multimodal Audio Models #
 
-https://github.com/vllm-project/llm-compressor/tree/main/examples/multimodal_audio/assets/audio.mp4
+https://github.com/user-attachments/assets/6732c60b-1ebe-4bed-b409-c16c4415dff5
 
 Audio provided by Daniel Galvez et al. under creative commons license
 
@@ -51,7 +51,7 @@ Choosing sequential targets with higher granularity (for example "Linear" instea
 If your model is not traceable for your desired dataset, first consider adding any problematic modules to the ignore list. Doing this prevents the model tracer from tracing the internals of those modules, thereby avoid the untraceable operations.
 
 ## Tracing Errors ##
-Because the architectures of vision-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
+Because the architectures of audio-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
 
 ## Adding Your Own Smoothquant Mappings ##
 For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuant Guide](/src/llmcompressor/modifiers/smoothquant/README.md).
