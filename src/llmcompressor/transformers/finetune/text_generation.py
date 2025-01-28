@@ -239,7 +239,7 @@ def initialize_model_from_path(
     set_seed(training_args.seed)
 
     # Fallback to CPU if GPU requested and not available
-    training_args.oneshot_device = fallback_to_cpu(training_args.oneshot_device)
+    training_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
 
     # Trainer handles device assignment for FSDP and training, don't do mapping here
     # if running oneshot outside of FSDP, apply user device settings

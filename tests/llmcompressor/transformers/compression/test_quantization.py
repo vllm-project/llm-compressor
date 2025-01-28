@@ -59,7 +59,7 @@ class TestQuantizationMatches(unittest.TestCase):
         max_seq_length = 512
         pad_to_max_length = False
 
-        oneshot_run = oneshot(
+        oneshot(
             model=model,
             dataset=dataset,
             output_dir=output_dir,
@@ -71,8 +71,9 @@ class TestQuantizationMatches(unittest.TestCase):
             splits={"calibration": "train_gen[:5%]"},
             save_compressed=False,
         )
+        from llmcompressor.pytorch.model_load.helpers import get_session_model
 
-        return oneshot_run.model
+        return get_session_model()
 
     def _get_quant_info(self, model):
         quant_info_weights = {}
