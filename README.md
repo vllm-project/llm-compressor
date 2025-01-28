@@ -39,7 +39,8 @@ Applying quantization with `llmcompressor`:
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8)
 * [Weight only quantization to `int4`](examples/quantization_w4a16)
 * [Quantizing MoE LLMs](examples/quantizing_moe)
-* [Quantizing Multimodal Audio LLMs](examples/multimodal_audio)
+* [Quantizing Vision-Language Models](examples/multimodal_vision)
+* [Quantizing Audio-Language Models](examples/multimodal_audio)
 
 ### User Guides
 Deep dives into advanced usage of `llmcompressor`:
