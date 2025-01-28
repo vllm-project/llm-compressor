@@ -29,7 +29,6 @@ from llmcompressor.transformers.utils.arg_parser import (
 from llmcompressor.transformers.utils.arg_parser.training_arguments import (
     DEFAULT_OUTPUT_DIR,
 )
-from llmcompressor.transformers.utils.arg_parser.utils import get_dataclass_as_dict
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
@@ -260,19 +259,7 @@ class StageRunner:
 
             # run stage
             if run_type is StageRunType.ONESHOT:
-                from llmcompressor.transformers.calibration import Oneshot
-
-                model = get_session_model()
-                self._model_args.model = model
-
-                oneshot = Oneshot(
-                    output_dir=self._training_args.output_dir,
-                    **get_dataclass_as_dict(self._model_args, ModelArguments),
-                    **get_dataclass_as_dict(self._data_args, DatasetArguments),
-                    **get_dataclass_as_dict(self._recipe_args, RecipeArguments),
-                )
-
-                oneshot.run(stage_name=stage_name)
+                self.one_shot(stage=stage_name)
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None

@@ -49,7 +49,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
-    get_processor_from_model,
+    get_shared_processor_src,
 )
 from llmcompressor.transformers.utils.arg_parser import (
     DEFAULT_OUTPUT_DIR,
@@ -89,14 +89,15 @@ def eval(**kwargs):
 
 
 def oneshot(**kwargs):
-    from llmcompressor.transformers.calibration.oneshot import Oneshot
-
     """
     CLI entrypoint for running oneshot calibration
     """
-    oneshot = Oneshot(**kwargs)
-    oneshot.run()
-    return oneshot
+    # TODO: Get rid of training args when Oneshot refactor comes in
+    model_args, data_args, recipe_args, training_args, _ = parse_args(
+        include_training_args=True, **kwargs
+    )
+    training_args.do_oneshot = True
+    main(model_args, data_args, recipe_args, training_args)
 
 
 # alias
@@ -161,21 +162,6 @@ def parse_args(include_training_args: bool = False, **kwargs):
         parser = HfArgumentParser((ModelArguments, DatasetArguments, RecipeArguments))
 
     if not kwargs:
-        # if output_dir passed from cli, pop to avoid using training_args
-        def _get_output_dir_from_argv() -> Optional[str]:
-            import sys
-
-            output_dir = None
-            if "--output_dir" in sys.argv:
-                index = sys.argv.index("--output_dir")
-                sys.argv.pop(index)
-                if index < len(sys.argv):  # Check if value exists afer the flag
-                    output_dir = sys.argv.pop(index)
-
-            return output_dir
-
-        output_dir = _get_output_dir_from_argv() or output_dir
-
         parsed_args = parser.parse_args_into_dataclasses()
     else:
         parsed_args = parser.parse_dict(kwargs)
@@ -217,8 +203,9 @@ def parse_args(include_training_args: bool = False, **kwargs):
 
 def initialize_model_from_path(
     model_args: ModelArguments,
-    training_args: Optional[TrainingArguments] = None,
+    training_args: TrainingArguments,
 ):
+    last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
     # Load pretrained model
     # The .from_pretrained methods guarantee that only one local process can
     # concurrently download model & vocab.
@@ -231,23 +218,16 @@ def initialize_model_from_path(
         tie_word_embeddings=model_args.tie_word_embeddings,
         trust_remote_code=model_args.trust_remote_code_model,
     )
-
-    last_checkpoint = None
-
-    if training_args is not None:
-        teacher_config = (
-            AutoConfig.from_pretrained(
-                model_args.distill_teacher,
-                use_auth_token=True if model_args.use_auth_token else None,
-                tie_word_embeddings=model_args.tie_word_embeddings,
-                trust_remote_code=model_args.trust_remote_code_model,
-            )
-            if model_args.distill_teacher
-            else None
+    teacher_config = (
+        AutoConfig.from_pretrained(
+            model_args.distill_teacher,
+            use_auth_token=True if model_args.use_auth_token else None,
+            tie_word_embeddings=model_args.tie_word_embeddings,
+            trust_remote_code=model_args.trust_remote_code_model,
         )
-        last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
-        # Set seed before initializing model.
-        set_seed(training_args.seed)
+        if model_args.distill_teacher
+        else None
+    )
 
     model_path = (
         last_checkpoint or model_args.model
@@ -255,18 +235,21 @@ def initialize_model_from_path(
         else model_args.model_name_or_path
     )
 
+    # Set seed before initializing model.
+    set_seed(training_args.seed)
+
     # Fallback to CPU if GPU requested and not available
-    model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
+    training_args.oneshot_device = fallback_to_cpu(training_args.oneshot_device)
 
     # Trainer handles device assignment for FSDP and training, don't do mapping here
     # if running oneshot outside of FSDP, apply user device settings
-
+    device_map = None
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-
-    device_map = model_args.oneshot_device
-    if not fsdp_enabled and training_args is not None and training_args.do_train:
+    if not fsdp_enabled and training_args.do_oneshot:
+        device_map = training_args.oneshot_device
+        logger.warning(f"Moving {model_path} to device {device_map} for One-Shot")
+    elif not fsdp_enabled:
         device_map = "auto"
-
     model_kwargs = {
         "config": config,
         "cache_dir": model_args.cache_dir,
@@ -276,7 +259,15 @@ def initialize_model_from_path(
         "device_map": device_map,
         "trust_remote_code": model_args.trust_remote_code_model,
     }
-
+    teacher_device_map = None if fsdp_enabled else "auto"
+    teacher_kwargs = {
+        "config": teacher_config,
+        "cache_dir": model_args.cache_dir,
+        "use_auth_token": True if model_args.use_auth_token else None,
+        "torch_dtype": parse_dtype(model_args.precision),
+        "device_map": teacher_device_map,
+        "trust_remote_code": model_args.trust_remote_code_model,
+    }
     # this calls from_pretrained under the hood so should be FSDP safe
 
     # optimized models must be decompressed to carry out oneshot/train/etc
@@ -292,30 +283,18 @@ def initialize_model_from_path(
     if "sequence_length" in model_kwargs:
         model.seqlen = model_kwargs["sequence_length"]
 
-    teacher = None
-    if training_args is not None:
-        teacher_device_map = None if fsdp_enabled else "auto"
-        teacher_kwargs = {
-            "config": teacher_config,
-            "cache_dir": model_args.cache_dir,
-            "use_auth_token": True if model_args.use_auth_token else None,
-            "torch_dtype": parse_dtype(model_args.precision),
-            "device_map": teacher_device_map,
-            "trust_remote_code": model_args.trust_remote_code_model,
-        }
-
-        teacher = (
-            AutoModelForCausalLM.from_pretrained(
-                model_args.distill_teacher,
-                **teacher_kwargs,
-            )
-            if model_args.distill_teacher is not None
-            else None
+    teacher = (
+        AutoModelForCausalLM.from_pretrained(
+            model_args.distill_teacher,
+            **teacher_kwargs,
         )
-        if teacher is not None and "sequence_length" in teacher_kwargs:
-            teacher.seqlen = teacher_kwargs["sequence_length"]
+        if model_args.distill_teacher is not None
+        else None
+    )
+    if teacher is not None and "sequence_length" in teacher_kwargs:
+        teacher.seqlen = teacher_kwargs["sequence_length"]
 
-    return model, teacher
+    return teacher, model_path, model
 
 
 def initialize_processor_from_path(
@@ -323,7 +302,8 @@ def initialize_processor_from_path(
     model: PreTrainedModel,
     teacher: Optional[PreTrainedModel] = None,
 ) -> Processor:
-    processor_src = model_args.processor or get_processor_from_model(model, teacher)
+    processor_src = model_args.processor
+    processor_src = processor_src or get_shared_processor_src(model, teacher)
     # The use_fast=True option is not currently supported safely in Transformers
     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
     try:
@@ -412,11 +392,10 @@ def main(
 
     model = model_args.model
     if isinstance(model, str) or isinstance(model, PosixPath):
-        (model, teacher) = initialize_model_from_path(
+        (teacher, _model_path, model) = initialize_model_from_path(
             model_args,
             training_args,
         )
-
     # patch a shared tensor bug in HF transformers
     # https://github.com/huggingface/transformers/issues/33689
     patch_tied_tensors_bug(model)
