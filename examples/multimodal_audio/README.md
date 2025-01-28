@@ -1,10 +1,6 @@
 # Quantizing Multimodal Audio Models #
 
-<audio controls>
-    <source src="assets/audio.mp4">
-    Your browser does not support the audio element.
-</audio>
-<em>
+https://github.com/vllm-project/llm-compressor/tree/main/examples/multimodal_audio/assets/audio.mp4
 
 Audio provided by Daniel Galvez et al. under creative commons license
 
