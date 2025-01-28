@@ -3,8 +3,23 @@ import sys
 from types import ModuleType
 from unittest.mock import patch
 
+import pytest
 
-def test_lazy_loading():
+
+@pytest.fixture(autouse=True)
+def clean_imports():
+    # Remove any existing imports before each test
+    module_names = list(sys.modules.keys())
+    for module_name in module_names:
+        if module_name.startswith("llmcompressor"):
+            del sys.modules[module_name]
+
+    importlib.invalidate_caches()
+
+    yield
+
+
+def test_lazy_loading(clean_imports):
     # mock import_module
     imported_module_names = []
     original_import_module = importlib.import_module
@@ -30,7 +45,7 @@ def test_lazy_loading():
     assert "mllama" not in attributes
 
 
-def test_class_names():
+def test_class_names(clean_imports):
     import llmcompressor.transformers.tracing as TracingModule
 
     # test that the class names are not the aliased names
