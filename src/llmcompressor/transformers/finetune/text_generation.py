@@ -83,9 +83,11 @@ def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
-    training_args.do_oneshot = True
-    main(model_args, data_args, training_args)
+    from llmcompressor.transformers.calibration.oneshot import Oneshot
+
+    oneshot = Oneshot(**kwargs)
+    oneshot.run()
+    return oneshot
 
 
 # alias

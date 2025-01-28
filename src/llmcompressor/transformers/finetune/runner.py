@@ -13,18 +13,14 @@ from llmcompressor.pytorch.model_load.helpers import (
     get_session_model,
     save_completed_stages,
 )
-from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    format_calibration_data,
-    make_dataset_splits,
-)
+from llmcompressor.transformers.finetune.data.data_helpers import make_dataset_splits
 from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.typing import Processor
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
+from llmcompressor.utils.fsdp.helpers import save_model_and_recipe
 
 
 class StageRunner:
@@ -131,37 +127,6 @@ class StageRunner:
         """
         return self.datasets.get(split_name, None)
 
-    def one_shot(self, stage: Optional[str] = None):
-        """
-        Run oneshot calibration on the active model
-
-        :param stage: which stage of the recipe to run, or None to run whole recipe
-        """
-        logger.info("*** One Shot ***")
-
-        calib_data = None
-        if self.get_dataset_split("calibration") is not None:
-            calib_data = format_calibration_data(
-                tokenized_dataset=self.get_dataset_split("calibration"),
-                num_calibration_samples=self._data_args.num_calibration_samples,
-                do_shuffle=self._data_args.shuffle_calibration_samples,
-                collate_fn=self._data_args.data_collator,
-                accelerator=self.trainer.accelerator,
-            )
-
-            # if we don't run a forward pass after initializing the FSDP model for the
-            # first time, calls to summon_full_params will fail ¯\_(ツ)_/¯
-            if is_fsdp_model(self.trainer.model):
-                dummy_inp = dict(next(iter(calib_data)))
-                model_device = next(self.trainer.model.parameters()).device
-                dummy_inp = tensors_to_device(dummy_inp, model_device)
-                with torch.no_grad():
-                    self.trainer.model(**dummy_inp)
-
-        self.trainer.accelerator.wait_for_everyone()
-
-        self.trainer.one_shot(calibration_data=calib_data, stage=stage)
-
     def train(self, checkpoint: str, stage: Optional[str] = None):
         """
         Run trainer's training loop on train_dataset, saving the resulting model to
@@ -251,15 +216,23 @@ class StageRunner:
 
             # run stage
             if run_type is StageRunType.ONESHOT:
-                self.one_shot(stage=stage_name)
+                from llmcompressor.transformers.calibration import Oneshot
+
+                model = get_session_model()
+                self._model_args.model = model
+
+                oneshot = Oneshot(
+                    output_dir=self._training_args.output_dir,
+                    **get_dataclass_as_dict(self._model_args, ModelArguments),
+                    **get_dataclass_as_dict(self._data_args, DatasetArguments),
+                    **get_dataclass_as_dict(self._recipe_args, RecipeArguments),
+                )
+                oneshot.run()
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
-            if (
-                self._training_args.output_dir
-                != TrainingArguments.__dataclass_fields__["output_dir"].default
-            ):
+            if self._training_args.output_dir != DEFAULT_OUTPUT_DIR:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
