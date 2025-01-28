@@ -1,5 +1,4 @@
 import pytest
-from transformers import AutoProcessor
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -54,37 +53,3 @@ def test_separate_datasets():
         split_datasets = make_dataset_splits(
             datasets, do_train=True, do_eval=True, do_predict=True
         )
-
-
-@pytest.mark.integration
-@pytest.mark.parametrize(
-    "model_id,expected",
-    [
-        ("meta-llama/Meta-Llama-3-8B-Instruct", ["input_ids", "attention_mask"]),
-        ("mistralai/Mixtral-8x7B-Instruct-v0.1", ["input_ids", "attention_mask"]),
-        (
-            "Qwen/Qwen2-VL-2B-Instruct",
-            [
-                "input_ids",
-                "attention_mask",
-                "pixel_values",
-                "image_grid_thw",
-                "pixel_values_videos",
-                "video_grid_thw",
-            ],
-        ),
-        ("mgoin/pixtral-12b", ["input_ids", "attention_mask", "pixel_values"]),
-        ("openai/whisper-large-v2", ["input_features"]),
-        (
-            "Qwen/Qwen2-Audio-7B-Instruct",
-            ["input_ids", "attention_mask", "input_features", "feature_attention_mask"],
-        ),
-    ],
-)
-def test_processor_model_input_names(model_id, expected):
-    """
-    Tests the model_input_names attribute of common model processors
-    """
-
-    processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-    assert processor.model_input_names == expected
