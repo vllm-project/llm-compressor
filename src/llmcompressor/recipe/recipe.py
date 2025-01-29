@@ -123,6 +123,7 @@ class Recipe(RecipeBase):
                 "attempting to process as a string."
             )
             logger.debug(f"Input string: {path_or_modifiers}")
+            path_or_modifiers = re.sub("!!python/name:__main__.*", "", path_or_modifiers)
             obj = _load_json_or_yaml_string(path_or_modifiers)
             return Recipe.model_validate(obj)
         else:

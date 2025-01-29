@@ -13,7 +13,9 @@ from compressed_tensors.quantization import (
 from loguru import logger
 from pydantic import Field, field_validator
 from torch.nn import Module
+import torch
 
+from functools import partial
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
@@ -32,6 +34,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import (
     run_calibration_forward,
 )
 from llmcompressor.observers.helpers import get_observer_token_count
+from llmcompressor.modifiers.quantization.quantization.had import random_hadamard_matrix
 
 __all__ = ["QuantizationModifier"]
 
@@ -79,6 +82,7 @@ class QuantizationModifier(Modifier):
     kv_cache_scheme: Optional[QuantizationArgs] = None
     disable_quantization_observer_epoch: Optional[float] = None
     num_calibration_steps: Optional[int] = None
+    transforms: Optional[Dict] = None
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
@@ -103,7 +107,7 @@ class QuantizationModifier(Modifier):
         # initialize quantization in appropriate modules
         config = self._apply_modifier_to_model(module)
         module.apply(lambda module: initialize_observer(module, base_name="weight"))
-
+        
         if self.calculate_start() == -1:  # one-shot
             self._check_calibration_data(config)
             module.apply(update_weight_zp_scale)
@@ -209,7 +213,29 @@ class QuantizationModifier(Modifier):
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
         # Add step to attach kv_cache to the model, if present within the config
-        apply_quantization_config(model, modifier_as_config)
+        R1 = random_hadamard_matrix(2048)
+        def weight_transform(R1: torch.Tensor, input_tensor: torch.Tensor):
+            return input_tensor
+
+            R1 = R1.to(input_tensor.dtype).to(input_tensor.device)
+            # Should have a different callable depending on the layer type
+            try:
+                return input_tensor @ R1
+            except:
+                return R1.T @ input_tensor
+
+        weight_transform_p = partial(weight_transform, R1)
+        def input_activation_transform(input_tensor: torch.Tensor):
+            return input_tensor
+        
+        self.transforms["Linear"]["weight"] = weight_transform_p
+        self.transforms["Linear"]["input_activations"] = input_activation_transform
+        self.transforms["Embedding"]["output_activations"] = input_activation_transform
+        self.transforms["model.layers.21.mlp.down_proj"]["weight"] = weight_transform_p
+        self.transforms["model.layers.21.mlp.down_proj"]["input_activations"] = input_activation_transform
+        self.transforms["model.layers.21.mlp.down_proj"]["output_activations"] = input_activation_transform
+
+        apply_quantization_config(model, modifier_as_config, transforms=self.transforms)
         model.apply(set_unset_kv_cache)
         return modifier_as_config
 

@@ -4,6 +4,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
@@ -11,12 +12,25 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Configure the quantization algorithm and scheme.
-# In this case, we:
-#   * quantize the weights to fp8 with per channel via ptq
-#   * quantize the activations to fp8 with dynamic per token
+# If not callable, would have to be a registry of reigstered callables
+# replace None with Callable 
+# Need to add the ability to ignore certain layers when defining "Linear"/larger groups
+transforms = {
+    "Linear": {
+        "weight": None,
+        "input_activations": None
+    },
+    "Embedding": {
+        "output_activations": None
+    },
+    "model.layers.21.mlp.down_proj": {
+        "weight": None,
+        "input_activations": None,
+        "output_activations": None
+    }
+}
 recipe = QuantizationModifier(
-    targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
+    targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"], transforms=transforms
 )
 
 # Apply quantization.
