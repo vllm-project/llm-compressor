@@ -3,6 +3,7 @@ from datasets import load_dataset
 from transformers import WhisperProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
@@ -76,9 +77,11 @@ def data_collator(batch):
     return {key: torch.tensor(value) for key, value in batch[0].items()}
 
 
-# Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+# Recipe
+recipe = [
+    SmoothQuantModifier(smoothing_strength=0.8),
+    GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+]
 
 # Apply algorithms.
 oneshot(
