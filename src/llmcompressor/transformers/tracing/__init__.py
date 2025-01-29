@@ -10,10 +10,14 @@ from .qwen2_vl import (
 from .idefics3 import (
     Idefics3ForConditionalGeneration as TraceableIdefics3ForConditionalGeneration
 )
+from .qwen2_5_vl import (
+    Qwen2_5_VLForConditionalGeneration as TraceableQwen2_5_VLForConditionalGeneration
+)
 
 __all__ = [
     "TraceableLlavaForConditionalGeneration",
     "TraceableMllamaForConditionalGeneration",
     "TraceableQwen2VLForConditionalGeneration",
-    "TraceableIdefics3ForConditionalGeneration"
+    "TraceableIdefics3ForConditionalGeneration",
+    "TraceableQwen2_5_VLForConditionalGeneration",
 ]
