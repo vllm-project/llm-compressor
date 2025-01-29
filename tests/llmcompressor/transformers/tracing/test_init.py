@@ -19,6 +19,7 @@ def clean_imports():
     yield
 
 
+@pytest.mark.unit
 def test_lazy_loading(clean_imports):
     # mock import_module
     imported_module_names = []
@@ -45,6 +46,7 @@ def test_lazy_loading(clean_imports):
     assert "mllama" not in attributes
 
 
+@pytest.mark.unit
 def test_class_names(clean_imports):
     import llmcompressor.transformers.tracing as TracingModule
 
