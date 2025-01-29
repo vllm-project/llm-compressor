@@ -170,8 +170,8 @@ def deprecated(future_name: Optional[str] = None, message: Optional[str] = None)
     """
     Decorator to mark functions as deprecated
 
-    :param new_function: Function called in place of depreciated function
-    :param message: Depreciation message, replaces default depreciation message
+    :param new_function: Function called in place of deprecated function
+    :param message: Deprecation message, replaces default deprecation message
     """
 
     def decorator(func: Callable[[Any], Any]):

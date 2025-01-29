@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional, Union
 
 import torch
 from compressed_tensors.utils import Aliasable
+from compressed_tensors.utils.helpers import deprecated
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -122,12 +123,6 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             "Observers constructor excluding quantization range or symmetry"
         ),
     )
-
-    def get_observer(self):
-        """
-        :return: torch quantization FakeQuantize built based on these QuantizationArgs
-        """
-        return self.observer
 
     @field_validator("type", mode="before")
     def validate_type(cls, value) -> QuantizationType:
@@ -249,6 +244,10 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                 return torch.int32
         else:
             raise ValueError(f"Invalid quantization type {self.type}")
+
+    @deprecated("QuantizationArgs.observer")
+    def get_observer(self) -> str:
+        return self.observer
 
 
 def round_to_quantized_type(
