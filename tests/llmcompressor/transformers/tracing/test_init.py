@@ -35,7 +35,7 @@ def test_lazy_loading(clean_imports):
             TraceableLlavaForConditionalGeneration,
         )
 
-    # test that llava was imported by mllama was not
+    # test that llava was imported and mllama was not
     assert ".llava" in imported_module_names
     assert ".mllama" not in imported_module_names
 
