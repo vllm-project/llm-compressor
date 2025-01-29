@@ -29,12 +29,17 @@ class HooksMixin(BaseModel):
         - modifier.remove_hooks()
     """
 
+<<<<<<< .merge_file_6kKUs9
     # attached to global HooksMixin class
     _HOOKS_DISABLED: ClassVar[bool] = False
     _HOOKS_KEEP_ENABLED: ClassVar[Set[RemovableHandle]] = set()
 
     # attached to local subclasses
     _hooks: Set[RemovableHandle] = set()
+=======
+    _HOOKS_DISABLED: ClassVar[bool] = False  # attached to global HooksMixin
+    _hooks: Set[RemovableHandle] = set()  # attached to local subclasses
+>>>>>>> .merge_file_ehHxqS
 
     @classmethod
     @contextlib.contextmanager
@@ -93,7 +98,12 @@ class HooksMixin(BaseModel):
         return handle
 
     def remove_hooks(self, handles: Optional[Set[RemovableHandle]] = None):
-        """Remove all hooks belonging to a modifier"""
+        """
+        Removes hooks registered by this modifier
+
+        :param handles: optional list of handles to remove, defaults to all hooks
+            registerd by this modifier
+        """
         if handles is None:
             handles = self._hooks
 
