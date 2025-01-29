@@ -100,31 +100,37 @@ def test_update_offload_parameter():
     from accelerate.hooks import attach_align_device_hook
 
     module = ExampleModule()
-    param_a = torch.nn.Parameter(torch.tensor(1.0))
-    param_b = torch.nn.Parameter(torch.tensor(2.0))
+    tensor_a = torch.tensor(1.0)
+    tensor_b = torch.tensor(2.0)
 
     # can update modules which are not offloaded
-    update_offload_parameter(module, "a", param_a)
-    assert module.a == param_a
+    update_offload_parameter(module, "a", tensor_a)
+    assert module.a == tensor_a
 
     # can update modules which are offloaded
     attach_align_device_hook(module, offload=True, weights_map=module.state_dict())
-    update_offload_parameter(module, "b", param_b)
+    update_offload_parameter(module, "b", tensor_b)
     assert module.b.device == torch.device("meta")
-    assert module._hf_hook.weights_map["b"] == param_b.data
+    assert module._hf_hook.weights_map["b"] == tensor_b
 
     # data persists across onloading
     with align_module_device(module, execution_device="cpu"):
-        assert module.a == param_a
-        assert module.b == param_b
-        assert module._hf_hook.weights_map["a"] == param_a.data
-        assert module._hf_hook.weights_map["b"] == param_b.data
+        assert module.a.data == tensor_a
+        assert module.b.data == tensor_b
+        assert module._hf_hook.weights_map["a"] == tensor_a
+        assert module._hf_hook.weights_map["b"] == tensor_b
 
     # data persists across offloading
     assert module.a.device == torch.device("meta")
     assert module.b.device == torch.device("meta")
-    assert module._hf_hook.weights_map["a"] == param_a.data
-    assert module._hf_hook.weights_map["b"] == param_b.data
+    assert module._hf_hook.weights_map["a"] == tensor_a
+    assert module._hf_hook.weights_map["b"] == tensor_b
+
+    # can update with differnt shape with warning
+    with pytest.warns():
+        new_data = torch.tensor([3.0])
+        update_offload_parameter(module, "a", new_data)
+    assert module._hf_hook.weights_map["a"] == new_data
 
 
 @requires_accelerate()
