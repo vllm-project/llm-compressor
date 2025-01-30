@@ -1,25 +1,21 @@
-# Quantizing Multimodal Vision-Language Models #
+# Quantizing Multimodal Audio Models #
 
-<p align="center" style="text-align: center;">
-    <img src=http://images.cocodataset.org/train2017/000000231895.jpg alt="sample image from MS COCO dataset"/>
-</p>
-<em>
+https://github.com/user-attachments/assets/6732c60b-1ebe-4bed-b409-c16c4415dff5
+
+Audio provided by Daniel Galvez et al. under creative commons license
 
 ``` 
-<|system|>
-You are a helpful assistant.
+<|startoftranscript|> <|en|>
+...
 
-<|user|>
-Please describe the animal in this image
-
-<|assistant|>
-The animal in the image is a white kitten.
-It has a fluffy coat and is resting on a white keyboard.
-The kitten appears to be comfortable and relaxed, possibly enjoying the warmth of the keyboard.
+<|transcribe|> <|notimestamps|>
+that's where you have a lot of windows in the south no actually that's passive solar
+and passive solar is something that was developed and designed in the 1960s and 70s
+and it was a great thing for what it was at the time but it's not a passive house
 ```
 </em>
 
-This directory contains example scripts for quantizing a variety of vision-language models using the GPTQ quantization. Most examples do not demonstrate quantizing separate vision encoder parameters if they exist, as compressing these parameters offers little benefit with respect to performance-accuracy tradeoff.
+This directory contains example scripts for quantizing a variety of audio language models using the GPTQ quantization.
 
 ## Compressing Your Own Model ##
 To use your own multimodal modal, start with an existing example change the `model_id` to match your own model stub.
@@ -40,9 +36,9 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["MistralDecoderLayer"],
-        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
-    ),
+        sequential_targets=["WhisperEncoderLayer", "WhisperDecoderLayer"],
+        ignore=["lm_head"],
+    )
 ]
 ```
 
@@ -55,7 +51,7 @@ Choosing sequential targets with higher granularity (for example "Linear" instea
 If your model is not traceable for your desired dataset, first consider adding any problematic modules to the ignore list. Doing this prevents the model tracer from tracing the internals of those modules, thereby avoid the untraceable operations.
 
 ## Tracing Errors ##
-Because the architectures of vision-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
+Because the architectures of audio-language models is often times more complex than those of typical decoder-only text models, you may encounter `torch.fx.TraceError`s when attempting to quantize your model. For more information on `torch.fx.TraceError`s, why they occur, and how to resolve them, please see the [Model Tracing Guide](/src/llmcompressor/transformers/tracing/GUIDE.md).
 
 ## Adding Your Own Smoothquant Mappings ##
 For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuant Guide](/src/llmcompressor/modifiers/smoothquant/README.md).
@@ -63,20 +59,30 @@ For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuan
 ## Adding Your Own Data Collator ##
 Most examples utilize a generic `data_collator` which correctly correlates data for most multimodal datasets. If you find that your model needs custom data collation (as is the case with [pixtral](/examples/multimodal_vision/pixtral_example.py)), you can modify this function to reflect these model-specific requirements.
 
-## Sample Image Provided Under a Creative Commons Attribution License ##
+## Sample Audio Provided Under a Creative Commons Attribution License ##
 https://creativecommons.org/licenses/by/4.0/legalcode
 ```
-@article{cocodataset,
-  author    = {Tsung{-}Yi Lin and Michael Maire and Serge J. Belongie and Lubomir D. Bourdev and Ross B. Girshick and James Hays and Pietro Perona and Deva Ramanan and Piotr Doll{'{a} }r and C. Lawrence Zitnick},
-  title     = {Microsoft {COCO:} Common Objects in Context},
+@article{DBLP:journals/corr/abs-2111-09344,
+  author    = {Daniel Galvez and
+               Greg Diamos and
+               Juan Ciro and
+               Juan Felipe Cer{\'{o}}n and
+               Keith Achorn and
+               Anjali Gopi and
+               David Kanter and
+               Maximilian Lam and
+               Mark Mazumder and
+               Vijay Janapa Reddi},
+  title     = {The People's Speech: {A} Large-Scale Diverse English Speech Recognition
+               Dataset for Commercial Usage},
   journal   = {CoRR},
-  volume    = {abs/1405.0312},
-  year      = {2014},
-  url       = {http://arxiv.org/abs/1405.0312},
-  archivePrefix = {arXiv},
-  eprint    = {1405.0312},
-  timestamp = {Mon, 13 Aug 2018 16:48:13 +0200},
-  biburl    = {https://dblp.org/rec/bib/journals/corr/LinMBHPRDZ14},
+  volume    = {abs/2111.09344},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2111.09344},
+  eprinttype = {arXiv},
+  eprint    = {2111.09344},
+  timestamp = {Mon, 22 Nov 2021 16:44:07 +0100},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-2111-09344.bib},
   bibsource = {dblp computer science bibliography, https://dblp.org}
 }
 ```
