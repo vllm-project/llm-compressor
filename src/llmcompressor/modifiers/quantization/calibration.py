@@ -121,7 +121,18 @@ def update_weight_zp_scale(module: Module):
 
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
+        transforms = getattr(module, "transforms", None)
+        
+        if transforms:
+            weight_transform = transforms.transforms.get("weight")
+            untransformed_weight = module.weight.data.clone()
+            transformed_weight = weight_transform(module.weight)
+            module.weight.data.copy_(transformed_weight)
+
         call_observer(module=module, base_name="weight")
+
+        if transforms:
+            module.weight.data.copy_(untransformed_weight)
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
@@ -145,6 +156,9 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
         value=value,
     )
 
+def calibrate_weight_hook(module: Module, args: Any):
+    #print("updating weights")
+    update_weight_zp_scale(module)
 
 def calibrate_input_hook(module: Module, args: Any):
     """
@@ -153,7 +167,14 @@ def calibrate_input_hook(module: Module, args: Any):
     input QDQ in the module's forward pass.
     """
     args = args[0] if isinstance(args, tuple) else args
-    calibrate_activations(module, value=args, base_name="input")
+    transforms = getattr(module, "transforms", None)
+    input_ = args
+    if transforms:
+        input_transform = transforms.transforms.get("input_activations")
+        if input_transform:
+            input_ = input_transform(input_)
+    
+    calibrate_activations(module, value=input_, base_name="input")
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
@@ -162,14 +183,22 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     Will call the observers to update the scales/zp before applying
     output QDQ.
     """
+    transforms = getattr(module, "transforms", None)
+    output_ = output
+    
+    if transforms:
+        output_transform = transforms.transforms.get("output_activations")
+        if output_transform:
+            output_ = output_transform(output_)
+
     calibrate_activations(
         module,
-        value=output,
+        value=output_,
         base_name="output",
     )
     output = forward_quantize(
         module=module,
-        value=output,
+        value=output_,
         base_name="output",
         args=module.quantization_scheme.output_activations,
     )

@@ -1,5 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
+from datasets import load_dataset
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
@@ -23,21 +23,64 @@ transforms = {
     "Embedding": {
         "output_activations": None
     },
-    "model.layers.21.mlp.down_proj": {
-        "weight": None,
-        "input_activations": None,
-        "output_activations": None
+    "model.layers.21": {
+        "output_activationst": None
     }
 }
 recipe = QuantizationModifier(
-    targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"], transforms=transforms
+    targets="Linear", scheme="FP8", ignore=["lm_head"], transforms=transforms
 )
 
+DATASET_ID = "HuggingFaceH4/ultrachat_200k"
+DATASET_SPLIT = "train_sft"
+
+# Select number of samples. 512 samples is a good place to start.
+# Increasing the number of samples can improve accuracy.
+NUM_CALIBRATION_SAMPLES = 1
+MAX_SEQUENCE_LENGTH = 2048
+
+# Load dataset and preprocess.
+ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+
+
+def preprocess(example):
+    return {
+        "text": tokenizer.apply_chat_template(
+            example["messages"],
+            tokenize=False,
+        )
+    }
+
+
+ds = ds.map(preprocess)
+
+
+# Tokenize inputs.
+def tokenize(sample):
+    return tokenizer(
+        sample["text"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
+    )
+
+
+ds = ds.map(tokenize, remove_columns=ds.column_names)
+
+
 # Apply quantization.
-oneshot(model=model, recipe=recipe)
+oneshot(
+    model=model, 
+    recipe=recipe,     
+    dataset=ds,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
