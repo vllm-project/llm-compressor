@@ -10,6 +10,7 @@ _aliases = {
     "TraceableMllamaForConditionalGeneration": ("mllama", "MllamaForConditionalGeneration"),  # noqa: E501
     "TraceableQwen2VLForConditionalGeneration": ("qwen2_vl", "Qwen2VLForConditionalGeneration"),  # noqa: E501
     "TraceableIdefics3ForConditionalGeneration": ("idefics3", "Idefics3ForConditionalGeneration"),  # noqa: E501
+    "TraceableWhisperForConditionalGeneration": ("whisper", "WhisperForConditionalGeneration")  # noqa: E501
 }
 
 if TYPE_CHECKING:
