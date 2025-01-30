@@ -20,6 +20,7 @@
 import os
 import warnings
 from pathlib import PosixPath
+from types import NoneType
 
 from loguru import logger
 from transformers import (
@@ -286,6 +287,20 @@ def initialize_processor_from_path(
     return processor
 
 
+def configure_processor(processor: Processor):
+    # configure tokenizer pad_token, required for padding and data collation
+    tokenizer = getattr(processor, "tokenizer", processor)
+    if getattr(tokenizer, "pad_token", None) is None:
+        if hasattr(tokenizer, "eos_token"):
+            logger.debug("Tokenizer is missing pad_token, using eos_token instead")
+            tokenizer.pad_token = tokenizer.eos_token
+        else:
+            logger.debug(
+                "Tokenizer is missing pad_token and eos_token, this may lead to issues "
+                " when padding"
+            )
+
+
 def main(
     model_args: ModelArguments,
     data_args: DataTrainingArguments,
@@ -361,8 +376,9 @@ def main(
         teacher.eval()
 
     processor = model_args.processor
-    if isinstance(processor, str) or processor is None:
+    if isinstance(processor, (str, NoneType)):
         processor = initialize_processor_from_path(model_args, model, teacher)
+    configure_processor(processor)
 
     pre_initialize_structure(model=model)
 
@@ -371,10 +387,12 @@ def main(
 
     # Load datasets
     stage_runner = StageRunner(
-        model_args=model_args, data_args=data_args, training_args=training_args
+        model_args=model_args, data_args=data_args, training_args=training_args, processor=processor
     )
     add_labels = training_args.do_train or training_args.run_stages
-    stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
+    stage_runner.populate_datasets(
+        processor=processor, add_labels=add_labels
+    )
     train_dataset = stage_runner.get_dataset_split("train")
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")

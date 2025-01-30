@@ -30,7 +30,7 @@ def format_calibration_data(
     batch_size: int = 1,
     do_shuffle: bool = True,
     processor: Optional[Processor] = None,
-    collate_fn: Callable = default_data_collator,
+    collate_fn: Optional[Callable] = None,
     accelerator: Optional[Any] = None,
 ) -> List[torch.Tensor]:
     """
@@ -41,7 +41,9 @@ def format_calibration_data(
     :param num_calibration_samples: number of data samples to convert
     :param do_shuffle: whether to shuffle the dataset before selecting calibration
     samples, true by default
-    :param collate_fn: optional custom collate function, or use default
+    :param collate_fn: optional custom collate function, defaults to
+        `DataCollatorWithPadding` if None is provided. uses . If the tokenizer fails to
+        resolve, then `default_data_collator` is used
     :param accelerator: optional accelerator for if preparing in FSDP mode
     :return: list of trimmed calibration data tensors
     """
@@ -61,16 +63,17 @@ def format_calibration_data(
     tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
 
     # collate data
+    breakpoint()
     if collate_fn is None:
         tokenizer = getattr(processor, "tokenizer", processor)
-        if tokenizer is None:
+        if hasattr(tokenizer, "pad"):
+            collate_fn = DataCollatorWithPadding(tokenizer)
+        else:
             warnings.warn(
                 "Could not find processor, attempting to collate with without padding "
                 "(may fail for batch_size > 1)"
             )
-            return default_data_collator()
-
-        collate_fn = DataCollatorWithPadding(tokenizer)
+            collate_fn = default_data_collator
 
     dataloader_params = {
         "batch_size": batch_size,

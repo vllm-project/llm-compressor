@@ -53,11 +53,7 @@ class TextGenerationDataset(RegistryMixin):
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
 
         if self.tokenizer is not None:
-            # fill in pad token
-            if not self.tokenizer.pad_token:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-
-            # configure sequence length
+            # resolve sequence length
             max_seq_length = data_args.max_seq_length
             if data_args.max_seq_length > self.tokenizer.model_max_length:
                 logger.warning(
@@ -69,7 +65,7 @@ class TextGenerationDataset(RegistryMixin):
                 data_args.max_seq_length, self.tokenizer.model_max_length
             )
 
-            # configure padding
+            # resolve padding
             self.padding = (
                 False
                 if self.data_args.concatenate_data
