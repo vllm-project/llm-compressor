@@ -132,6 +132,11 @@ class SparsityConfigMetadata:
             sparsity_threshold=SparsityConfigMetadata.SPARSITY_THRESHOLD,
         )
 
+        if not (targets or ignores):
+            # no sparsity config
+            # needed if targets/ignores are empty
+            return None
+
         return SparsityCompressionConfig.load_from_registry(
             format,
             global_sparsity=global_sparsity,
@@ -183,7 +188,11 @@ class SparsityConfigMetadata:
             return False
 
         if not is_model_quantized(model):
-            # non-quantized 2:4 sparse models are supported
+            logger.warning(
+                "Compressed Sparse-only 2:4 models are not supported in vLLM<=0.7.0, "
+                "consider saving with `disable_sparse_compression` set, "
+                "`model.save_pretrained(..., disable_sparse_compression=True)`"
+            )
             return True
 
         # when model is quantized, and has 2:4 sparsity
