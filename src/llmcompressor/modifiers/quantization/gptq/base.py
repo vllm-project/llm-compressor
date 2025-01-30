@@ -16,7 +16,7 @@ from pydantic import Field, PrivateAttr, field_validator
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
-from llmcompressor.modifiers.quantization.gptq.utils.gptq_quantize import (
+from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
     quantize_weight,
@@ -36,7 +36,9 @@ __all__ = ["GPTQModifier"]
 
 class GPTQModifier(Modifier, HooksMixin):
     """
-    Modifier for applying the one-shot OBCQ algorithm to a model
+    Implements the GPTQ algorithm from https://arxiv.org/abs/2210.17323. This modifier
+    uses activations to calibrate a hessian matrix, which is then used to determine
+    optimal quantizion values and orderings for the model weights.
 
     | Sample yaml:
     | test_stage:
@@ -247,7 +249,8 @@ class GPTQModifier(Modifier, HooksMixin):
                 warnings.warn(
                     f"Failed to trace {model_name} with inputs {input_names}. For more "
                     "information on tracing with the sequential pipeline, see "
-                    "`src/llmcompressor/transformers/tracing/GUIDE.md`"
+                    "https://github.com/vllm-project/llm-compressor/blob/main/"
+                    "src/llmcompressor/transformers/tracing/GUIDE.md"
                 )
             if isinstance(exception, unfixable_errors):
                 raise exception

@@ -93,7 +93,12 @@ class HooksMixin(BaseModel):
         return handle
 
     def remove_hooks(self, handles: Optional[Set[RemovableHandle]] = None):
-        """Remove all hooks belonging to a modifier"""
+        """
+        Removes hooks registered by this modifier
+
+        :param handles: optional list of handles to remove, defaults to all hooks
+            registerd by this modifier
+        """
         if handles is None:
             handles = self._hooks
 
