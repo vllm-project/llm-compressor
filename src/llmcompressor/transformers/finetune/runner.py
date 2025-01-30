@@ -144,8 +144,10 @@ class StageRunner:
             calib_data = format_calibration_data(
                 tokenized_dataset=self.get_dataset_split("calibration"),
                 num_calibration_samples=self._data_args.num_calibration_samples,
+                batch_size=self._training_args.per_device_oneshot_batch_size,
                 do_shuffle=self._data_args.shuffle_calibration_samples,
                 collate_fn=self._data_args.data_collator,
+                processor=self.processor,
                 accelerator=self.trainer.accelerator,
             )
 

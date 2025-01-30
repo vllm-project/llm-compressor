@@ -1,11 +1,17 @@
 import logging
 import os
+import warnings
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from datasets import Dataset, load_dataset
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers.data import default_data_collator
+from transformers.data.data_collator import (
+    DataCollatorWithPadding,
+    default_data_collator,
+)
+
+from llmcompressor.typing import Processor
 
 LOGGER = logging.getLogger(__name__)
 LABELS_MASK_VALUE = -100
@@ -21,7 +27,9 @@ __all__ = [
 def format_calibration_data(
     tokenized_dataset: Dataset,
     num_calibration_samples: Optional[int] = None,
+    batch_size: int = 1,
     do_shuffle: bool = True,
+    processor: Optional[Processor] = None,
     collate_fn: Callable = default_data_collator,
     accelerator: Optional[Any] = None,
 ) -> List[torch.Tensor]:
@@ -37,6 +45,11 @@ def format_calibration_data(
     :param accelerator: optional accelerator for if preparing in FSDP mode
     :return: list of trimmed calibration data tensors
     """
+    # shuffle
+    if do_shuffle:
+        tokenized_dataset = tokenized_dataset.shuffle()
+
+    # truncate samples
     safe_calibration_samples = len(tokenized_dataset)
     if num_calibration_samples is not None:
         safe_calibration_samples = min(len(tokenized_dataset), num_calibration_samples)
@@ -45,13 +58,22 @@ def format_calibration_data(
                 f"Requested {num_calibration_samples} calibration samples but "
                 f"the provided dataset only has {safe_calibration_samples}. "
             )
-
-    if do_shuffle:
-        tokenized_dataset = tokenized_dataset.shuffle()
     tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
 
+    # collate data
+    if collate_fn is None:
+        tokenizer = getattr(processor, "tokenizer", processor)
+        if tokenizer is None:
+            warnings.warn(
+                "Could not find processor, attempting to collate with without padding "
+                "(may fail for batch_size > 1)"
+            )
+            return default_data_collator()
+
+        collate_fn = DataCollatorWithPadding(tokenizer)
+
     dataloader_params = {
-        "batch_size": 1,
+        "batch_size": batch_size,
         "sampler": RandomSampler(tokenized_calibration)
         if do_shuffle
         else SequentialSampler(tokenized_calibration),

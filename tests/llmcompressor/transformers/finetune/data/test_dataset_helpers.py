@@ -1,7 +1,11 @@
+# TODO: rename to `test_data_helpers.py`
 import pytest
+import torch
+from datasets import Dataset
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
+    format_calibration_data,
     get_raw_dataset,
     make_dataset_splits,
 )
@@ -53,3 +57,18 @@ def test_separate_datasets():
         split_datasets = make_dataset_splits(
             datasets, do_train=True, do_eval=True, do_predict=True
         )
+
+
+@pytest.mark.unit
+def test_format_calibration_data():
+    tokenized_dataset = Dataset.from_dict(
+        {"input_ids": torch.randint(0, 512, (8, 2048))}
+    )
+
+    calibration_dataloader = format_calibration_data(
+        tokenized_dataset, num_calibration_samples=4, batch_size=2
+    )
+
+    batch = next(iter(calibration_dataloader))
+
+    assert batch["input_ids"].size(0) == 2
