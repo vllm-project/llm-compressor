@@ -100,7 +100,9 @@ def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
     )
 
 
-def modify_save_pretrained(model: torch.nn.Module):
+def modify_save_pretrained(
+    model: torch.nn.Module,
+):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
     supports compression
@@ -209,8 +211,9 @@ def modify_save_pretrained(model: torch.nn.Module):
         save_pretrained_wrapper._overriden = True
         return save_pretrained_wrapper
 
-    # wrap save_pretrained
-    model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+    # wrap save_pretrained if not already
+    if not getattr(model.save_pretrained, "_overriden", False):
+        model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
 # HACK: Override the dtype_byte_size function in transformers to support float8 types

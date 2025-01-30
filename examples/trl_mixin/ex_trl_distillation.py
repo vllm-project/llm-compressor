@@ -1,9 +1,9 @@
 from sft_trainer import SFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
-from llmcompressor.transformers import (
-    DataTrainingArguments,
-    TextGenerationDataset,
+from llmcompressor.transformers import TextGenerationDataset
+from llmcompressor.transformers.utils.arg_parser import (
+    DatasetArguments,
     TrainingArguments,
 )
 
@@ -21,7 +21,7 @@ teacher = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 
 # Load gsm8k using SparseML dataset tools
-data_args = DataTrainingArguments(
+data_args = DatasetArguments(
     dataset="gsm8k", dataset_config_name="main", max_seq_length=512
 )
 dataset_manager = TextGenerationDataset.load_from_registry(

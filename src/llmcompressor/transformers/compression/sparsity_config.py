@@ -47,7 +47,9 @@ class SparsityConfigMetadata:
         return global_sparsity
 
     @staticmethod
-    def infer_sparsity_structure(model: Optional[Module] = None) -> str:
+    def infer_sparsity_structure(
+        model: Optional[Module] = None,
+    ) -> str:
         """
         Determines what sparsity structure, if any, was applied.
 
@@ -107,7 +109,7 @@ class SparsityConfigMetadata:
             return None
 
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
-            model=model
+            model=model,
         )
         if (
             disable_sparse_compression

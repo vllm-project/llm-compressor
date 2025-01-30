@@ -7,13 +7,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import torch
 from loguru import logger
 from torch.nn import Module
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import IterableDataset
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
 
 from llmcompressor.core import (
     active_session,
-    apply,
     callbacks,
     create_session,
     finalize,
@@ -36,8 +35,10 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers import DataTrainingArguments
-
+    from llmcompressor.transformers.utils.arg_parser import (
+        DatasetArguments,
+        ModelArguments,
+    )
 
 __all__ = [
     "SessionManagerMixIn",
@@ -68,12 +69,14 @@ class SessionManagerMixIn:
         self,
         recipe: Optional[str] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional["DataTrainingArguments"] = None,
+        data_args: Optional["DatasetArguments"] = None,
+        model_args: Optional["ModelArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):
         self.recipe = recipe
         self.recipe_args = recipe_args
+        self.model_args = model_args
         self.teacher = teacher
 
         # parse training and metadata args
@@ -374,8 +377,8 @@ class SessionManagerMixIn:
         self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
 
         # do not save checkpoints as compressed
-        original_save_compressed = self.args.save_compressed
-        self.args.save_compressed = False
+        original_save_compressed = self.model_args.save_compressed
+        self.model_args.save_compressed = False
 
         # train with accelerator
         self.accelerator.wait_for_everyone()
@@ -383,7 +386,7 @@ class SessionManagerMixIn:
         self.accelerator.wait_for_everyone()
 
         # restore original setting for saving final model
-        self.args.save_compressed = original_save_compressed
+        self.model_args.save_compressed = original_save_compressed
 
         # lifecycle
         self.finalize_session()
@@ -428,31 +431,6 @@ class SessionManagerMixIn:
 
         return output
 
-    def one_shot(
-        self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
-    ):
-        """
-        Run oneshot calibration on the active model
-
-        :param stage: which stage of the recipe to run, or None to run whole recipe
-        :param calib_data: dataloader of calibration data
-        """
-        apply(
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-            model=self.model,
-            calib_data=calibration_data,
-            start=-1,
-            copy_data=False,
-            accelerator=self.accelerator,
-            min_tokens_per_module=self.min_tokens_per_module,
-        )
-
-        # log model sparsity
-        # self.maybe_log_model_sparsification()
-        self.accelerator.wait_for_everyone()
-
     def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """
         Override of the save_model function and expects it to exist in the parent.
@@ -474,7 +452,7 @@ class SessionManagerMixIn:
         if not is_fsdp_model(self.model):
             self.model.save_pretrained(
                 output_dir,
-                save_compressed=self.args.save_compressed,
+                save_compressed=self.model_args.save_compressed,
                 safe_serialization=self.args.save_safetensors,
             )
         else:  # FSDP model
@@ -482,7 +460,7 @@ class SessionManagerMixIn:
                 model=self.model,
                 accelerator=self.accelerator,
                 output_dir=output_dir,
-                save_compressed=self.args.save_compressed,
+                save_compressed=self.model_args.save_compressed,
                 save_safetensors=self.metadata.get("save_safetensors", False),
             )
 
