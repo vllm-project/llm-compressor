@@ -12,7 +12,7 @@ from loguru import logger
 from torch import Tensor
 from torch.nn import Module
 
-from llmcompressor.core import CompressionLifecycle, active_session
+from llmcompressor.core import active_session
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.compression.helpers import (
     infer_sparse_targets_and_ignores,
