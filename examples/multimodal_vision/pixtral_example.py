@@ -16,7 +16,7 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
-NUM_CALIBRATION_SAMPLES = 1  # 512
+NUM_CALIBRATION_SAMPLES = 512
 DATASET_SPLIT = {"calibration": f"test[:{NUM_CALIBRATION_SAMPLES}]"}
 MAX_SEQUENCE_LENGTH = 2048
 
