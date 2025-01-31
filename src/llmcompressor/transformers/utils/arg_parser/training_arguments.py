@@ -3,9 +3,9 @@ from typing import Optional
 
 from transformers import TrainingArguments as HFTrainingArgs
 
-__all__ = ["TrainingArguments", "DEFAULT_OUTPUT_DIR"]
-
-DEFAULT_OUTPUT_DIR = "./output"
+__all__ = [
+    "TrainingArguments",
+]
 
 
 @dataclass
@@ -23,8 +23,8 @@ class TrainingArguments(HFTrainingArgs):
     run_stages: Optional[bool] = field(
         default=False, metadata={"help": "Whether to trigger recipe stage by stage"}
     )
-    output_dir: str = field(
-        default=DEFAULT_OUTPUT_DIR,
+    output_dir: Optional[str] = field(
+        default=None,
         metadata={
             "help": "The output directory where the model predictions and "
             "checkpoints will be written."

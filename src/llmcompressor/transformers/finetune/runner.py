@@ -26,9 +26,6 @@ from llmcompressor.transformers.utils.arg_parser import (
     RecipeArguments,
     TrainingArguments,
 )
-from llmcompressor.transformers.utils.arg_parser.training_arguments import (
-    DEFAULT_OUTPUT_DIR,
-)
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
@@ -264,7 +261,7 @@ class StageRunner:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
-            if self._training_args.output_dir != DEFAULT_OUTPUT_DIR:
+            if self._training_args.output_dir:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,

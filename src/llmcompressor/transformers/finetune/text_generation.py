@@ -52,7 +52,6 @@ from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_processor_src,
 )
 from llmcompressor.transformers.utils.arg_parser import (
-    DEFAULT_OUTPUT_DIR,
     DatasetArguments,
     ModelArguments,
     RecipeArguments,
@@ -153,65 +152,39 @@ def parse_args(include_training_args: bool = False, **kwargs):
         conflict with Accelerate library's accelerator.
 
     """
-    output_dir = kwargs.pop("output_dir", DEFAULT_OUTPUT_DIR)
+    output_dir = kwargs.pop("output_dir", None)
+    parser = HfArgumentParser(_get_dataclass_arguments(include_training_args))
 
-    if include_training_args:
-        parser = HfArgumentParser(
-            (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
-        )
-    else:
-        parser = HfArgumentParser((ModelArguments, DatasetArguments, RecipeArguments))
-
+    # parse from kwargs or cli
     if not kwargs:
-
-        def _get_output_dir_from_argv() -> Optional[str]:
-            import sys
-
-            output_dir = None
-            if "--output_dir" in sys.argv:
-                index = sys.argv.index("--output_dir")
-                sys.argv.pop(index)
-                if index < len(sys.argv):  # Check if value exists afer the flag
-                    output_dir = sys.argv.pop(index)
-
-            return output_dir
-
-        output_dir = _get_output_dir_from_argv() or output_dir
+        output_dir = _get_output_dir_from_argv()
         parsed_args = parser.parse_args_into_dataclasses()
     else:
         parsed_args = parser.parse_dict(kwargs)
 
-    # Unpack parsed arguments based on the presence of training arguments
+    # populate args, oneshot does not need training_args
     if include_training_args:
         model_args, data_args, recipe_args, training_args = parsed_args
-        if output_dir is not None:
+        if output_dir:
             training_args.output_dir = output_dir
     else:
         model_args, data_args, recipe_args = parsed_args
         training_args = None
 
-    if recipe_args.recipe_args is not None:
-        if not isinstance(recipe_args.recipe_args, dict):
-            recipe_args.recipe_args = {
-                key: value
-                for arg in recipe_args.recipe_args
-                for key, value in [arg.split("=")]
-            }
+    # populate recipe arguments
+    if recipe_args.recipe_args:
+        recipe_args.recipe_args = _unwrap_recipe_args(recipe_args.recipe_args)
 
-    # Raise deprecation warnings
     if data_args.remove_columns is not None:
         warnings.warn(
-            "`remove_columns` argument is deprecated. When tokenizing datasets, all "
-            "columns which are invalid inputs to the tokenizer will be removed.",
+            (
+                "`remove_columns` is deprecated."
+                "Invalid columns for tokenizers are removed automatically.",
+            ),
             DeprecationWarning,
         )
 
-    # Silently assign tokenizer to processor
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor.")
-        model_args.processor = model_args.tokenizer
-        model_args.tokenizer = None
+    _validate_model_args_tokenizer(model_args)
 
     return model_args, data_args, recipe_args, training_args, output_dir
 
@@ -507,6 +480,47 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:
         reset_session()
+
+
+def _validate_model_args_tokenizer(model_args):
+    """Ensure only one of tokenizer or processor is set"""
+
+    if model_args.tokenizer:
+        if model_args.processor:
+            raise ValueError("Cannot use both a tokenizer and processor.")
+        model_args.processor, model_args.tokenizer = model_args.tokenizer, None
+
+
+def _get_output_dir_from_argv() -> Optional[str]:
+    """Extract output directory from command-line arguments"""
+
+    import sys
+
+    if "--output_dir" in sys.argv:
+        index = sys.argv.index("--output_dir")
+        sys.argv.pop(index)
+        if index < len(sys.argv):
+            return sys.argv.pop(index)
+
+    return None
+
+
+def _get_dataclass_arguments(include_training_args: bool):
+    """Return the appropriate argument classes for parsing"""
+
+    dataclass_arguments = (ModelArguments, DatasetArguments, RecipeArguments)
+    if include_training_args:
+        return dataclass_arguments + (TrainingArguments,)
+
+    return dataclass_arguments
+
+
+def _unwrap_recipe_args(recipe_args):
+    """Convert recipe arguments to a dictionary if needed"""
+    if isinstance(recipe_args, dict):
+        return recipe_args
+
+    return {key: value for arg in recipe_args for key, value in [arg.split("=")]}
 
 
 if __name__ == "__main__":
