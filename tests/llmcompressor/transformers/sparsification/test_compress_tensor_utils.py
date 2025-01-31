@@ -646,7 +646,7 @@ def _make_24_sparse(tensor):
     "expected_sparsity_compressor",
     [
         ("W8A8", "int", False, "int-quantized", "dense"),
-        ("W4A16", "int", False, "pack-quantized", "dense"),  # this guy
+        ("W4A16", "int", False, "pack-quantized", "dense"),
         ("W8A16", "int", False, "pack-quantized", "dense"),
         ("W8A8", "int", True, "int-quantized", "sparse-24-bitmask"),
         ("W4A16", "int", True, "marlin-24", "dense"),
