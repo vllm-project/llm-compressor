@@ -3,10 +3,11 @@ from typing import Any, Optional, Tuple
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams
+from compressed_tensors.utils import deprecated
 
 from llmcompressor.observers.base import Observer
 
-__all__ = ["MinMaxObserver"]
+__all__ = ["MinMaxObserver", "MovingAverageMinMaxObserver"]
 
 
 @Observer.register("minmax")
@@ -95,3 +96,14 @@ class MinMaxObserver(Observer):
         super().reset()
         self.min_val = {}
         self.max_val = {}
+
+
+class MovingAverageMinMaxObserver(MinMaxObserver):
+    @deprecated(
+        message=(
+            "The class name `MovingAverageMinMaxObserver` has been deprecated, please "
+            "initialize with `MinMaxObserver` in the future"
+        )
+    )
+    def __new__(cls, *args, **kwargs):
+        return super().__new__(MinMaxObserver, *args, **kwargs)
