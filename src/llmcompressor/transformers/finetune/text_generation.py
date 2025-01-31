@@ -20,7 +20,7 @@
 import os
 import warnings
 from pathlib import PosixPath
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from loguru import logger
 from transformers import (
@@ -162,7 +162,7 @@ def parse_args(include_training_args: bool = False, **kwargs):
     else:
         parsed_args = parser.parse_dict(kwargs)
 
-    # populate args, oneshot does not need training_args
+    # Unpack parsed arguments. Oneshot does not need training_args
     if include_training_args:
         model_args, data_args, recipe_args, training_args = parsed_args
         if output_dir:
@@ -179,7 +179,7 @@ def parse_args(include_training_args: bool = False, **kwargs):
         warnings.warn(
             (
                 "`remove_columns` is deprecated."
-                "Invalid columns for tokenizers are removed automatically.",
+                "Invalid columns for tokenizers will be removed.",
             ),
             DeprecationWarning,
         )
@@ -482,7 +482,7 @@ def main(
         reset_session()
 
 
-def _validate_model_args_tokenizer(model_args):
+def _validate_model_args_tokenizer(model_args: ModelArguments):
     """Ensure only one of tokenizer or processor is set"""
 
     if model_args.tokenizer:
@@ -515,7 +515,7 @@ def _get_dataclass_arguments(include_training_args: bool):
     return dataclass_arguments
 
 
-def _unwrap_recipe_args(recipe_args):
+def _unwrap_recipe_args(recipe_args: Dict[str, Any]):
     """Convert recipe arguments to a dictionary if needed"""
     if isinstance(recipe_args, dict):
         return recipe_args
