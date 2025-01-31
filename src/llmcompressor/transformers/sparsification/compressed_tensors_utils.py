@@ -1,5 +1,3 @@
-import contextlib
-import logging
 import os
 import re
 import weakref
@@ -313,40 +311,3 @@ def get_model_compressor(
         sparsity_config=sparsity_config,
         quantization_format=quantization_format,
     )
-
-
-@contextlib.contextmanager
-def skip_missing_weights_context():
-    """
-    Used when loading a quantized model whose state dict does not align model
-    definition weights
-    """
-    kaiming_uniform_ = torch.nn.init.kaiming_uniform_
-    uniform_ = torch.nn.init.uniform_
-    normal_ = torch.nn.init.normal_
-
-    transformers_logger = logging.getLogger("transformers.modeling_utils")
-    restore_log_level = transformers_logger.getEffectiveLevel()
-
-    # skip init functions
-    def skip(*args, **kwargs):
-        pass
-
-    torch.nn.init.kaiming_uniform_ = skip
-    torch.nn.init.uniform_ = skip
-    torch.nn.init.normal_ = skip
-    # TODO: consider skipping other default init functions
-
-    # temporarily set the log level to error, to ignore printing out long missing
-    # and unexpected key error messages (these are EXPECTED for quantized models)
-    transformers_logger.setLevel(level=logging.ERROR)
-
-    yield
-
-    # restore original functions
-    torch.nn.init.kaiming_uniform_ = kaiming_uniform_
-    torch.nn.init.uniform_ = uniform_
-    torch.nn.init.normal_ = normal_
-
-    # restore transformers logging level now that model shell is loaded
-    transformers_logger.setLevel(level=restore_log_level)

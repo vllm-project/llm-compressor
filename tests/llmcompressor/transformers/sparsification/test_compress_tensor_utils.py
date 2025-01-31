@@ -28,7 +28,6 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     get_model_compressor,
     modify_save_pretrained,
     patch_tied_tensors_bug,
-    skip_missing_weights_context,
 )
 
 
@@ -70,10 +69,9 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         clear_sparse_session=False,
     )
 
-    with skip_missing_weights_context():
-        model = AutoModelForCausalLM.from_pretrained(
-            tmp_path / "oneshot_out", torch_dtype=dtype
-        )
+    model = AutoModelForCausalLM.from_pretrained(
+        tmp_path / "oneshot_out", torch_dtype=dtype
+    )
 
     # assert that sample layer has the intended sparsity
     assert math.isclose(
