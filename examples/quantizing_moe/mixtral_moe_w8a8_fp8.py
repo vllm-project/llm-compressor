@@ -22,6 +22,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Dataset config parameters
 DATASET_ID = "open_platypus"
+DATASET_SPLIT = "train"
 MAX_SEQ_LENGTH = 2048
 NUM_CALIBRATION_SAMPLES = 512
 
@@ -41,6 +42,7 @@ oneshot(
     model=model,
     tokenizer=tokenizer,
     dataset=DATASET_ID,
+    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
     recipe=recipe,
     max_seq_length=MAX_SEQ_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,

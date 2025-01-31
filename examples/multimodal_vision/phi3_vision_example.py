@@ -20,12 +20,12 @@ processor.chat_template = processor.tokenizer.chat_template
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
-DATASET_SPLIT = "test[:512]"
+DATASET_SPLIT = "test"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 

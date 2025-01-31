@@ -89,7 +89,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Load and preprocess dataset
 ds = (
-    load_dataset(DATASET_ID, split=DATASET_SPLIT)
+    load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
     .shuffle(seed=42)
     .select(range(NUM_CALIBRATION_SAMPLES))
 )
