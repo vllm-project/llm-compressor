@@ -300,6 +300,13 @@ def configure_processor(processor: Processor):
                 " when padding"
             )
 
+    # the chat template attribute is required for saving, patch some processors which do
+    # no include this attribute (phi3_v)
+    processor_ct = getattr(processor, "chat_template", None)
+    tokenizer_ct = getattr(tokenizer, "chat_template", None)
+    if processor_ct is None and tokenizer_ct is not None:
+        processor.chat_template = tokenizer.chat_template
+
 
 def main(
     model_args: ModelArguments,
