@@ -1,36 +1,31 @@
 import requests
 import torch
+from datasets import load_dataset
 from PIL import Image
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
+from llmcompressor.transformers.tracing import TraceableIdefics3ForConditionalGeneration
 
 # Load model.
-model_id = "mgoin/pixtral-12b"
-model = TraceableLlavaForConditionalGeneration.from_pretrained(
+model_id = "HuggingFaceM4/Idefics3-8B-Llama3"  # or "HuggingFaceTB/SmolVLM-Instruct"
+model = TraceableIdefics3ForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
-DATASET_ID = "flickr30k"
+DATASET_ID = "lmms-lab/flickr30k"
+DATASET_SPLIT = "test[:512]"
 NUM_CALIBRATION_SAMPLES = 512
-DATASET_SPLIT = {"calibration": f"test[:{NUM_CALIBRATION_SAMPLES}]"}
-MAX_SEQUENCE_LENGTH = 2048
+MAX_SEQUENCE_LENGTH = 4096  # Seems to be required here
 
 
 # Define a oneshot data collator for multimodal inputs.
-# NOTE: for transformers<4.48.0, please squeeze the first dimension of `pixel_values`
-# by appending `[0]` to the end of line 32
 def data_collator(batch):
     assert len(batch) == 1
-    return {
-        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
-        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-        "pixel_values": torch.tensor(batch[0]["pixel_values"]),
-    }
+    return {key: torch.tensor(value) for key, value in batch[0].items()}
 
 
 # Recipe
@@ -38,17 +33,57 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["MistralDecoderLayer"],
-        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        sequential_targets=["LlamaDecoderLayer"],
+        ignore=["re:.*lm_head", "re:model.vision_model.*", "re:model.connector.*"],
     ),
 ]
+
+# Load dataset and preprocess.
+ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+
+
+# Apply chat template
+def preprocess(example):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "What does the image show?"},
+                {"type": "image"},
+            ],
+        }
+    ]
+    return {
+        "text": processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+        ),
+        "images": example["image"],
+    }
+
+
+ds = ds.map(preprocess)
+
+
+# Tokenize inputs.
+def tokenize(sample):
+    return processor(
+        text=sample["text"],
+        images=sample["images"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+    )
+
+
+# avoid errors with writer_batch_size
+ds = ds.map(tokenize, writer_batch_size=1, remove_columns=ds.column_names)
 
 # Perform oneshot
 oneshot(
     model=model,
-    tokenizer=model_id,
-    dataset=DATASET_ID,
-    splits=DATASET_SPLIT,
+    dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,

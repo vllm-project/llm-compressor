@@ -1,0 +1,72 @@
+LLM Compressor
+
+This product includes software developed in association with the vLLM Project (https://github.com/vllm-project).
+
+Source code in this repository is variously licensed under the Apache License
+Version 2.0, an Apache-compatible license.
+
+* For a copy of the Apache License Version 2.0, please see [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0).
+
+* For a copy of all other Apache-compatible licenses and notices,
+  they will be listed below.
+
+========================================================================
+NOTICES
+========================================================================
+
+Package dependencies are defined in the Python setup.py file in this repository's top-level directory and have their own Apache-compatible licenses and terms.
+
+Hugging Face Transformers License https://github.com/huggingface/transformers/blob/master/LICENSE
+
+Some model implementations subclass and include code snippets from Hugging Face Transformers.
+These snippets include and are subject to the Hugging Face Copyright and are
+provided under the Apache License, Version 2.0 https://github.com/huggingface/transformers/blob/master/LICENSE
+
+PyTorch License https://github.com/pytorch/pytorch/blob/master/LICENSE
+
+Sample images are provided under a Creative Commons Attribution License
+https://creativecommons.org/licenses/by/4.0/legalcode
+```
+@article{cocodataset,
+  author    = {Tsung{-}Yi Lin and Michael Maire and Serge J. Belongie and Lubomir D. Bourdev and Ross B. Girshick and James Hays and Pietro Perona and Deva Ramanan and Piotr Doll{'{a} }r and C. Lawrence Zitnick},
+  title     = {Microsoft {COCO:} Common Objects in Context},
+  journal   = {CoRR},
+  volume    = {abs/1405.0312},
+  year      = {2014},
+  url       = {http://arxiv.org/abs/1405.0312},
+  archivePrefix = {arXiv},
+  eprint    = {1405.0312},
+  timestamp = {Mon, 13 Aug 2018 16:48:13 +0200},
+  biburl    = {https://dblp.org/rec/bib/journals/corr/LinMBHPRDZ14},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
+
+Sample audio is provided under a Creative Commons Attribution License https://creativecommons.org/licenses/by/4.0/legalcode
+```
+@article{DBLP:journals/corr/abs-2111-09344,
+  author    = {Daniel Galvez and
+               Greg Diamos and
+               Juan Ciro and
+               Juan Felipe Cer{\'{o}}n and
+               Keith Achorn and
+               Anjali Gopi and
+               David Kanter and
+               Maximilian Lam and
+               Mark Mazumder and
+               Vijay Janapa Reddi},
+  title     = {The People's Speech: {A} Large-Scale Diverse English Speech Recognition
+               Dataset for Commercial Usage},
+  journal   = {CoRR},
+  volume    = {abs/2111.09344},
+  year      = {2021},
+  url       = {https://arxiv.org/abs/2111.09344},
+  eprinttype = {arXiv},
+  eprint    = {2111.09344},
+  timestamp = {Mon, 22 Nov 2021 16:44:07 +0100},
+  biburl    = {https://dblp.org/rec/journals/corr/abs-2111-09344.bib},
+  bibsource = {dblp computer science bibliography, https://dblp.org}
+}
+```
+
+Other external dependencies, if referenced in this repository's various subdirectories, are subject to their associated licenses and terms.
