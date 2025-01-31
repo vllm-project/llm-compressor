@@ -250,3 +250,165 @@ def test_actorder_reload_match(actorder, tmp_path, mock_per_group_calibration):
     assert torch.equal(fake_quant_dummy, reconstructed_dense["dummy.weight"])
 
     shutil.rmtree(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "num_bits,values,expected_values",
+    [
+        (
+            4,
+            torch.tensor([[1]]),
+            torch.tensor([[9]], dtype=torch.int32),
+        ),
+        (
+            8,
+            torch.tensor([[1]]),
+            torch.tensor([[129]], dtype=torch.int32),
+        ),
+        # 0000 0000 0000 0000 1100 1011 1010 1001
+        (4, torch.tensor([[1, 2, 3, 4]]), torch.tensor([[52137]], dtype=torch.int32)),
+        # 0111 0110 0101 0100 0011 0010 0001 0000
+        (
+            4,
+            torch.tensor([[-8, -7, -6, -5, -4, -3, -2, -1]]),
+            torch.tensor([[1985229328]], dtype=torch.int32),
+        ),
+        # 10000100 10000011 10000010 10000001
+        (
+            8,
+            torch.tensor([[1, 2, 3, 4]]),
+            torch.tensor([[-2071756159]], dtype=torch.int32),
+        ),
+        # 00000011 00000010 00000001 00000000
+        (
+            8,
+            torch.tensor([[-128, -127, -126, -125]]),
+            torch.tensor([[50462976]], dtype=torch.int32),
+        ),
+        (
+            4,
+            torch.tensor([[-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4]]),
+            torch.tensor([[1985229328, 52137]], dtype=torch.int32),
+        ),
+        (
+            4,
+            torch.tensor(
+                [
+                    [-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, -8, -8, -8, -8],
+                    [1, 2, 3, 4, -8, -8, -8, -8, -8, -7, -6, -5, -4, -3, -2, -1],
+                ]
+            ),
+            torch.tensor([[1985229328, 52137], [52137, 1985229328]], dtype=torch.int32),
+        ),
+        (
+            8,
+            torch.tensor(
+                [
+                    [1, 2, 3, 4],
+                    [-128, -127, -126, -125],
+                ]
+            ),
+            torch.tensor([[-2071756159], [50462976]], dtype=torch.int32),
+        ),
+        (
+            8,
+            torch.tensor(
+                [
+                    [1, 2, 3, 4, -128, -127, -126, -125],
+                    [-128, -127, -126, -125, 1, 2, 3, 4],
+                ]
+            ),
+            torch.tensor(
+                [[-2071756159, 50462976], [50462976, -2071756159]], dtype=torch.int32
+            ),
+        ),
+    ],
+)
+def test_pack_to_int32(num_bits, values, expected_values):
+    values = values.to(torch.int8)
+    packed_values = pack_to_int32(values, num_bits)
+    assert torch.equal(packed_values, expected_values)
+    assert packed_values.dtype == expected_values.dtype
+
+
+@pytest.mark.parametrize(
+    "num_bits,values,expected_tensor",
+    [
+        (
+            4,
+            torch.tensor([[9]], dtype=torch.int32),
+            torch.tensor([[1]], dtype=torch.int8),
+        ),
+        (
+            8,
+            torch.tensor([[129]], dtype=torch.int32),
+            torch.tensor([[1]], dtype=torch.int8),
+        ),
+        (
+            4,
+            torch.tensor([[52137]], dtype=torch.int32),
+            torch.tensor([[1, 2, 3, 4]], dtype=torch.int8),
+        ),
+        (
+            4,
+            torch.tensor([[1985229328]], dtype=torch.int32),
+            torch.tensor([[-8, -7, -6, -5, -4, -3, -2, -1]], dtype=torch.int8),
+        ),
+        (
+            8,
+            torch.tensor([[-2071756159]], dtype=torch.int32),
+            torch.tensor([[1, 2, 3, 4]], dtype=torch.int8),
+        ),
+        (
+            8,
+            torch.tensor([[50462976]], dtype=torch.int32),
+            torch.tensor([[-128, -127, -126, -125]], dtype=torch.int8),
+        ),
+        (
+            4,
+            torch.tensor([[1985229328, 52137]], dtype=torch.int32),
+            torch.tensor(
+                [[-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4]], dtype=torch.int8
+            ),
+        ),
+        (
+            4,
+            torch.tensor([[1985229328, 52137], [52137, 1985229328]], dtype=torch.int32),
+            torch.tensor(
+                [
+                    [-8, -7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, -8, -8, -8, -8],
+                    [1, 2, 3, 4, -8, -8, -8, -8, -8, -7, -6, -5, -4, -3, -2, -1],
+                ],
+                dtype=torch.int8,
+            ),
+        ),
+        (
+            8,
+            torch.tensor([[-2071756159], [50462976]], dtype=torch.int32),
+            torch.tensor(
+                [
+                    [1, 2, 3, 4],
+                    [-128, -127, -126, -125],
+                ],
+                dtype=torch.int8,
+            ),
+        ),
+        (
+            8,
+            torch.tensor(
+                [[-2071756159, 50462976], [50462976, -2071756159]], dtype=torch.int32
+            ),
+            torch.tensor(
+                [
+                    [1, 2, 3, 4, -128, -127, -126, -125],
+                    [-128, -127, -126, -125, 1, 2, 3, 4],
+                ],
+                dtype=torch.int8,
+            ),
+        ),
+    ],
+)
+def test_unpack_from_int32(num_bits, values, expected_tensor):
+    unpacked_tensor = unpack_from_int32(values, num_bits, expected_tensor.shape)
+    assert torch.equal(unpacked_tensor, unpacked_tensor)
+    assert unpacked_tensor.dtype == unpacked_tensor.dtype

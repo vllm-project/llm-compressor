@@ -138,8 +138,20 @@ def pack_to_int32(value: torch.Tensor, num_bits: int) -> torch.Tensor:
     """
     Packs a tensor of quantized weights stored in int8 into int32s with padding
 
+    Pseudocode:
+     1. Shift wrt num_bits to convert to unsigned. num_bits=8
+        [1,2] -> [129, 130]
+     2. Pad to fill in 32 bits
+        [129, 130] -> [129, 130, 0, 0]
+     3. convert to binary align in order
+        [129, 130, 0, 0] -> 00000000 00000000 10000010 10000001
+     4. convert aligned binary to number
+        00000000000000001000001010000001 -> 33409
+     5. covert back to uint32
+        33409 -> 33409
+
     :param value: tensor to pack
-    :param num_bits: number of bits used to store underlying data
+    :param num_bits: number of bits used to store underlying data, must be at least 1
     :returns: packed int32 tensor
     """
     if value.dtype is not torch.int8:
@@ -148,19 +160,22 @@ def pack_to_int32(value: torch.Tensor, num_bits: int) -> torch.Tensor:
     if num_bits > 8:
         raise ValueError("Packing is only supported for less than 8 bits")
 
+    if num_bits < 1:
+        raise ValueError(f"num_bits must be at least 1, got {num_bits}")
+
     # convert to unsigned for packing
-    offset = pow(2, num_bits) // 2
+    offset = 1 << (num_bits - 1)
     value = (value + offset).to(torch.uint8)
     value = value.cpu().numpy().astype(np.uint32)
     pack_factor = 32 // num_bits
 
     # pad input tensor and initialize packed output
     packed_size = math.ceil(value.shape[1] / pack_factor)
-    packed = np.zeros((value.shape[0], packed_size), dtype=np.uint32)
-    padding = packed.shape[1] * pack_factor - value.shape[1]
+    padding = packed_size * pack_factor - value.shape[1]
     value = np.pad(value, pad_width=[(0, 0), (0, padding)], constant_values=0)
 
     # pack values
+    packed = np.zeros((value.shape[0], packed_size), dtype=np.uint32)
     for i in range(pack_factor):
         packed |= value[:, i::pack_factor] << num_bits * i
 
@@ -174,7 +189,9 @@ def unpack_from_int32(
 ) -> torch.Tensor:
     """
     Unpacks a tensor of packed int32 weights into individual int8s, maintaining the
-    original their bit range
+    original bit range.
+
+    Return tensors in int8
 
     :param value: tensor to upack
     :param num_bits: number of bits to unpack each data point into
@@ -192,7 +209,7 @@ def unpack_from_int32(
     pack_factor = 32 // num_bits
 
     # unpack
-    mask = pow(2, num_bits) - 1
+    mask = (1 << num_bits) - 1
     unpacked = torch.zeros(
         (value.shape[0], value.shape[1] * pack_factor),
         device=value.device,
