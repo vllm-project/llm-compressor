@@ -78,11 +78,11 @@ class QuantizedKVParameterCache(DynamicCache):
         """
 
         if len(self.k_observers) <= layer_idx:
-            k_observer_name = self.quantization_args.get_observer()
+            k_observer_name = self.quantization_args.observer
             k_observer = Observer.load_from_registry(
                 k_observer_name, quantization_args=self.quantization_args
             )
-            v_observer_name = self.quantization_args.get_observer()
+            v_observer_name = self.quantization_args.observer
             v_observer = Observer.load_from_registry(
                 v_observer_name, quantization_args=self.quantization_args
             )
