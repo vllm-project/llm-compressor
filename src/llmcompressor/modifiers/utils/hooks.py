@@ -29,18 +29,29 @@ class HooksMixin(BaseModel):
         - modifier.remove_hooks()
     """
 
-    _HOOKS_DISABLED: ClassVar[bool] = False  # attached to global HooksMixin
-    _hooks: Set[RemovableHandle] = set()  # attached to local subclasses
+    # attached to global HooksMixin class
+    _HOOKS_DISABLED: ClassVar[bool] = False
+    _HOOKS_KEEP_ENABLED: ClassVar[Set[RemovableHandle]] = set()
+
+    # attached to local subclasses
+    _hooks: Set[RemovableHandle] = set()
 
     @classmethod
     @contextlib.contextmanager
-    def disable_hooks(cls):
-        """Disable all hooks across all modifiers"""
+    def disable_hooks(cls, keep: Set[RemovableHandle] = set()):
+        """
+        Disable all hooks across all modifiers. Composing multiple contexts is
+        equivalent to the union of `keep` arguments
+
+        :param keep: optional set of handles to keep enabled
+        """
         try:
             cls._HOOKS_DISABLED = True
+            cls._HOOKS_KEEP_ENABLED |= keep
             yield
         finally:
             cls._HOOKS_DISABLED = False
+            cls._HOOKS_KEEP_ENABLED -= keep
 
     def register_hook(
         self,
@@ -60,10 +71,16 @@ class HooksMixin(BaseModel):
             Ex. "forward", "forward_pre", "full_backward", "state_dict_post", ""
         :param kwargs: keyword arguments to pass to register hook method
         """
+        handle = None
 
         @wraps(hook)
         def wrapped_hook(*args, **kwargs):
-            if HooksMixin._HOOKS_DISABLED:
+            nonlocal handle
+
+            if (
+                HooksMixin._HOOKS_DISABLED
+                and handle not in HooksMixin._HOOKS_KEEP_ENABLED
+            ):
                 return
 
             return hook(*args, **kwargs)
