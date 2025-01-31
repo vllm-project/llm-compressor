@@ -49,6 +49,7 @@ class StageRunner:
         data_args: "DataTrainingArguments",
         model_args: "ModelArguments",
         training_args: "TrainingArguments",
+        processor: Processor,
     ):
         self._data_args = data_args
         self._model_args = model_args
@@ -56,7 +57,7 @@ class StageRunner:
 
         self.datasets = {}
         self.trainer = None
-        self.processor = None
+        self.processor = processor
         self.parent_output_dir = self._training_args.output_dir
         self._output_dir = self._training_args.output_dir
 
@@ -68,8 +69,8 @@ class StageRunner:
         :param processor: processor or tokenizer to use for dataset tokenization
         :param add_labels: if True, add labels column to dataset splits
         """
+        # TODO: remove `processor` arg in favor of self.processor
         if self._data_args.dataset is None:
-            self.processor = self._model_args.processor
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
                 "weight-only and dynamic quantization"
@@ -110,7 +111,7 @@ class StageRunner:
                     registry_id,
                     data_args=self._data_args,
                     split=split_str,
-                    processor=processor,
+                    processor=self.processor,
                 )
                 tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
 
@@ -144,8 +145,10 @@ class StageRunner:
             calib_data = format_calibration_data(
                 tokenized_dataset=self.get_dataset_split("calibration"),
                 num_calibration_samples=self._data_args.num_calibration_samples,
+                batch_size=self._training_args.per_device_oneshot_batch_size,
                 do_shuffle=self._data_args.shuffle_calibration_samples,
                 collate_fn=self._data_args.data_collator,
+                processor=self.processor,
                 accelerator=self.trainer.accelerator,
             )
 

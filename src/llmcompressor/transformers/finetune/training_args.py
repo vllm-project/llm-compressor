@@ -32,6 +32,12 @@ class TrainingArguments(HFTrainingArgs):
             )
         },
     )
+    per_device_oneshot_batch_size: int = field(
+        default=1,
+        metadata={
+            "help": "The batch size per GPU/XPU/TPU/MPS/NPU core/CPU for oneshot"
+        },
+    )
     save_compressed: Optional[bool] = field(
         default=True,
         metadata={"help": "Whether to compress sparse models during save"},
