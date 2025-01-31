@@ -646,7 +646,7 @@ def _make_24_sparse(tensor):
     "expected_sparsity_compressor",
     [
         ("W8A8", "int", False, "int-quantized", "dense"),
-        ("W4A16", "int", False, "pack-quantized", "dense"),
+        ("W4A16", "int", False, "pack-quantized", "dense"),  # this guy
         ("W8A16", "int", False, "pack-quantized", "dense"),
         ("W8A8", "int", True, "int-quantized", "sparse-24-bitmask"),
         ("W4A16", "int", True, "marlin-24", "dense"),
@@ -671,6 +671,8 @@ def test_correct_compressor_inferred(
     weights = torch.rand(10, 4)
     if is_24:
         weights = _make_24_sparse(weights)
+    else:
+        weights[0, :] = torch.ones(4, )  # guarantee not 24 sparse
 
     quantization_config = _quantization_config_from_string(quant_style, quant_type)
     quantization_args = quantization_config.config_groups["group_0"].weights
