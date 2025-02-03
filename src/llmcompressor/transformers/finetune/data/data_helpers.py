@@ -73,8 +73,9 @@ def get_raw_dataset(
     """
     Load the raw dataset from Hugging Face, using cached copy if available
 
-    :param cache_dir: disk location to search for cached dataset
-    :param streaming: True to stream data from Hugging Face, otherwise download
+    :param path: Path or name of the dataset. Accepts HF dataset stub or
+        local file directory in csv, json, parquet, etc.
+
     :return: the requested dataset
 
     """
