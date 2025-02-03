@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy
 import torch
 from loguru import logger
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
@@ -35,6 +35,7 @@ class SparsityModifierMixin(HooksMixin):
     sequential_update: Optional[bool] = False  # deprecated
     sequential_targets: Union[str, List[str], None] = None
     targets: Union[str, List[str], None] = None  # alias sequential_targets
+    ignore: List[str] = Field(default_factory=list)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -142,7 +143,7 @@ class SparsityModifierMixin(HooksMixin):
                 state.model,
                 state.data.calib,
                 self.sequential_targets,
-                [],
+                self.ignore,
                 self,
             )
             return True
