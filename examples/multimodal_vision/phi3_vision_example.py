@@ -3,7 +3,6 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
 
 # Load model.
@@ -16,7 +15,6 @@ model = AutoModelForCausalLM.from_pretrained(
     _attn_implementation="eager",
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-processor.chat_template = processor.tokenizer.chat_template
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
@@ -68,7 +66,6 @@ def data_collator(batch):
 
 # Recipe
 recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",

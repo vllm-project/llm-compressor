@@ -68,6 +68,7 @@ class StageRunner:
         :param processor: processor or tokenizer to use for dataset tokenization
         :param add_labels: if True, add labels column to dataset splits
         """
+        self.processor = processor  # TODO: pass processor into init instead of this fn
         if self._data_args.dataset is None:
             logger.info(
                 "Running oneshot without calibration data. This is expected for "

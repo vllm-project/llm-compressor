@@ -71,7 +71,6 @@ def trace_subgraphs(
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
-    breakpoint()
     with (
         calibration_forward_context(model),
         HooksMixin.disable_hooks(),
