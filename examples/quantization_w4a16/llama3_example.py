@@ -5,7 +5,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-#MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
@@ -23,7 +23,7 @@ DATASET_SPLIT = "train_sft"
 # Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
-BATCH_SIZE = 2
+BATCH_SIZE = 8
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)

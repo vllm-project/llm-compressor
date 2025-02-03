@@ -63,7 +63,6 @@ def format_calibration_data(
     tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
 
     # collate data
-    breakpoint()
     if collate_fn is None:
         tokenizer = getattr(processor, "tokenizer", processor)
         if hasattr(tokenizer, "pad"):

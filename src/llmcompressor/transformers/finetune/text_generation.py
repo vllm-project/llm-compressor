@@ -394,12 +394,10 @@ def main(
 
     # Load datasets
     stage_runner = StageRunner(
-        model_args=model_args, data_args=data_args, training_args=training_args, processor=processor
+        model_args=model_args, data_args=data_args, training_args=training_args
     )
     add_labels = training_args.do_train or training_args.run_stages
-    stage_runner.populate_datasets(
-        processor=processor, add_labels=add_labels
-    )
+    stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
     train_dataset = stage_runner.get_dataset_split("train")
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
