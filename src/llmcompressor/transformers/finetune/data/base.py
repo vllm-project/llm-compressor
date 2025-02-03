@@ -180,10 +180,11 @@ class TextGenerationDataset(RegistryMixin):
 
         logger.debug(f"Loading dataset {self.data_args.dataset}")
         return get_raw_dataset(
-            self.data_args,
-            None,
+            self.data_args.dataset,
+            name=self.data_args.dataset_config_name,
             split=self.split,
             streaming=self.data_args.streaming,
+            trust_remove_code=self.data_args.trust_remote_code_data,
             **self.data_args.raw_kwargs,
         )
 

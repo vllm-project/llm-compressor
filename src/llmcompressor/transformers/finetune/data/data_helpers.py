@@ -67,9 +67,7 @@ def format_calibration_data(
 
 
 def get_raw_dataset(
-    data_args,
-    cache_dir: Optional[str] = None,
-    streaming: Optional[bool] = False,
+    path: str,
     **kwargs,
 ) -> Dataset:
     """
@@ -80,15 +78,10 @@ def get_raw_dataset(
     :return: the requested dataset
 
     """
-    raw_datasets = load_dataset(
-        data_args.dataset,
-        data_args.dataset_config_name,
-        cache_dir=cache_dir,
-        streaming=streaming,
-        trust_remote_code=data_args.trust_remote_code_data,
+    return load_dataset(
+        path,
         **kwargs,
     )
-    return raw_datasets
 
 
 def make_dataset_splits(

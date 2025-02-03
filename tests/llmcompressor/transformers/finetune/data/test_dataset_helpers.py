@@ -12,7 +12,12 @@ def test_combined_datasets():
     data_args = DataTrainingArguments(
         dataset="wikitext", dataset_config_name="wikitext-2-raw-v1"
     )
-    raw_wikitext2 = get_raw_dataset(data_args)
+    raw_wikitext2 = get_raw_dataset(
+        data_args.dataset,
+        name=data_args.dataset_config_name,
+        splits=data_args.splits,
+        streaming=data_args.streaming,
+    )
     datasets = {"all": raw_wikitext2}
 
     split_datasets = make_dataset_splits(
@@ -37,8 +42,13 @@ def test_separate_datasets():
         dataset="wikitext", dataset_config_name="wikitext-2-raw-v1"
     )
     datasets = {}
-    for split_name, split_str in splits.items():
-        raw_wikitext2 = get_raw_dataset(data_args, split=split_str)
+    for split_name, _ in splits.items():
+        raw_wikitext2 = get_raw_dataset(
+            data_args.dataset,
+            name=data_args.dataset_config_name,
+            splits=data_args.splits,
+            streaming=data_args.streaming,
+        )
         datasets[split_name] = raw_wikitext2
 
     split_datasets = make_dataset_splits(
