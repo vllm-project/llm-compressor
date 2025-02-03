@@ -23,8 +23,8 @@ class TrainingArguments(HFTrainingArgs):
     run_stages: Optional[bool] = field(
         default=False, metadata={"help": "Whether to trigger recipe stage by stage"}
     )
-    output_dir: Optional[str] = field(
-        default=None,
+    output_dir: str = field(
+        default="./output",
         metadata={
             "help": "The output directory where the model predictions and "
             "checkpoints will be written."

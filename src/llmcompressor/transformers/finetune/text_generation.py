@@ -96,7 +96,8 @@ def oneshot(**kwargs):
         include_training_args=True, **kwargs
     )
     training_args.do_oneshot = True
-    training_args.output_dir = output_dir
+    if output_dir is not None:
+        training_args.output_dir = output_dir
     main(model_args, data_args, recipe_args, training_args)
 
 
@@ -185,7 +186,6 @@ def parse_args(include_training_args: bool = False, **kwargs):
         )
 
     _validate_model_args_tokenizer(model_args)
-
     return model_args, data_args, recipe_args, training_args, output_dir
 
 
