@@ -1,10 +1,9 @@
-import logging
 import os
-import warnings
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from datasets import Dataset, load_dataset
+from loguru import logger
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers.data.data_collator import (
     DataCollatorWithPadding,
@@ -13,7 +12,6 @@ from transformers.data.data_collator import (
 
 from llmcompressor.typing import Processor
 
-LOGGER = logging.getLogger(__name__)
 LABELS_MASK_VALUE = -100
 
 __all__ = [
@@ -56,7 +54,7 @@ def format_calibration_data(
     if num_calibration_samples is not None:
         safe_calibration_samples = min(len(tokenized_dataset), num_calibration_samples)
         if safe_calibration_samples != num_calibration_samples:
-            LOGGER.warn(
+            logger.warning(
                 f"Requested {num_calibration_samples} calibration samples but "
                 f"the provided dataset only has {safe_calibration_samples}. "
             )
@@ -68,7 +66,7 @@ def format_calibration_data(
         if hasattr(tokenizer, "pad"):
             collate_fn = DataCollatorWithPadding(tokenizer)
         else:
-            warnings.warn(
+            logger.warning(
                 "Could not find processor, attempting to collate with without padding "
                 "(may fail for batch_size > 1)"
             )
