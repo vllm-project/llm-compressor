@@ -22,7 +22,6 @@ DATASET_SPLIT = "train_sft"
 # Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
-BATCH_SIZE = 8
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
@@ -65,7 +64,6 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    per_device_oneshot_batch_size=BATCH_SIZE,
 )
 
 # Confirm generations of the quantized model look sane.
