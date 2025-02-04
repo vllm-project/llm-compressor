@@ -179,8 +179,10 @@ def initialize_model_from_path(
     )
 
     last_checkpoint = None
+    teacher = None
 
     if training_args is not None:
+        # Load teacher configuration if applicable
         teacher_config = (
             AutoConfig.from_pretrained(
                 model_args.distill_teacher,
@@ -191,9 +193,35 @@ def initialize_model_from_path(
             if model_args.distill_teacher
             else None
         )
+
+        # Detect last checkpoint
         last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
-        # Set seed before initializing model.
+
+        # Set seed before initializing model
         set_seed(training_args.seed)
+
+        # Initialize teacher model if teacher path is provided
+        if model_args.distill_teacher is not None:
+            teacher_device_map = (
+                None
+                if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
+                else "auto"
+            )
+            teacher_kwargs = {
+                "config": teacher_config,
+                "cache_dir": model_args.cache_dir,
+                "use_auth_token": True if model_args.use_auth_token else None,
+                "torch_dtype": parse_dtype(model_args.precision),
+                "device_map": teacher_device_map,
+                "trust_remote_code": model_args.trust_remote_code_model,
+            }
+
+            teacher = AutoModelForCausalLM.from_pretrained(
+                model_args.distill_teacher,
+                **teacher_kwargs,
+            )
+            if "sequence_length" in teacher_kwargs:
+                teacher.seqlen = teacher_kwargs["sequence_length"]
 
     model_path = (
         last_checkpoint or model_args.model
@@ -237,25 +265,6 @@ def initialize_model_from_path(
     )
     if "sequence_length" in model_kwargs:
         model.seqlen = model_kwargs["sequence_length"]
-
-    teacher = None
-    if training_args is not None and model_args.distill_teacher is not None:
-        teacher_device_map = None if fsdp_enabled else "auto"
-        teacher_kwargs = {
-            "config": teacher_config,
-            "cache_dir": model_args.cache_dir,
-            "use_auth_token": True if model_args.use_auth_token else None,
-            "torch_dtype": parse_dtype(model_args.precision),
-            "device_map": teacher_device_map,
-            "trust_remote_code": model_args.trust_remote_code_model,
-        }
-
-        teacher = AutoModelForCausalLM.from_pretrained(
-            model_args.distill_teacher,
-            **teacher_kwargs,
-        )
-        if "sequence_length" in teacher_kwargs:
-            teacher.seqlen = teacher_kwargs["sequence_length"]
 
     return model, teacher
 
