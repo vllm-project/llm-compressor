@@ -184,7 +184,6 @@ class TextGenerationDataset(RegistryMixin):
             name=self.data_args.dataset_config_name,
             split=self.split,
             streaming=self.data_args.streaming,
-            trust_remove_code=self.data_args.trust_remote_code_data,
             **self.data_args.raw_kwargs,
         )
 

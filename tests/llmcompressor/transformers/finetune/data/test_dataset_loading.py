@@ -69,6 +69,7 @@ class TestNoPaddingTokenization(unittest.TestCase):
             split="train[5%:10%]",
             processor=self.tiny_llama_tokenizer,
         )
+
         dataset = op_manager.load_dataset()  # load
         dataset = op_manager.map(  # preprocess
             dataset,
