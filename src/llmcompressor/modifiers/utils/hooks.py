@@ -1,6 +1,6 @@
 import contextlib
 from functools import wraps
-from typing import Any, Callable, ClassVar, List, Union
+from typing import Any, Callable, ClassVar, Optional, Set, Union
 
 import torch
 from loguru import logger
@@ -30,7 +30,7 @@ class HooksMixin(BaseModel):
     """
 
     _HOOKS_DISABLED: ClassVar[bool] = False  # attached to global HooksMixin
-    _hooks: List[RemovableHandle] = []  # attached to local subclasses
+    _hooks: Set[RemovableHandle] = set()  # attached to local subclasses
 
     @classmethod
     @contextlib.contextmanager
@@ -70,14 +70,22 @@ class HooksMixin(BaseModel):
 
         register_function = getattr(target, f"register_{hook_type}_hook")
         handle = register_function(wrapped_hook, **kwargs)
-        self._hooks.append(handle)
+        self._hooks.add(handle)
         logger.debug(f"{self} added {handle}")
 
         return handle
 
-    def remove_hooks(self):
-        """Remove all hooks belonging to a modifier"""
-        for hook in self._hooks:
+    def remove_hooks(self, handles: Optional[Set[RemovableHandle]] = None):
+        """
+        Removes hooks registered by this modifier
+
+        :param handles: optional list of handles to remove, defaults to all hooks
+            registerd by this modifier
+        """
+        if handles is None:
+            handles = self._hooks
+
+        for hook in handles:
             hook.remove()
 
-        self._hooks = []
+        self._hooks -= handles
