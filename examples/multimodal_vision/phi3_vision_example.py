@@ -3,7 +3,6 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
 
 # Load model.
@@ -67,15 +66,12 @@ def data_collator(batch):
 
 
 # Recipe
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(
-        targets="Linear",
-        scheme="W4A16",
-        sequential_targets=["Phi3DecoderLayer"],
-        ignore=["lm_head", "re:model.vision_embed_tokens.*"],
-    ),
-]
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    sequential_targets=["Phi3DecoderLayer"],
+    ignore=["lm_head", "re:model.vision_embed_tokens.*"],
+)
 
 # Perform oneshot
 oneshot(
