@@ -1,10 +1,16 @@
+# TODO: rename to `test_data_helpers.py`
 import pytest
+import torch
+from datasets import Dataset
+from transformers import AutoTokenizer
 
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
+    format_calibration_data,
     get_raw_dataset,
     make_dataset_splits,
 )
+from llmcompressor.transformers.finetune.text_generation import configure_processor
 
 
 @pytest.mark.unit
@@ -53,3 +59,45 @@ def test_separate_datasets():
         split_datasets = make_dataset_splits(
             datasets, do_train=True, do_eval=True, do_predict=True
         )
+
+
+@pytest.mark.unit
+def test_format_calibration_data_padded_tokenized():
+    vocab_size = 512
+    seq_len = 2048
+    ds_size = 16
+    padded_tokenized_dataset = Dataset.from_dict(
+        {"input_ids": torch.randint(0, vocab_size, (ds_size, seq_len))}
+    )
+
+    calibration_dataloader = format_calibration_data(
+        padded_tokenized_dataset, num_calibration_samples=8, batch_size=4
+    )
+
+    batch = next(iter(calibration_dataloader))
+    assert batch["input_ids"].size(0) == 4
+
+
+@pytest.mark.unit
+def test_format_calibration_data_unpaddded_tokenized():
+    vocab_size = 512
+    ds_size = 16
+    unpadded_tokenized_dataset = Dataset.from_dict(
+        {
+            "input_ids": [
+                torch.randint(0, vocab_size, (seq_len,)) for seq_len in range(ds_size)
+            ]
+        }
+    )
+    processor = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
+    configure_processor(processor)
+
+    calibration_dataloader = format_calibration_data(
+        unpadded_tokenized_dataset,
+        num_calibration_samples=8,
+        batch_size=4,
+        processor=processor,
+    )
+
+    batch = next(iter(calibration_dataloader))
+    assert batch["input_ids"].size(0) == 2
