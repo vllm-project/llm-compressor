@@ -60,6 +60,7 @@ from llmcompressor.transformers.utils.arg_parser import (
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
     is_model_ct_quantized_from_path,
+    validate_model_args_tokenizer,
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
@@ -185,7 +186,7 @@ def parse_args(include_training_args: bool = False, **kwargs):
             DeprecationWarning,
         )
 
-    _validate_model_args_tokenizer(model_args)
+    validate_model_args_tokenizer(model_args)
     return model_args, data_args, recipe_args, training_args, output_dir
 
 
@@ -480,15 +481,6 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:
         reset_session()
-
-
-def _validate_model_args_tokenizer(model_args: ModelArguments):
-    """Ensure only one of tokenizer or processor is set"""
-
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor.")
-        model_args.processor, model_args.tokenizer = model_args.tokenizer, None
 
 
 def _get_output_dir_from_argv() -> Optional[str]:
