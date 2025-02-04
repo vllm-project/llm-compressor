@@ -20,6 +20,7 @@
 import os
 import warnings
 from pathlib import PosixPath
+from typing import Any, Dict, Optional
 
 from loguru import logger
 from transformers import (
@@ -40,11 +41,8 @@ from llmcompressor.pytorch.model_load.helpers import (
     parse_dtype,
 )
 from llmcompressor.recipe import Recipe, StageRunType
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
-from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
@@ -53,9 +51,16 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.transformers.sparsification.sparse_model import (
     get_shared_processor_src,
 )
+from llmcompressor.transformers.utils.arg_parser import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
     is_model_ct_quantized_from_path,
+    validate_model_args_tokenizer,
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
@@ -65,27 +70,36 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args, _ = parse_args(
+        include_training_args=True, **kwargs
+    )
     training_args.do_train = True
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args, _ = parse_args(
+        include_training_args=True, **kwargs
+    )
     training_args.do_eval = True
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    # TODO: Get rid of training args when Oneshot refactor comes in
+    model_args, data_args, recipe_args, training_args, output_dir = parse_args(
+        include_training_args=True, **kwargs
+    )
     training_args.do_oneshot = True
-    main(model_args, data_args, training_args)
+    if output_dir is not None:
+        training_args.output_dir = output_dir
+    main(model_args, data_args, recipe_args, training_args)
 
 
 # alias
@@ -97,12 +111,15 @@ def apply(**kwargs):
     CLI entrypoint for any of training, eval, predict or oneshot
     """
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args, _ = parse_args(
+        include_training_args=True, **kwargs
+    )
+
     training_args.run_stages = True
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
         training_args.report_to = []
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def compress(**kwargs):
@@ -111,53 +128,66 @@ def compress(**kwargs):
 
 def load_dataset(dataset_name: str, **kwargs):
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
+        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
     )
-    model_args, data_args, training_args = parser.parse_dict(kwargs)
+    _, data_args, _, _ = parser.parse_dict(kwargs)
     data_args["dataset_name"] = dataset_name
 
 
-def parse_args(**kwargs):
+def parse_args(include_training_args: bool = False, **kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
-        * model_args in src/llmcompressor/transformers/finetune/model_args.py
-        * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
-        * training_args in src/llmcompressor/transformers/finetune/training_args.py
+        * model_args in
+            src/llmcompressor/transformers/utils/arg_parser/model_args.py
+        * data_args in
+            src/llmcompressor/transformers/utils/arg_parser/data_args.py
+        * recipe_args in
+            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
+        * training_args in
+            src/llmcompressor/transformers/utils/arg_parser/training_args.py
 
-    Throws depreciation warnings
+    Throws deprecation warnings
+
+    :param include_training_args: Add training_args in the output if set to True.
+        Note that instantiatng trainng_args will reset HF accelerator and change its
+        internal state. This dataclass should be instantiated only once to avoid
+        conflict with Accelerate library's accelerator.
+
     """
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
+    output_dir = kwargs.pop("output_dir", None)
+    parser = HfArgumentParser(_get_dataclass_arguments(include_training_args))
+
+    # parse from kwargs or cli
     if not kwargs:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+        output_dir = _get_output_dir_from_argv()
+        parsed_args = parser.parse_args_into_dataclasses()
     else:
-        model_args, data_args, training_args = parser.parse_dict(kwargs)
+        parsed_args = parser.parse_dict(kwargs)
 
-    if training_args.recipe_args is not None:
-        if not isinstance(training_args.recipe_args, dict):
-            arg_dict = {}
-            for recipe_arg in training_args.recipe_args:
-                key, value = recipe_arg.split("=")
-                arg_dict[key] = value
-            training_args.recipe_args = arg_dict
+    # Unpack parsed arguments. Oneshot does not need training_args
+    if include_training_args:
+        model_args, data_args, recipe_args, training_args = parsed_args
+        if output_dir:
+            training_args.output_dir = output_dir
+    else:
+        model_args, data_args, recipe_args = parsed_args
+        training_args = None
 
-    # raise depreciation warnings
+    # populate recipe arguments
+    if recipe_args.recipe_args:
+        recipe_args.recipe_args = _unwrap_recipe_args(recipe_args.recipe_args)
+
     if data_args.remove_columns is not None:
         warnings.warn(
-            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
-            "columns which are invalid inputs the tokenizer will be removed",
+            (
+                "`remove_columns` is deprecated."
+                "Invalid columns for tokenizers will be removed.",
+            ),
             DeprecationWarning,
         )
 
-    # silently assign tokenizer to processor
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor")
-        model_args.processor = model_args.tokenizer
-    model_args.tokenizer = None
-
-    return model_args, data_args, training_args
+    validate_model_args_tokenizer(model_args)
+    return model_args, data_args, recipe_args, training_args, output_dir
 
 
 def initialize_model_from_path(
@@ -198,7 +228,7 @@ def initialize_model_from_path(
     set_seed(training_args.seed)
 
     # Fallback to CPU if GPU requested and not available
-    training_args.oneshot_device = fallback_to_cpu(training_args.oneshot_device)
+    training_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
 
     # Trainer handles device assignment for FSDP and training, don't do mapping here
     # if running oneshot outside of FSDP, apply user device settings
@@ -257,7 +287,9 @@ def initialize_model_from_path(
 
 
 def initialize_processor_from_path(
-    model_args: ModelArguments, model: PreTrainedModel, teacher: PreTrainedModel
+    model_args: ModelArguments,
+    model: PreTrainedModel,
+    teacher: Optional[PreTrainedModel] = None,
 ) -> Processor:
     processor_src = model_args.processor
     processor_src = processor_src or get_shared_processor_src(model, teacher)
@@ -288,7 +320,8 @@ def initialize_processor_from_path(
 
 def main(
     model_args: ModelArguments,
-    data_args: DataTrainingArguments,
+    data_args: DatasetArguments,
+    recipe_args: RecipeArguments,
     training_args: TrainingArguments,
 ):
     """
@@ -323,8 +356,8 @@ def main(
         )
 
     # Setup based on stage types if running stage mode
-    if training_args.run_stages and training_args.recipe is not None:
-        recipe_obj = Recipe.create_instance(training_args.recipe)
+    if training_args.run_stages and recipe_args.recipe is not None:
+        recipe_obj = Recipe.create_instance(recipe_args.recipe)
         for stage in recipe_obj.stages:
             run_type = stage.infer_run_type()
             if run_type is StageRunType.ONESHOT:
@@ -352,7 +385,6 @@ def main(
             model_args,
             training_args,
         )
-
     # patch a shared tensor bug in HF transformers
     # https://github.com/huggingface/transformers/issues/33689
     patch_tied_tensors_bug(model)
@@ -371,7 +403,10 @@ def main(
 
     # Load datasets
     stage_runner = StageRunner(
-        model_args=model_args, data_args=data_args, training_args=training_args
+        model_args=model_args,
+        data_args=data_args,
+        training_args=training_args,
+        recipe_args=recipe_args,
     )
     add_labels = training_args.do_train or training_args.run_stages
     stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
@@ -379,13 +414,13 @@ def main(
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
-    # Initialize our Trainer
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
-        recipe=training_args.recipe,
-        recipe_args=training_args.recipe_args,
+        recipe=recipe_args.recipe,
+        recipe_args=recipe_args.recipe_args,
         args=training_args,
+        model_args=model_args,
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
@@ -432,19 +467,52 @@ def main(
         stage_runner.predict()
 
     # save if model was provided as a string or custom output_dir was set
+
     if isinstance(model_args.model, str) or (
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
         model.save_pretrained(
-            training_args.output_dir, save_compressed=training_args.save_compressed
+            training_args.output_dir, save_compressed=model_args.save_compressed
         )
         if processor is not None:
             processor.save_pretrained(training_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
-    if training_args.clear_sparse_session:
+    if recipe_args.clear_sparse_session:
         reset_session()
+
+
+def _get_output_dir_from_argv() -> Optional[str]:
+    """Extract output directory from command-line arguments"""
+
+    import sys
+
+    if "--output_dir" in sys.argv:
+        index = sys.argv.index("--output_dir")
+        sys.argv.pop(index)
+        if index < len(sys.argv):
+            return sys.argv.pop(index)
+
+    return None
+
+
+def _get_dataclass_arguments(include_training_args: bool):
+    """Return the appropriate argument classes for parsing"""
+
+    dataclass_arguments = (ModelArguments, DatasetArguments, RecipeArguments)
+    if include_training_args:
+        return dataclass_arguments + (TrainingArguments,)
+
+    return dataclass_arguments
+
+
+def _unwrap_recipe_args(recipe_args: Dict[str, Any]):
+    """Convert recipe arguments to a dictionary if needed"""
+    if isinstance(recipe_args, dict):
+        return recipe_args
+
+    return {key: value for arg in recipe_args for key, value in [arg.split("=")]}
 
 
 if __name__ == "__main__":

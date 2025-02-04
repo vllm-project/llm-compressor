@@ -16,13 +16,16 @@ from llmcompressor.pytorch.model_load.helpers import (
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     format_calibration_data,
     make_dataset_splits,
 )
-from llmcompressor.transformers.finetune.model_args import ModelArguments
-from llmcompressor.transformers.finetune.training_args import TrainingArguments
+from llmcompressor.transformers.utils.arg_parser import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
 
@@ -46,13 +49,15 @@ class StageRunner:
 
     def __init__(
         self,
-        data_args: "DataTrainingArguments",
+        data_args: "DatasetArguments",
         model_args: "ModelArguments",
         training_args: "TrainingArguments",
+        recipe_args: "RecipeArguments",
     ):
         self._data_args = data_args
         self._model_args = model_args
         self._training_args = training_args
+        self._recipe_args = recipe_args
 
         self.datasets = {}
         self.trainer = None
@@ -214,7 +219,7 @@ class StageRunner:
         :param checkpoint: optional checkpoint to pick up a stage from
         """
 
-        recipe_obj = Recipe.create_instance(self._training_args.recipe)
+        recipe_obj = Recipe.create_instance(self._recipe_args.recipe)
         with self.trainer.accelerator.main_process_first():
             checkpoint_dir = self._model_args.model
             completed_stages = get_completed_stages(checkpoint_dir)
@@ -256,16 +261,13 @@ class StageRunner:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
-            if (
-                self._training_args.output_dir
-                != TrainingArguments.__dataclass_fields__["output_dir"].default
-            ):
+            if self._training_args.output_dir:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
                     processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
-                    save_compressed=self._training_args.save_compressed,
+                    save_compressed=self._model_args.save_compressed,
                 )
 
             # save stage to checkpoint dir
