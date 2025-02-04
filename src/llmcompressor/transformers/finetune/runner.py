@@ -216,23 +216,23 @@ class StageRunner:
 
             # run stage
             if run_type is StageRunType.ONESHOT:
-                from llmcompressor.transformers.calibration import Oneshot
+                from llmcompressor import PostTrain
 
                 model = get_session_model()
                 self._model_args.model = model
 
-                oneshot = Oneshot(
+                oneshot = PostTrain.from_args(
                     output_dir=self._training_args.output_dir,
-                    **get_dataclass_as_dict(self._model_args, ModelArguments),
-                    **get_dataclass_as_dict(self._data_args, DatasetArguments),
-                    **get_dataclass_as_dict(self._recipe_args, RecipeArguments),
+                    model_args=self._model_args,
+                    data_args=self._training_args,
+                    recipe_args=self._recipe_args,
                 )
                 oneshot.run()
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
-            if self._training_args.output_dir != DEFAULT_OUTPUT_DIR:
+            if self._training_args.output_dir:
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,
