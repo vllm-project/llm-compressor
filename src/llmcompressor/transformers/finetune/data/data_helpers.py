@@ -3,7 +3,7 @@ import os
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
-from datasets import Dataset, load_dataset
+from datasets import Dataset
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers.data import default_data_collator
 
@@ -12,7 +12,6 @@ LABELS_MASK_VALUE = -100
 
 __all__ = [
     "format_calibration_data",
-    "get_raw_dataset",
     "make_dataset_splits",
     "get_custom_datasets_from_path",
 ]
@@ -64,31 +63,6 @@ def format_calibration_data(
         calib_dataloader = accelerator.prepare(calib_dataloader)
 
     return calib_dataloader
-
-
-def get_raw_dataset(
-    data_args,
-    cache_dir: Optional[str] = None,
-    streaming: Optional[bool] = False,
-    **kwargs,
-) -> Dataset:
-    """
-    Load the raw dataset from Hugging Face, using cached copy if available
-
-    :param cache_dir: disk location to search for cached dataset
-    :param streaming: True to stream data from Hugging Face, otherwise download
-    :return: the requested dataset
-
-    """
-    raw_datasets = load_dataset(
-        data_args.dataset,
-        data_args.dataset_config_name,
-        cache_dir=cache_dir,
-        streaming=streaming,
-        trust_remote_code=data_args.trust_remote_code_data,
-        **kwargs,
-    )
-    return raw_datasets
 
 
 def make_dataset_splits(

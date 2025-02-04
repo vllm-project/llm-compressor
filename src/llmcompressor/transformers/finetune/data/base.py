@@ -8,11 +8,11 @@ from datasets import Dataset, IterableDataset
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
 
+from llmcompressor.datasets import get_raw_dataset
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     LABELS_MASK_VALUE,
     get_custom_datasets_from_path,
-    get_raw_dataset,
 )
 from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
@@ -180,8 +180,8 @@ class TextGenerationDataset(RegistryMixin):
 
         logger.debug(f"Loading dataset {self.data_args.dataset}")
         return get_raw_dataset(
-            self.data_args,
-            None,
+            self.data_args.dataset,
+            name=self.data_args.dataset_config_name,
             split=self.split,
             streaming=self.data_args.streaming,
             **self.data_args.raw_kwargs,
