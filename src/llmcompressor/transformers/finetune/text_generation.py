@@ -79,19 +79,6 @@ def eval(**kwargs):
     main(model_args, data_args, training_args)
 
 
-def oneshot(**kwargs):
-    """
-    CLI entrypoint for running oneshot calibration
-    """
-    model_args, data_args, training_args = parse_args(**kwargs)
-    training_args.do_oneshot = True
-    main(model_args, data_args, training_args)
-
-
-# alias
-one_shot = oneshot
-
-
 def apply(**kwargs):
     """
     CLI entrypoint for any of training, eval, predict or oneshot
@@ -418,10 +405,6 @@ def main(
         elif last_checkpoint is not None:
             checkpoint = last_checkpoint
         stage_runner.train(checkpoint)
-
-    # One Shot
-    if training_args.do_oneshot:
-        stage_runner.one_shot()
 
     # Evaluation
     if training_args.do_eval:

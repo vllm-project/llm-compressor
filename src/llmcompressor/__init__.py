@@ -44,3 +44,5 @@ from llmcompressor.core.session_functions import (
     pre_initialize_structure,
     reset_session,
 )
+
+from .post_train import PostTrain

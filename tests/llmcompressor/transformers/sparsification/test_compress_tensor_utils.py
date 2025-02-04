@@ -167,8 +167,6 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     ],
 )
 def test_quant_model_reload(format, dtype, tmp_path):
-    from llmcompressor.pytorch.model_load.helpers import get_session_model
-
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
@@ -182,7 +180,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     splits = {"calibration": "train[:10%]"}
 
     # create a quantized model
-    oneshot(
+    oneshot_run = oneshot(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -195,7 +193,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     )
 
     # Fetch the oneshot model
-    model = get_session_model()
+    model = oneshot_run.model
     og_state_dict = model.state_dict()
     save_path_compressed = tmp_path / "compressed"
 
