@@ -52,7 +52,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
-    get_processor_from_model,
+    get_processor_name_from_model,
 )
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
@@ -262,7 +262,9 @@ def initialize_processor_from_path(
     model: PreTrainedModel,
     teacher: Optional[PreTrainedModel] = None,
 ) -> Processor:
-    processor_src = model_args.processor or get_processor_name_from_model(model, teacher)
+    processor_src = model_args.processor or get_processor_name_from_model(
+        model, teacher
+    )
     # The use_fast=True option is not currently supported safely in Transformers
     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
     try:

@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM
 
 __all__ = [
     "SparseAutoModelForCausalLM",
-    "get_processor_from_model",
+    "get_processor_name_from_model",
 ]
 
 
