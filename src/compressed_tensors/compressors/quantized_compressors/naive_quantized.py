@@ -41,12 +41,18 @@ class NaiveQuantizationCompressor(BaseQuantizationCompressor):
     type to the type specified by the layer's QuantizationArgs.
     """
 
-    COMPRESSION_PARAM_NAMES = [
-        "weight",
-        "weight_scale",
-        "weight_zero_point",
-        "weight_g_idx",
-    ]
+    @property
+    def compression_param_names(self) -> Tuple[str]:
+        """
+        Returns a tuple of compression parameter names introduced by
+        the compressor during compression
+        """
+        return (
+            "weight",
+            "weight_scale",
+            "weight_zero_point",
+            "weight_g_idx",
+        )
 
     def compression_param_info(
         self,

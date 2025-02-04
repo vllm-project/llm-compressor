@@ -16,7 +16,7 @@ import json
 import os
 import re
 import struct
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Iterable, Optional, Tuple, Union
 
 from safetensors import safe_open
 from torch import Tensor
@@ -180,7 +180,9 @@ def get_weight_mappings(path_to_model_or_tensors: str) -> Dict[str, str]:
 
 
 def get_nested_weight_mappings(
-    model_path: str, params_to_nest: List[str], return_unmatched_params: bool = False
+    model_path: str,
+    params_to_nest: Iterable[str],
+    return_unmatched_params: bool = False,
 ) -> Union[NestedWeightMappingType, Tuple[NestedWeightMappingType, WeightMappingType]]:
     """
     Takes a path to a state dict saved in safetensors format and returns a nested
@@ -211,7 +213,7 @@ def get_nested_weight_mappings(
 
     :param model_path: Path to the safetensors state dict, must contain either a
         single safetensors file or multiple files with an index.
-    :param params_to_nest: List of parameter names to nest.
+    :param params_to_nest: Iterable of parameter names to nest.
     :param return_unmatched_params: If True, return a second dictionary containing
         the remaining parameters that were not matched to the params_to_nest.
     :return:
@@ -247,7 +249,7 @@ def get_nested_weight_mappings(
 
 
 def get_nested_mappings_from_state_dict(
-    state_dict, params_to_nest
+    state_dict, params_to_nest: Iterable[str]
 ) -> NestedWeightMappingType:
     """
     Takes a state dict and returns a nested mapping from uncompressed
@@ -262,7 +264,7 @@ def get_nested_mappings_from_state_dict(
     }
 
     :param state_dict: state dict of the model
-    :param params_to_nest: List of parameter names to nest.
+    :param params_to_nest: Iterable of parameter names to nest.
     :return: Nested mapping of parameterized layer names to the value of
         each layer's compression parameters.
     """

@@ -42,8 +42,6 @@ class Marlin24Compressor(BaseCompressor):
     Marlin24 kernel. Decompression is not implemented for this compressor.
     """
 
-    COMPRESSION_PARAM_NAMES = ["weight_packed", "scale_packed", "meta"]
-
     @staticmethod
     def validate_quant_compatability(
         model_quant_args: Dict[str, QuantizationArgs]
@@ -104,6 +102,14 @@ class Marlin24Compressor(BaseCompressor):
             )
 
         return True
+
+    @property
+    def compression_param_names(self) -> Tuple[str]:
+        """
+        Returns a tuple of compression parameter names introduced by
+        the compressor during compression
+        """
+        return ("weight_packed", "scale_packed", "meta")
 
     def compress(
         self,

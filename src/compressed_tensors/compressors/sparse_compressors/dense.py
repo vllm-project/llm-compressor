@@ -25,6 +25,14 @@ class DenseCompressor(BaseCompressor):
     Identity compressor for dense models, returns the original state_dict
     """
 
+    @property
+    def compression_param_names(self) -> Tuple[str]:
+        """
+        Returns a tuple of compression parameter names introduced by
+        the compressor during compression
+        """
+        return ()
+
     def compress(self, model_state: Dict[str, Tensor], **kwargs) -> Dict[str, Tensor]:
         return model_state
 

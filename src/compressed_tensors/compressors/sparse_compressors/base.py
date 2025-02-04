@@ -30,8 +30,7 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 class BaseSparseCompressor(BaseCompressor):
     """
     Base class representing a sparse compression algorithm. Each child class should
-    implement compression_param_info, compress_weight and decompress_weight; child
-    classes should also define COMPRESSION_PARAM_NAMES.
+    implement compression_param_names, compress_weight and decompress_weight;
 
     Compressors support compressing/decompressing a full module state dict or a single
     quantized PyTorch leaf module.
@@ -113,7 +112,7 @@ class BaseSparseCompressor(BaseCompressor):
         """
         weight_mappings, ignored_params = get_nested_weight_mappings(
             path_to_model_or_tensors,
-            self.COMPRESSION_PARAM_NAMES,
+            self.compression_param_names,
             return_unmatched_params=True,
         )
         for weight_name in weight_mappings.keys():

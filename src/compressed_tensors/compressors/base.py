@@ -77,6 +77,15 @@ class BaseCompressor(RegistryMixin, ABC):
         """
         raise NotImplementedError()
 
+    @property
+    @abstractmethod
+    def compression_param_names(self) -> Tuple[str]:
+        """
+        Returns a tuple of compression parameter names introduced by
+        the compressor during compression
+        """
+        raise NotImplementedError()
+
     @abstractmethod
     def compress(
         self,

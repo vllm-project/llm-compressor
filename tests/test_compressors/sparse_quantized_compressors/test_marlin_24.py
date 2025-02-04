@@ -111,6 +111,6 @@ def test_marlin24_format(
         state_dict[f"{NOT_QUANT_NAME}.weight"],
         compressed_state_dict[f"{NOT_QUANT_NAME}.weight"],
     )
-    for param_name in compressor.COMPRESSION_PARAM_NAMES:
+    for param_name in compressor.compression_param_names:
         full_param_name = merge_names(QUANT_NAME, param_name)
         assert full_param_name in compressed_state_dict

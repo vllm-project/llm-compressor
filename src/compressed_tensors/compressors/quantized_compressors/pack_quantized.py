@@ -36,13 +36,19 @@ class PackedQuantizationCompressor(BaseQuantizationCompressor):
     Compresses a quantized model by packing every eight 4-bit weights into an int32
     """
 
-    COMPRESSION_PARAM_NAMES = [
-        "weight_packed",
-        "weight_scale",
-        "weight_zero_point",
-        "weight_g_idx",
-        "weight_shape",
-    ]
+    @property
+    def compression_param_names(self) -> Tuple[str]:
+        """
+        Returns a tuple of compression parameter names introduced by
+        the compressor during compression
+        """
+        return (
+            "weight_packed",
+            "weight_scale",
+            "weight_zero_point",
+            "weight_g_idx",
+            "weight_shape",
+        )
 
     def compression_param_info(
         self,
