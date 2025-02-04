@@ -68,7 +68,7 @@ jobs:
             - name: set python
               uses: actions/setup-python@v4
               with:
-                  python-version: '3.10'
+                  python-version: '3.12'
 
             - name: checkout code
               id: checkout
@@ -88,7 +88,7 @@ jobs:
 
             - name: build
               id: build
-              uses: neuralmagic/nm-actions/actions/build-ml-whl@v1.6.0
+              uses: neuralmagic/nm-actions/actions/build-ml-whl@v1.12.0
               with:
                   dev: false
                   release: ${{ inputs.wf_category == 'RELEASE' }}
