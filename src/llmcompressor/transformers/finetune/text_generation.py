@@ -239,7 +239,7 @@ def initialize_model_from_path(
         model.seqlen = model_kwargs["sequence_length"]
 
     teacher = None
-    if training_args is not None:
+    if training_args is not None and model_args.distill_teacher is not None:
         teacher_device_map = None if fsdp_enabled else "auto"
         teacher_kwargs = {
             "config": teacher_config,
@@ -250,15 +250,11 @@ def initialize_model_from_path(
             "trust_remote_code": model_args.trust_remote_code_model,
         }
 
-        teacher = (
-            AutoModelForCausalLM.from_pretrained(
-                model_args.distill_teacher,
-                **teacher_kwargs,
-            )
-            if model_args.distill_teacher is not None
-            else None
+        teacher = AutoModelForCausalLM.from_pretrained(
+            model_args.distill_teacher,
+            **teacher_kwargs,
         )
-        if teacher is not None and "sequence_length" in teacher_kwargs:
+        if "sequence_length" in teacher_kwargs:
             teacher.seqlen = teacher_kwargs["sequence_length"]
 
     return model, teacher
