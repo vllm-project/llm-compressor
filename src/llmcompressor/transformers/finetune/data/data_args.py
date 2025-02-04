@@ -5,6 +5,23 @@ from transformers import DefaultDataCollator
 
 
 @dataclass
+class LoadDatasetArguments:
+    """
+    Arguments for using load_dataset
+    """
+
+    load_dataset_args: Dict[str, Any] = field(
+        default_factory=dict,
+        metadata={
+            "help": (
+                "Arguments for load_dataset to be passed as **load_dataset_args. "
+                "Ref: https://github.com/huggingface/datasets/blob/main/src/datasets/load.py"  # noqa: E501
+            )
+        },
+    )
+
+
+@dataclass
 class DVCDatasetTrainingArguments:
     """
     Arguments for training using DVC
@@ -67,7 +84,7 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
 
 
 @dataclass
-class DataTrainingArguments(CustomDataTrainingArguments):
+class DataTrainingArguments(CustomDataTrainingArguments, LoadDatasetArguments):
     """
     Arguments pertaining to what data we are going to input our model for
     training and eval

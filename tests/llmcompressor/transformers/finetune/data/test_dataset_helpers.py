@@ -1,10 +1,8 @@
 import pytest
 
+from llmcompressor.datasets import get_raw_dataset
 from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    get_raw_dataset,
-    make_dataset_splits,
-)
+from llmcompressor.transformers.finetune.data.data_helpers import make_dataset_splits
 
 
 @pytest.mark.unit
