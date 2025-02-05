@@ -106,9 +106,7 @@ def apply(**kwargs):
     CLI entrypoint for any of training, eval, predict or oneshot
     """
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, recipe_args, training_args, _ = parse_args(
-        include_training_args=True, **kwargs
-    )
+    model_args, data_args, recipe_args, training_args, _ = parse_args(**kwargs)
 
     training_args.run_stages = True
     if report_to is None:  # user didn't specify any reporters
@@ -140,13 +138,6 @@ def parse_args(**kwargs):
             src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
         * training_args in
             src/llmcompressor/transformers/utils/arg_parser/training_args.py
-
-    Throws deprecation warnings
-
-    :param include_training_args: Add training_args in the output if set to True.
-        Note that instantiatng trainng_args will reset HF accelerator and change its
-        internal state. This dataclass should be instantiated only once to avoid
-        conflict with Accelerate library's accelerator.
 
     """
     output_dir = kwargs.get("output_dir", None)
@@ -485,16 +476,6 @@ def _get_output_dir_from_argv() -> Optional[str]:
             return sys.argv.pop(index)
 
     return None
-
-
-def _get_dataclass_arguments(include_training_args: bool):
-    """Return the appropriate argument classes for parsing"""
-
-    dataclass_arguments = (ModelArguments, DatasetArguments, RecipeArguments)
-    if include_training_args:
-        return dataclass_arguments + (TrainingArguments,)
-
-    return dataclass_arguments
 
 
 def _unwrap_recipe_args(recipe_args: Dict[str, Any]):
