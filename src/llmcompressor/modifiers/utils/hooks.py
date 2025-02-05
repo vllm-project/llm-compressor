@@ -23,10 +23,17 @@ class HooksMixin(BaseModel):
 
     Hooks can be applied to modules or parameters
 
-    Lifecycle:
-        - modifier.register_forward_hook(module, hook)
-        - with HooksMixin.disable_hooks(): model.forward()
-        - modifier.remove_hooks()
+    Typical example
+    >>> modifier.register_forward_hook(module, hook)
+    >>> with HooksMixin.disable_hooks():
+            model.forward(...)
+    >>> modifier.remove_hooks()
+
+    Example of activating only a specific subset of hooks
+    >>> hooks = [modifier.register_forward_hook(module, hook) for module in ...]
+    >>> with HooksMixin.disable_hooks(keep=hooks):
+            model.forward(...)
+    >>> modifier.remove_hooks(hooks)
     """
 
     # attached to global HooksMixin class
@@ -38,7 +45,7 @@ class HooksMixin(BaseModel):
 
     @classmethod
     @contextlib.contextmanager
-    def disable_hooks(cls, keep: Set[RemovableHandle] = set()):
+    def disable_hooks(cls, keep: Set[RemovableHandle] = frozenset()):
         """
         Disable all hooks across all modifiers. Composing multiple contexts is
         equivalent to the union of `keep` arguments
