@@ -70,9 +70,7 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, recipe_args, training_args, _ = parse_args(
-        include_training_args=True, **kwargs
-    )
+    model_args, data_args, recipe_args, training_args, _ = parse_args(**kwargs)
     training_args.do_train = True
     main(model_args, data_args, recipe_args, training_args)
 
@@ -81,9 +79,7 @@ def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, recipe_args, training_args, _ = parse_args(
-        include_training_args=True, **kwargs
-    )
+    model_args, data_args, recipe_args, training_args, _ = parse_args(**kwargs)
     training_args.do_eval = True
     main(model_args, data_args, recipe_args, training_args)
 
@@ -93,12 +89,11 @@ def oneshot(**kwargs):
     CLI entrypoint for running oneshot calibration
     """
     # TODO: Get rid of training args when Oneshot refactor comes in
-    model_args, data_args, recipe_args, training_args, output_dir = parse_args(
-        include_training_args=True, **kwargs
-    )
+    model_args, data_args, recipe_args, training_args, output_dir = parse_args(**kwargs)
     training_args.do_oneshot = True
     if output_dir is not None:
         training_args.output_dir = output_dir
+
     main(model_args, data_args, recipe_args, training_args)
 
 
@@ -134,7 +129,7 @@ def load_dataset(dataset_name: str, **kwargs):
     data_args["dataset_name"] = dataset_name
 
 
-def parse_args(include_training_args: bool = False, **kwargs):
+def parse_args(**kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in
@@ -154,8 +149,10 @@ def parse_args(include_training_args: bool = False, **kwargs):
         conflict with Accelerate library's accelerator.
 
     """
-    output_dir = kwargs.pop("output_dir", None)
-    parser = HfArgumentParser(_get_dataclass_arguments(include_training_args))
+    output_dir = kwargs.get("output_dir", None)
+    parser = HfArgumentParser(
+        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
+    )
 
     # parse from kwargs or cli
     if not kwargs:
@@ -164,14 +161,7 @@ def parse_args(include_training_args: bool = False, **kwargs):
     else:
         parsed_args = parser.parse_dict(kwargs)
 
-    # Unpack parsed arguments. Oneshot does not need training_args
-    if include_training_args:
-        model_args, data_args, recipe_args, training_args = parsed_args
-        if output_dir:
-            training_args.output_dir = output_dir
-    else:
-        model_args, data_args, recipe_args = parsed_args
-        training_args = None
+    model_args, data_args, recipe_args, training_args = parsed_args
 
     # populate recipe arguments
     if recipe_args.recipe_args:
