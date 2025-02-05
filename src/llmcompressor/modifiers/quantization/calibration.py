@@ -128,11 +128,15 @@ def update_weight_zp_scale(module: Module):
             untransformed_weight = module.weight.data.clone()
             transformed_weight = weight_transform(module.weight)
             module.weight.data.copy_(transformed_weight)
-
+        
         call_observer(module=module, base_name="weight")
 
         if transforms:
             module.weight.data.copy_(untransformed_weight)
+        
+        # - Keep the original weights for SpinQuant style optimization
+        # - Start by keeping the weight around and then we can save - if we keep it for now, we would have to keep the transformation in the forward pass
+        # - Fold it in if we desire, if saving compressed, otherwise we do not
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):

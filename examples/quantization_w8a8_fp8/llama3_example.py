@@ -4,7 +4,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0" # Llama 3 has rop embeddings
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
@@ -15,16 +15,66 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # If not callable, would have to be a registry of reigstered callables
 # replace None with Callable 
 # Need to add the ability to ignore certain layers when defining "Linear"/larger groups
+"""
+quant_stage:
+    quant_modifiers:
+        QuantizationModifier:
+            ignore: ["lm_head"]
+            config_groups:
+                group_0:
+                    weights:
+                        num_bits: 8
+                        type: float
+                        strategy: tensor
+                        dynamic: false
+                        symmetric: true
+                    input_activations:
+                        num_bits: 8
+                        type: float
+                        strategy: tensor
+                        dynamic: false
+                        symmetric: true
+                    targets: ["Linear"]
+            transforms:
+                group_0:
+                    targets: ["Linear"]
+                    ignore: ["lm_head"] 
+                    weights: 
+                        transform_0:
+                            type: hadamard
+                            transpose: true
+                            right_left: right
+                            global: true
+                        transform_1:
+                            type: identity
+                            transpoe: false
+                    input_activations: 
+                        transform_0:
+                            type: identity  
+                group_1:
+                    targets: ["Embedding]
+                    output_activations:
+                        transform_0:
+                            type: identity
+                group_2:
+                    targets: ["model.layer.21]
+                    output_activations:
+                        transform_0:
+                            type: identity
+"""                  
+
+
 transforms = {
     "Linear": {
         "weight": None,
         "input_activations": None
+        "ignore": []
     },
     "Embedding": {
         "output_activations": None
     },
     "model.layers.21": {
-        "output_activationst": None
+        "output_activations": None
     }
 }
 recipe = QuantizationModifier(
