@@ -130,6 +130,11 @@ class SparsityConfigMetadata:
             sparsity_threshold=SparsityConfigMetadata.SPARSITY_THRESHOLD,
         )
 
+        if not (targets or ignores):
+            # no sparsity config
+            # needed if targets/ignores are empty
+            return None
+
         return SparsityCompressionConfig.load_from_registry(
             format,
             global_sparsity=global_sparsity,
