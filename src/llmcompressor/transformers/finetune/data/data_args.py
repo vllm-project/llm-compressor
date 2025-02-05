@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from transformers import DefaultDataCollator
-
 
 @dataclass
 class DVCDatasetTrainingArguments:
@@ -60,9 +58,12 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
         },
     )
 
-    data_collator: Callable[[Any], Any] = field(
-        default_factory=lambda: DefaultDataCollator(),
-        metadata={"help": "The function to used to form a batch from the dataset"},
+    data_collator: Optional[Callable[[Any], Any]] = field(
+        default=None,
+        metadata={
+            "help": "The function to used to form a batch from the dataset. Defaults "
+            "to `DataCollatorWithPadding` with model tokenizer if None is provided"
+        },
     )
 
 

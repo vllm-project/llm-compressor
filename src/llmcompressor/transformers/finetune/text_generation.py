@@ -20,6 +20,7 @@
 import os
 import warnings
 from pathlib import PosixPath
+from types import NoneType
 
 from loguru import logger
 from transformers import (
@@ -286,6 +287,27 @@ def initialize_processor_from_path(
     return processor
 
 
+def configure_processor(processor: Processor):
+    # configure tokenizer pad_token, required for padding and data collation
+    tokenizer = getattr(processor, "tokenizer", processor)
+    if getattr(tokenizer, "pad_token", None) is None:
+        if hasattr(tokenizer, "eos_token"):
+            logger.debug("Tokenizer is missing pad_token, using eos_token instead")
+            tokenizer.pad_token = tokenizer.eos_token
+        else:
+            logger.debug(
+                "Tokenizer is missing pad_token and eos_token, this may lead to issues "
+                " when padding"
+            )
+
+    # the chat template attribute is required for saving, patch some processors which do
+    # no include this attribute (phi3_v)
+    processor_ct = getattr(processor, "chat_template", None)
+    tokenizer_ct = getattr(tokenizer, "chat_template", None)
+    if processor_ct is None and tokenizer_ct is not None:
+        processor.chat_template = tokenizer.chat_template
+
+
 def main(
     model_args: ModelArguments,
     data_args: DataTrainingArguments,
@@ -361,8 +383,9 @@ def main(
         teacher.eval()
 
     processor = model_args.processor
-    if isinstance(processor, str) or processor is None:
+    if isinstance(processor, (str, NoneType)):
         processor = initialize_processor_from_path(model_args, model, teacher)
+    configure_processor(processor)
 
     pre_initialize_structure(model=model)
 
