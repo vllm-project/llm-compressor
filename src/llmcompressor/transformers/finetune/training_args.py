@@ -32,7 +32,7 @@ class TrainingArguments(HFTrainingArgs):
             )
         },
     )
-    oneshot_batch_size: int = field(
+    calibration_batch_size: int = field(
         default=1,
         metadata={
             "help": "The batch size per GPU/XPU/TPU/MPS/NPU core/CPU for oneshot"
