@@ -1,7 +1,7 @@
 from trl import SFTConfig as TRLSFTConfig
 from trl import SFTTrainer as TRLSFTTrainer
 
-from llmcompressor.transformers import TrainingArguments
+from llmcompressor.transformers.utils.arg_parser import TrainingArguments
 from llmcompressor.transformers.finetune.session_mixin import SessionManagerMixIn
 
 __all__ = ["SFTTrainer"]
