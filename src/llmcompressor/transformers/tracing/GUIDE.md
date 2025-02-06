@@ -11,19 +11,19 @@ such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 3. How to modify your model definition to be traceable
 
 ## 1. Why is Tracing Required? ##
-Due to the memory-intensive nature of some modifiers such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py),
-a [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
+Due to the memory-intensive nature of some modifiers such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
+and [SparseGPTModifier](/src/llmcompressor/modifiers/obcq/base.py), a [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
 is required in order to offload activations and reduce memory usage as well as propagate
 the activation error induced by compression.
 
-For example, let's say we want to quantize a basic `3` layer model using the
-[GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py) and `512`
+For example, let's say we want to quantize a basic 3 layer model using the
+[GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py) and 512
 calibration samples. The [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
 first identifies each of the layers (sequential targets) within the model. Then, the
-pipeline runs each of the `512` samples, one sample at a time, through the first layer.
+pipeline runs each of the 512 samples, one sample at a time, through the first layer.
 When one sample completes its forward pass through the layer, its activations are
-recorded by the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
-hessian and the layer output is offloaded to the cpu. After all `512` samples have been
+used by the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
+to calibrate the hessian and the layer output is offloaded to the cpu. After all 512 samples have been
 passed through the layer, the [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 uses the recorded activations to compress the weights of the modules within the layer.
 Once module compression is complete, the offloaded activations are used to perform the
@@ -242,7 +242,7 @@ def _prepare_cross_attention_mask(...) -> ...:
     <img alt="Wrapped Function" src="assets/wrapped_function.jpg" height="5%" />
 </p>
 <p align="center">
-    <em>This image dicts how the internals of the <code>_prepare_cross_attention_mask</code> function are replaced by a single <code>call_module</code> operation, similar to how modules can be ignored as featured in section 1
+    <em>This image dicts how the internals of the <code>_prepare_cross_attention_mask</code> function are replaced by a single <code>call_module</code> operation, similar to how modules can be ignored as featured in section 1</em>
 </p>
 
 Please note that wrapped functions must be defined at the module-level, meaning that

@@ -1091,9 +1091,11 @@ def DisableQuantization(model: torch.nn.Module):
     """
     Disable quantization from QuantizationModifier
     """
-    model.apply(disable_quantization)
-    yield
-    model.apply(enable_quantization)
+    try:
+        model.apply(disable_quantization)
+        yield
+    finally:
+        model.apply(enable_quantization)
 
 
 @contextlib.contextmanager

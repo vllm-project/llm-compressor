@@ -20,6 +20,7 @@
 import os
 import warnings
 from pathlib import PosixPath
+from typing import Optional
 
 from loguru import logger
 from transformers import (
@@ -51,7 +52,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
-    get_shared_processor_src,
+    get_processor_name_from_model,
 )
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
@@ -107,14 +108,6 @@ def apply(**kwargs):
 
 def compress(**kwargs):
     apply(**kwargs)
-
-
-def load_dataset(dataset_name: str, **kwargs):
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    model_args, data_args, training_args = parser.parse_dict(kwargs)
-    data_args["dataset_name"] = dataset_name
 
 
 def parse_args(**kwargs):
@@ -257,10 +250,13 @@ def initialize_model_from_path(
 
 
 def initialize_processor_from_path(
-    model_args: ModelArguments, model: PreTrainedModel, teacher: PreTrainedModel
+    model_args: ModelArguments,
+    model: PreTrainedModel,
+    teacher: Optional[PreTrainedModel] = None,
 ) -> Processor:
-    processor_src = model_args.processor
-    processor_src = processor_src or get_shared_processor_src(model, teacher)
+    processor_src = model_args.processor or get_processor_name_from_model(
+        model, teacher
+    )
     # The use_fast=True option is not currently supported safely in Transformers
     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
     try:
