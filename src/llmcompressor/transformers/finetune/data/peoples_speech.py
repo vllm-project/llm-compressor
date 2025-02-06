@@ -1,8 +1,8 @@
 from copy import deepcopy
-from typing import TYPE_CHECKING, Dict, Any
+from typing import TYPE_CHECKING, Any, Dict
 
-from loguru import logger
 from datasets.formatting.formatting import LazyRow
+from loguru import logger
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.transformers.finetune.data.base import get_columns
@@ -47,11 +47,11 @@ class PeoplesSpeech(TextGenerationDataset):
         if self.processor_type == "Qwen2AudioProcessor":
             messages = [
                 {"role": "user", "content": [{"audio": None}]},
-                {"role": "user", "content": [{"text": "What did the person say?"}]}
+                {"role": "user", "content": [{"text": "What did the person say?"}]},
             ]
             text = self.processor.apply_chat_template(messages)
             return {"audios": [audio], "sampling_rate": sampling_rate, "text": text}
-        
+
         else:
             # chat template decoder ids are appended later by self.processor.__call__
             text = " " + example["text"].capitalize()
@@ -63,7 +63,7 @@ class PeoplesSpeech(TextGenerationDataset):
             column_names = get_columns(dataset)
 
             return dataset.remove_columns(list(set(column_names) - set(tokenizer_args)))
-        
+
         else:
             return super().filter_tokenizer_args(dataset)
 
@@ -82,6 +82,6 @@ class PeoplesSpeech(TextGenerationDataset):
             del text_inputs["input_ids"]
 
             return dict(**audio_inputs, **text_inputs)
-        
+
         else:
             return super().tokenize(data)
