@@ -110,14 +110,6 @@ def compress(**kwargs):
     apply(**kwargs)
 
 
-def load_dataset(dataset_name: str, **kwargs):
-    parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
-    )
-    model_args, data_args, training_args = parser.parse_dict(kwargs)
-    data_args["dataset_name"] = dataset_name
-
-
 def parse_args(**kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
