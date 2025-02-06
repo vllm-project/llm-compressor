@@ -96,8 +96,8 @@ class TextGenerationDataset(RegistryMixin):
                 dataset,
                 self.preprocess,
                 batched=False,
-                keep_in_memory=True,  # TODO: figure out why map fails without this
                 num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Preprocessing",
             )
             logger.debug(f"Dataset after preprocessing: {get_columns(dataset)}")
@@ -232,16 +232,11 @@ class TextGenerationDataset(RegistryMixin):
             for key, param in signature.parameters.items()
             if param.kind not in (Kind.VAR_POSITIONAL, Kind.VAR_KEYWORD)
         )
+        logger.debug(
+            f"Found processor args `{tokenizer_args}`. Removing all other columns"
+        )
 
         column_names = get_columns(dataset)
-        if len(tokenizer_args) > 0:
-            logger.debug(
-                f"Found processor args `{tokenizer_args}`. Removing all other columns"
-            )
-        else:
-            logger.debug("Did not find any processor args. Keeping all columns")
-            tokenizer_args = set(column_names)
-
         return dataset.remove_columns(
             list(set(column_names) - set(tokenizer_args) - set([self.PROMPT_KEY]))
         )

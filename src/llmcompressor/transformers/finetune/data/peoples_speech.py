@@ -1,8 +1,12 @@
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Any
+
+from loguru import logger
+from datasets.formatting.formatting import LazyRow
 
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.typing import Processor
+from llmcompressor.transformers.finetune.data.base import get_columns
+from llmcompressor.typing import DatasetType, Processor
 
 if TYPE_CHECKING:
     from llmcompressor.transformers import DataTrainingArguments as DataArgs
@@ -11,6 +15,11 @@ if TYPE_CHECKING:
 @TextGenerationDataset.register(name="peoples_speech")
 class PeoplesSpeech(TextGenerationDataset):
     """
+    People's Speech audio dataset. Unfortunately, due to the specialized nature of audio
+    model preprocessing, some model specific code must . This dataset has been tested
+    with the WhisperForConditionalGeneration and Qwen2AudioForConditionalGeneration
+    model classes
+
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
     :param processor: processor or tokenizer to use on dataset
@@ -20,12 +29,59 @@ class PeoplesSpeech(TextGenerationDataset):
         data_args = deepcopy(data_args)
         data_args.dataset = "MLCommons/peoples_speech"
         data_args.dataset_config_name = "test"
+        if not data_args.overwrite_cache:
+            logger.warning(
+                "Because audio processors are more complex, dataset mapping functions "
+                "vary with model architecture and their results cannot be cached. "
+                "Setting overwrite_cache=True"
+            )
+            data_args.overwrite_cache = True
+        self.processor_type = processor.__class__.__name__
 
         super().__init__(data_args=data_args, split=split, processor=processor)
 
     def dataset_template(self, example):
-        return {
-            "audio": example["audio"]["array"],
-            "sampling_rate": example["audio"]["sampling_rate"],
-            "text": " " + example["text"].capitalize(),
-        }
+        audio = example["audio"]["array"]
+        sampling_rate = example["audio"]["sampling_rate"]
+
+        if self.processor_type == "Qwen2AudioProcessor":
+            messages = [
+                {"role": "user", "content": [{"audio": None}]},
+                {"role": "user", "content": [{"text": "What did the person say?"}]}
+            ]
+            text = self.processor.apply_chat_template(messages)
+            return {"audios": [audio], "sampling_rate": sampling_rate, "text": text}
+        
+        else:
+            # chat template decoder ids are appended later by self.processor.__call__
+            text = " " + example["text"].capitalize()
+            return {"audio": audio, "sampling_rate": sampling_rate, "text": text}
+
+    def filter_tokenizer_args(self, dataset: DatasetType) -> DatasetType:
+        if self.processor_type == "WhisperProcessor":
+            tokenizer_args = ["audio", "sampling_rate", "text"]
+            column_names = get_columns(dataset)
+
+            return dataset.remove_columns(list(set(column_names) - set(tokenizer_args)))
+        
+        else:
+            return super().filter_tokenizer_args(dataset)
+
+    def tokenize(self, data: LazyRow) -> Dict[str, Any]:
+        if self.processor_type == "WhisperProcessor":
+            audio_inputs = self.processor(
+                audio=data["audio"],
+                sampling_rate=data["sampling_rate"],
+                return_tensors="pt",
+            )
+
+            text_inputs = self.processor(
+                text=data["text"], add_special_tokens=True, return_tensors="pt"
+            )
+            text_inputs["decoder_input_ids"] = text_inputs["input_ids"]
+            del text_inputs["input_ids"]
+
+            return dict(**audio_inputs, **text_inputs)
+        
+        else:
+            return super().tokenize(data)
