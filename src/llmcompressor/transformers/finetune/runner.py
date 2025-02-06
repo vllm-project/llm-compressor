@@ -261,7 +261,10 @@ class StageRunner:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
-            if self._training_args.output_dir:
+            if (
+                self._training_args.output_dir
+                != TrainingArguments.__dataclass_fields__["output_dir"].default
+            ):
                 save_model_and_recipe(
                     model=self.trainer.model,
                     save_path=self._output_dir,

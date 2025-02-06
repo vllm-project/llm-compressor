@@ -23,7 +23,6 @@ __all__ = [
     "RECIPE_FILE_NAME",
     "detect_last_checkpoint",
     "is_model_ct_quantized_from_path",
-    "validate_model_args_tokenizer",
 ]
 
 RECIPE_FILE_NAME = "recipe.yaml"
@@ -161,12 +160,3 @@ def recipe_from_huggingface_model_id(
         recipe = None
 
     return recipe
-
-
-def validate_model_args_tokenizer(model_args: "ModelArguments"):
-    """Ensure only one of tokenizer or processor is set"""
-
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor.")
-        model_args.processor, model_args.tokenizer = model_args.tokenizer, None

@@ -20,7 +20,7 @@
 import os
 import warnings
 from pathlib import PosixPath
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from loguru import logger
 from transformers import (
@@ -60,7 +60,6 @@ from llmcompressor.transformers.utils.arg_parser import (
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
     is_model_ct_quantized_from_path,
-    validate_model_args_tokenizer,
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
@@ -70,7 +69,7 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, recipe_args, training_args, _ = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
     main(model_args, data_args, recipe_args, training_args)
 
@@ -79,7 +78,7 @@ def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, recipe_args, training_args, _ = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_eval = True
     main(model_args, data_args, recipe_args, training_args)
 
@@ -89,10 +88,8 @@ def oneshot(**kwargs):
     CLI entrypoint for running oneshot calibration
     """
     # TODO: Get rid of training args when Oneshot refactor comes in
-    model_args, data_args, recipe_args, training_args, output_dir = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_oneshot = True
-    if output_dir is not None:
-        training_args.output_dir = output_dir
 
     main(model_args, data_args, recipe_args, training_args)
 
@@ -106,7 +103,7 @@ def apply(**kwargs):
     CLI entrypoint for any of training, eval, predict or oneshot
     """
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, recipe_args, training_args, _ = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
 
     training_args.run_stages = True
     if report_to is None:  # user didn't specify any reporters
@@ -140,35 +137,41 @@ def parse_args(**kwargs):
             src/llmcompressor/transformers/utils/arg_parser/training_args.py
 
     """
-    output_dir = kwargs.get("output_dir", None)
     parser = HfArgumentParser(
         (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
     )
 
     # parse from kwargs or cli
     if not kwargs:
-        output_dir = _get_output_dir_from_argv()
         parsed_args = parser.parse_args_into_dataclasses()
     else:
         parsed_args = parser.parse_dict(kwargs)
 
     model_args, data_args, recipe_args, training_args = parsed_args
+    if recipe_args.recipe_args is not None:
+        if not isinstance(recipe_args.recipe_args, dict):
+            arg_dict = {}
+            for recipe_arg in recipe_args.recipe_args:
+                key, value = recipe_arg.split("=")
+                arg_dict[key] = value
+            recipe_args.recipe_args = arg_dict
 
-    # populate recipe arguments
-    if recipe_args.recipe_args:
-        recipe_args.recipe_args = _unwrap_recipe_args(recipe_args.recipe_args)
-
+    # raise depreciation warnings
     if data_args.remove_columns is not None:
         warnings.warn(
-            (
-                "`remove_columns` is deprecated."
-                "Invalid columns for tokenizers will be removed.",
-            ),
+            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "columns which are invalid inputs the tokenizer will be removed",
             DeprecationWarning,
         )
 
-    validate_model_args_tokenizer(model_args)
-    return model_args, data_args, recipe_args, training_args, output_dir
+    # silently assign tokenizer to processor
+    if model_args.tokenizer:
+        if model_args.processor:
+            raise ValueError("Cannot use both a tokenizer and processor")
+        model_args.processor = model_args.tokenizer
+    model_args.tokenizer = None
+
+    return model_args, data_args, recipe_args, training_args
 
 
 def initialize_model_from_path(
@@ -462,28 +465,6 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:
         reset_session()
-
-
-def _get_output_dir_from_argv() -> Optional[str]:
-    """Extract output directory from command-line arguments"""
-
-    import sys
-
-    if "--output_dir" in sys.argv:
-        index = sys.argv.index("--output_dir")
-        sys.argv.pop(index)
-        if index < len(sys.argv):
-            return sys.argv.pop(index)
-
-    return None
-
-
-def _unwrap_recipe_args(recipe_args: Dict[str, Any]):
-    """Convert recipe arguments to a dictionary if needed"""
-    if isinstance(recipe_args, dict):
-        return recipe_args
-
-    return {key: value for arg in recipe_args for key, value in [arg.split("=")]}
 
 
 if __name__ == "__main__":

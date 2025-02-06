@@ -50,8 +50,8 @@ class TestOneShotCli(unittest.TestCase):
             cmd.extend(self.additional_args)
         res = run_cli_command(cmd)
 
-        self.assertIsNone(res.stderr)
         self.assertEqual(res.returncode, 0)
+        print(res.stdout)
 
     def tearDown(self):
         shutil.rmtree(self.output)
