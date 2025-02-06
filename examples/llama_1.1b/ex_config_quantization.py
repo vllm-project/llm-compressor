@@ -12,24 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from tqdm import tqdm
-from torch.utils.data import RandomSampler
+####
+#
+# The following example shows how a model can be calibrated and
+# compressed entirely with primitives within `compressed-tensors`
+# using PyTorch hooks.
+# The resulting model's .safetensors file should be 1.2GB,
+# whereas the original model's .safetensors file is 4.1GB.
+# See `./ex_llmcompressor_quantization.py` for how this can be
+# simplified using the vllm's `llm-compressor` package
+#
+####
+
+from pathlib import Path
+
+import torch
+from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.quantization import (
-    apply_quantization_config,
-    freeze_module_quantization,
     QuantizationConfig,
     QuantizationStatus,
+    apply_quantization_config,
 )
-from sparseml.transformers.finetune.data.data_args import DataTrainingArguments
-from sparseml.transformers.finetune.data.base import TextGenerationDataset
+from datasets import load_dataset
+from torch.utils.data import DataLoader, RandomSampler
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
-from torch.utils.data import DataLoader
-from sparseml.pytorch.utils import tensors_to_device
-import torch
 
-config_file = "example_quant_config.json"
+
+config_file = Path(__file__).parent / "example_quant_config.json"
 model_name = "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T"
-dataset_name = "open_platypus"
+dataset_name = "garage-bAInd/Open-Platypus"
 split = "train"
 num_calibration_samples = 512
 max_seq_length = 1024
@@ -37,9 +49,11 @@ pad_to_max_length = False
 output_dir = "./llama1.1b_new_quant_out"
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device, torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(
+    model_name, device_map=device, torch_dtype="auto"
+)
 model.eval()  # no grad or updates needed for base model
-config = QuantizationConfig.parse_file(config_file)
+config = QuantizationConfig.model_validate_json(config_file.read_text())
 
 # set status to calibration
 config.quantization_status = QuantizationStatus.CALIBRATION
@@ -47,41 +61,71 @@ config.quantization_status = QuantizationStatus.CALIBRATION
 # initialize quantization
 apply_quantization_config(model, config)
 
+
+# create hook to keep track of scales and zero points on each module with a quantization_scheme
+def update_scale_zp_hook(
+    module: torch.nn.Module, input: torch.Tensor, _output: torch.Tensor
+):
+    from compressed_tensors.quantization.utils import calculate_qparams
+    from compressed_tensors.utils import update_parameter_data
+
+    quantization_scheme = getattr(module, "quantization_scheme", None)
+    if not quantization_scheme:
+        # no quantization scheme nothing to do
+        return
+
+    # update weight scale / zero-point
+    quantization_args = getattr(quantization_scheme, "weights", None)
+    min_val, max_val = torch.aminmax(module.weight.data)
+    scale, zp = calculate_qparams(min_val, max_val, quantization_args)
+    update_parameter_data(module, scale, "weight_scale")
+    update_parameter_data(module, zp, "weight_zero_point")
+
+    # update input_activations scale / zero-point
+    quantization_args = getattr(quantization_scheme, "input_activations", None)
+    min_val, max_val = torch.aminmax(input[0])
+    scale, zp = calculate_qparams(min_val, max_val, quantization_args)
+    update_parameter_data(module, scale, "input_scale")
+    update_parameter_data(module, zp, "input_zero_point")
+
+    return
+
+
+# register hook on each submodule in model (recursively)
+model.apply(lambda module: module.register_forward_hook(update_scale_zp_hook))
+
 # create dataset
+dataset = load_dataset(dataset_name, split=f"train[:{num_calibration_samples}]")
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-data_args = DataTrainingArguments(
-    dataset=dataset_name,
-    max_seq_length=max_seq_length,
-    pad_to_max_length=pad_to_max_length,
-)
-dataset_manager = TextGenerationDataset.load_from_registry(
-    data_args.dataset,
-    data_args=data_args,
-    split=split,
-    tokenizer=tokenizer,
-)
-calib_dataset = dataset_manager.tokenize_and_process(
-    dataset_manager.get_raw_dataset()
-)
+
+
+def tokenize_function(examples):
+    return tokenizer(
+        examples["output"], padding=False, truncation=True, max_length=1024
+    )
+
+
+tokenized_dataset = dataset.map(tokenize_function, batched=True)
 data_loader = DataLoader(
-    calib_dataset, batch_size=1, collate_fn=DefaultDataCollator(), sampler=RandomSampler(calib_dataset)
+    tokenized_dataset,
+    batch_size=1,
+    collate_fn=DefaultDataCollator(),
+    sampler=RandomSampler(tokenized_dataset),
 )
 
-# run calibration
+# run calibration, hook will update scales and zero points where applicable
 with torch.no_grad():
     for idx, sample in tqdm(enumerate(data_loader), desc="Running calibration"):
-        sample = tensors_to_device(sample, "cuda:0")
+        sample = {k: v.to(model.device) for k, v in sample.items()}
         _ = model(**sample)
 
         if idx >= num_calibration_samples:
             break
 
-# freeze params after calibration
-model.apply(freeze_module_quantization)
+# apply compression
+compressor = ModelCompressor(quantization_config=config)
+compressed_state_dict = compressor.compress(model)
 
 # save quantized model
-from sparseml.transformers.sparsification.compressed_tensors_utils import (
-    modify_save_pretrained,
-)
-modify_save_pretrained(model)
-model.save_pretrained(output_dir)
+model.save_pretrained(output_dir, state_dict=compressed_state_dict)
+compressor.update_config(output_dir)

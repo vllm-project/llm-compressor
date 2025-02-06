@@ -1,6 +1,6 @@
 {
 	"quant_method": "compressed-tensors",
-	"format": "fakequant",
+	"format": "naive-quantized",
 	"global_compression_ratio": null,
 	"config_groups": {
         "group_1": {
@@ -13,20 +13,10 @@
             "input_activations": {
                 "num_bits": 8,
                 "type": "int",
-                "symmetric": false,
-                "strategy": "tensor"
-            },
-            "targets": ["Linear"]
-        },
-        "group_2": {
-            "weights": {
-                "num_bits": 8,
-                "type": "int",
                 "symmetric": true,
                 "strategy": "tensor"
             },
-            "targets": ["Embedding"]
+            "targets": ["Linear"]
         }
-    },
-	"ignore": ["model.layers.0.mlp.down_proj"]
+    }
 }

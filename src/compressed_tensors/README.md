@@ -49,12 +49,12 @@ Config information gets stored in the HF config file
 Loading in a compressed model requires no interface changes
 
 ```python
-from sparseml.transformers.utils import SparseAutoModelForCausalLM
+from transformers import AutoModelForCausalLM
 
 # should contain model.safetensors or model.safetensors.index.json
 model_path = "/PATH/TO/COMPRESSED_MODEL"
 
-model = SparseAutoModelForCausalLM.from_pretrained(
+model = AutoModelForCausalLM.from_pretrained(
     model_name_or_path=model_path,
     torch_dtype="auto",
     **model_kwargs,
@@ -63,7 +63,7 @@ model = SparseAutoModelForCausalLM.from_pretrained(
 
 Saving a compressed model with an explicitly provided compression config. The config
 is saved to the model's `config.json` file. **Note:** the model must have been
-initialized with SparseAutoModelForCausalLM.from_pretrained()
+initialized with AutoModelForCausalLM.from_pretrained()
 
 ```python
 from compressed_tensors import BitmaskConfig
@@ -108,15 +108,15 @@ model.save_pretrained(
 
 ## Enable Compression During One-Shot and Sparse Finetunining
 Models that are saved in a supported compressed format on disk will automatically be
-decompressed when loaded as input to `sparseml.transformers.oneshot` or
-`sparseml.transformers.train`
+decompressed when loaded as input to `llmcompressor.transformers.oneshot` or
+`llmcompressor.transformers.train`
 
 To enable compression on save after oneshot or finetuning simply add the
-`save_compressed=True` argument to `sparseml.transformers.oneshot` or
-`sparseml.transformers.train`
+`save_compressed=True` argument to `llmcompressor.transformers.oneshot` or
+`llmcompressor.transformers.train`
 
 ```python
-from sparseml.transformers import train
+from llmcompressor.transformers import train
 
 train(
     save_compressed=True,
@@ -133,9 +133,9 @@ Loads a 60% sparse model, compresses it using the inferred bitmask compression, 
 reloads the compressed model.
 
 ```python
-from sparseml.transformers import SparseAutoModelForCausalLM
-from sparseml.utils.pytorch.utils import measure_cuda_memory
 import torch
+from transformers import AutoModelForCausalLM
+from llmcompressor.utils.pytorch.utils import measure_cuda_memory
 
 MODEL_PATH = "zoo:llama2-7b-open_platypus_orca_llama2_pretrain-pruned60"
 OUTPUT_PATH = "./test_compress_output"
@@ -143,7 +143,7 @@ RECIPE = "zoo:llama2-7b-open_platypus_orca_llama2_pretrain-pruned60"
 
 torch.cuda.set_device(0)
 with measure_cuda_memory() as m:
-    model = SparseAutoModelForCausalLM.from_pretrained(MODEL_PATH, device_map="cuda:0", torch_dtype="auto")
+    model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, device_map="cuda:0", torch_dtype="auto")
 print(f"Load dense model peak GPU {m.overall_peak_memory / float(2**30):.4f} GB")
 
 sparsity_config = getattr(model,"sparsity_config", None)
@@ -154,7 +154,7 @@ print(f"Save compressed model peak GPU {m.overall_peak_memory / float(2**30):.4f
 
 torch.cuda.set_device(1)
 with measure_cuda_memory() as m:
-    model_again = SparseAutoModelForCausalLM.from_pretrained(
+    model_again = AutoModelForCausalLM.from_pretrained(
         OUTPUT_PATH, device_map="cuda:1", torch_dtype="auto"
     )
 print(f"Load compressed model peak GPU {m.overall_peak_memory / float(2**30):.4f} GB")
