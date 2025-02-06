@@ -5,8 +5,8 @@ from typing import Optional
 @dataclass
 class ModelArguments:
     """
-    Model variables used for oneshot calibration, training or finetuning and
-    stage runners (combination of oneshot and finetune going back and forth)
+    Model variables used for oneshot calibration, finetuning and
+    stage runners (sequential run of oneshot and finetune).
 
     """
 

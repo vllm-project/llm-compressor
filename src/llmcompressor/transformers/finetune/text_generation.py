@@ -20,7 +20,6 @@
 import os
 import warnings
 from pathlib import PosixPath
-from typing import Optional
 
 from loguru import logger
 from transformers import (
@@ -141,7 +140,6 @@ def parse_args(**kwargs):
         (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
     )
 
-    # parse from kwargs or cli
     if not kwargs:
         parsed_args = parser.parse_args_into_dataclasses()
     else:
@@ -273,7 +271,7 @@ def initialize_model_from_path(
 def initialize_processor_from_path(
     model_args: ModelArguments,
     model: PreTrainedModel,
-    teacher: Optional[PreTrainedModel] = None,
+    teacher: PreTrainedModel,
 ) -> Processor:
     processor_src = model_args.processor
     processor_src = processor_src or get_shared_processor_src(model, teacher)
