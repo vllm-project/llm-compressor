@@ -1118,7 +1118,7 @@ def calibration_forward_context(model: PreTrainedModel):
 
     - Remove gradient calculations
     - Disable the KV cache
-    - Disable quantization from QuantizationModifier
+    - Disable quantization during forward pass
     - Disable train mode and enable eval mode
     """
     with (
