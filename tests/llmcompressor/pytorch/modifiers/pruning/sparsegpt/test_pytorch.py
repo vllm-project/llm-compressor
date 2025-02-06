@@ -29,12 +29,11 @@ class TestInvalidLayerwiseRecipesRaiseExceptions(unittest.TestCase):
     )
     def test_invalid_layerwise_recipes_raise_exceptions(self, sparsity, targets):
         setup_modifier_factory()
-        kwargs = dict(
+        modifier = SparseGPTModifier(
             sparsity=sparsity,
             block_size=128,
-            targets=targets,
+            sequential_targets=targets,
         )
-        modifier = SparseGPTModifier(**kwargs)
         testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
 
         # confirm invalid layerwise recipes fail at initialization
@@ -49,17 +48,17 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
 
     def test_successful_layerwise_recipe(self):
         sparsities = [0.5, 0.2]
-        targets = ["seq.fc1", "seq.fc2"]
-        kwargs = dict(sparsity=sparsities, block_size=128, targets=targets)
-        modifier = SparseGPTModifier(**kwargs)
-        modifier.compressible_layers_ = {"seq.fc1": None, "seq.fc2": None}
-        modifier.model = LinearNet()
-        found_compressible_layers = modifier.compressible_layers()
-        modifier.compressible_layers_ = found_compressible_layers
-        modifier._validate_layerwise_sparsity()
+        sequential_targets = ["seq.fc1", "seq.fc2"]
+        modifier = SparseGPTModifier(
+            sparsity=sparsities, block_size=128, sequential_targets=sequential_targets
+        )
+        testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
+        modifier.initialize(testing_harness.get_state())
 
-        # ensure layers names successfully match up with model
-        self.assertEqual(len(found_compressible_layers), len(targets))
+        model = testing_harness.state.model
+        num_hooks = len(modifier._hooks)
+        num_found = sum(len(module._forward_hooks) > 0 for module in model.modules())
+        self.assertEqual(num_hooks, num_found)
 
 
 @pytest.mark.unit
