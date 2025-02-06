@@ -3,7 +3,6 @@ from datasets import load_dataset
 from transformers import WhisperProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
@@ -78,10 +77,7 @@ def data_collator(batch):
 
 
 # Recipe
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
-]
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
 oneshot(
