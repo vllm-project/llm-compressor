@@ -7,7 +7,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr, Field
+from pydantic import Field, PrivateAttr
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier

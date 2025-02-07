@@ -9,6 +9,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
     capture_first_layer_intermediates,
     match_modules,
+    maybe_inject_pos_embeddings,
     to_next_layer_kwargs,
 )
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -79,6 +80,10 @@ def run_pipeline(
                     output = layer(**inputs)
 
                     if layer_index < num_layers - 1:
-                        output = to_next_layer_kwargs(output, layers[layer_index + 1])
+                        next_layer = layers[layer_index + 1]
+                        output = to_next_layer_kwargs(output, next_layer)
+                        # HACK: accommodate models which pass position embeddings
+                        output = maybe_inject_pos_embeddings(output, next_layer, inputs)
+
                         intermediates.delete(batch_index)
                         intermediates.update(batch_index, output)

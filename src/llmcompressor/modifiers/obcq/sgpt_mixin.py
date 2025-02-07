@@ -20,6 +20,7 @@ from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
+    get_prunable_layers,
     match_layers_params,
 )
 
@@ -129,7 +130,7 @@ class SparsityModifierMixin(HooksMixin):
             )
 
         # register hooks
-        #target_modules = match_layers_params(self.targets, model)
+        target_modules = match_layers_params(self.targets, model)
         for index, (layer_name, layer) in enumerate(layers.items()):
             if isinstance(self.sparsity, dict):
                 layer_sparsity = self.sparsity[layer_name]
@@ -139,9 +140,9 @@ class SparsityModifierMixin(HooksMixin):
                 layer_sparsity = self.sparsity
 
             # TODO: match module or param
-            for name, module in layer.named_modules(prefix=layer_name):
+            for name, module in get_prunable_layers(layer).items():
                 if module in target_modules.values():
-                    self._module_names[module] = name
+                    self._module_names[module] = f"{layer_name}.{name}"
                     self._module_sparsities[module] = layer_sparsity
                     self.register_hook(module, self.calibrate_module, "forward")
 
