@@ -8,7 +8,7 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
 
 # Load model.
-model_id = "mgoin/pixtral-12b"
+model_id = "mistral-community/pixtral-12b"
 model = TraceableLlavaForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
