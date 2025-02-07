@@ -7,7 +7,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr
+from pydantic import PrivateAttr, Field
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
@@ -69,8 +69,9 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
 
     # data pipeline arguments
     sequential_update: Optional[bool] = False  # deprecated
-    sequential_targets: Union[str, List[str], None] = None
-    targets: Union[str, List[str], None] = None  # alias sequential_targets
+    sequential_targets: Union[str, List[str]] = None
+    targets: Union[str, List[str], None] = ["Linear"]
+    ignore: List[str] = Field(default_factory=list)
 
     # private variables
     _prune_n: Optional[int] = PrivateAttr(default=None)
