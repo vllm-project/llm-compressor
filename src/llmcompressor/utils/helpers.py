@@ -26,6 +26,7 @@ import numpy
 import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
+from transformers import PreTrainedModel
 
 __all__ = [
     "ALL_TOKEN",
@@ -64,6 +65,7 @@ __all__ = [
     "getattr_chain",
     "DisableKVCache",
     "DisableQuantization",
+    "eval_context",
     "calibration_forward_context",
 ]
 
@@ -1062,7 +1064,7 @@ class DisableKVCache:
     ...     output = model(input)
     """
 
-    def __init__(self, model: torch.nn.Module):
+    def __init__(self, model: PreTrainedModel):
         if hasattr(model.config, "use_cache"):
             self.config = model.config
 
@@ -1087,31 +1089,42 @@ class DisableKVCache:
 
 
 @contextlib.contextmanager
-def DisableQuantization(model: torch.nn.Module):
+def DisableQuantization(module: torch.nn.Module):
     """
     Disable quantization from QuantizationModifier
     """
     try:
-        model.apply(disable_quantization)
+        module.apply(disable_quantization)
         yield
     finally:
-        model.apply(enable_quantization)
+        module.apply(enable_quantization)
 
 
 @contextlib.contextmanager
-def calibration_forward_context(model: torch.nn.Module):
+def eval_context(module: torch.nn.Module):
+    restore_value = module.training
+    try:
+        module.train(False)  # equivalent to eval()
+        yield
+
+    finally:
+        module.train(restore_value)
+
+
+@contextlib.contextmanager
+def calibration_forward_context(model: PreTrainedModel):
     """
     Context in which all calibration forward passes should occur.
 
     - Remove gradient calculations
     - Disable the KV cache
-    - Disable quantization from QuantizationModifier
+    - Disable quantization during forward pass
+    - Disable train mode and enable eval mode
     """
-    model.eval()
-
     with (
         torch.no_grad(),
         DisableKVCache(model),
         DisableQuantization(model),
+        eval_context(model),
     ):
         yield
