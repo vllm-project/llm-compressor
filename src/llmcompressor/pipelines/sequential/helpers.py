@@ -1,7 +1,7 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set, Union
 
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
@@ -125,12 +125,23 @@ def get_tracer(
                 return self.create_node("call_function", a.__class__, (), kwargs)
 
             else:
-                return super().create_arg(a)
+                return super(HFTracer, self).create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module in skip_trace_modules or super().is_leaf_module(
+            return module in skip_trace_modules or super(HFTracer, self).is_leaf_module(
                 module, module_qualified_name
             )
+
+        def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
+            if isinstance(root, Module):
+                root = root.forward
+
+            # unwrap any decorators that may have altered the function signature,
+            # for example `deprecate_kwarg` added by transformers
+            while hasattr(root, "__wrapped__"):
+                root = root.__wrapped__
+
+            return super(HFTracer, self).trace(root, *args, **kwargs)
 
     return SequentialTracer()
 
