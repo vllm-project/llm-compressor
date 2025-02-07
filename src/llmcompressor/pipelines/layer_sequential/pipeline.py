@@ -82,7 +82,6 @@ def run_pipeline(
                     if layer_index < num_layers - 1:
                         next_layer = layers[layer_index + 1]
                         output = to_next_layer_kwargs(output, next_layer)
-                        # HACK: accommodate models which pass position embeddings
                         output = maybe_inject_pos_embeddings(output, next_layer, inputs)
 
                         intermediates.delete(batch_index)

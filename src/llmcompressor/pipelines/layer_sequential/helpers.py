@@ -138,6 +138,14 @@ def maybe_inject_pos_embeddings(
     next_layer: Module,
     inputs: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """
+    As of https://github.com/huggingface/transformers/pull/34858, positional embeddings
+    must be passed into each decoder call as kwargs
+
+    :param output: output of the previous layer
+    :param next_layer: next layer to call
+    :param inputs: inputs to next layer
+    """
     signature = inspect.signature(next_layer.forward)
     if (
         "position_embeddings" in signature.parameters.keys()

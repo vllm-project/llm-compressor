@@ -136,10 +136,10 @@ def get_tracer(
             if isinstance(root, Module):
                 root = root.forward
 
-            # unwrap any decorators that may have altered the function signature,
-            # for example `deprecate_kwarg` added by transformers
-            while hasattr(root, "__wrapped__"):
-                root = root.__wrapped__
+            # due to a bug in Tracer.create_args_for_root (likely _patch_function args),
+            # must unwrap function wrappers prior to tracing, for example
+            # `deprecate_kwarg` decorator added by transformers
+            root = inspect.unwrap(root)
 
             return super(HFTracer, self).trace(root, *args, **kwargs)
 
