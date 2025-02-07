@@ -1,0 +1,7 @@
+cadence: "nightly"
+test_type: "regression"
+model: Qwen/Qwen2.5-0.5B
+scheme: W4A16
+dataset_id: garage-bAInd/Open-Platypus
+dataset_split: train
+quant_type: "GPTQ"

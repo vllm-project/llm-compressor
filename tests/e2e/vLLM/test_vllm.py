@@ -132,17 +132,17 @@ class TestvLLM:
 
         stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
 
-        self.api.create_repo(
-            repo_id=stub,
-            exist_ok=True,
-            repo_type="model",
-            private=False,
-        )
+        # self.api.create_repo(
+        #     repo_id=stub,
+        #     exist_ok=True,
+        #     repo_type="model",
+        #     private=False,
+        # )
 
-        self.api.upload_folder(
-            repo_id=stub,
-            folder_path=self.save_dir,
-        )
+        # self.api.upload_folder(
+        #     repo_id=stub,
+        #     folder_path=self.save_dir,
+        # )
 
         logger.info("================= RUNNING vLLM =========================")
 
