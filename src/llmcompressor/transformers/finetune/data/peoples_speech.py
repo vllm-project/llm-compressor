@@ -15,10 +15,11 @@ if TYPE_CHECKING:
 @TextGenerationDataset.register(name="peoples_speech")
 class PeoplesSpeech(TextGenerationDataset):
     """
-    People's Speech audio dataset. Unfortunately, due to the specialized nature of audio
-    model preprocessing, some model specific code must . This dataset has been tested
-    with the WhisperForConditionalGeneration and Qwen2AudioForConditionalGeneration
-    model classes
+    ML Commons People's Speech audio dataset
+
+    Unfortunately, due to the specialized nature of audio model preprocessing, some
+    model specific code must be defined here. This dataset has been tested with the
+    WhisperForConditionalGeneration and Qwen2AudioForConditionalGeneration model classes
 
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
