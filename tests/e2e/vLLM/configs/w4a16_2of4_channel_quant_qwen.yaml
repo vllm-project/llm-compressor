@@ -1,9 +1,0 @@
-# TODO this fails on llm = LLM(model=self.save_dir, dtype=torch.float16)
-# with RuntimeError: prob_m = 1152 is not divisible by thread_m = 256
-cadence: "nightly"
-test_type: "regression"
-model: Qwen/Qwen2.5-0.5B
-scheme: W4A16_2of4_channel
-dataset_id: Open-Orca/slimorca-deduped-cleaned-corrected
-dataset_split: train
-recipe: tests/e2e/vLLM/recipes/WNA16_2of4/2of4_w4a16_recipe.yaml
