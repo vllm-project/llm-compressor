@@ -27,7 +27,7 @@ from llmcompressor.utils.pytorch.module import (
 
 class SparsityModifierMixin(HooksMixin):
     # modifier arguments
-    sparsity: Optional[Union[float, List[float]]] = None
+    sparsity: Optional[Union[float, List[float]]]
     sparsity_profile: Optional[str] = None
     mask_structure: str = "0:0"
     owl_m: Optional[int] = None
@@ -71,7 +71,6 @@ class SparsityModifierMixin(HooksMixin):
 
     @model_validator(mode="after")
     def validate_model_after(model: "SparsityModifierMixin") -> "Modifier":
-        sparsity = model.sparsity
         profile = model.sparsity_profile
         owl_m = model.owl_m
         owl_lmbda = model.owl_lmbda
@@ -82,9 +81,6 @@ class SparsityModifierMixin(HooksMixin):
 
         if profile != "owl" and (owl_m is not None or owl_lmbda is not None):
             raise ValueError("Must provide both `owl_m` and `owl_lmbda`")
-
-        if owl_m is not None and sparsity is not None:
-            raise ValueError("Cannot provide both sparsity and owl parameters")
 
         model._prune_n, model._prune_m = model._split_mask_structure(mask_structure)
 
