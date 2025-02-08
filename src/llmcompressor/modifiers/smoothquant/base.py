@@ -14,6 +14,7 @@ from llmcompressor.modifiers.smoothquant.utils import (
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_matching_layer,
@@ -250,12 +251,13 @@ class SmoothQuantModifier(Modifier):
                 " CompressionSession to run the SmoothQuant modifier"
             )
 
-        run_calibration_forward(
-            model,
-            calibration_dataloader,
-            self.num_calibration_steps,
-            self.calibration_function,
-        )
+        with calibration_forward_context(model):
+            run_calibration_forward(
+                model,
+                calibration_dataloader,
+                self.num_calibration_steps,
+                self.calibration_function,
+            )
 
         # remove the hooks now that we are done calibrating
         self.remove_hooks()
@@ -312,9 +314,6 @@ class SmoothQuantModifier(Modifier):
                 for layer in balance_layers:
                     smooth(layer)
                 smooth(smooth_layer)
-
-        # clear out allocated smoothing scales
-        torch.cuda.empty_cache()
 
     def _calculate_smoothing_scales(
         self, balance_layers: List[Module], activation_scales: torch.Tensor
