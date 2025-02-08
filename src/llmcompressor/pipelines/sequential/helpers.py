@@ -13,7 +13,7 @@ from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
 
 __all__ = ["trace_subgraphs", "Subgraph"]
 
@@ -114,6 +114,7 @@ def get_tracer(
     :param sequential_targets: modules which are sequential targets
     :param ignore: modules which are ignored
     """
+    # TODO: redefine skip_trace_modules to all non-ancestors of sequential_targets
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
     skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
@@ -125,23 +126,28 @@ def get_tracer(
                 return self.create_node("call_function", a.__class__, (), kwargs)
 
             else:
-                return super(HFTracer, self).create_arg(a)
+                return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module in skip_trace_modules or super(HFTracer, self).is_leaf_module(
+            return module in skip_trace_modules or super().is_leaf_module(
                 module, module_qualified_name
             )
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
             if isinstance(root, Module):
-                root = root.forward
+                with preserve_attr(type(root), "forward"):
+                    # due to a bug in Tracer.create_args_for_root (_patch_function),
+                    # we must unwrap function wrappers prior to tracing, for example
+                    # the `deprecate_kwarg` by transformers which wraps forward
 
-            # due to a bug in Tracer.create_args_for_root (likely _patch_function args),
-            # must unwrap function wrappers prior to tracing, for example
-            # `deprecate_kwarg` decorator added by transformers
-            root = inspect.unwrap(root)
+                    # we override the class method because the
+                    # class method is the one being traced
+                    type(root).forward = inspect.unwrap(type(root).forward)
 
-            return super(HFTracer, self).trace(root, *args, **kwargs)
+                    return super().trace(root, *args, **kwargs)
+
+            else:
+                return super().trace(root, *args, **kwargs)
 
     return SequentialTracer()
 

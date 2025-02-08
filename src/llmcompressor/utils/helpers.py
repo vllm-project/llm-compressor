@@ -65,6 +65,7 @@ __all__ = [
     "DisableKVCache",
     "DisableQuantization",
     "calibration_forward_context",
+    "preserve_attr",
 ]
 
 
@@ -1115,3 +1116,12 @@ def calibration_forward_context(model: torch.nn.Module):
         DisableQuantization(model),
     ):
         yield
+
+
+@contextlib.contextmanager
+def preserve_attr(base: object, attr: str):
+    value = getattr(base, attr)
+    try:
+        yield
+    finally:
+        setattr(base, attr, value)
