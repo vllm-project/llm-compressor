@@ -2,7 +2,7 @@ import warnings
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy
 import torch
@@ -21,7 +21,6 @@ from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
     get_prunable_layers,
-    match_layers_params,
 )
 
 
@@ -111,6 +110,7 @@ class SparsityModifierMixin(HooksMixin):
         # infer module and sequential targets
         self.sequential_targets = self._infer_sequential_targets(model)
         layers = get_layers(self.sequential_targets, model)
+        target_layers = get_layers(self.targets, model)  # layers containing targets
 
         # infer layer sparsities
         if self.sparsity_profile == "owl":
@@ -130,8 +130,7 @@ class SparsityModifierMixin(HooksMixin):
             )
 
         # register hooks
-        target_modules = self._get_target_modules(model)
-        for index, (layer_name, layer) in enumerate(layers.items()):
+        for index, (layer_name, layer) in enumerate(target_layers.items()):
             if isinstance(self.sparsity, dict):
                 layer_sparsity = self.sparsity[layer_name]
             elif isinstance(self.sparsity, list):
@@ -140,10 +139,9 @@ class SparsityModifierMixin(HooksMixin):
                 layer_sparsity = self.sparsity
 
             for name, module in get_prunable_layers(layer).items():
-                if module in target_modules:
-                    self._module_names[module] = f"{layer_name}.{name}"
-                    self._module_sparsities[module] = layer_sparsity
-                    self.register_hook(module, self.calibrate_module, "forward")
+                self._module_names[module] = f"{layer_name}.{name}"
+                self._module_sparsities[module] = layer_sparsity
+                self.register_hook(module, self.calibrate_module, "forward")
 
         # infer and run pipeline
         model_name = state.model.__class__.__name__
@@ -196,15 +194,6 @@ class SparsityModifierMixin(HooksMixin):
         if isinstance(self.sequential_targets, str):
             return [self.sequential_targets]
         return self.sequential_targets
-
-    def _get_target_modules(self, model: torch.nn.Module) -> Set[torch.nn.Module]:
-        target_layers = match_layers_params(self.targets, model)
-        return set().union(
-            *(
-                get_prunable_layers(target_layer).values()
-                for target_layer in target_layers.values()
-            )
-        )
 
     def _infer_owl_layer_sparsity(
         self,
