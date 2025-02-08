@@ -2,7 +2,7 @@ import warnings
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy
 import torch
@@ -130,7 +130,7 @@ class SparsityModifierMixin(HooksMixin):
             )
 
         # register hooks
-        target_modules = match_layers_params(self.targets, model)
+        target_modules = self._get_target_modules(model)
         for index, (layer_name, layer) in enumerate(layers.items()):
             if isinstance(self.sparsity, dict):
                 layer_sparsity = self.sparsity[layer_name]
@@ -139,9 +139,8 @@ class SparsityModifierMixin(HooksMixin):
             else:
                 layer_sparsity = self.sparsity
 
-            # TODO: match module or param
             for name, module in get_prunable_layers(layer).items():
-                if module in target_modules.values():
+                if module in target_modules:
                     self._module_names[module] = f"{layer_name}.{name}"
                     self._module_sparsities[module] = layer_sparsity
                     self.register_hook(module, self.calibrate_module, "forward")
@@ -198,6 +197,15 @@ class SparsityModifierMixin(HooksMixin):
             return [self.sequential_targets]
         return self.sequential_targets
 
+    def _get_target_modules(self, model: torch.nn.Module) -> Set[torch.nn.Module]:
+        target_layers = match_layers_params(self.targets, model)
+        return set().union(
+            *(
+                get_prunable_layers(target_layer).values()
+                for target_layer in target_layers.values()
+            )
+        )
+
     def _infer_owl_layer_sparsity(
         self,
         model: torch.nn.Module,
@@ -205,16 +213,15 @@ class SparsityModifierMixin(HooksMixin):
         dataloader: torch.utils.data.DataLoader,
     ) -> Dict[str, float]:
         activations = self._get_activations(model, dataloader)
-        groups = {}
 
-        target_modules = match_layers_params(self.targets, model)
-        for layer_name, layer in layers.items():
+        groups = {}
+        for name, layer in layers.items():
+            prunable_layers = get_prunable_layers(layer)
             z = [
-                module.weight.abs() * activations[f"{layer_name}.{name}"].unsqueeze(0)
-                for name, module in layer.named_modules.items()
-                if module in target_modules.values()
+                m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)
+                for n, m in prunable_layers.items()
             ]
-            groups[layer_name] = torch.cat([item.flatten().cpu() for item in z])
+            groups[name] = torch.cat([item.flatten().cpu() for item in z])
 
         del activations
 
