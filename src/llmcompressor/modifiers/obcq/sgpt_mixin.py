@@ -21,6 +21,7 @@ from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
     get_prunable_layers,
+    match_targets,
 )
 
 
@@ -139,9 +140,11 @@ class SparsityModifierMixin(HooksMixin):
                 layer_sparsity = self.sparsity
 
             for name, module in get_prunable_layers(layer).items():
-                self._module_names[module] = f"{layer_name}.{name}"
-                self._module_sparsities[module] = layer_sparsity
-                self.register_hook(module, self.calibrate_module, "forward")
+                name = f"{layer_name}.{name}"
+                if not match_targets(name, self.ignore)[0]:
+                    self._module_names[module] = name
+                    self._module_sparsities[module] = layer_sparsity
+                    self.register_hook(module, self.calibrate_module, "forward")
 
         # infer and run pipeline
         model_name = state.model.__class__.__name__
