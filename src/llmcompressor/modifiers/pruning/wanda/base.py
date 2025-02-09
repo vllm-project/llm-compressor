@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Tuple
 
 import torch
 from compressed_tensors.utils import (
@@ -7,7 +7,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import Field, PrivateAttr
+from pydantic import PrivateAttr
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
@@ -58,30 +58,15 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
         to compress every layer in the model. Alias for `targets`
     :param targets: list of layer names to compress during OBCQ, or '__ALL__'
         to compress every layer in the model. Alias for `sequential_targets`
+    :param ignore: optional list of module class names or submodule names to not
+        quantize even if they match a target. Defaults to empty list.
     """
 
-    # sparsity arguments
-    sparsity: Optional[Union[float, List[float]]] = None
-    sparsity_profile: Optional[str] = None
-    mask_structure: str = "0:0"
-    owl_m: Optional[int] = None
-    owl_lmbda: Optional[float] = None
-
-    # data pipeline arguments
-    sequential_update: Optional[bool] = False  # deprecated
-    sequential_targets: Union[str, List[str]] = None
-    targets: Union[str, List[str], None] = ["Linear"]
-    ignore: List[str] = Field(default_factory=list)
-
     # private variables
-    _prune_n: Optional[int] = PrivateAttr(default=None)
-    _prune_m: Optional[int] = PrivateAttr(default=None)
     _row_scalars: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _module_sparsities: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
 
     def calibrate_module(
         self,
