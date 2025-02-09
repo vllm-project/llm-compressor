@@ -118,12 +118,12 @@ class SparsityModifierMixin(HooksMixin):
             self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
 
         # get layers and validate sparsity
-        if isinstance(self.sparsity, (list, dict)) and len(layers) != len(
+        if isinstance(self.sparsity, (list, dict)) and len(target_layers) != len(
             self.sparsity
         ):
             raise ValueError(
                 f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
-                f"sparsities values, but model only has {len(layers)} layers"
+                f"sparsities values, but model has {len(layers)} target layers"
             )
 
         # register hooks

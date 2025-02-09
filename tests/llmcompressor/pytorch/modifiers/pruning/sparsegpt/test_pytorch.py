@@ -32,7 +32,7 @@ class TestInvalidLayerwiseRecipesRaiseExceptions(unittest.TestCase):
         modifier = SparseGPTModifier(
             sparsity=sparsity,
             block_size=128,
-            sequential_targets=targets,
+            targets=targets,
         )
         testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
 
@@ -48,9 +48,9 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
 
     def test_successful_layerwise_recipe(self):
         sparsities = [0.5, 0.2]
-        sequential_targets = ["seq.fc1", "seq.fc2"]
+        targets = ["seq.fc1", "seq.fc2"]
         modifier = SparseGPTModifier(
-            sparsity=sparsities, block_size=128, sequential_targets=sequential_targets
+            sparsity=sparsities, block_size=128, targets=targets
         )
         testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
         modifier.initialize(testing_harness.get_state())
