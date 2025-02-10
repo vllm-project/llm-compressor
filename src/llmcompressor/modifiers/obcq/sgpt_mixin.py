@@ -10,7 +10,6 @@ from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from llmcompressor.core import State
-from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.pipelines.layer_sequential import (
@@ -70,17 +69,20 @@ class SparsityModifierMixin(HooksMixin):
         return value
 
     @model_validator(mode="after")
-    def validate_model_after(model: "SparsityModifierMixin") -> "Modifier":
+    def validate_model_after(model: "SparsityModifierMixin") -> "SparsityModifierMixin":
         profile = model.sparsity_profile
         owl_m = model.owl_m
         owl_lmbda = model.owl_lmbda
         mask_structure = model.mask_structure
 
-        if profile == "owl" and ((owl_m is not None) ^ (owl_lmbda is not None)):
-            raise ValueError("Must provide both `owl_m` and `owl_lmbda` or neither")
-
-        if profile != "owl" and (owl_m is not None or owl_lmbda is not None):
-            raise ValueError("Must provide both `owl_m` and `owl_lmbda`")
+        has_owl_m = owl_m is not None
+        has_owl_lmbda = owl_lmbda is not None
+        has_owl = profile == "owl"
+        owl_args = (has_owl_m, has_owl_lmbda, has_owl)
+        if any(owl_args) and not all(owl_args):
+            raise ValueError(
+                'Must provide all of `profile="owl"`, `owl_m` and `owl_lmbda` or none'
+            )
 
         model._prune_n, model._prune_m = model._split_mask_structure(mask_structure)
 
