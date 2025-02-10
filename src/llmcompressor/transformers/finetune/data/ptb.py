@@ -5,7 +5,7 @@ from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers.utils.arg_parser import DatasetArguments
+    from llmcompressor.arg_parser import DatasetArguments
 
 
 @TextGenerationDataset.register(name="ptb")

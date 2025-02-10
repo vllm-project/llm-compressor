@@ -1,11 +1,8 @@
 from sft_trainer import SFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
+from llmcompressor.arg_parser import DatasetArguments, TrainingArguments
 from llmcompressor.transformers import TextGenerationDataset
-from llmcompressor.transformers.utils.arg_parser import (
-    DatasetArguments,
-    TrainingArguments,
-)
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 teacher_path = "neuralmagic/Llama-2-7b-gsm8k"

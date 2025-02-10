@@ -10,7 +10,7 @@ from llmcompressor.transformers import tracing
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers import TextGenerationDataset
-from llmcompressor.transformers.utils.arg_parser import DatasetArguments
+from llmcompressor.arg_parser import DatasetArguments
 
 
 def parse_args():

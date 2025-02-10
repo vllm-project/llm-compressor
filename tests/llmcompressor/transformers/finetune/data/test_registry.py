@@ -1,12 +1,12 @@
 import pytest
 
+from llmcompressor.arg_parser import DatasetArguments
 from llmcompressor.transformers.finetune.data import (
     C4Dataset,
     OpenPlatypusDataset,
     TextGenerationDataset,
     WikiTextDataset,
 )
-from llmcompressor.transformers.utils.arg_parser import DatasetArguments
 
 
 @pytest.mark.usefixtures("tiny_llama_tokenizer")

@@ -33,6 +33,12 @@ from transformers import (
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.arg_parser import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.core import pre_initialize_structure, reset_session
 from llmcompressor.pytorch.model_load.helpers import (
     fallback_to_cpu,
@@ -50,12 +56,6 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 )
 from llmcompressor.transformers.sparsification.sparse_model import (
     get_processor_name_from_model,
-)
-from llmcompressor.transformers.utils.arg_parser import (
-    DatasetArguments,
-    ModelArguments,
-    RecipeArguments,
-    TrainingArguments,
 )
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,

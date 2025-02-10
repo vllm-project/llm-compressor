@@ -8,12 +8,12 @@ from datasets import Dataset, IterableDataset
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
 
+from llmcompressor.arg_parser import DatasetArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     LABELS_MASK_VALUE,
     get_custom_datasets_from_path,
     get_raw_dataset,
 )
-from llmcompressor.transformers.utils.arg_parser import DatasetArguments
 from llmcompressor.transformers.utils.preprocessing_functions import (
     PreprocessingFunctionRegistry,
 )
