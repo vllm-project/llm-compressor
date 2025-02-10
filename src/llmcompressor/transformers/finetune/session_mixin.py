@@ -36,7 +36,7 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
 
 if TYPE_CHECKING:
-    from llmcompressor.arg_parser import DatasetArguments, ModelArguments
+    from llmcompressor.args import DatasetArguments, ModelArguments
 
 __all__ = [
     "SessionManagerMixIn",
