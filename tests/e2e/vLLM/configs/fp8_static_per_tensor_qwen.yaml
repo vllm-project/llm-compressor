@@ -1,6 +1,0 @@
-cadence: "nightly"
-test_type: "regression"
-model: Qwen/Qwen2.5-0.5B
-scheme: FP8
-dataset_id: neuralmagic/LLM_compression_calibration
-dataset_split: train
