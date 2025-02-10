@@ -41,5 +41,5 @@ Manages data loading and preprocessing. The dataset argument can specify a Huggi
 Defines the model recipe. A `recipe` consists of user-defined instructions for optimizing the model. Examples of recipes can be found in the `/examples` directory.
 
 ## TrainingArguments
-Specifies training parameters based on Hugging Face's [TrainingArguments class](https://github.com/huggingface/transformers/blob/main/src/transformers/training_args.py). These parameters include settings like `learning_rate`, and the optimizer to use (`optim`).
+Specifies training parameters based on Hugging Face's [TrainingArguments class](https://github.com/huggingface/transformers/blob/main/src/transformers/training_args.py). These parameters include settings like learning rate (`learning_rate`), and the optimizer to use (`optim`).
 
