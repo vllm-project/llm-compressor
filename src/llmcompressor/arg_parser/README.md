@@ -1,6 +1,8 @@
 # Argument parser for `oneshot`, `train`, `eval` entrypoints
 
-Argument parsers define the input arguments required by any entrypoint in `llm-compressor`. Supported entrypoint includes: `oneshot`, `train` or `eval`.
+Argument parsers define the input arguments required by any entrypoint in `llm-compressor`. Supported entrypoints include: `oneshot`, `train` or `eval`.
+
+
 
 The logic is carried out with respect to the given input arguments, such as `model`, `recipe` and `dataset`. 
 

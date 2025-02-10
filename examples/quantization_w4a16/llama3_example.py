@@ -5,7 +5,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v0.1"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
