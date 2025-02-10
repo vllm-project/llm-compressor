@@ -124,7 +124,25 @@ class Observer(Module, RegistryMixin):
 
             elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
                 # assume observed is transposed, because its the output, hence use dim 0
-                self._scale, self._zero_point = self.get_qparams_along_dim(observed, 0)
+                # we pass in [1, 8, 2048, 128] for k_states 
+                # normally per channel: (output_dim, 1) and you have as many scales as the output_dim
+                # we want 8 - num_k_head_scales? or 
+                #breakpoint()
+
+                # weight --> get scales along the first dimension (output dim is first dim) 
+                # weight shape (output_dim, input_dim)
+                # self._scale, self._zero_point = self.get_qparams_along_dim(observed, 0)
+                # output when applied to the weight: (output_dim, 1)
+
+            
+                # for outputs:
+                self._scale, self._zero_point = self.get_qparams_along_dim(observed, 2)
+                self._scale = self._scale.squeeze(1)
+                self._zero_point = self._zero_point.squeeze(1)
+                # why is the output of self._scale: [1, 1, 1]
+
+
+                
 
             elif self.quantization_args.strategy == QuantizationStrategy.TOKEN:
                 # use dim 1, assume the obsersed.shape = [batch, token, hidden]
