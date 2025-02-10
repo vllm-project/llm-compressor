@@ -3,7 +3,7 @@ from sft_trainer import SFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import DataCollatorForCompletionOnlyLM
 
-from llmcompressor.transformers import TrainingArguments
+from llmcompressor.arg_parser import TrainingArguments
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 output_dir = "./output_trl_sft_test_7b_gsm8k_sft_data"

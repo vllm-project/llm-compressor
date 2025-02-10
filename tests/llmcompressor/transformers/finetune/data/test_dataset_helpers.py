@@ -1,6 +1,6 @@
 import pytest
 
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
+from llmcompressor.arg_parser import DatasetArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     get_raw_dataset,
     make_dataset_splits,
@@ -9,7 +9,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
 
 @pytest.mark.unit
 def test_combined_datasets():
-    data_args = DataTrainingArguments(
+    data_args = DatasetArguments(
         dataset="wikitext", dataset_config_name="wikitext-2-raw-v1"
     )
     raw_wikitext2 = get_raw_dataset(data_args)
@@ -33,7 +33,7 @@ def test_combined_datasets():
 @pytest.mark.unit
 def test_separate_datasets():
     splits = {"train": "train[:10%]", "validation": "train[10%:20%]"}
-    data_args = DataTrainingArguments(
+    data_args = DatasetArguments(
         dataset="wikitext", dataset_config_name="wikitext-2-raw-v1"
     )
     datasets = {}

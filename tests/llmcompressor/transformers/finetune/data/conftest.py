@@ -1,7 +1,7 @@
 import pytest
 from transformers import AutoTokenizer
 
-from llmcompressor.transformers.finetune.model_args import ModelArguments
+from llmcompressor.arg_parser import ModelArguments
 
 
 @pytest.fixture

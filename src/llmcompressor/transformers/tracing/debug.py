@@ -9,7 +9,8 @@ from transformers import AutoProcessor, PreTrainedModel
 from llmcompressor.transformers import tracing
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
-from llmcompressor.transformers import DataTrainingArguments, TextGenerationDataset
+from llmcompressor.transformers import TextGenerationDataset
+from llmcompressor.arg_parser import DatasetArguments
 
 
 def parse_args():
@@ -58,7 +59,7 @@ def trace(
     print("Loaded model")
 
     # Prepare sample data
-    data_args = DataTrainingArguments(**get_dataset_kwargs(modality))
+    data_args = DatasetArguments(**get_dataset_kwargs(modality))
     dataset = TextGenerationDataset.load_from_registry(
         data_args.dataset,
         data_args=data_args,

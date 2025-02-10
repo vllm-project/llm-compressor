@@ -5,7 +5,7 @@ from transformers import DefaultDataCollator
 
 
 @dataclass
-class DVCDatasetTrainingArguments:
+class DVCDatasetArguments:
     """
     Arguments for training using DVC
     """
@@ -17,7 +17,7 @@ class DVCDatasetTrainingArguments:
 
 
 @dataclass
-class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
+class CustomDatasetArguments(DVCDatasetArguments):
     """
     Arguments for training using custom datasets
     """
@@ -67,10 +67,10 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
 
 
 @dataclass
-class DataTrainingArguments(CustomDataTrainingArguments):
+class DatasetArguments(CustomDatasetArguments):
     """
     Arguments pertaining to what data we are going to input our model for
-    training and eval
+    calibration, training or eval
 
     Using `HfArgumentParser` we can turn this class into argparse
     arguments to be able to specify them on the command line
