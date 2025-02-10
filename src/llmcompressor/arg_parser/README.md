@@ -26,7 +26,7 @@ These input arguments can be overloaded into the function signature and will be 
 
 `llm-compressor` uses four parsers, located in `llm_compressor/arg_parser`:
 * ModelArguments
-* DataArguments
+* DatasetArguments
 * RecipeArguments
 * TrainingArguments
 
