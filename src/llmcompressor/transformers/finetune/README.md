@@ -76,7 +76,7 @@ Finetuning arguments are split up into 3 groups:
 
 * ModelArguments: `src/llmcompressor/transformers/utils/arg_parser/model_arguments.py`
 * TrainingArguments: `src/llmcompressor/transformers/utils/arg_parser/training_arguments.py`
-* DatasetArguments: `src/llmcompressor/transformers/utils/arg_parser/data_arguments.py`
+* DatasetArguments: `src/llmcompressor/transformers/utils/arg_parser/dataset_arguments.py`
 * RecipeArguments: `src/llmcompressor/transformers/utils/arg_parser/recipe_arguments.py`
 
 
