@@ -168,16 +168,12 @@ class TestvLLM:
             shutil.rmtree(self.save_dir)
 
         timer = get_singleton_manager()
+        # fetch dictionary of measurements, where keys are func names 
+        # and values are the time it took to run the method
+        # Should be 4 key/values per test case, for each of the 4 methods being timed
         measurements = timer.measurements
-
-        max_len = -1
-        for k, v in measurements.items():
-            max_len = max(max_len, len(v))
-
-        for k, v in measurements.items():
-            diff = max_len - len(v)
-            v += [-1] * diff
-
+        # use some library to save the values to disk or fetch the 
+        # the measurements in some other way
         df = pd.DataFrame(measurements)
         df.to_csv(f"{self.save_dir}.csv")
 
