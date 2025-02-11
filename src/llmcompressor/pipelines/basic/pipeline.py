@@ -40,6 +40,6 @@ def run_pipeline(
             batch = tensors_to_device(batch, model_device)
             model(**batch)
 
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
+        # TODO: replace with a lifecycle event
+        if callback_modifier:
+            callback_modifier.on_sequential_batch_end()
