@@ -89,13 +89,13 @@ def post_train(**kwargs):
     """
     # TODO: Get rid of training args when Oneshot refactor comes in
     model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_oneshot = True
+    training_args.do_post_train = True
 
     main(model_args, data_args, recipe_args, training_args)
 
 
 # alias
-def post_train**kwargs):
+def oneshot(**kwargs):
     logger.warning(
         ("oneshot is now deprecated. Please use " "`post_train` method instead.")
     )
@@ -216,7 +216,7 @@ def initialize_model_from_path(
     # if running oneshot outside of FSDP, apply user device settings
     device_map = None
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-    if not fsdp_enabled and training_args.do_oneshot:
+    if not fsdp_enabled and training_args.do_post_train:
         device_map = training_args.post_train_device
         logger.warning(f"Moving {model_path} to device {device_map} for One-Shot")
     elif not fsdp_enabled:
@@ -344,7 +344,7 @@ def main(
         for stage in recipe_obj.stages:
             run_type = stage.infer_run_type()
             if run_type is StageRunType.ONESHOT:
-                training_args.do_oneshot = True
+                training_args.do_post_train = True
             elif run_type is StageRunType.TRAIN:
                 training_args.do_train = True
 
@@ -438,7 +438,7 @@ def main(
         stage_runner.train(checkpoint)
 
     # One Shot
-    if training_args.do_oneshot:
+    if training_args.do_post_train:
         stage_runner.one_shot()
 
     # Evaluation

@@ -6,7 +6,7 @@ from typing import Optional
 class ModelArguments:
     """
     Model variables used for post_train (post-training quantization, and sparsification),
-    finetuning and stage runners (sequential run of oneshot and finetune).
+    finetuning and stage runners (sequential run of post_train and finetune).
 
     """
 

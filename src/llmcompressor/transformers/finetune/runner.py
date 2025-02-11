@@ -124,7 +124,7 @@ class StageRunner:
             do_train=self._training_args.do_train,
             do_eval=self._training_args.do_eval,
             do_predict=self._training_args.do_predict,
-            do_oneshot=self._training_args.do_oneshot,
+            do_post_train=self._training_args.do_post_train,
         )
 
     def get_dataset_split(self, split_name: str) -> Dataset:

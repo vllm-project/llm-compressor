@@ -16,7 +16,7 @@ class TrainingArguments(HFTrainingArgs):
 
     """
 
-    do_oneshot: Optional[bool] = field(
+    do_post_train: Optional[bool] = field(
         default=False,
         metadata={"help": "Whether to run one-shot calibration in stages"},
     )

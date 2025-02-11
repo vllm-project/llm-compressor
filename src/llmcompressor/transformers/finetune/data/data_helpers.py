@@ -98,7 +98,7 @@ def make_dataset_splits(
     do_train: bool = False,
     do_eval: bool = False,
     do_predict: bool = False,
-    do_oneshot: bool = False,
+    do_post_train: bool = False,
 ) -> Dict[str, Dataset]:
     """
     Restructures the datasets dictionary based on what tasks will be run
@@ -108,7 +108,7 @@ def make_dataset_splits(
     :param do_train: Whether to store the train dataset
     :param do_eval: Whether to store the validation dataset
     :param do_predict: Whether to store the test dataset
-    :param do_oneshot: Whether to store the calibration dataset
+    :param do_post_train: Whether to store the calibration dataset
     :return: Datasets to be used by the requested tasks
     """
 
@@ -132,11 +132,11 @@ def make_dataset_splits(
         if "test" not in tokenized_datasets:
             raise ValueError("--do_predict requires a test dataset")
         predict_split = tokenized_datasets["test"]
-    if do_oneshot:
+    if do_post_train:
         calib_split = tokenized_datasets.get("calibration")
         if calib_split is None:
             if "train" not in tokenized_datasets:
-                raise ValueError("--do_oneshot requires a calibration dataset")
+                raise ValueError("--do_post_train requires a calibration dataset")
             calib_split = tokenized_datasets["train"]
 
     split_datasets = {
@@ -305,7 +305,7 @@ def get_calibration_dataloader(
 
     datasets = make_dataset_splits(
         tokenized_datasets,
-        do_oneshot=True,
+        do_post_train=True,
     )
 
     calibration_dataset = datasets.get("calibration")
