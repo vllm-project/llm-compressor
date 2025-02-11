@@ -52,10 +52,11 @@ class RecipeStage(RecipeBase):
             or self.run_type == StageRunType.POST_TRAIN
         ):
             return self.run_type
-        if StageRunType.TRAIN.value in self.group:
-            return StageRunType.TRAIN
         if StageRunType.POST_TRAIN.value in self.group:
             return StageRunType.POST_TRAIN
+        if StageRunType.TRAIN.value in self.group:
+            return StageRunType.TRAIN
+
         return None
 
     def calculate_start(self) -> int:
