@@ -33,7 +33,7 @@ class TestSparsities(unittest.TestCase):
         post_train(
             model=self.model,
             dataset=self.dataset,
-            oneshot_device=self.device,
+            post_train_device=self.device,
             recipe=self.recipe,
             max_seq_length=128,
             num_calibration_samples=64,
@@ -85,7 +85,7 @@ class TestSparsitiesGPU(unittest.TestCase):
         post_train(
             model=self.model,
             dataset=self.dataset,
-            oneshot_device=self.device,
+            post_train_device=self.device,
             recipe=self.recipe,
             max_seq_length=128,
             num_calibration_samples=64,

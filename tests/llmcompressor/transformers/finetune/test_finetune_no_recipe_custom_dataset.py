@@ -41,7 +41,7 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
             recipe=None,
             num_train_epochs=self.num_train_epochs,
             concatenate_data=concatenate_data,
-            oneshot_device=self.device,
+            post_train_device=self.device,
             text_column="text",
             dataset_path=dataset_path,
             preprocessing_func=preprocessing_func,

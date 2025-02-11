@@ -35,7 +35,7 @@ class TestSafetensors(unittest.TestCase):
             output_dir=output_dir,
             max_steps=max_steps,
             splits=splits,
-            oneshot_device=device,
+            post_train_device=device,
         )
 
         assert os.path.exists(output_dir / "model.safetensors")
@@ -49,7 +49,7 @@ class TestSafetensors(unittest.TestCase):
             output_dir=new_output_dir,
             max_steps=max_steps,
             splits=splits,
-            oneshot_device=device,
+            post_train_device=device,
         )
 
     def tearDown(self):

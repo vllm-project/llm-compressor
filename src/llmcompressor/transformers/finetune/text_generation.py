@@ -210,14 +210,14 @@ def initialize_model_from_path(
     set_seed(training_args.seed)
 
     # Fallback to CPU if GPU requested and not available
-    training_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
+    training_args.post_train_device = fallback_to_cpu(model_args.post_train_device)
 
     # Trainer handles device assignment for FSDP and training, don't do mapping here
     # if running oneshot outside of FSDP, apply user device settings
     device_map = None
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
     if not fsdp_enabled and training_args.do_oneshot:
-        device_map = training_args.oneshot_device
+        device_map = training_args.post_train_device
         logger.warning(f"Moving {model_path} to device {device_map} for One-Shot")
     elif not fsdp_enabled:
         device_map = "auto"

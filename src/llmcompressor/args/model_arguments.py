@@ -5,8 +5,8 @@ from typing import Optional
 @dataclass
 class ModelArguments:
     """
-    Model variables used for oneshot calibration, finetuning and
-    stage runners (sequential run of oneshot and finetune).
+    Model variables used for post_train (post-training quantization, and sparsification),
+    finetuning and stage runners (sequential run of oneshot and finetune).
 
     """
 
@@ -79,9 +79,9 @@ class ModelArguments:
         default=True,
         metadata={"help": "Whether to compress sparse models during save"},
     )
-    oneshot_device: Optional[str] = field(
+    post_train_device: Optional[str] = field(
         default="cuda:0",
-        metadata={"help": "Device to run oneshot calibration on"},
+        metadata={"help": "Device to run post_train calibration on"},
     )
     model_revision: str = field(
         default="main",

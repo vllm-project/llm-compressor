@@ -53,6 +53,6 @@ def run_oneshot_for_e2e_testing(
     logger.info("ONESHOT KWARGS", oneshot_kwargs)
     oneshot(
         **oneshot_kwargs,
-        oneshot_device=device,
+        post_train_device=device,
     )
     return oneshot_kwargs["model"], tokenizer

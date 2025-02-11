@@ -36,5 +36,5 @@ def test_finetune_wout_recipe(tmp_path: Path):
         max_steps=max_steps,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
     )

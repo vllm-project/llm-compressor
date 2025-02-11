@@ -32,7 +32,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
             num_train_epochs=self.num_train_epochs,
             concatenate_data=self.concat_txt,
             splits=splits,
-            oneshot_device=self.device,
+            post_train_device=self.device,
             precision="bfloat16",
             bf16=True,
             dataset_config_name=self.dataset_config_name,

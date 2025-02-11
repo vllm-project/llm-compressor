@@ -65,7 +65,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         recipe=recipe_str,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         precision=dtype,
         clear_sparse_session=False,
     )
@@ -189,7 +189,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         recipe=recipe_str,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         clear_sparse_session=False,
         precision=dtype,
     )
@@ -394,7 +394,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         recipe=recipe,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         clear_sparse_session=False,
     )
 
@@ -479,7 +479,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
         recipe=recipe,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         clear_sparse_session=False,
     )
 
