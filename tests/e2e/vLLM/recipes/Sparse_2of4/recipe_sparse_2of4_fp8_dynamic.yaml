@@ -1,12 +1,12 @@
 sparsity_stage:
-  run_type: oneshot
+  run_type: post_train
   sparsity_modifiers:
     SparseGPTModifier:
       sparsity: 0.5
       mask_structure: "2:4"
       sequential_update: false
 quantization_stage:
-  run_type: oneshot
+  run_type: post_train
   quantization_modifiers:
     ConstantPruningModifier:
       targets: [

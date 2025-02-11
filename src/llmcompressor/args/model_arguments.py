@@ -5,8 +5,9 @@ from typing import Optional
 @dataclass
 class ModelArguments:
     """
-    Model variables used for post_train (post-training quantization, and sparsification),
-    finetuning and stage runners (sequential run of post_train and finetune).
+    Model variables used for post_train (post-training quantization, and
+    sparsification), finetuning and stage runners (sequential run of
+    post_train and finetune).
 
     """
 

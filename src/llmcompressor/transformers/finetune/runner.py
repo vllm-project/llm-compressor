@@ -76,7 +76,7 @@ class StageRunner:
         if self._data_args.dataset is None:
             self.processor = self._model_args.processor
             logger.info(
-                "Running oneshot without calibration data. This is expected for "
+                "Running post_train without calibration data. This is expected for "
                 "weight-only and dynamic quantization"
             )
             return
@@ -136,9 +136,10 @@ class StageRunner:
         """
         return self.datasets.get(split_name, None)
 
+    # TODO: delete or update for stages runner
     def one_shot(self, stage: Optional[str] = None):
         """
-        Run oneshot calibration on the active model
+        Run post_train calibration on the active model
 
         :param stage: which stage of the recipe to run, or None to run whole recipe
         """
@@ -255,7 +256,7 @@ class StageRunner:
             self._training_args.output_dir = self._output_dir
 
             # run stage
-            if run_type is StageRunType.ONESHOT:
+            if run_type is StageRunType.POST_TRAIN:
                 self.one_shot(stage=stage_name)
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)

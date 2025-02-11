@@ -83,31 +83,9 @@ def eval(**kwargs):
     main(model_args, data_args, recipe_args, training_args)
 
 
-def post_train(**kwargs):
-    """
-    CLI entrypoint for running oneshot calibration
-    """
-    # TODO: Get rid of training args when Oneshot refactor comes in
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_post_train = True
-
-    main(model_args, data_args, recipe_args, training_args)
-
-
-# alias
-def oneshot(**kwargs):
-    logger.warning(
-        ("oneshot is now deprecated. Please use " "`post_train` method instead.")
-    )
-    return post_train
-
-
-one_shot = oneshot
-
-
 def apply(**kwargs):
     """
-    CLI entrypoint for any of training, eval, predict or oneshot
+    CLI entrypoint for any of training, eval, predict or post_train
     """
     report_to = kwargs.get("report_to", None)
     model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
@@ -213,7 +191,7 @@ def initialize_model_from_path(
     training_args.post_train_device = fallback_to_cpu(model_args.post_train_device)
 
     # Trainer handles device assignment for FSDP and training, don't do mapping here
-    # if running oneshot outside of FSDP, apply user device settings
+    # if running post_train outside of FSDP, apply user device settings
     device_map = None
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
     if not fsdp_enabled and training_args.do_post_train:
@@ -241,7 +219,7 @@ def initialize_model_from_path(
     }
     # this calls from_pretrained under the hood so should be FSDP safe
 
-    # optimized models must be decompressed to carry out oneshot/train/etc
+    # optimized models must be decompressed to carry out post_train/train/etc
     if is_model_ct_quantized_from_path(model_path):
         model_kwargs["quantization_config"] = CompressedTensorsConfig(
             run_compressed=False
@@ -343,7 +321,7 @@ def main(
         recipe_obj = Recipe.create_instance(recipe_args.recipe)
         for stage in recipe_obj.stages:
             run_type = stage.infer_run_type()
-            if run_type is StageRunType.ONESHOT:
+            if run_type is StageRunType.POST_TRAIN:
                 training_args.do_post_train = True
             elif run_type is StageRunType.TRAIN:
                 training_args.do_train = True

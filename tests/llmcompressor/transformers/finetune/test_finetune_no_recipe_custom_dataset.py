@@ -130,9 +130,9 @@ class TestOneshotCustomDatasetSmall(TestFinetuneNoRecipeCustomDataset):
         else:
             self.device = "cpu"
 
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
 
-    def test_oneshot_then_finetune_small(self):
+    def test_post_train_then_finetune_small(self):
         self._test_finetune_wout_recipe_custom_dataset()
 
 
@@ -150,7 +150,7 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
 
         self.monkeypatch = pytest.MonkeyPatch()
         self.device = "cuda:0"
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -158,5 +158,5 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
         )
         self.monkeypatch = pytest.MonkeyPatch()
 
-    def test_oneshot_then_finetune_gpu(self):
+    def test_post_train_then_finetune_gpu(self):
         self._test_finetune_wout_recipe_custom_dataset()

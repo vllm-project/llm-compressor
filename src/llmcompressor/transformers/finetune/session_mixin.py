@@ -429,11 +429,12 @@ class SessionManagerMixIn:
 
         return output
 
+    # TODO: delete
     def one_shot(
         self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
     ):
         """
-        Run oneshot calibration on the active model
+        Run post_train calibration on the active model
         :param stage: which stage of the recipe to run, or None to run whole recipe
         :param calib_data: dataloader of calibration data
         """
@@ -453,7 +454,11 @@ class SessionManagerMixIn:
         # self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
 
-    def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
+    def save_model(
+        self,
+        output_dir: str,
+        _internal_call=False,
+    ):
         """
         Override of the save_model function and expects it to exist in the parent.
         Calls into super() to save the model and additionally saves any recipes

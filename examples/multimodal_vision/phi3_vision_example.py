@@ -2,8 +2,8 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"
@@ -59,7 +59,7 @@ def tokenize(sample):
 ds = ds.map(tokenize, writer_batch_size=1, remove_columns=ds.column_names)
 
 
-# Define a oneshot data collator for multimodal inputs.
+# Define a post_train data collator for multimodal inputs.
 def data_collator(batch):
     assert len(batch) == 1
     return {key: torch.tensor(value) for key, value in batch[0].items()}
@@ -73,8 +73,8 @@ recipe = GPTQModifier(
     ignore=["lm_head", "re:model.vision_embed_tokens.*"],
 )
 
-# Perform oneshot
-oneshot(
+# Perform post_train
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

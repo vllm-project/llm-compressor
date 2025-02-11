@@ -8,8 +8,8 @@ from compressed_tensors.quantization.utils.helpers import iter_named_quantizable
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.core import reset_session
-from llmcompressor.transformers import oneshot
 
 NUM_CALIBRATION_SAMPLES = 16
 MAX_SEQUENCE_LENGTH = 512
@@ -23,8 +23,8 @@ MODEL_IDS = [
 
 
 @pytest.fixture(scope="session")
-def oneshot_fixture():
-    def _oneshot_fixture(tmp_path: Path):
+def post_train_fixture():
+    def _post_train_fixture(tmp_path: Path):
         num_bits = 8
         _type = "float"
         strategy = "tensor"
@@ -48,17 +48,17 @@ def oneshot_fixture():
             dynamic=dynamic,
             symmetric=symmetric,
         )
-        oneshot_args = dict(
+        post_train_args = dict(
             dataset="open_platypus",
             recipe=recipe,
             num_calibration_samples=16,
         )
         for model_id in MODEL_IDS:
-            oneshot_args["output_dir"] = os.path.join(tmp_path, model_id)
-            used_args["output_dir"] = oneshot_args["output_dir"]
-            yield oneshot(model=model_id, **oneshot_args), used_args
+            post_train_args["output_dir"] = os.path.join(tmp_path, model_id)
+            used_args["output_dir"] = post_train_args["output_dir"]
+            yield post_train(model=model_id, **post_train_args), used_args
 
-    return _oneshot_fixture
+    return _post_train_fixture
 
 
 @pytest.fixture(scope="session")
@@ -108,7 +108,7 @@ def kv_cache_fixture():
 
         output_dir = os.path.join(tmp_path, model_id[-1].replace("-", "_"))
 
-        oneshot_args = dict(
+        post_train_args = dict(
             model=model_id,
             dataset=ds,
             recipe=recipe,
@@ -117,7 +117,7 @@ def kv_cache_fixture():
             output_dir=output_dir,
         )
 
-        oneshot(**oneshot_args)
+        post_train(**post_train_args)
         reset_session()
 
         yield (
@@ -135,8 +135,8 @@ def kv_cache_fixture():
     return _kv_cache_fixture
 
 
-def test_kv_cache_config_format(oneshot_fixture, tmp_path):
-    _, used_args = next(oneshot_fixture(tmp_path))
+def test_kv_cache_config_format(post_train_fixture, tmp_path):
+    _, used_args = next(post_train_fixture(tmp_path))
     output_dir = used_args["output_dir"]
     config = AutoConfig.from_pretrained(str(output_dir))
     quant_config = config.quantization_config
@@ -151,8 +151,8 @@ def test_kv_cache_config_format(oneshot_fixture, tmp_path):
     assert kv_cache_scheme["symmetric"] == used_args["symmetric"]
 
 
-def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
-    model, used_args = next(oneshot_fixture(tmp_path))
+def test_kv_cache_model_state_dict_attr(post_train_fixture, tmp_path):
+    model, used_args = next(post_train_fixture(tmp_path))
     output_dir = used_args["output_dir"]
     with init_empty_weights():
         model = AutoModelForCausalLM.from_pretrained(str(output_dir))

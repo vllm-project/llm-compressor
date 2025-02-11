@@ -23,7 +23,7 @@ class TestSparsities(unittest.TestCase):
         import torch
 
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
 
     def test_sparsities(self):
         from llmcompressor import post_train
@@ -71,7 +71,7 @@ class TestSparsitiesGPU(unittest.TestCase):
         import torch
         from transformers import AutoModelForCausalLM
 
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16

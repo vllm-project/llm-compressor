@@ -250,17 +250,16 @@ def transform_dataset_keys(data_files: Dict[str, Any]):
 def get_calibration_dataloader(
     data_args,
     processor,
-    add_labels: bool = False,  # for oneshot
 ):
     """
     Obtain the dataloader for post_train (ptq, sparsification)
 
+    :param data_args: DatasetArgument dataclass
     :param processor: processor or tokenizer to use for dataset tokenization
-    :param add_labels: if True, add labels column to dataset splits
     """
     if data_args.dataset is None:
         logger.info(
-            "Running oneshot without calibration data. This is expected for "
+            "Running post_train without calibration data. This is expected for "
             "weight-only and dynamic quantization"
         )
         return
@@ -301,7 +300,7 @@ def get_calibration_dataloader(
                 split=split_str,
                 processor=processor,
             )
-            tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
+            tokenized_datasets[split_name] = dataset_manager(add_labels=False)
 
     datasets = make_dataset_splits(
         tokenized_datasets,

@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.transformers import oneshot
+from llmcompressor import post_train
 
 # Select model and load it.
 MODEL_ID = "google/gemma-2-9b-it"
@@ -73,7 +73,7 @@ quant_stage:
 """
 
 # Apply algorithms.
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

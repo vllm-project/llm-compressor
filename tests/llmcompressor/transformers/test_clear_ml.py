@@ -26,7 +26,7 @@ def test_finetune_wout_recipe(tmp_path: Path):
     max_steps = 50
     splits = "train"
 
-    Task.init(project_name="test", task_name="test_oneshot_and_finetune")
+    Task.init(project_name="test", task_name="test_post_train_and_finetune")
 
     train(
         model=model,

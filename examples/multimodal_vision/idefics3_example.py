@@ -4,8 +4,8 @@ from datasets import load_dataset
 from PIL import Image
 from transformers import AutoProcessor
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableIdefics3ForConditionalGeneration
 
 # Load model.
@@ -22,7 +22,7 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 4096  # Seems to be required here
 
 
-# Define a oneshot data collator for multimodal inputs.
+# Define a post_train data collator for multimodal inputs.
 def data_collator(batch):
     assert len(batch) == 1
     return {key: torch.tensor(value) for key, value in batch[0].items()}
@@ -80,8 +80,8 @@ def tokenize(sample):
 # avoid errors with writer_batch_size
 ds = ds.map(tokenize, writer_batch_size=1, remove_columns=ds.column_names)
 
-# Perform oneshot
-oneshot(
+# Perform post_train
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

@@ -14,8 +14,8 @@ GPU_CONFIGS_DIRECTORY = (
 
 class TestOBCQCompletion(unittest.TestCase):
     """
-    Test for oneshot for quantization and quantization + sparsity. Sparsity-only tests
-    can be found under `test_obcq_sparsity.py`
+    Test for post_train for quantization and quantization + sparsity.
+    Sparsity-only tests can be found under `test_obcq_sparsity.py`
     """
 
     def labeled_dataloader(self, dataset_name, model_name):
@@ -44,14 +44,14 @@ class TestOBCQCompletion(unittest.TestCase):
 
         return data_loader
 
-    def _test_oneshot_completion(self, model_name: str = None):
+    def _test_post_train_completion(self, model_name: str = None):
         import torch
 
+        from llmcompressor import post_train
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils import tensors_to_device
-        from llmcompressor.transformers import oneshot
 
-        oneshot(
+        post_train(
             model=self.model,
             dataset=self.dataset,
             post_train_device=self.device,
@@ -110,10 +110,10 @@ class TestOBCQCompletionSmall(TestOBCQCompletion):
         import torch
 
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
 
     def test_obcq_completion_small(self):
-        self._test_oneshot_completion()
+        self._test_post_train_completion()
 
 
 @requires_gpu
@@ -133,12 +133,12 @@ class TestOBCQCompletionGPU(TestOBCQCompletion):
         from transformers import AutoModelForCausalLM
 
         self.model_name = None
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
 
         self.model_name = self.model
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model, device_map=self.device, torch_dtype=torch.bfloat16
         )
 
-    def test_oneshot_completion_gpu(self):
-        self._test_oneshot_completion(model_name=self.model_name)
+    def test_post_train_completion_gpu(self):
+        self._test_post_train_completion(model_name=self.model_name)

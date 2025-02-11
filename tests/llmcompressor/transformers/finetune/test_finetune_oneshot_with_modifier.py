@@ -20,9 +20,9 @@ class TestOneshotWithModifierObject(unittest.TestCase):
     def setUp(self):
         self.output = Path("./finetune_output")
 
-    def test_oneshot_with_modifier_object(self):
+    def test_post_train_with_modifier_object(self):
+        from llmcompressor import post_train
         from llmcompressor.modifiers.obcq.base import SparseGPTModifier
-        from llmcompressor.transformers import oneshot
 
         recipe_str = [
             SparseGPTModifier(sparsity=0.5, targets=[r"re:model.layers.\d+$"])
@@ -31,10 +31,10 @@ class TestOneshotWithModifierObject(unittest.TestCase):
         device = "cuda:0"
         concatenate_data = False
         num_calibration_samples = 64
-        output_dir = self.output / "oneshot_out"
+        output_dir = self.output / "post_train_out"
         splits = {"calibration": "train[:10%]"}
 
-        oneshot(
+        post_train(
             model=self.model,
             dataset=self.dataset,
             output_dir=output_dir,

@@ -3,8 +3,8 @@ import torch
 from PIL import Image
 from transformers import AutoProcessor
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
 
 # Load model.
@@ -21,7 +21,7 @@ DATASET_SPLIT = {"calibration": f"test[:{NUM_CALIBRATION_SAMPLES}]"}
 MAX_SEQUENCE_LENGTH = 2048
 
 
-# Define a oneshot data collator for multimodal inputs.
+# Define a post_train data collator for multimodal inputs.
 # NOTE: for transformers<4.48.0, please squeeze the first dimension of `pixel_values`
 # by appending `[0]` to the end of line 32
 def data_collator(batch):
@@ -43,8 +43,8 @@ recipe = [
     ),
 ]
 
-# Perform oneshot
-oneshot(
+# Perform post_train
+post_train(
     model=model,
     tokenizer=model_id,
     dataset=DATASET_ID,

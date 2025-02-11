@@ -6,9 +6,9 @@ import pytest
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor import post_train, train
 from llmcompressor.core import create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot, train
 
 
 @pytest.mark.unit
@@ -17,7 +17,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
         self.output = Path("./finetune_output")
         self.quantization_config = CompressedTensorsConfig(run_compressed=False)
 
-    def test_oneshot_sparsification_then_finetune(self):
+    def test_post_train_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map="auto"
@@ -25,11 +25,11 @@ class TestOneshotThenFinetune(unittest.TestCase):
         dataset = "open_platypus"
         concatenate_data = False
         num_calibration_samples = 64
-        output_dir = self.output / "oneshot_out"
+        output_dir = self.output / "post_train_out"
         splits = {"calibration": "train[:10%]"}
 
         with create_session():
-            oneshot(
+            post_train(
                 model=model,
                 dataset=dataset,
                 output_dir=output_dir,
@@ -45,7 +45,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
 
         # Explictly decompress the model for training using quantization_config
         model = AutoModelForCausalLM.from_pretrained(
-            self.output / "oneshot_out",
+            self.output / "post_train_out",
             device_map="auto",
             quantization_config=self.quantization_config,
         )
@@ -92,7 +92,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 resume_from_checkpoint=True,  # use last checkpoint
             )
 
-    def test_oneshot_quantization_then_finetune(self):
+    def test_post_train_quantization_then_finetune(self):
         recipe = QuantizationModifier(
             targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
         )
@@ -104,11 +104,11 @@ class TestOneshotThenFinetune(unittest.TestCase):
         dataset = "open_platypus"
         concatenate_data = False
         num_calibration_samples = 64
-        output_dir = self.output / "oneshot_out"
+        output_dir = self.output / "post_train_out"
         splits = {"calibration": "train[:10%]"}
 
         with create_session():
-            oneshot(
+            post_train(
                 model=model,
                 dataset=dataset,
                 output_dir=output_dir,

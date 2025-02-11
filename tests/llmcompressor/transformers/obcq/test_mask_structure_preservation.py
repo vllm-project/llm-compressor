@@ -17,7 +17,7 @@ MASK_STRUCTURE_CONFIGS_DIRECTORY = (
 @parameterized_class(parse_params(MASK_STRUCTURE_CONFIGS_DIRECTORY))
 class TestMaskStructurePreserved(unittest.TestCase):
     """
-    Tests that the mask structure is preserved across multiple runs of oneshot
+    Tests that the mask structure is preserved across multiple runs of post_train
     initial model is pruned using a mask_structure, and then the pruned model
     is further pruned and quantized.
     """
@@ -34,28 +34,28 @@ class TestMaskStructurePreserved(unittest.TestCase):
         import torch
 
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.output_first = Path(self.output) / "test_1"
         self.output_second = Path(self.output) / "test_2"
 
     def test_mask_structure_preserved(self):
         """
-        Checks that the mask structure is preserved across runs of oneshot
+        Checks that the mask structure is preserved across runs of post_train
         between the initial pruning and the subsequent pruning + quantization
         """
         import math
 
         import torch
 
+        from llmcompressor import post_train
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
 
         tolerance = 1e-3
         num_calibration_samples = 16
 
-        oneshot(
+        post_train(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -79,7 +79,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
 
         reset_session()
 
-        oneshot(
+        post_train(
             model=self.output_first,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,

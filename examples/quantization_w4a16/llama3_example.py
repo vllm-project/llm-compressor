@@ -1,8 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor import post_train
+from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -58,7 +58,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
-post_train
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

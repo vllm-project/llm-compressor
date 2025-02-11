@@ -1,7 +1,7 @@
 from transformers import AutoProcessor, MllamaForConditionalGeneration
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
@@ -23,7 +23,7 @@ recipe = QuantizationModifier(
 
 # Apply quantization and save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-oneshot(
+post_train(
     model=model,
     recipe=recipe,
     output_dir=SAVE_DIR,

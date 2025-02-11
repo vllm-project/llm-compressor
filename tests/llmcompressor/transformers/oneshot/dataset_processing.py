@@ -52,7 +52,7 @@ def get_data_utils(dataset_name: str) -> Dict:
     """
     Given the name of a dataset, fetch the appropriate set of data processing utils.
     Returns a dictionary of data processing utils required to process the data when
-    providing tokenized data to oneshot.
+    providing tokenized data to post_train.
     Includes:
         1. dataload: function to load the dataset
         2. preprocess: preprocessing function to apply to the dataset

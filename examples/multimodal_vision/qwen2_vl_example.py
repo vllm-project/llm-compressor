@@ -6,8 +6,8 @@ from datasets import load_dataset
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableQwen2VLForConditionalGeneration
 
 # Load model.
@@ -66,7 +66,7 @@ def preprocess_and_tokenize(example):
 ds = ds.map(preprocess_and_tokenize, remove_columns=ds["calibration"].column_names)
 
 
-# Define a oneshot data collator for multimodal inputs.
+# Define a post_train data collator for multimodal inputs.
 def data_collator(batch):
     assert len(batch) == 1
     return {key: torch.tensor(value) for key, value in batch[0].items()}
@@ -82,8 +82,8 @@ recipe = [
     ),
 ]
 
-# Perform oneshot
-oneshot(
+# Perform post_train
+post_train(
     model=model,
     tokenizer=model_id,
     dataset=ds,

@@ -13,7 +13,7 @@ __all__ = ["RecipeStage", "StageRunType"]
 
 class StageRunType(Enum):
     TRAIN = "train"
-    ONESHOT = "oneshot"
+    POST_TRAIN = "post_train"
 
 
 class RecipeStage(RecipeBase):
@@ -21,7 +21,7 @@ class RecipeStage(RecipeBase):
     Represents a stage in a recipe.
 
     :param group: Name of the current stage
-    :param run_type: Whether this is a oneshot or training stage
+    :param run_type: Whether this is a post_train or training stage
     :param args: Optional RecipeArgs to use for this stage
     :param enabled: True to enable the stage, False otherwise
     :param modifiers: list of RecipeModifiers that are a part of this stage
@@ -44,15 +44,18 @@ class RecipeStage(RecipeBase):
         """
         Infers the stage type from the type attribute or stage name, falls back to None
 
-        :return: string representing stage type, either train or oneshot, or None if
+        :return: string representing stage type, either train or post_train, or None if
         stage cannot be inferred
         """
-        if self.run_type == StageRunType.TRAIN or self.run_type == StageRunType.ONESHOT:
+        if (
+            self.run_type == StageRunType.TRAIN
+            or self.run_type == StageRunType.POST_TRAIN
+        ):
             return self.run_type
         if StageRunType.TRAIN.value in self.group:
             return StageRunType.TRAIN
-        if StageRunType.ONESHOT.value in self.group:
-            return StageRunType.ONESHOT
+        if StageRunType.POST_TRAIN.value in self.group:
+            return StageRunType.POST_TRAIN
         return None
 
     def calculate_start(self) -> int:

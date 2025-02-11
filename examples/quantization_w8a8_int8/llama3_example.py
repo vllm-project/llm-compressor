@@ -1,9 +1,9 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.transformers import oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -63,7 +63,7 @@ recipe = [
 ]
 
 # Apply algorithms and save to output_dir
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

@@ -84,7 +84,7 @@ if fp8_enabled:
 The script applies compression using the oneshot function:
 
 ```python
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

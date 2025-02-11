@@ -28,7 +28,7 @@ class TestOneShotInputs(unittest.TestCase):
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model)
         self.model = AutoModelForCausalLM.from_pretrained(self.model)
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.kwargs = {"dataset_config_name": self.dataset_config_name}
 
         data_utils = get_data_utils(self.dataset)
@@ -48,9 +48,9 @@ class TestOneShotInputs(unittest.TestCase):
             self.tokenizer = None
 
     def test_one_shot_inputs(self):
-        from llmcompressor.transformers import oneshot
+        from llmcompressor import post_train
 
-        oneshot(
+        post_train(
             model=self.model,
             tokenizer=self.tokenizer,
             dataset=self.dataset,

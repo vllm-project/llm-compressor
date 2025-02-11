@@ -100,7 +100,7 @@ accelerate launch
 
 ## Running One-shot from Python (without FSDP)
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import post_train
 
 model ="Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
@@ -113,7 +113,7 @@ splits = {
     "calibration": "train[:20%]"
 }
 
-oneshot(
+post_train(
     model=model,
     dataset=dataset_name,
     concatenate_data=concatenate_data,

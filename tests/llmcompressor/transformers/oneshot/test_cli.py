@@ -21,9 +21,9 @@ class TestOneShotCli(unittest.TestCase):
 
     def setUp(self):
         if self.tokenize:
-            pytest.skip("Tokenized data input not supported for oneshot cli")
+            pytest.skip("Tokenized data input not supported for post_train cli")
 
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.additional_args = []
         if self.dataset_config_name:
             self.additional_args.append("--dataset_config_name")

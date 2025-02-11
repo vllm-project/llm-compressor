@@ -23,7 +23,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         # use just one atm
         self.monkeypatch = pytest.MonkeyPatch()
 
-    def test_oneshot_and_finetune_with_tokenizer(self):
+    def test_post_train_and_finetune_with_tokenizer(self):
         from datasets import load_dataset
         from transformers import AutoModelForCausalLM, AutoTokenizer
 

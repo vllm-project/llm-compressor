@@ -4,7 +4,7 @@ from llmcompressor.recipe import Recipe, StageRunType
 def test_run_type_as_param():
     recipe_str = """
     first_stage:
-        run_type: oneshot
+        run_type: post_train
         some_modifiers:
             QuantizationModifier:
                 ignore: ["lm_head"]
@@ -21,13 +21,13 @@ def test_run_type_as_param():
     """
 
     recipe = Recipe.create_instance(recipe_str)
-    assert recipe.stages[0].infer_run_type() == StageRunType.ONESHOT
+    assert recipe.stages[0].infer_run_type() == StageRunType.POST_TRAIN
     assert recipe.stages[1].infer_run_type() == StageRunType.TRAIN
 
 
 def test_run_type_as_name():
     recipe_str = """
-    first_oneshot_stage:
+    first_post_train_stage:
         some_modifiers:
             QuantizationModifier:
                 ignore: ["lm_head"]
@@ -43,7 +43,7 @@ def test_run_type_as_name():
     """
 
     recipe = Recipe.create_instance(recipe_str)
-    assert recipe.stages[0].infer_run_type() == StageRunType.ONESHOT
+    assert recipe.stages[0].infer_run_type() == StageRunType.POST_TRAIN
     assert recipe.stages[1].infer_run_type() == StageRunType.TRAIN
 
 

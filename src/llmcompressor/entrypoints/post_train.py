@@ -63,7 +63,7 @@ def _post_process(model_args, output_dir):
             model_args.tokenizer.save_pretrained(output_dir)
 
 
-def _parse_oneshot_args(**kwargs):
+def _parse_post_train_args(**kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in
@@ -142,7 +142,7 @@ def run_post_train(
             recipe=recipe,
             recipe_args=recipe_args,
             calib_data=dataloader,
-            start=-1,  # oneshot-specific argument
+            start=-1,  # post_train-specific argument
             copy_data=False,
             min_tokens_per_module=min_tokens_per_module,
         )
@@ -151,7 +151,7 @@ def run_post_train(
 def post_train(
     **kwargs,
 ):
-    model_args, data_args, recipe_args, output_dir = _parse_oneshot_args(**kwargs)
+    model_args, data_args, recipe_args, output_dir = _parse_post_train_args(**kwargs)
 
     # update model and processor
     _preprocess(model_args)

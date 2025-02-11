@@ -1,7 +1,7 @@
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 
@@ -23,7 +23,7 @@ recipe = QuantizationModifier(
 
 # Apply quantization and save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-oneshot(model=model, recipe=recipe, output_dir=SAVE_DIR)
+post_train(model=model, recipe=recipe, output_dir=SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
 
 # Confirm generations of the quantized model look sane.
