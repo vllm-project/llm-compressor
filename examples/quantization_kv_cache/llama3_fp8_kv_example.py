@@ -6,6 +6,7 @@ from llmcompressor.transformers import oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
@@ -19,7 +20,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 10
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -49,28 +50,40 @@ recipe = """
 quant_stage:
     quant_modifiers:
         QuantizationModifier:
-            ignore: ["lm_head"]
             config_groups:
-                group_0:
-                    weights:
+                fp8_attention:
+                    output_activations:
                         num_bits: 8
                         type: float
-                        strategy: tensor
+                        strategy: channel
                         dynamic: false
                         symmetric: true
-                    input_activations:
+                    targets: ['re:.*q_proj', 're:.*k_proj', 're:.*v_proj']
+"""
+recipe = """
+quant_stage:
+    quant_modifiers:
+        QuantizationModifier:
+            config_groups:
+                fp8_attention_q_proj:
+                    output_activations:
                         num_bits: 8
                         type: float
-                        strategy: tensor
+                        strategy: group
+                        group_size: 512
                         dynamic: false
                         symmetric: true
-                    targets: ["Linear"]
-            kv_cache_scheme:
-                num_bits: 8
-                type: float
-                strategy: tensor
-                dynamic: false
-                symmetric: true
+                    targets: ['re:.*q_proj']
+                fp8_attention_kv_proj:
+                    output_activations:
+                        num_bits: 8
+                        type: float
+                        strategy: group
+                        group_size: 128
+                        dynamic: false
+                        symmetric: true
+                    targets: ['re:.*k_proj', 're:.*v_proj']
+
 """
 
 # Apply algorithms.
@@ -96,6 +109,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-KV"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-AttnQuantOnly-Group"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
