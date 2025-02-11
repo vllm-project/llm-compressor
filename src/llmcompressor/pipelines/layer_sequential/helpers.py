@@ -15,7 +15,12 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
-__all__ = ["match_modules", "capture_first_layer_intermediates", "to_next_layer_kwargs"]
+__all__ = [
+    "match_modules",
+    "capture_first_layer_intermediates",
+    "to_next_layer_kwargs",
+    "maybe_inject_pos_embeddings",
+]
 
 
 def match_modules(model: Module, target_names: List[str]) -> List[Module]:
@@ -126,3 +131,27 @@ class EarlyStopException(Exception):
 
     _args: Tuple[Any, ...]
     _kwargs: Dict[str, Any]
+
+
+def maybe_inject_pos_embeddings(
+    output: Dict[str, Any],
+    next_layer: Module,
+    inputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    As of https://github.com/huggingface/transformers/pull/34858, positional embeddings
+    must be passed into each decoder call as kwargs
+
+    :param output: output of the previous layer
+    :param next_layer: next layer to call
+    :param inputs: inputs to next layer
+    """
+    signature = inspect.signature(next_layer.forward)
+    if (
+        "position_embeddings" in signature.parameters.keys()
+        and "position_embeddings" in inputs
+        and "position_embeddings" not in output
+    ):
+        output["position_embeddings"] = inputs["position_embeddings"]
+
+    return output

@@ -10,7 +10,7 @@ from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
-from llmcompressor.arg_parser import DatasetArguments
+from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset

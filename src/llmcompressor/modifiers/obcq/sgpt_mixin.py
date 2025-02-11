@@ -1,4 +1,5 @@
 import warnings
+from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -6,10 +7,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy
 import torch
 from loguru import logger
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from llmcompressor.core import State
-from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.pipelines.layer_sequential import (
@@ -20,12 +20,13 @@ from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
     get_prunable_layers,
+    match_targets,
 )
 
 
 class SparsityModifierMixin(HooksMixin):
     # modifier arguments
-    sparsity: Optional[Union[float, List[float]]] = None
+    sparsity: Optional[Union[float, List[float]]]
     sparsity_profile: Optional[str] = None
     mask_structure: str = "0:0"
     owl_m: Optional[int] = None
@@ -34,8 +35,14 @@ class SparsityModifierMixin(HooksMixin):
     # data pipeline arguments
     sequential_update: Optional[bool] = False  # deprecated
     sequential_targets: Union[str, List[str], None] = None
-    targets: Union[str, List[str], None] = None  # alias sequential_targets
+    targets: Union[str, List[str]] = ["Linear"]
     ignore: List[str] = Field(default_factory=list)
+
+    # private variables
+    _prune_n: Optional[int] = PrivateAttr(default=None)
+    _prune_m: Optional[int] = PrivateAttr(default=None)
+    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _module_sparsities: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -62,33 +69,33 @@ class SparsityModifierMixin(HooksMixin):
         return value
 
     @model_validator(mode="after")
-    def validate_model_after(model: "Modifier") -> "Modifier":
-        sparsity = model.sparsity
+    def validate_model_after(model: "SparsityModifierMixin") -> "SparsityModifierMixin":
         profile = model.sparsity_profile
         owl_m = model.owl_m
         owl_lmbda = model.owl_lmbda
         mask_structure = model.mask_structure
-        targets = model.targets
-        sequential_targets = model.sequential_targets
 
-        if profile == "owl" and ((owl_m is not None) ^ (owl_lmbda is not None)):
-            raise ValueError("Must provide both `owl_m` and `owl_lmbda` or neither")
-
-        if profile != "owl" and (owl_m is not None or owl_lmbda is not None):
-            raise ValueError("Must provide both `owl_m` and `owl_lmbda`")
-
-        if owl_m is not None and sparsity is not None:
-            raise ValueError("Cannot provide both sparsity and owl parameters")
-
-        if targets is not None:
-            if sequential_targets is not None:
-                raise ValueError("Cannot use both `targets` and `sequential_targets`")
-            model.sequential_targets = targets
-            model.targets = None
+        has_owl_m = owl_m is not None
+        has_owl_lmbda = owl_lmbda is not None
+        has_owl = profile == "owl"
+        owl_args = (has_owl_m, has_owl_lmbda, has_owl)
+        if any(owl_args) and not all(owl_args):
+            raise ValueError(
+                'Must provide all of `profile="owl"`, `owl_m` and `owl_lmbda` or none'
+            )
 
         model._prune_n, model._prune_m = model._split_mask_structure(mask_structure)
 
         return model
+
+    @abstractmethod
+    def calibrate_module(
+        self,
+        module: torch.nn.Module,
+        args: Tuple[torch.Tensor, ...],
+        _output: torch.Tensor,
+    ):
+        raise NotImplementedError()
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
@@ -96,11 +103,13 @@ class SparsityModifierMixin(HooksMixin):
 
         :param state: session state storing input model and calibration data
         """
-        model = state.model
-        dataloader = state.data.calib
+        model: torch.nn.Module = state.model
+        dataloader: torch.utils.data.DataLoader = state.data.calib
 
         # infer module and sequential targets
         self.sequential_targets = self._infer_sequential_targets(model)
+        layers = get_layers(self.sequential_targets, model)
+        target_layers = get_layers(self.targets, model)  # layers containing targets
 
         # infer layer sparsities
         if self.sparsity_profile == "owl":
@@ -108,31 +117,32 @@ class SparsityModifierMixin(HooksMixin):
                 "Using OWL to infer target layer-wise sparsities from "
                 f"{len(dataloader) if dataloader else 0} calibration samples..."
             )
-            self.sparsity = self._infer_owl_layer_sparsity()
+            self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
 
         # get layers and validate sparsity
-        layers = get_layers(self.sequential_targets, model)
-        if isinstance(self.sparsity, (list, dict)) and len(layers) != len(
+        if isinstance(self.sparsity, (list, dict)) and len(target_layers) != len(
             self.sparsity
         ):
             raise ValueError(
                 f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
-                f"sparsities values, but model only has {len(layers)} layers"
+                f"sparsities values, but model has {len(layers)} target layers"
             )
 
         # register hooks
-        for index, (name, layer) in enumerate(layers.items()):
+        for index, (layer_name, layer) in enumerate(target_layers.items()):
             if isinstance(self.sparsity, dict):
-                layer_sparsity = self.sparsity[name]
+                layer_sparsity = self.sparsity[layer_name]
             elif isinstance(self.sparsity, list):
                 layer_sparsity = self.sparsity[index]
             else:
                 layer_sparsity = self.sparsity
 
             for name, module in get_prunable_layers(layer).items():
-                self._module_names[module] = name
-                self._module_sparsities[module] = layer_sparsity
-                self.register_hook(module, self.calibrate_module, "forward")
+                name = f"{layer_name}.{name}"
+                if not match_targets(name, self.ignore)[0]:
+                    self._module_names[module] = name
+                    self._module_sparsities[module] = layer_sparsity
+                    self.register_hook(module, self.calibrate_module, "forward")
 
         # infer and run pipeline
         model_name = state.model.__class__.__name__
@@ -177,8 +187,6 @@ class SparsityModifierMixin(HooksMixin):
                 run_basic(state.model, state.data.calib, self)
                 return True
 
-        return True
-
     def _infer_sequential_targets(
         self, model: torch.nn.Module
     ) -> Union[str, List[str]]:
@@ -188,9 +196,16 @@ class SparsityModifierMixin(HooksMixin):
             return [self.sequential_targets]
         return self.sequential_targets
 
-    def _infer_owl_layer_sparsity(self, activations):
+    def _infer_owl_layer_sparsity(
+        self,
+        model: torch.nn.Module,
+        layers: Dict[str, torch.nn.Module],
+        dataloader: torch.utils.data.DataLoader,
+    ) -> Dict[str, float]:
+        activations = self._get_activations(model, dataloader)
+
         groups = {}
-        for name, layer in self.compressible_layers_.items():
+        for name, layer in layers.items():
             prunable_layers = get_prunable_layers(layer)
             z = [
                 m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)

@@ -33,7 +33,7 @@ from transformers import (
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.arg_parser import (
+from llmcompressor.args import (
     DatasetArguments,
     ModelArguments,
     RecipeArguments,
