@@ -12,6 +12,7 @@ from parameterized import parameterized_class
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
+from test.timer.timer_utils import log_time, get_singleton_manager
 
 try:
     from vllm import LLM, SamplingParams
@@ -112,10 +113,8 @@ class TestvLLM:
         self._check_session_contains_recipe()
 
         logger.info("================= SAVING TO DISK ======================")
-        oneshot_model.save_pretrained(
-            self.save_dir, save_compressed=self.save_compressed
-        )
-        tokenizer.save_pretrained(self.save_dir)
+        _save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
         # check that expected files exist
@@ -149,13 +148,7 @@ class TestvLLM:
 
         logger.info("================= RUNNING vLLM =========================")
 
-        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm = LLM(model=self.save_dir, dtype=torch.float16)
-        else:
-            llm = LLM(model=self.save_dir)
-        outputs = llm.generate(self.prompts, sampling_params)
+        outputs = self._run_vllm()
 
         logger.info("================= vLLM GENERATION ======================")
         for output in outputs:
@@ -173,6 +166,40 @@ class TestvLLM:
     def tear_down(self):
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
+
+        timer = get_singleton_manager()
+        measurements = timer.measurements
+
+        max_len = -1
+        for k, v in measurements.items():
+            max_len = max(max_len, len(v))
+
+        for k, v in measurements.items():
+            diff = max_len - len(v)
+            v += [-1] * diff
+
+        df = pd.DataFrame(measurements)
+        df.to_csv(f"{self.save_dir}.csv")
+
+    @log_time
+    def _save_compressed_model(self, oneshot_model, tokenizer):
+        oneshot_model.save_pretrained(
+            self.save_dir, save_compressed=self.save_compressed
+        )
+        tokenizer.save_pretrained(self.save_dir)
+
+    
+    @log_time
+    def _run_vllm(self):
+        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
+        if "W4A16_2of4" in self.scheme:
+            # required by the kernel
+            llm = LLM(model=self.save_dir, dtype=torch.float16)
+        else:
+            llm = LLM(model=self.save_dir)
+        outputs = llm.generate(self.prompts, sampling_params)
+        return outputs
+
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
