@@ -83,7 +83,7 @@ def eval(**kwargs):
     main(model_args, data_args, recipe_args, training_args)
 
 
-def oneshot(**kwargs):
+def post_train(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
@@ -95,6 +95,13 @@ def oneshot(**kwargs):
 
 
 # alias
+def post_train**kwargs):
+    logger.warning(
+        ("oneshot is now deprecated. Please use " "`post_train` method instead.")
+    )
+    return post_train
+
+
 one_shot = oneshot
 
 
@@ -313,7 +320,7 @@ def main(
         - Trainer()
             - SessionMixIn()
             - HFTransformersTrainer()
-        - StageRunner.train() and/or evaluate() and/or predict() and/or oneshot()
+        - StageRunner.train() and/or evaluate() and/or predict() and/or post_train()
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from

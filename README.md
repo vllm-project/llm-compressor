@@ -58,7 +58,7 @@ Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 ```python
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.transformers import oneshot
+from llmcompressor import post_train
 from transformers import AutoModelForCausalLM
 
 # Select quantization algorithm. In this case, we:
@@ -72,7 +72,7 @@ recipe = [
 
 # Apply quantization using the built in open_platypus dataset.
 #   * See examples for demos showing how to pass a custom calibration set
-oneshot(
+post_train(
     model="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     dataset="open_platypus",
     recipe=recipe,

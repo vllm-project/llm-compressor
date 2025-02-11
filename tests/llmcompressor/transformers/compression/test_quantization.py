@@ -10,9 +10,9 @@ from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
+from llmcompressor import post_train
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -39,7 +39,7 @@ class TestQuantizationMatches(unittest.TestCase):
         cls.model = AutoModelForCausalLM.from_pretrained(
             cls.model_stub, torch_dtype=cls.weight_dtype, device_map="cuda:0"
         )
-        model = cls._run_oneshot(
+        model = cls._run_post_train(
             cls.model,
             cls.new_recipe,
             cls.dataset,
@@ -54,12 +54,12 @@ class TestQuantizationMatches(unittest.TestCase):
         torch.cuda.empty_cache()
 
     @staticmethod
-    def _run_oneshot(model, recipe, dataset, output_dir):
+    def _run_post_train(model, recipe, dataset, output_dir):
         num_calibration_samples = 512
         max_seq_length = 512
         pad_to_max_length = False
 
-        oneshot(
+        post_train(
             model=model,
             dataset=dataset,
             overwrite_output_dir=True,

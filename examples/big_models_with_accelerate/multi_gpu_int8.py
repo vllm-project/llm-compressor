@@ -1,8 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
@@ -67,7 +67,7 @@ recipe = [
 # 4) Apply algorithms and save in `compressed-tensors` format.
 # if you encounter GPU out-of-memory issues, consider using an explicit
 # device map (see multi_gpus_int8_device_map.py)
-oneshot(
+post_train(
     model=model,
     tokenizer=tokenizer,
     dataset=ds,

@@ -2,9 +2,9 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
@@ -70,7 +70,7 @@ recipe = [
 
 SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
 
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,
