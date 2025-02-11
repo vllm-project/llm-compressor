@@ -60,8 +60,8 @@ class Oneshot:
 
     - **Usage:**
         ```python
-        oneshot = Oneshot(model=model, recipe=recipe, dataset=dataset)
-        oneshot.run()
+        oneshot = Oneshot.from_kwargs(model=model, recipe=recipe, dataset=dataset)
+        oneshot()
 
         # Access the processed components
         model = oneshot.model
@@ -102,12 +102,13 @@ class Oneshot:
             lifecycle actions, especially when a custom `output_dir` is specified.
     """
 
-    MODIFIER_LIFECYCLE_ACTIONS = (
-        "initialize",
-        "finalize",
-    )
-
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        model_args: ModelArguments,
+        data_args: DatasetArguments,
+        recipe_args: RecipeArguments,
+        output_dir: Optional[str] = None,
+    ):
         """
         Initializes the `Oneshot` class with provided arguments.
 
@@ -115,13 +116,19 @@ class Oneshot:
         `recipe_args`. Performs preprocessing to initialize the model and
         tokenizer/processor.
 
-        Args:
-            kwargs: Arbitrary keyword arguments for model, data, and recipe
-            configurations.
+        :param model_args: ModelArguments parameters, responsible for controlling
+            model loading and saving logic
+        :param data_args: DatasetArguments parameters, responsible for controlling
+            dataset loading, preprocessing and dataloader loading
+        :param recipe_args: RecipeArguments parameters, responsible for containing
+            recipe-related parameters
+        :param output_dir: Path to save the output model after carrying out oneshot
+
         """
-        self.model_args, self.data_args, self.recipe_args, self.output_dir = (
-            _parse_post_train_args(**kwargs)
-        )
+        self.model_args = model_args
+        self.data_args = data_args
+        self.recipe_args = recipe_args
+        self.output_dir = output_dir
 
         # Preprocess the model and tokenizer/processor
         self._pre_process()
@@ -168,6 +175,19 @@ class Oneshot:
         if self.tokenizer_or_processor:
             self.tokenizer_or_processor.save_pretrained(self.output_dir)
 
+    @classmethod
+    def from_kwargs(cls, **kwargs):
+        """
+        Alternative constructor to instantiate Oneshot from keyword arguments.
+
+        This method parses `kwargs` to extract model, data, and recipe arguments
+        Args:
+            kwargs: Arbitrary keyword arguments for model, data, and recipe
+            configurations.
+        """
+        model_args, data_args, recipe_args, output_dir = parse_oneshot_args(**kwargs)
+        return cls(model_args, data_args, recipe_args, output_dir)
+
     def _apply_recipe_modifiers(
         self,
         calibration_dataloader: Optional[DataLoader],
@@ -186,11 +206,10 @@ class Oneshot:
         Raises:
             RuntimeError: If any modifier fails during execution.
         """
-        session = active_session()
 
-        for action in self.MODIFIER_LIFECYCLE_ACTIONS:
-            session_action = getattr(session, action)
-            session_action(
+        session = active_session()
+        for action in (session.initialize, session.finalize):
+            action(
                 model=self.model,
                 recipe=self.recipe,
                 recipe_args=self.recipe_args.recipe_args,
@@ -262,13 +281,13 @@ class Oneshot:
 
 
 def oneshot(**kwargs):
-    one_shot = Oneshot(**kwargs)
+    one_shot = Oneshot.from_kwargs(**kwargs)
     one_shot()
 
     return one_shot.model
 
 
-def _parse_post_train_args(**kwargs):
+def parse_oneshot_args(**kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in

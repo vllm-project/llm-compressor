@@ -44,4 +44,4 @@ from llmcompressor.core.session_functions import (
     reset_session,
 )
 
-from .entrypoints import oneshot
+from .entrypoints import Oneshot, oneshot

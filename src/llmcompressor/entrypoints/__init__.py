@@ -1,2 +1,2 @@
 # flake8: noqa
-from .oneshot import oneshot
+from .oneshot import Oneshot, oneshot
