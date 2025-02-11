@@ -67,6 +67,7 @@ __all__ = [
     "DisableQuantization",
     "eval_context",
     "calibration_forward_context",
+    "preserve_attr",
 ]
 
 
@@ -1128,3 +1129,12 @@ def calibration_forward_context(model: PreTrainedModel):
         eval_context(model),
     ):
         yield
+
+
+@contextlib.contextmanager
+def preserve_attr(base: object, attr: str):
+    value = getattr(base, attr)
+    try:
+        yield
+    finally:
+        setattr(base, attr, value)
