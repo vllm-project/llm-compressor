@@ -1,14 +1,28 @@
 from datasets import load_dataset
 from loguru import logger
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM,
+    AutoProcessor,
+    AutoTokenizer,
+    PreTrainedModel,
+)
+from transformers.models.qwen2_vl import Qwen2VLProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.transformers import oneshot
+from llmcompressor.transformers.tracing import TraceableQwen2VLForConditionalGeneration
 from tests.testing_utils import preprocess_tokenize_dataset
+
+# Map from huggingface model_type to pre-trained model class to load from
+HF_CLASS_MAP: dict[str, tuple[PreTrainedModel, AutoTokenizer | AutoProcessor]] = {
+    "qwen2_vl": (TraceableQwen2VLForConditionalGeneration, Qwen2VLProcessor),
+    "": (AutoModelForCausalLM, AutoTokenizer),
+}
 
 
 def run_oneshot_for_e2e_testing(
     model: str,
+    model_type: str,
     device: str,
     num_calibration_samples: int,
     max_seq_length: int,
@@ -21,15 +35,22 @@ def run_oneshot_for_e2e_testing(
 ):
     # Load model.
     oneshot_kwargs = {}
-    loaded_model = AutoModelForCausalLM.from_pretrained(
+    if model_type not in HF_CLASS_MAP:
+        logger.warning(
+            f"Model type {model_type} not found in {HF_CLASS_MAP.keys()}"
+            ", defaulting to AutoModelForCausalLM"
+        )
+        model_type = ""
+    pretrained_model_class, processor_class = HF_CLASS_MAP[model_type]
+    loaded_model = pretrained_model_class.from_pretrained(
         model, device_map=device, torch_dtype="auto"
     )
-    tokenizer = AutoTokenizer.from_pretrained(model)
+    processor = processor_class.from_pretrained(model)
 
     if dataset_id:
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
         ds = ds.shuffle(seed=42).select(range(num_calibration_samples))
-        ds = preprocess_tokenize_dataset(ds, tokenizer, max_seq_length)
+        ds = preprocess_tokenize_dataset(ds, processor, max_seq_length)
         oneshot_kwargs["dataset"] = ds
         oneshot_kwargs["max_seq_length"] = max_seq_length
         oneshot_kwargs["num_calibration_samples"] = num_calibration_samples
@@ -55,4 +76,4 @@ def run_oneshot_for_e2e_testing(
         **oneshot_kwargs,
         oneshot_device=device,
     )
-    return oneshot_kwargs["model"], tokenizer
+    return oneshot_kwargs["model"], processor

@@ -51,6 +51,7 @@ class TestLMEval:
             pytest.skip("Skipping test; cadence mismatch")
 
         self.model = eval_config["model"]
+        self.model_type = eval_config["model_type"]
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
@@ -76,8 +77,9 @@ class TestLMEval:
         self.set_up()
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
-        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+        oneshot_model, processor = run_oneshot_for_e2e_testing(
             model=self.model,
+            model_type=self.model_type,
             device=self.device,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,
@@ -91,7 +93,7 @@ class TestLMEval:
 
         logger.info("================= SAVING TO DISK ======================")
         oneshot_model.save_pretrained(self.save_dir)
-        tokenizer.save_pretrained(self.save_dir)
+        processor.save_pretrained(self.save_dir)
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
         # Use the session to fetch the recipe;
@@ -106,7 +108,8 @@ class TestLMEval:
 
         model_args = f"pretrained={self.save_dir},add_bos_token=True"
         results = lm_eval.simple_evaluate(
-            model="hf",
+            # TODO conditional on task type?
+            model="hf-multimodal",  # "hf",
             model_args=model_args,
             tasks=[self.task],
             num_fewshot=self.num_fewshot,
