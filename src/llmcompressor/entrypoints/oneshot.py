@@ -3,7 +3,7 @@ from typing import Optional
 
 from loguru import logger
 from torch.utils.data import DataLoader
-from transformers import HfArgumentParser
+from transformers import HfArgumentParser, PreTrainedModel
 
 from llmcompressor.args import DatasetArguments, ModelArguments, RecipeArguments
 from llmcompressor.core.session_functions import active_session
@@ -280,7 +280,7 @@ class Oneshot:
             self.save()
 
 
-def oneshot(**kwargs):
+def oneshot(**kwargs) -> "PreTrainedModel":
     one_shot = Oneshot.from_kwargs(**kwargs)
     one_shot()
 

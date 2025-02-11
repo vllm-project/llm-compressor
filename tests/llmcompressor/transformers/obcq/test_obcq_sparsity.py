@@ -29,7 +29,7 @@ class TestSparsities(unittest.TestCase):
         from llmcompressor import oneshot
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
-        oneshot_run = oneshot(
+        model = oneshot(
             model=self.model,
             dataset=self.dataset,
             oneshot_device=self.device,
@@ -40,8 +40,6 @@ class TestSparsities(unittest.TestCase):
             clear_sparse_session=False,
             output_dir=self.output,
         )
-
-        model = oneshot_run.model
 
         layer_1_sparse = tensor_sparsity(model.model.layers[1].self_attn.k_proj.weight)
         assert math.isclose(layer_1_sparse.item(), self.sparsity, rel_tol=1e-4)
@@ -78,10 +76,9 @@ class TestSparsitiesGPU(unittest.TestCase):
 
     def test_sparsities_gpu(self):
         from llmcompressor import oneshot
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
-        oneshot(
+        model = oneshot(
             model=self.model,
             dataset=self.dataset,
             oneshot_device=self.device,
@@ -94,8 +91,6 @@ class TestSparsitiesGPU(unittest.TestCase):
             precision="bfloat16",
             bf16=True,
         )
-
-        model = get_session_model()
 
         layer_1_sparse = tensor_sparsity(model.model.layers[1].self_attn.k_proj.weight)
         assert math.isclose(layer_1_sparse.item(), self.sparsity, rel_tol=1e-4)

@@ -180,7 +180,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     splits = {"calibration": "train[:10%]"}
 
     # create a quantized model
-    oneshot_run = oneshot(
+    model = oneshot(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -193,7 +193,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
     )
 
     # Fetch the oneshot model
-    model = oneshot_run.model
     og_state_dict = model.state_dict()
     save_path_compressed = tmp_path / "compressed"
 

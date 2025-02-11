@@ -50,7 +50,7 @@ class TestOneShotCli(unittest.TestCase):
             cmd.extend(self.additional_args)
         res = run_cli_command(cmd)
 
-        self.assertIsNone(res.res.stderr)
+        self.assertIsNone(res.stderr)
         self.assertTrue("error" not in str(res.returncode).lower())
 
     def tearDown(self):
