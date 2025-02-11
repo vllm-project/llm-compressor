@@ -2,8 +2,8 @@ from datasets import load_dataset
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
-from llmcompressor.transformers import oneshot
 from tests.testing_utils import preprocess_tokenize_dataset
 
 

@@ -8,8 +8,8 @@ from compressed_tensors.quantization.utils.helpers import iter_named_quantizable
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.core import reset_session
-from llmcompressor.transformers import oneshot
 
 NUM_CALIBRATION_SAMPLES = 16
 MAX_SEQUENCE_LENGTH = 512

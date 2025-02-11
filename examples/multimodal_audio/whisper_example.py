@@ -2,8 +2,8 @@ import torch
 from datasets import load_dataset
 from transformers import WhisperProcessor
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
 # Select model and load it.

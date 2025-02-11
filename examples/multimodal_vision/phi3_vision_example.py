@@ -2,8 +2,8 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"

@@ -10,9 +10,9 @@ from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
+from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -62,7 +62,6 @@ class TestQuantizationMatches(unittest.TestCase):
         oneshot_run = oneshot(
             model=model,
             dataset=dataset,
-            overwrite_output_dir=True,
             output_dir=output_dir,
             max_seq_length=max_seq_length,
             num_calibration_samples=num_calibration_samples,

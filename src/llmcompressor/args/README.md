@@ -5,7 +5,7 @@ Parsers in `llm-compressor` define the input arguments required for various entr
 Each entry point (e.g., oneshot) carries out its logic based on the provided input arguments, `model`, `recipe`, and `dataset`.
 
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 
 model = ...
 recipe = ...

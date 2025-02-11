@@ -2,8 +2,8 @@ from typing import List
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
@@ -45,7 +45,6 @@ oneshot(
     max_seq_length=MAX_SEQ_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=SAVE_COMPRESSED,
-    overwrite_output_dir=True,
     output_dir=SAVE_DIR,
 )
 

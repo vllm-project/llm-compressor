@@ -47,9 +47,9 @@ class TestOBCQCompletion(unittest.TestCase):
     def _test_oneshot_completion(self, model_name: str = None):
         import torch
 
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils import tensors_to_device
-        from llmcompressor.transformers import oneshot
 
         oneshot(
             model=self.model,

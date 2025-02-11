@@ -26,8 +26,8 @@ class TestSparsities(unittest.TestCase):
         self.output = "./oneshot_output"
 
     def test_sparsities(self):
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
 
         oneshot_run = oneshot(
             model=self.model,
@@ -77,9 +77,9 @@ class TestSparsitiesGPU(unittest.TestCase):
         )
 
     def test_sparsities_gpu(self):
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
 
         oneshot(
             model=self.model,

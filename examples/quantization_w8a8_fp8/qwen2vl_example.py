@@ -1,7 +1,7 @@
 from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "Qwen/Qwen2-VL-7B-Instruct"
 

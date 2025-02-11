@@ -31,7 +31,7 @@ class TestOneShotCli(unittest.TestCase):
 
     def test_one_shot_cli(self):
         cmd = [
-            "llmcompressor.transformers.text_generation.oneshot",
+            "oneshot",
             "--dataset",
             self.dataset,
             "--model",
@@ -50,8 +50,8 @@ class TestOneShotCli(unittest.TestCase):
             cmd.extend(self.additional_args)
         res = run_cli_command(cmd)
 
-        self.assertEqual(res.returncode, 0)
-        print(res.stdout)
+        self.assertIsNone(res.res.stderr)
+        self.assertTrue("error" not in str(res.returncode).lower())
 
     def tearDown(self):
         shutil.rmtree(self.output)

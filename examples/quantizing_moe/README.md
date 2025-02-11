@@ -51,7 +51,7 @@ NOTE: `.*block_sparse_moe.gate` layers do not quantize well, hence they are igno
 The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be sparsified and saved to `Mixtral-8x7B-Instruct-v0.1-FP8`.
 
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 
 output_dir = "Mixtral-8x7B-Instruct-v0.1-FP8"
 
@@ -61,7 +61,7 @@ oneshot(
     recipe=recipe,
     save_compressed=True,
     output_dir=output_dir,
-    overwrite_output_dir=True,
+    
     max_seq_length=2048,
     num_calibration_samples=512,
 )

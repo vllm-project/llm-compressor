@@ -100,7 +100,7 @@ accelerate launch
 
 ## Running One-shot from Python (without FSDP)
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 
 model ="Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
