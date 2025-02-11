@@ -5,7 +5,7 @@ from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers import DataTrainingArguments as DataArgs
+    from llmcompressor.args import DatasetArguments
 
 
 @TextGenerationDataset.register(name="cnn_dailymail")
@@ -20,7 +20,7 @@ class CNNDailyMailDataset(TextGenerationDataset):
 
     SAMPLE_TEMPLATE = "Article:\n{article}\n\n### Summarization:\n{highlights}\n"
 
-    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
+    def __init__(self, data_args: "DatasetArguments", split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "cnn_dailymail"
         data_args.dataset_config_name = "3.0.0"

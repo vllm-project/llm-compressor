@@ -3,18 +3,19 @@ from typing import Any, Optional, Tuple
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams
-from torch import FloatTensor, IntTensor, Tensor
+from compressed_tensors.utils import deprecated
 
 from llmcompressor.observers.base import Observer
 
-__all__ = ["MovingAverageMinMaxObserver"]
+__all__ = ["MinMaxObserver", "MovingAverageMinMaxObserver"]
 
 
 @Observer.register("minmax")
-class MovingAverageMinMaxObserver(Observer):
+class MinMaxObserver(Observer):
     """
-    Implements a dynamic quantization observer that sets the scale and
-    zero point based on a moving average of the overall min and max observed values
+    Implements a quantization observer that calculates scale and zero point based on the
+    minimum and maximum values of the tensor being observed. If averaging_constant is
+    specified, then the scales are updated using a moving average
     """
 
     def __init__(
@@ -28,13 +29,13 @@ class MovingAverageMinMaxObserver(Observer):
 
     def calculate_qparams(
         self,
-        observed: Tensor,
+        observed: torch.Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
-    ) -> Tuple[FloatTensor, IntTensor]:
+    ) -> Tuple[torch.FloatTensor, torch.IntTensor]:
         """
         Updates the observed min and max using a moving average smoothed by the
-        averaging_constant
+        averaging_constant. Set the averaging_constant to 1.0 to disable averaging.
 
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
@@ -51,6 +52,10 @@ class MovingAverageMinMaxObserver(Observer):
         else:
             min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
+
+        # early stopping, save some computation and memory
+        if self.averaging_constant == 1.0:
+            return calculate_qparams(min_val, max_val, self.quantization_args)
 
         running_min_val = self.min_val.get(tensor_id, None)
         running_max_val = self.max_val.get(tensor_id, None)
@@ -74,8 +79,11 @@ class MovingAverageMinMaxObserver(Observer):
         )
 
     def get_qparams_along_dim(
-        self, observed, dim: int, tensor_id: Optional[Any] = None
+        self, observed: torch.Tensor, dim: int, tensor_id: Optional[Any] = None
     ):
+        """
+        Calculate quantization parameters along the specified dimension
+        """
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
         return self.calculate_qparams(
             observed, reduce_dims=reduce_dims, tensor_id=tensor_id
@@ -88,3 +96,14 @@ class MovingAverageMinMaxObserver(Observer):
         super().reset()
         self.min_val = {}
         self.max_val = {}
+
+
+class MovingAverageMinMaxObserver(MinMaxObserver):
+    @deprecated(
+        message=(
+            "The class name `MovingAverageMinMaxObserver` has been deprecated, please "
+            "initialize with `MinMaxObserver` in the future"
+        )
+    )
+    def __new__(cls, *args, **kwargs):
+        return super().__new__(MinMaxObserver, *args, **kwargs)
