@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.transformers import oneshot
+from llmcompressor import post_train
 
 # Select model and load it.
 # Phi-3.5 is a special case for KV cache quantization because it has
@@ -75,7 +75,7 @@ quant_stage:
 """
 
 # Apply algorithms.
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

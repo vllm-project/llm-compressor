@@ -1,8 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoProcessor, WhisperForConditionalGeneration
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "openai/whisper-large-v2"
 
@@ -23,7 +23,7 @@ recipe = QuantizationModifier(
 )
 
 # Apply quantization.
-oneshot(model=model, recipe=recipe)
+post_train(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

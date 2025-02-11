@@ -63,21 +63,20 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
     def setUp(self):
         import torch
 
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.model = "roneneldan/TinyStories-1M"
         self.dataset = "open_platypus"
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    def test_oneshot_application(self):
-        from llmcompressor.transformers import oneshot
+    def test_post_train_application(self):
+        from llmcompressor import post_train
 
-        oneshot(
+        post_train(
             model=self.model,
             dataset=self.dataset,
-            overwrite_output_dir=True,
             output_dir=self.output,
             recipe=self.recipe,
-            oneshot_device=self.device,
+            post_train_device=self.device,
             num_calibration_samples=9,
         )
         model_loaded = AutoModelForCausalLM.from_pretrained(

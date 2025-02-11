@@ -1,7 +1,7 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "google/gemma-2-27b-it"
 
@@ -21,7 +21,7 @@ recipe = QuantizationModifier(
 
 # 3) Apply quantization and save in compressed-tensors format.
 OUTPUT_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-oneshot(
+post_train(
     model=model,
     recipe=recipe,
     tokenizer=tokenizer,

@@ -2,8 +2,8 @@ import torch
 from datasets import load_dataset
 from transformers import WhisperProcessor
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
 # Select model and load it.
@@ -70,7 +70,7 @@ def process(sample):
 ds = ds.map(process, remove_columns=ds.column_names)
 
 
-# Define a oneshot data collator for multimodal inputs.
+# Define a post_train data collator for multimodal inputs.
 def data_collator(batch):
     assert len(batch) == 1
     return {key: torch.tensor(value) for key, value in batch[0].items()}
@@ -80,7 +80,7 @@ def data_collator(batch):
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

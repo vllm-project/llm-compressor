@@ -5,18 +5,18 @@ Parsers in `llm-compressor` define the input arguments required for various entr
 Each entry point (e.g., oneshot) carries out its logic based on the provided input arguments, `model`, `recipe`, and `dataset`.
 
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import post_train
 
 model = ...
 recipe = ...
 dataset = ...
-oneshot(model=model, recipe=recipe, dataset=dataset)
+post_train(model=model, recipe=recipe, dataset=dataset)
 ```
 
 In addition, users can futher control execution by providing additional arguments. For example, to save the optimized model after completion, the `output_dir` parameter can be specified:
 
 ```python
-oneshot(
+post_train(
     ..., 
     output_dir=...,
 )

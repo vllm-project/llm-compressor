@@ -35,7 +35,7 @@ lr_scheduler_type = "cosine"
 warmup_ratio = 0.1
 
 # this will run the recipe stage by stage:
-# oneshot sparsification -> finetuning -> oneshot quantization
+# post_train sparsification -> finetuning -> post_train quantization
 apply(
     model=model,
     dataset=dataset,

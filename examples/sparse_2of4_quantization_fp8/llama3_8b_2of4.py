@@ -3,10 +3,10 @@ import argparse
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.obcq import SparseGPTModifier
 from llmcompressor.modifiers.pruning import ConstantPruningModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 # Configuration
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -100,7 +100,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe, save_dir = get_recipe(args.fp8)
 
 # Apply compression
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

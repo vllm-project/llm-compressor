@@ -26,20 +26,20 @@ class TestConsecutiveRuns(unittest.TestCase):
     ):
         import math
 
+        from llmcompressor import post_train
         from llmcompressor.core import active_session
         from llmcompressor.pytorch.model_load.helpers import initialize_recipe
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
 
         # test recipe with 50% sparsity, quantization and smoothquant
-        oneshot(
+        post_train(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
             recipe=self.first_recipe,
             output_dir=self.output_first,
-            oneshot_device=self.device,
+            post_train_device=self.device,
             clear_sparse_session=False,
         )
 
@@ -66,13 +66,13 @@ class TestConsecutiveRuns(unittest.TestCase):
             initialize_recipe(model=first_model, recipe_path=recipe)
 
         # reload saved model and up sparsity to 0.7
-        oneshot(
+        post_train(
             model=self.output_first,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
             recipe=self.second_recipe,
             output_dir=self.output_second,
-            oneshot_device=self.device,
+            post_train_device=self.device,
         )
 
         second_model = AutoModelForCausalLM.from_pretrained(
@@ -115,7 +115,7 @@ class TestConsecutiveRunsSmall(TestConsecutiveRuns):
         import torch
 
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.output_first = Path(self.output) / "test_1"
         self.output_second = Path(self.output) / "test_2"
 
@@ -148,7 +148,7 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
             device_map=self.device,
         )
 
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.output_first = Path(self.output) / "test_1"
         self.output_second = Path(self.output) / "test_2"
 

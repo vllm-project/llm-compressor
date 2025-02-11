@@ -324,7 +324,7 @@ class TestTokenizationDataset(unittest.TestCase):
             data_args=DatasetArguments(
                 dataset=tokenized_dataset, shuffle_calibration_samples=False
             ),
-            training_args=TrainingArguments(do_oneshot=True),
+            training_args=TrainingArguments(do_post_train=True),
             recipe_args=RecipeArguments(),
         )
         stage_runner.populate_datasets(processor=None)

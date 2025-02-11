@@ -8,7 +8,7 @@ import yaml
 from loguru import logger
 
 from llmcompressor.core import active_session
-from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
+from tests.e2e.e2e_utils import run_post_train_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 
 try:
@@ -76,7 +76,7 @@ class TestLMEval:
         self.set_up()
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
-        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+        post_train_model, tokenizer = run_post_train_for_e2e_testing(
             model=self.model,
             device=self.device,
             num_calibration_samples=self.num_calibration_samples,
@@ -90,7 +90,7 @@ class TestLMEval:
         )
 
         logger.info("================= SAVING TO DISK ======================")
-        oneshot_model.save_pretrained(self.save_dir)
+        post_train_model.save_pretrained(self.save_dir)
         tokenizer.save_pretrained(self.save_dir)
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 

@@ -1,5 +1,5 @@
 sparsity_stage:
-  run_type: oneshot
+  run_type: post_train
   sparsity_modifiers:
     SparseGPTModifier:
       sparsity: 0.5
@@ -20,7 +20,7 @@ finetuning_stage:
       ]
       start: 0
 quantization_stage:
-  run_type: oneshot
+  run_type: post_train
   quantization_modifiers:
     GPTQModifier:
       ignore: ["lm_head"]

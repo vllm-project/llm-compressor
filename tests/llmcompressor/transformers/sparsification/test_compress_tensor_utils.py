@@ -19,9 +19,9 @@ from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor import post_train
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
@@ -52,12 +52,12 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     dataset = "open_platypus"
     concatenate_data = False
     num_calibration_samples = 64
-    output_dir = tmp_path / "oneshot_out"
+    output_dir = tmp_path / "post_train_out"
     splits = {"calibration": "train[:10%]"}
     one_of_sparse_weights = "model.layers.1.mlp.up_proj.weight"
 
     # create a sparse model
-    oneshot(
+    post_train(
         model=model_path,
         dataset=dataset,
         output_dir=output_dir,
@@ -65,7 +65,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         recipe=recipe_str,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         precision=dtype,
         clear_sparse_session=False,
     )
@@ -77,7 +77,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     transformers_logger.setLevel(level=logging.ERROR)
 
     model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype
+        tmp_path / "post_train_out", torch_dtype=dtype
     )
 
     # restore transformers logging level now that model shell is loaded
@@ -182,19 +182,19 @@ def test_quant_model_reload(format, dtype, tmp_path):
     splits = {"calibration": "train[:10%]"}
 
     # create a quantized model
-    oneshot(
+    post_train(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
         recipe=recipe_str,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         clear_sparse_session=False,
         precision=dtype,
     )
 
-    # Fetch the oneshot model
+    # Fetch the post_train model
     model = get_session_model()
     og_state_dict = model.state_dict()
     save_path_compressed = tmp_path / "compressed"
@@ -387,18 +387,18 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     splits = {"calibration": "train[:10%]"}
     empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
 
-    oneshot(
+    post_train(
         model=model_stub,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
         recipe=recipe,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         clear_sparse_session=False,
     )
 
-    # Fetch the oneshot model
+    # Fetch the post_train model
     model = get_session_model()
     og_state_dict = model.state_dict()
     path = tmp_path / "compressed"
@@ -472,18 +472,18 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     splits = {"calibration": "train[:10%]"}
     empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
 
-    oneshot(
+    post_train(
         model=model_stub,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
         recipe=recipe,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
+        post_train_device=device,
         clear_sparse_session=False,
     )
 
-    # Fetch the oneshot model
+    # Fetch the post_train model
     model = get_session_model()
     og_state_dict = model.state_dict()
     path = tmp_path / "compressed"

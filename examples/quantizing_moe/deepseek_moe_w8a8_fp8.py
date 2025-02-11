@@ -1,8 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 # NOTE: transformers 4.48.0 has an import error with DeepSeek.
 # Please consider either downgrading your transformers version to a
@@ -67,7 +67,7 @@ recipe = [
 
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8"
 
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

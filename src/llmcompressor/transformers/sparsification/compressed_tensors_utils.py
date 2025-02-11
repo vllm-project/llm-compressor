@@ -73,7 +73,7 @@ def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
             try:
-                trainer.save_model(output_dir=save_directory, _is_oneshot=True)
+                trainer.save_model(output_dir=save_directory)
             except AssertionError:
                 # fallback to this in the case of quantization
                 unwrap_and_export_model(

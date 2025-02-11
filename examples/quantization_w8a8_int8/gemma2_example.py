@@ -1,8 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 
 # 1) Select model and load it.
 MODEL_ID = "google/gemma-2-2b-it"
@@ -58,7 +58,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
 
 # 4) Apply quantization and save to disk compressed.
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,

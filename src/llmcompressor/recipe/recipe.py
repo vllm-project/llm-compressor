@@ -39,7 +39,7 @@ class Recipe(RecipeBase):
 
         (Note: all modifiers are wrapped into a single stage
         with the modifier_group_name as the stage name. If modifier_group_name is None,
-        the default run type is `oneshot`)
+        the default run type is `post_train`)
 
         Lfecycle:
         | - Validate Modifiers
@@ -48,7 +48,7 @@ class Recipe(RecipeBase):
 
         :param modifiers: The list of RecipeModifier instances
         :param modifier_group_name: The stage_name of the recipe,
-            if `oneshot` or `train` the run_type of the recipe will be
+            if `post_train` or `train` the run_type of the recipe will be
             inferred from the modifier_group_name, if None, a dummy default
             group_name will be assigned.
         :return: The Recipe instance created from the modifiers
@@ -97,7 +97,7 @@ class Recipe(RecipeBase):
             accept a RecipeModifier instance, or a list of
             RecipeModifiers
         :param modifier_group_name: The stage_name of the recipe,
-            if `oneshot` or `train` the run_type of the recipe will be
+            if `post_train` or `train` the run_type of the recipe will be
             inferred from the modifier_group_name, if None, a dummy default
             group_name will be assigned. This argument is only used
             when creating a recipe from a Modifier/list of Modifier(s)
@@ -651,14 +651,14 @@ def create_recipe_string_from_modifiers(
 
     :param modifiers: The list of Modifier instances
     :param modifier_group_name: The stage_name of the recipe,
-        if `oneshot` or `train` the run_type of the recipe will be
+        if `post_train` or `train` the run_type of the recipe will be
         inferred from the modifier_group_name, if None, a dummy default
         group_name will be assigned.
     :return: A string in yaml format from which the recipe can be created
     """
 
     # Recipe(s) are yaml/json strings of the following format:
-    # run_type_stage: # should contain oneshot/train
+    # run_type_stage: # should contain post_train/train
     #    modifiers:
     #        ModifierTypeOne:
     #            start: 0.0

@@ -1,5 +1,5 @@
 initial_sparsity_stage:
-  run_type: oneshot
+  run_type: post_train
   obcq_modifiers:
     SparseGPTModifier:
       sparsity: 0.5
@@ -17,7 +17,7 @@ initial_training_stage:
       targets: '__ALL__'
       start: 0
 next_sparsity_stage:
-  run_type: oneshot
+  run_type: post_train
   obcq_modifiers:
     SparseGPTModifier:
       sparsity: 0.7

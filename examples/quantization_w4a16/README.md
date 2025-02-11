@@ -86,14 +86,14 @@ In our case, we will apply the default GPTQ recipe for `int4` (which uses static
 > See the `Recipes` documentation for more information on making complex recipes
 
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import post_train
 from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Configure the quantization algorithm to run.
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply quantization.
-oneshot(
+post_train(
     model=model, dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,

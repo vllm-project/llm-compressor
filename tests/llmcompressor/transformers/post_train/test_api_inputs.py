@@ -7,7 +7,7 @@ from parameterized import parameterized_class
 from tests.llmcompressor.transformers.oneshot.dataset_processing import get_data_utils
 from tests.testing_utils import parse_params
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/oneshot/oneshot_configs"
+CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/post_train/post_train_configs"
 
 # TODO: Seems better to mark test type (smoke, sanity, regression) as a marker as
 # opposed to using a field in the config file?
@@ -28,7 +28,7 @@ class TestOneShotInputs(unittest.TestCase):
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model)
         self.model = AutoModelForCausalLM.from_pretrained(self.model)
-        self.output = "./oneshot_output"
+        self.output = "./post_train_output"
         self.kwargs = {"dataset_config_name": self.dataset_config_name}
 
         data_utils = get_data_utils(self.dataset)
@@ -48,9 +48,9 @@ class TestOneShotInputs(unittest.TestCase):
             self.tokenizer = None
 
     def test_one_shot_inputs(self):
-        from llmcompressor.transformers import oneshot
+        from llmcompressor import post_train
 
-        oneshot(
+        post_train(
             model=self.model,
             tokenizer=self.tokenizer,
             dataset=self.dataset,

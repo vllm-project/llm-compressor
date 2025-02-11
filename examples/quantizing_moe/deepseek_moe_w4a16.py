@@ -2,7 +2,7 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.transformers import oneshot
+from llmcompressor import post_train
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 # NOTE: transformers 4.48.0 has an import error with DeepSeek.
@@ -72,7 +72,7 @@ recipe = "deepseek_recipe_w4a16.yaml"
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16"
 
 
-oneshot(
+post_train(
     model=model,
     dataset=ds,
     recipe=recipe,
