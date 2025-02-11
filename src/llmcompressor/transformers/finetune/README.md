@@ -108,7 +108,6 @@ concatenate_data = False
 pad_to_max_length = False
 output_dir = "./output_oneshot"
 recipe = "test_oneshot_recipe.yaml"
-overwrite_output_dir = True
 splits = {
     "calibration": "train[:20%]"
 }
@@ -119,7 +118,6 @@ post_train(
     concatenate_data=concatenate_data,
     output_dir=output_dir,
     recipe=recipe,
-    overwrite_output_dir=overwrite_output_dir,
     pad_to_max_length = pad_to_max_length,
     splits = splits
 )

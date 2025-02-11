@@ -45,7 +45,6 @@ post_train(
     max_seq_length=MAX_SEQ_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=SAVE_COMPRESSED,
-    overwrite_output_dir=True,
     output_dir=SAVE_DIR,
 )
 

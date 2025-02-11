@@ -74,7 +74,6 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         post_train(
             model=self.model,
             dataset=self.dataset,
-            overwrite_output_dir=True,
             output_dir=self.output,
             recipe=self.recipe,
             post_train_device=self.device,
