@@ -5,7 +5,9 @@ from typing import Optional
 @dataclass
 class ModelArguments:
     """
-    Arguments pertaining to which model/config/tokenizer we are going to fine-tune from
+    Model variables used for oneshot calibration, finetuning and
+    stage runners (sequential run of oneshot and finetune).
+
     """
 
     model: str = field(
@@ -44,17 +46,7 @@ class ModelArguments:
         default=None,
         metadata={"help": "Where to store the pretrained data from huggingface.co"},
     )
-    use_fast_tokenizer: bool = field(
-        default=True,
-        metadata={"help": "Whether to use one of the fast tokenizers. Default True"},
-    )
-    model_revision: str = field(
-        default="main",
-        metadata={
-            "help": "The specific model version to use "
-            "(can be a branch name, tag name or commit id)"
-        },
-    )
+
     use_auth_token: bool = field(
         default=False,
         metadata={
@@ -81,5 +73,20 @@ class ModelArguments:
             "help": "Whether or not to allow for custom models to execute their "
             "own modeling files. This option should only be set to True for "
             "repositories you trust and in which you have read the code"
+        },
+    )
+    save_compressed: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to compress sparse models during save"},
+    )
+    oneshot_device: Optional[str] = field(
+        default="cuda:0",
+        metadata={"help": "Device to run oneshot calibration on"},
+    )
+    model_revision: str = field(
+        default="main",
+        metadata={
+            "help": "The specific model version to use "
+            "(can be a branch name, tag name or commit id)"
         },
     )
