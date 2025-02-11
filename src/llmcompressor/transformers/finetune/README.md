@@ -80,51 +80,6 @@ Finetuning arguments are split up into 3 groups:
 * RecipeArguments: `src/llmcompressor/transformers/utils/arg_parser/recipe_arguments.py`
 
 
-## Running One-Shot with FSDP
-```bash
-accelerate launch 
-    --config_file example_fsdp_config.yaml 
-    --no_python llmcompressor.transformers.text_generation.oneshot
-    --model PATH_TO_MODEL
-    --num_calibration_samples 512
-    --dataset DATASET_NAME
-    --dataset_config_name OPTIONAL
-    --max_seq_len OPTIONAL
-    --concatenate_data OPTIONAL
-    --recipe PATH_TO_RECIPE
-    --output_dir PATH_TO_OUTPUT
-    --splits "train"
-    --pad_to_max_length False
-```
-
-
-## Running One-shot from Python (without FSDP)
-```python
-from llmcompressor import oneshot
-
-model ="Xenova/llama2.c-stories15M"
-dataset_name = "open_platypus"
-concatenate_data = False
-pad_to_max_length = False
-output_dir = "./output_oneshot"
-recipe = "test_oneshot_recipe.yaml"
-overwrite_output_dir = True
-splits = {
-    "calibration": "train[:20%]"
-}
-
-oneshot(
-    model=model,
-    dataset=dataset_name,
-    concatenate_data=concatenate_data,
-    output_dir=output_dir,
-    recipe=recipe,
-    overwrite_output_dir=overwrite_output_dir,
-    pad_to_max_length = pad_to_max_length,
-    splits = splits
-)
-```
-
 ## Running Multi-Stage Recipes
 
 A recipe can be run stage-by-stage by setting `run_stages` to `True` or calling the 
