@@ -166,4 +166,4 @@ def post_train(
         min_tokens_per_module=data_args.min_tokens_per_module,
     )
 
-    _post_process(output_dir)
+    _post_process(model_args=model_args, output_dir=output_dir)
