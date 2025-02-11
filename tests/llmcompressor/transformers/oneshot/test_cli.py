@@ -31,7 +31,7 @@ class TestOneShotCli(unittest.TestCase):
 
     def test_one_shot_cli(self):
         cmd = [
-            "llmcompressor.transformers.text_generation.oneshot",
+            "llmcompressor.post_train",
             "--dataset",
             self.dataset,
             "--model",
