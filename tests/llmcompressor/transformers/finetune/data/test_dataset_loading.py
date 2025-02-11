@@ -5,7 +5,7 @@ import torch
 from datasets import IterableDataset, load_dataset
 from parameterized import parameterized
 
-from llmcompressor.arg_parser import (
+from llmcompressor.args import (
     DatasetArguments,
     ModelArguments,
     RecipeArguments,
