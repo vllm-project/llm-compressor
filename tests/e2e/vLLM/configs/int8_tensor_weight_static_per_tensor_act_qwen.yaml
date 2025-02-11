@@ -1,0 +1,7 @@
+cadence: "nightly"
+test_type: "regression"
+model: Qwen/Qwen2.5-0.5B
+recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_tensor_weight_static_per_tensor_act.yaml
+dataset_id: garage-bAInd/Open-Platypus
+dataset_split: train
+scheme: W8A8_tensor_weight_static_per_tensor_act
