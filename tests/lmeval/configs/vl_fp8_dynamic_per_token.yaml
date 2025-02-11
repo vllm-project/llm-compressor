@@ -1,0 +1,8 @@
+cadence: "weekly"
+model: Qwen/Qwen2.5-VL-3B-Instruct
+scheme: FP8_DYNAMIC
+num_fewshot: 5
+limit: 1000
+task: "mmmu"
+exact_match,flexible-extract: 0.75
+exact_match,strict-match: 0.75
