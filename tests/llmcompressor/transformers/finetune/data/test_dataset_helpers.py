@@ -1,6 +1,6 @@
 import pytest
 
-from llmcompressor.arg_parser import DatasetArguments
+from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     get_raw_dataset,
     make_dataset_splits,

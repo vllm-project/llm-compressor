@@ -7,7 +7,7 @@ from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 if TYPE_CHECKING:
-    from llmcompressor.arg_parser import DatasetArguments
+    from llmcompressor.args import DatasetArguments
 
 
 @TextGenerationDataset.register(name="flickr", alias="flickr30k")
