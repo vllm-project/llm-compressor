@@ -33,6 +33,12 @@ from transformers import (
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.args import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.core import pre_initialize_structure, reset_session
 from llmcompressor.pytorch.model_load.helpers import (
     fallback_to_cpu,
@@ -41,11 +47,8 @@ from llmcompressor.pytorch.model_load.helpers import (
     parse_dtype,
 )
 from llmcompressor.recipe import Recipe, StageRunType
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
-from llmcompressor.transformers.finetune.model_args import ModelArguments
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
-from llmcompressor.transformers.finetune.training_args import TrainingArguments
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
@@ -66,27 +69,29 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_eval = True
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
     """
-    model_args, data_args, training_args = parse_args(**kwargs)
+    # TODO: Get rid of training args when Oneshot refactor comes in
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_oneshot = True
-    main(model_args, data_args, training_args)
+
+    main(model_args, data_args, recipe_args, training_args)
 
 
 # alias
@@ -98,12 +103,13 @@ def apply(**kwargs):
     CLI entrypoint for any of training, eval, predict or oneshot
     """
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, training_args = parse_args(**kwargs)
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+
     training_args.run_stages = True
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
         training_args.report_to = []
-    main(model_args, data_args, training_args)
+    main(model_args, data_args, recipe_args, training_args)
 
 
 def compress(**kwargs):
@@ -113,27 +119,33 @@ def compress(**kwargs):
 def parse_args(**kwargs):
     """
     Parses kwargs by grouping into model, data or training arg groups:
-        * model_args in src/llmcompressor/transformers/finetune/model_args.py
-        * data_args in src/llmcompressor/transformers/finetune/data/data_args.py
-        * training_args in src/llmcompressor/transformers/finetune/training_args.py
+        * model_args in
+            src/llmcompressor/transformers/utils/arg_parser/model_args.py
+        * data_args in
+            src/llmcompressor/transformers/utils/arg_parser/data_args.py
+        * recipe_args in
+            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
+        * training_args in
+            src/llmcompressor/transformers/utils/arg_parser/training_args.py
 
-    Throws depreciation warnings
     """
     parser = HfArgumentParser(
-        (ModelArguments, DataTrainingArguments, TrainingArguments)
+        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
     )
-    if not kwargs:
-        model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    else:
-        model_args, data_args, training_args = parser.parse_dict(kwargs)
 
-    if training_args.recipe_args is not None:
-        if not isinstance(training_args.recipe_args, dict):
+    if not kwargs:
+        parsed_args = parser.parse_args_into_dataclasses()
+    else:
+        parsed_args = parser.parse_dict(kwargs)
+
+    model_args, data_args, recipe_args, training_args = parsed_args
+    if recipe_args.recipe_args is not None:
+        if not isinstance(recipe_args.recipe_args, dict):
             arg_dict = {}
-            for recipe_arg in training_args.recipe_args:
+            for recipe_arg in recipe_args.recipe_args:
                 key, value = recipe_arg.split("=")
                 arg_dict[key] = value
-            training_args.recipe_args = arg_dict
+            recipe_args.recipe_args = arg_dict
 
     # raise depreciation warnings
     if data_args.remove_columns is not None:
@@ -150,7 +162,7 @@ def parse_args(**kwargs):
         model_args.processor = model_args.tokenizer
     model_args.tokenizer = None
 
-    return model_args, data_args, training_args
+    return model_args, data_args, recipe_args, training_args
 
 
 def initialize_model_from_path(
@@ -191,7 +203,7 @@ def initialize_model_from_path(
     set_seed(training_args.seed)
 
     # Fallback to CPU if GPU requested and not available
-    training_args.oneshot_device = fallback_to_cpu(training_args.oneshot_device)
+    training_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
 
     # Trainer handles device assignment for FSDP and training, don't do mapping here
     # if running oneshot outside of FSDP, apply user device settings
@@ -284,7 +296,8 @@ def initialize_processor_from_path(
 
 def main(
     model_args: ModelArguments,
-    data_args: DataTrainingArguments,
+    data_args: DatasetArguments,
+    recipe_args: RecipeArguments,
     training_args: TrainingArguments,
 ):
     """
@@ -319,8 +332,8 @@ def main(
         )
 
     # Setup based on stage types if running stage mode
-    if training_args.run_stages and training_args.recipe is not None:
-        recipe_obj = Recipe.create_instance(training_args.recipe)
+    if training_args.run_stages and recipe_args.recipe is not None:
+        recipe_obj = Recipe.create_instance(recipe_args.recipe)
         for stage in recipe_obj.stages:
             run_type = stage.infer_run_type()
             if run_type is StageRunType.ONESHOT:
@@ -348,7 +361,6 @@ def main(
             model_args,
             training_args,
         )
-
     # patch a shared tensor bug in HF transformers
     # https://github.com/huggingface/transformers/issues/33689
     patch_tied_tensors_bug(model)
@@ -367,7 +379,10 @@ def main(
 
     # Load datasets
     stage_runner = StageRunner(
-        model_args=model_args, data_args=data_args, training_args=training_args
+        model_args=model_args,
+        data_args=data_args,
+        training_args=training_args,
+        recipe_args=recipe_args,
     )
     add_labels = training_args.do_train or training_args.run_stages
     stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
@@ -375,13 +390,13 @@ def main(
     eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
-    # Initialize our Trainer
     trainer = Trainer(
         model_init=get_session_model,
         teacher=teacher,
-        recipe=training_args.recipe,
-        recipe_args=training_args.recipe_args,
+        recipe=recipe_args.recipe,
+        recipe_args=recipe_args.recipe_args,
         args=training_args,
+        model_args=model_args,
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
         eval_dataset=eval_dataset,
@@ -428,18 +443,19 @@ def main(
         stage_runner.predict()
 
     # save if model was provided as a string or custom output_dir was set
+
     if isinstance(model_args.model, str) or (
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
     ):
         model.save_pretrained(
-            training_args.output_dir, save_compressed=training_args.save_compressed
+            training_args.output_dir, save_compressed=model_args.save_compressed
         )
         if processor is not None:
             processor.save_pretrained(training_args.output_dir)
 
     # Clean up the CompressionSession before exit if requested
-    if training_args.clear_sparse_session:
+    if recipe_args.clear_sparse_session:
         reset_session()
 
 
