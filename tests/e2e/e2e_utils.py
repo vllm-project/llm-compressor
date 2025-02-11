@@ -5,8 +5,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.transformers import oneshot
 from tests.testing_utils import preprocess_tokenize_dataset
+from test.timer.timer_utils import log_time
 
-
+@log_time
 def run_oneshot_for_e2e_testing(
     model: str,
     device: str,
