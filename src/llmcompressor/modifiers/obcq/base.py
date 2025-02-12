@@ -36,7 +36,7 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
     |               dampening_frac: 0.001
     |               block_size: 128
     |               targets: ['Linear']
-    |               ignore: ['lm_head']
+    |               ignore: ['re:.*lm_head']
 
     Lifecycle:
         - on_initialize

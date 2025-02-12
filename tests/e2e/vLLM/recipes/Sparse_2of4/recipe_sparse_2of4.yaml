@@ -5,4 +5,4 @@ sparsity_stage:
       mask_structure: "2:4"
       sequential_update: false
       targets: ["Linear"]
-      ignore: ["lm_head"]
+      ignore: ["re:.*lm_head"]

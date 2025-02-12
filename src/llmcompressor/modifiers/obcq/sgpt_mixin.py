@@ -152,7 +152,7 @@ class SparsityModifierMixin(HooksMixin):
                 if name.endswith("lm_head"):
                     logger.warning(
                         "`lm_head` was previously auto-ignored by SparseGPT and Wanda "
-                        "modifiers and is not advised. Please add `re:*.lm_head` to "
+                        "modifiers and is not advised. Please add `re:.*lm_head` to "
                         "your ignore list if this was unintentional"
                     )
 

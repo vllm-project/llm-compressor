@@ -7,7 +7,7 @@ initial_sparsity_stage:
       percdamp: 0.01
       mask_structure: "0:0"
       targets: ["Linear"]
-      ignore: ["lm_head"]
+      ignore: ["re:.*lm_head"]
 initial_training_stage:
   run_type: train
   pruning_modifiers:
@@ -23,7 +23,7 @@ next_sparsity_stage:
       percdamp: 0.01
       mask_structure: "0:0"
       targets: ["Linear"]
-      ignore: ["lm_head"]
+      ignore: ["re:.*lm_head"]
 next_training_stage:
   run_type: train
   pruning_modifiers:

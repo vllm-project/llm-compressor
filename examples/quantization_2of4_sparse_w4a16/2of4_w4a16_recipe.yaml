@@ -5,7 +5,7 @@ sparsity_stage:
       sparsity: 0.5
       mask_structure: "2:4"
       targets: ["Linear"]
-      ignore: ["lm_head"]
+      ignore: ["re:.*lm_head"]
 finetuning_stage:
   run_type: train
   finetuning_modifiers:
