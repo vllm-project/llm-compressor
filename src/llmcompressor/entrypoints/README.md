@@ -14,11 +14,11 @@ PTQ is performed to reduce the precision of quantizable weights (e.g., linear la
 #### W8A8-INT8 
 - Uses channel-wise quantization to compress weights to 8 bits, and uses dynamic per-token quantization to compress activations to 8 bits. 
 - Useful for speed ups in high QPS regimes or offline serving on vLLM. 
-- Recommended for NVIDIA GPUS with compute capability <8.9 (Ampere, Turing, Volta, Pascal, or older). 
+- Recommended for NVIDIA GPUs with compute capability <8.9 (Ampere, Turing, Volta, Pascal, or older). 
 #### W8A8-FP8
 - Uses channel-wise quantization to compress weights to 8 bits, and uses dynamic per-token quantization to compress activations to 8 bits. 
 - Useful for speed ups in high QPS regimes or offline serving on vLLM. 
-- Recommended for NVIDIA GPUS with compute capability >8.9 (Hopper and Ada Lovelace). 
+- Recommended for NVIDIA GPUs with compute capability >8.9 (Hopper and Ada Lovelace). 
 
 ### Sparsification
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
