@@ -55,9 +55,7 @@ def preprocess(example):
         },
         {
             "role": "assistant",
-            "content": [
-                {"type": "text", "text": " ".join(example["caption"])},
-            ],
+            "content": " ".join(example["caption"]),
         },
     ]
     return {

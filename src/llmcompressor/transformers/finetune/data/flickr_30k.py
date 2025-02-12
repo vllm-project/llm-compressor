@@ -60,9 +60,7 @@ class Flickr30K(TextGenerationDataset):
             },
             {
                 "role": "assistant",
-                "content": [
-                    {"type": "text", "text": " ".join(sample["caption"])},
-                ],
+                "content": " ".join(sample["caption"]),
             },
         ]
 
