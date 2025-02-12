@@ -130,7 +130,6 @@ class TestvLLM:
         session.reset()
 
         if SKIP_HF_UPLOAD.lower() != "yes":
-
             logger.info("================= UPLOADING TO HUB ======================")
 
             stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
