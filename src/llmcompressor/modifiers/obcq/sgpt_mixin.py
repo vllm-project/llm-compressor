@@ -139,10 +139,26 @@ class SparsityModifierMixin(HooksMixin):
 
             for name, module in get_prunable_layers(layer).items():
                 name = f"{layer_name}.{name}"
-                if not match_targets(name, self.ignore)[0]:
-                    self._module_names[module] = name
-                    self._module_sparsities[module] = layer_sparsity
-                    self.register_hook(module, self.calibrate_module, "forward")
+
+                if match_targets(name, self.ignore)[0]:
+                    continue
+
+                # HACK: previously, embeddings were not quantized because they were not
+                # accessible by the layer compressor. For now, we manually ignore it,
+                # but in the FUTURE this should be ignored by the user
+                if isinstance(module, torch.nn.Embedding):
+                    continue
+
+                if name.endswith("lm_head"):
+                    logger.warning(
+                        "`lm_head` was previously auto-ignored by SparseGPT and Wanda "
+                        "modifiers and is not advised. Please add `re:*.lm_head` to "
+                        "your ignore list if this was unintentional"
+                    )
+
+                self._module_names[module] = name
+                self._module_sparsities[module] = layer_sparsity
+                self.register_hook(module, self.calibrate_module, "forward")
 
         # infer and run pipeline
         model_name = state.model.__class__.__name__
