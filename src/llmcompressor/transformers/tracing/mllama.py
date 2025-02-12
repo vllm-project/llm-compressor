@@ -73,7 +73,7 @@ def _prepare_cross_attention_mask(
     MLLAMA_START_DOCSTRING,
 )
 class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
-   def forward(
+    def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
         pixel_values: Optional[torch.FloatTensor] = None,
