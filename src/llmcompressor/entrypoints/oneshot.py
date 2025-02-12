@@ -1,5 +1,5 @@
 from pathlib import PosixPath
-from typing import Optional
+from typing import Optional, Tuple
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -287,7 +287,9 @@ def oneshot(**kwargs) -> "PreTrainedModel":
     return one_shot.model
 
 
-def parse_oneshot_args(**kwargs):
+def parse_oneshot_args(
+    **kwargs,
+) -> Tuple[ModelArguments, DatasetArguments, RecipeArguments, str]:
     """
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in

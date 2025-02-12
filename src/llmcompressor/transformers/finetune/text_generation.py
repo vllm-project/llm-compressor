@@ -83,6 +83,18 @@ def eval(**kwargs):
     main(model_args, data_args, recipe_args, training_args)
 
 
+def oneshot(**kwargs) -> None:
+    logger.warning(
+        (
+            "Detected `oneshot` from llmcompressor.transformers. ",
+            "Please use `from llmcompressor import oneshot` instead.",
+        )
+    )
+    from llmcompressor import oneshot
+
+    oneshot(**kwargs)
+
+
 def apply(**kwargs):
     """
     CLI entrypoint for any of training, eval, predict or oneshot
