@@ -21,7 +21,7 @@ def _load_model_and_tokenizer(
 
 
 @log_time
-def _run_onshot(device: str, **oneshot_kwargs):
+def _run_oneshot(device: str, **oneshot_kwargs):
     oneshot(
         **oneshot_kwargs,
         oneshot_device=device,
@@ -70,6 +70,6 @@ def run_oneshot_for_e2e_testing(
 
     # Apply quantization.
     logger.info("ONESHOT KWARGS", oneshot_kwargs)
-    _run_onshot(device=device, **oneshot_kwargs)
+    _run_oneshot(device=device, **oneshot_kwargs)
 
     return oneshot_kwargs["model"], tokenizer

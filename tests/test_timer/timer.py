@@ -1,5 +1,6 @@
 import logging
 import time
+from collections import defaultdict
 from contextlib import contextmanager
 from threading import RLock
 
@@ -22,7 +23,7 @@ class Timer:
         :param enable_logging: whether or not time logging is enabled
         """
         self.enable_logging = enable_logging
-        self.measurements = {}
+        self.measurements = defaultdict(float)
         self.lock = RLock()
 
     @contextmanager

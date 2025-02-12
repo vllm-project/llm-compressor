@@ -20,15 +20,8 @@ def log_time(func):
     """
 
     def wrapper(*args, **kwargs):
-        if args and isinstance(args[0], object):
-            self = args[0]
-            func_name = f"{self.__class__.__name__}.{func.__name__}"
-        else:
-            self = None
-            func_name = func.__name__
-
         TIMER_MANAGER = get_singleton_manager()
-        func_name = f"{self.__class__.__name__}.{func.__name__}"
+        func_name = func.__name__
 
         if not TIMER_MANAGER.enable_logging:
             return func(*args, **kwargs)
