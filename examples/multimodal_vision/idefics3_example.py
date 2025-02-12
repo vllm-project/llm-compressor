@@ -49,7 +49,7 @@ def preprocess(example):
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "What does the image show?"},
+                {"type": "text", "text": "What does this image show?"},
                 {"type": "image"},
             ],
         },

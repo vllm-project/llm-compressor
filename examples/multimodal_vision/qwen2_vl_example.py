@@ -43,7 +43,7 @@ def preprocess_and_tokenize(example):
             "role": "user",
             "content": [
                 {"type": "image", "image": base64_qwen},
-                {"type": "text", "text": "What does the image show?"},
+                {"type": "text", "text": "What does this image show?"},
             ],
         },
         {
