@@ -2,6 +2,6 @@ pruning_stage:
     obcq_modifiers:
         SparseGPTModifier:
             sparsity: 0.5
-            sequential_update: true
             mask_structure: "2:4"
-            targets: ['re:model.layers.\d*$']
+            targets: ["Linear"]
+            ignore: ["re:.*lm_head"]
