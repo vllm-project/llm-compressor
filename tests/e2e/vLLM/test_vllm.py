@@ -77,8 +77,11 @@ class TestvLLM:
         self.save_dir = eval_config.get("save_dir")
         self.save_compressed = eval_config.get("save_compressed", True)
 
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+
         logger.info("========== RUNNING ==============")
-        logger.info(self.scheme)
+        logger.info(self.save_dir)
 
         self.device = "cuda:0"
         self.num_calibration_samples = 256
