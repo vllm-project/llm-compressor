@@ -37,7 +37,6 @@ logger = logging.get_logger(__name__)
 
 
 # TRACING: This function is not traceable
-@torch.fx.wrap
 def _prepare_cross_attention_mask(
     cross_attention_mask: torch.Tensor,
     num_vision_tokens: int,
@@ -45,7 +44,9 @@ def _prepare_cross_attention_mask(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # reshape so it can be used by attn module
     # TRACING: cannot unpack cross_attention_mask with arbitrary number of args
-    batch_size, text_total_length, *_ = cross_attention_mask.shape
+    # batch_size, text_total_length, *_ = cross_attention_mask.shape
+    batch_size, text_total_length = cross_attention_mask.shape[:2]
+
     cross_attention_mask = cross_attention_mask.repeat_interleave(num_vision_tokens, dim=3)
     cross_attention_mask = cross_attention_mask.view(batch_size, text_total_length, -1)
     cross_attention_mask = cross_attention_mask.unsqueeze(1)
@@ -67,7 +68,7 @@ def _prepare_cross_attention_mask(
     return cross_attention_mask, full_text_row_masked_out_mask
 
 
-# TRACING: needs to use wrapped _prepare_cross_attention_mask
+# TRACING: needs to use updated _prepare_cross_attention_mask
 @add_start_docstrings(
     """The Mllama model which consists of a vision encoder and a language model.""",
     MLLAMA_START_DOCSTRING,
@@ -129,7 +130,7 @@ class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
             )
 
         if cross_attention_mask is not None:
-            # TRACING: use wrapped function
+            # TRACING: use updated function
             cross_attention_mask, full_text_row_masked_out_mask = _prepare_cross_attention_mask(
                 cross_attention_mask,
                 num_vision_tokens=self.vision_model.num_patches,
