@@ -44,6 +44,7 @@ def _prepare_cross_attention_mask(
     dtype: str,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # reshape so it can be used by attn module
+    # TRACING: cannot unpack cross_attention_mask with arbitrary number of args
     batch_size, text_total_length, *_ = cross_attention_mask.shape
     cross_attention_mask = cross_attention_mask.repeat_interleave(num_vision_tokens, dim=3)
     cross_attention_mask = cross_attention_mask.view(batch_size, text_total_length, -1)
@@ -72,7 +73,7 @@ def _prepare_cross_attention_mask(
     MLLAMA_START_DOCSTRING,
 )
 class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
-    def forward(
+   def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
         pixel_values: Optional[torch.FloatTensor] = None,
@@ -90,7 +91,7 @@ class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
-        num_logits_to_keep: int = 0,
+        logits_to_keep: Union[int, torch.Tensor] = 0,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -155,7 +156,7 @@ class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
             output_attentions=output_attentions,
             return_dict=return_dict,
             cache_position=cache_position,
-            num_logits_to_keep=num_logits_to_keep,
+            logits_to_keep=logits_to_keep,
         )
 
         return outputs
