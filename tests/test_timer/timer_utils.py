@@ -1,3 +1,5 @@
+from functools import wraps
+
 from tests.test_timer import Timer
 
 __all__ = ["log_time", "get_singleton_manager"]
@@ -19,6 +21,7 @@ def log_time(func):
     the class and function names.
     """
 
+    @wraps(func)
     def wrapper(*args, **kwargs):
         TIMER_MANAGER = get_singleton_manager()
         func_name = func.__name__
