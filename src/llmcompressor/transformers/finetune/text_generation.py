@@ -87,6 +87,7 @@ def oneshot(**kwargs) -> None:
     logger.warning(
         (
             "Detected `oneshot` from llmcompressor.transformers. ",
+            "This pathway will be deprecated.\n",
             "Please use `from llmcompressor import oneshot` instead.",
         )
     )
