@@ -30,11 +30,19 @@ ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 # Apply chat template
 def preprocess(example):
-    messages = [{"role": "user", "content": "<|image_1|>\nWhat does the image show?"}]
+    messages = [
+        {"role": "user", "content": "<|image_1|>\nWhat does the image show?"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": " ".join(example["caption"])},
+            ],
+        },
+    ]
     return {
         "text": processor.apply_chat_template(
             messages,
-            add_generation_prompt=True,
+            add_generation_prompt=False,
         ),
         "images": example["image"],
     }

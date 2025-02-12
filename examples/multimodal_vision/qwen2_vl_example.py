@@ -45,7 +45,13 @@ def preprocess_and_tokenize(example):
                 {"type": "image", "image": base64_qwen},
                 {"type": "text", "text": "What does the image show?"},
             ],
-        }
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": " ".join(example["caption"])},
+            ],
+        },
     ]
     text = processor.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
