@@ -1,5 +1,6 @@
 import warnings
 from dataclasses import dataclass, fields, is_dataclass
+from types import NoneType
 from typing import Any, Dict, List, Optional, Union
 
 import torch
@@ -134,21 +135,17 @@ class IntermediatesCache:
         if isinstance(value, torch.Tensor):
             return value.to(device=device)
 
-        elif is_dataclass(value):
+        if is_dataclass(value):
             for field in fields(value):  # `asdict` is recursive, not applicable here
                 v = getattr(value, field.name)
                 setattr(value, field.name, self._onload_value(v))
 
             return value
 
-        elif isinstance(value, tuple):
+        if isinstance(value, tuple):
             return tuple(self._onload_value(v) for v in value)
 
-        elif isinstance(value, (int, str, float, bool)) or value is None:
-            return value
-
-        else:
-            return value
+        return value
 
     def _offload_value(self, value: Any) -> IntermediateValue:
         if isinstance(value, torch.Tensor):
@@ -156,7 +153,7 @@ class IntermediatesCache:
                 value=value.to(device=self.offload_device), device=value.device
             )
 
-        elif is_dataclass(value):
+        if is_dataclass(value):
             for field in fields(value):  # `asdict` is recursive, not applicable here
                 v = getattr(value, field.name)
                 setattr(value, field.name, self._offload_value(v))
@@ -168,12 +165,10 @@ class IntermediatesCache:
                 value=tuple(self._offload_value(v) for v in value), device=None
             )
 
-        if isinstance(value, (int, str, float, bool)) or value is None:
-            return IntermediateValue(value=value, device=None)
-
-        else:
+        if not isinstance(value, (int, str, float, bool, NoneType, torch.dtype)):
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
-            return IntermediateValue(value=value, device=None)
+
+        return IntermediateValue(value=value, device=None)
 
     @staticmethod
     def _mask_padding(
