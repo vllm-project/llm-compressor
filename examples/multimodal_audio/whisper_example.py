@@ -7,12 +7,12 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-large-v3"
+MODEL_ID = "openai/whisper-large-v2"
 
 model = TraceableWhisperForConditionalGeneration.from_pretrained(
     MODEL_ID,
     device_map="auto",
-    torch_dtype=torch.float16,
+    torch_dtype="auto",
 )
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
