@@ -53,11 +53,16 @@ class Flickr30K(TextGenerationDataset):
         messages = [
             {
                 "role": "user",
-                "content": "What does this image show?",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": "What does this image show?"},
+                ],
             },
             {
                 "role": "assistant",
-                "content": " ".join(sample["caption"]),
+                "content": [
+                    {"type": "text", "text": " ".join(sample["caption"])},
+                ],
             },
         ]
 
