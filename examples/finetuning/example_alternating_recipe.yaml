@@ -4,12 +4,10 @@ initial_sparsity_stage:
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
-      sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-      targets: [
-        "re:model.layers.\\d+$"
-      ]
+      targets: ["Linear"]
+      ignore: ["lm_head"]
 initial_training_stage:
   run_type: train
   pruning_modifiers:
@@ -22,12 +20,10 @@ next_sparsity_stage:
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128
-      sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-      targets: [
-        "re:model.layers.\\d+$"
-      ]
+      targets: ["Linear"]
+      ignore: ["lm_head"]
 next_training_stage:
   run_type: train
   pruning_modifiers:

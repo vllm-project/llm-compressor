@@ -33,9 +33,10 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
     |           SparseGPTModifier:
     |               sparsity: 0.5
     |               mask_structure: "2:4"
-    |               sequential_update: True
     |               dampening_frac: 0.001
     |               block_size: 128
+    |               targets: ['Linear']
+    |               ignore: ['lm_head']
 
     Lifecycle:
         - on_initialize
