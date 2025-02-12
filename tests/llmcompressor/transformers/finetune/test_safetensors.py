@@ -22,7 +22,7 @@ class TestSafetensors(unittest.TestCase):
         self.output = Path("./finetune_output")
 
     def test_safetensors(self):
-        from llmcompressor.transformers import train
+        from llmcompressor import train
 
         device = "cuda:0"
         output_dir = self.output / "output1"
