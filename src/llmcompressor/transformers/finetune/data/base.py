@@ -97,6 +97,7 @@ class TextGenerationDataset(RegistryMixin):
                 self.preprocess,
                 batched=False,
                 num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Preprocessing",
             )
             logger.debug(f"Dataset after preprocessing: {get_columns(dataset)}")

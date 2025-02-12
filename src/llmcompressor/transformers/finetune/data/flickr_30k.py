@@ -55,14 +55,21 @@ class Flickr30K(TextGenerationDataset):
                 "role": "user",
                 "content": [
                     {"type": "image"},
-                    {"type": "text", "text": "What does the image show?"},
+                    {"type": "text", "text": "What does this image show?"},
                 ],
-            }
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": " ".join(sample["caption"])},
+                ],
+            },
         ]
+
         return {
             "text": self.processor.apply_chat_template(
                 messages,
-                add_generation_prompt=True,
+                add_generation_prompt=False,
             ),
             "images": sample["image"],
         }
