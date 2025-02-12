@@ -3,6 +3,7 @@ import re
 import shutil
 from pathlib import Path
 
+import pandas as pd
 import pytest
 import yaml
 from huggingface_hub import HfApi
@@ -12,6 +13,7 @@ from parameterized import parameterized_class
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
+from tests.test_timer.timer_utils import get_singleton_manager, log_time
 
 try:
     from vllm import LLM, SamplingParams
@@ -75,8 +77,11 @@ class TestvLLM:
         self.save_dir = eval_config.get("save_dir")
         self.save_compressed = eval_config.get("save_compressed", True)
 
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+
         logger.info("========== RUNNING ==============")
-        logger.info(self.scheme)
+        logger.info(self.save_dir)
 
         self.device = "cuda:0"
         self.num_calibration_samples = 256
@@ -90,7 +95,6 @@ class TestvLLM:
 
     def test_vllm(self):
         # Run vLLM with saved model
-        import torch
 
         self.set_up()
         if not self.save_dir:
@@ -112,10 +116,8 @@ class TestvLLM:
         self._check_session_contains_recipe()
 
         logger.info("================= SAVING TO DISK ======================")
-        oneshot_model.save_pretrained(
-            self.save_dir, save_compressed=self.save_compressed
-        )
-        tokenizer.save_pretrained(self.save_dir)
+        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
         # check that expected files exist
@@ -148,13 +150,7 @@ class TestvLLM:
 
         logger.info("================= RUNNING vLLM =========================")
 
-        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm = LLM(model=self.save_dir, dtype=torch.float16)
-        else:
-            llm = LLM(model=self.save_dir)
-        outputs = llm.generate(self.prompts, sampling_params)
+        outputs = self._run_vllm()
 
         logger.info("================= vLLM GENERATION ======================")
         for output in outputs:
@@ -172,6 +168,36 @@ class TestvLLM:
     def tear_down(self):
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
+
+        timer = get_singleton_manager()
+        # fetch dictionary of measurements, where keys are func names
+        # and values are the time it took to run the method
+        # Should be 4 key/values per test case, for each of the 4 methods being timed
+        measurements = timer.measurements
+        # use some library to save the values to disk or fetch the
+        # the measurements in some other way
+        df = pd.DataFrame(measurements)
+        df.to_csv(f"{self.save_dir}.csv")
+
+    @log_time
+    def _save_compressed_model(self, oneshot_model, tokenizer):
+        oneshot_model.save_pretrained(
+            self.save_dir, save_compressed=self.save_compressed
+        )
+        tokenizer.save_pretrained(self.save_dir)
+
+    @log_time
+    def _run_vllm(self):
+        import torch
+
+        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
+        if "W4A16_2of4" in self.scheme:
+            # required by the kernel
+            llm = LLM(model=self.save_dir, dtype=torch.float16)
+        else:
+            llm = LLM(model=self.save_dir)
+        outputs = llm.generate(self.prompts, sampling_params)
+        return outputs
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
