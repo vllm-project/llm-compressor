@@ -12,7 +12,8 @@ from parameterized import parameterized_class
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
-from test.timer.timer_utils import log_time, get_singleton_manager
+from tests.test_timer.timer_utils import log_time, get_singleton_manager
+import pandas as pd
 
 try:
     from vllm import LLM, SamplingParams
@@ -113,7 +114,7 @@ class TestvLLM:
         self._check_session_contains_recipe()
 
         logger.info("================= SAVING TO DISK ======================")
-        _save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
 
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
@@ -129,7 +130,6 @@ class TestvLLM:
         session.reset()
 
         if SKIP_HF_UPLOAD.lower() != "yes":
-
             logger.info("================= UPLOADING TO HUB ======================")
 
             stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
@@ -168,11 +168,11 @@ class TestvLLM:
             shutil.rmtree(self.save_dir)
 
         timer = get_singleton_manager()
-        # fetch dictionary of measurements, where keys are func names 
+        # fetch dictionary of measurements, where keys are func names
         # and values are the time it took to run the method
         # Should be 4 key/values per test case, for each of the 4 methods being timed
         measurements = timer.measurements
-        # use some library to save the values to disk or fetch the 
+        # use some library to save the values to disk or fetch the
         # the measurements in some other way
         df = pd.DataFrame(measurements)
         df.to_csv(f"{self.save_dir}.csv")
@@ -184,7 +184,6 @@ class TestvLLM:
         )
         tokenizer.save_pretrained(self.save_dir)
 
-    
     @log_time
     def _run_vllm(self):
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
@@ -195,7 +194,6 @@ class TestvLLM:
             llm = LLM(model=self.save_dir)
         outputs = llm.generate(self.prompts, sampling_params)
         return outputs
-
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
