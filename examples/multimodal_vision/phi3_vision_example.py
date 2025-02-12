@@ -1,3 +1,6 @@
+# NOTE: this model requires modification in order to work with transformers>4.48
+# https://huggingface.co/microsoft/Phi-3-vision-128k-instruct/discussions/69
+
 import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
