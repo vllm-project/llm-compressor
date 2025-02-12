@@ -12,7 +12,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class Timer:
     """Timer to log timings during inference requests. Should be used through
-    timings.utils.get_singleton_manager()
+    timer_utils.get_singleton_manager()
     """
 
     _instance = None

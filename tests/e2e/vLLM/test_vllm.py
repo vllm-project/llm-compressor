@@ -3,6 +3,7 @@ import re
 import shutil
 from pathlib import Path
 
+import pandas as pd
 import pytest
 import yaml
 from huggingface_hub import HfApi
@@ -12,8 +13,7 @@ from parameterized import parameterized_class
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
-from tests.test_timer.timer_utils import log_time, get_singleton_manager
-import pandas as pd
+from tests.test_timer.timer_utils import get_singleton_manager, log_time
 
 try:
     from vllm import LLM, SamplingParams
@@ -92,7 +92,6 @@ class TestvLLM:
 
     def test_vllm(self):
         # Run vLLM with saved model
-        import torch
 
         self.set_up()
         if not self.save_dir:
@@ -186,6 +185,8 @@ class TestvLLM:
 
     @log_time
     def _run_vllm(self):
+        import torch
+
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         if "W4A16_2of4" in self.scheme:
             # required by the kernel
