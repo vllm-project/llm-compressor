@@ -54,7 +54,7 @@ def preprocess_and_tokenize(example):
         },
     ]
     text = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
+        messages, tokenize=False, add_generation_prompt=False
     )
     image_inputs, video_inputs = process_vision_info(messages)
 
