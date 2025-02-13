@@ -1,0 +1,15 @@
+cadence: weekly
+model: Qwen/Qwen2-VL-2B-Instruct
+model_type: qwen2_vl
+scheme: FP8_DYNAMIC
+lmeval:
+  model: "hf-multimodal"
+  model_args:
+    dtype: bfloat16
+    add_bos_token: True
+    convert_img_format: True
+  task: mmmu_val_economics
+  num_fewshot: 0
+  limit: 10
+  metrics:
+    acc,none: 0.3
