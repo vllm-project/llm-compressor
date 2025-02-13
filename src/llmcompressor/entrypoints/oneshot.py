@@ -41,7 +41,7 @@ class Oneshot:
         - `recipe_args`: Arguments for defining and configuring recipes that specify
           optimization actions.
 
-        Parsers are defined in `src/llmcompressor/transformers/utils/arg_parser`.
+        Parsers are defined in `src/llmcompressor/args/`.
 
     - **Lifecycle Overview:**
         The calibration lifecycle consists of three steps:

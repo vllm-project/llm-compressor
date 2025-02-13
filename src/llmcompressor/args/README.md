@@ -24,7 +24,7 @@ oneshot(
 
 These input arguments can be overloaded into the function signature and will be parsed using Hugging Face's [argument parser](https://github.com/huggingface/transformers/blob/main/src/transformers/hf_argparser.py). The parsers define the acceptable inputs; therefore any arguments to be passed in must be defined.
 
-`llm-compressor` uses four parsers, located in `llm_compressor/arg_parser`:
+`llm-compressor` uses four parsers, located in `llm_compressor/args`:
 * ModelArguments
 * DatasetArguments
 * RecipeArguments
