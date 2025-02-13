@@ -28,6 +28,7 @@ def sample_cache(sample_dataloader):
     )
 
 
+@pytest.mark.unit
 def test_initialization(sample_dataloader):
     cache = IntermediatesCache.from_dataloader(
         dataloader=sample_dataloader,
@@ -40,6 +41,7 @@ def test_initialization(sample_dataloader):
     assert isinstance(cache.batch_intermediates[0], dict)
 
 
+@pytest.mark.unit
 def test_fetch_inputs(sample_cache):
     fetched = sample_cache.fetch(0, ["input_ids", "attention_mask"])
 
@@ -50,6 +52,7 @@ def test_fetch_inputs(sample_cache):
     assert isinstance(fetched["attention_mask"], torch.Tensor)
 
 
+@pytest.mark.unit
 def test_update_intermediates(sample_cache):
     new_outputs = {
         "hidden_states": torch.randn(2, 4, 768),
@@ -63,6 +66,7 @@ def test_update_intermediates(sample_cache):
     assert "logits" in sample_cache.batch_intermediates[0]
 
 
+@pytest.mark.unit
 def test_delete_intermediates(sample_cache):
     # First add some intermediates
     new_outputs = {
@@ -78,6 +82,7 @@ def test_delete_intermediates(sample_cache):
     assert "logits" in sample_cache.batch_intermediates[0]
 
 
+@pytest.mark.unit
 def test_mask_padding():
     input_ids = torch.tensor([[1, 2, 3, 0], [4, 5, 6, 0]])
     attention_mask = torch.tensor([[1, 1, 1, 0], [1, 1, 1, 0]])
@@ -89,6 +94,7 @@ def test_mask_padding():
     assert torch.equal(masked, expected)
 
 
+@pytest.mark.unit
 def test_offload_and_onload_tensor():
     cache = IntermediatesCache([], torch.device("cpu"))
 
@@ -111,6 +117,7 @@ class SampleDataclass:
     b: int
 
 
+@pytest.mark.unit
 def test_offload_and_onload_dataclass():
     cache = IntermediatesCache([], torch.device("cpu"))
 
@@ -129,6 +136,24 @@ def test_offload_and_onload_dataclass():
     assert onloaded == sample_data
 
 
+@pytest.mark.unit
+def test_offload_and_onload_dtype():
+    cache = IntermediatesCache([], torch.device("cpu"))
+
+    # Create a sample dataclass instance
+    sample_data = torch.float32
+
+    # Test dataclass offloading
+    offloaded = cache._offload_value(sample_data)
+    assert isinstance(offloaded, IntermediateValue)
+    assert isinstance(offloaded.value, torch.dtype)
+
+    # Test dataclass onloading
+    onloaded = cache._onload_value(offloaded)
+    assert onloaded == sample_data
+
+
+@pytest.mark.unit
 def test_4d_attention_mask():
     input_ids = torch.tensor([[1, 2, 3, 0]])
     attention_mask = torch.ones(1, 1, 1, 4)  # 4D attention mask
@@ -140,6 +165,7 @@ def test_4d_attention_mask():
     assert torch.equal(masked, expected)
 
 
+@pytest.mark.unit
 def test_device_handling(sample_dataloader):
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available")
