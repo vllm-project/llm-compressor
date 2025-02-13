@@ -93,7 +93,7 @@ oneshot(
 )
 ```
 
-### Saving the Compressed Model
+3. **Save the Compressed Model**
 
 The compressed model and tokenizer are saved to the output directory:
 
@@ -105,17 +105,6 @@ tokenizer.save_pretrained(save_dir)
 Output Directories:
 - Without FP8: `Meta-Llama-3-8B-Instruct-2of4-sparse`
 - With FP8: `Meta-Llama-3-8B-Instruct-2of4-W8A8-FP8-Dynamic-Per-Token`
-
-#### Saving Without Sparse Compression
-
-To save the model on disk without sparse compression:
-
-```python
-model.save_pretrained(save_dir, save_compressed=True, disable_sparse_compression=True)
-tokenizer.save_pretrained(save_dir)
-```
-
-> **Note:** Saving a model with both the `save_compressed` and `disable_sparse_compression` options will compress the model using the quantization compressor; however, instead of using the more disk-efficient sparsity compressor(s), the dense sparsity compressor will be used. The `dense` sparsity compressor saves model params as is, and does not leverage sparsity for disk-efficient storage. These options only affect how the model(s) are saved on disk and do not impact the actual pruning or quantization processes.
 
 ### Validation
 

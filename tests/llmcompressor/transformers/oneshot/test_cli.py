@@ -49,7 +49,6 @@ class TestOneShotCli(unittest.TestCase):
         if len(self.additional_args) > 0:
             cmd.extend(self.additional_args)
         res = run_cli_command(cmd)
-
         self.assertEqual(res.returncode, 0)
         print(res.stdout)
 

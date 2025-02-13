@@ -135,8 +135,7 @@ def preprocess_tokenize_dataset(
     :param tokenizer: tokenizer to be used for tokenization
     :param max_seq_length: maximum sequence length of samples
     """
-    ds_name = ds.info.dataset_name.lower()
-    if ds_name == "gsm8k":
+    if ds.info.dataset_name == "gsm8k":
 
         def preprocess(example):
             return example
@@ -149,8 +148,7 @@ def preprocess_tokenize_dataset(
                 truncation=True,
                 add_special_tokens=False,
             )
-
-    elif ds_name == "ultrachat_200k":
+    elif ds.info.dataset_name == "ultrachat_200k":
 
         def preprocess(example):
             return {
@@ -168,69 +166,6 @@ def preprocess_tokenize_dataset(
                 truncation=True,
                 add_special_tokens=False,
             )
-
-    elif ds_name == "llm_compression_calibration":
-
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["text"],
-                    tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
-                padding=False,
-                max_length=max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
-    elif ds_name == "open-platypus":
-        # use the output rather than the instruction
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["output"],
-                    tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
-                padding=False,
-                max_length=max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
-    elif ds_name == "slimorca-deduped-cleaned-corrected":
-        # find the first element corresponding to a message from a human
-        def preprocess(example):
-            conversation_idx = 0
-            for idx, conversation in enumerate(example["conversations"]):
-                if conversation["from"] == "human":
-                    conversation_idx = idx
-                    break
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["conversations"][conversation_idx]["value"],
-                    tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
-                padding=False,
-                max_length=max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
     else:
         raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
 

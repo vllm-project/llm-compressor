@@ -42,7 +42,7 @@ class GPTQModifier(Modifier, HooksMixin):
 
     | Sample yaml:
     | test_stage:
-    |    obcq_modifiers:
+    |    modifiers:
     |      GPTQModifier:
     |          block_size: 128
     |          dampening_frac: 0.001

@@ -1,5 +1,5 @@
 test_stage:
-  obcq_modifiers:
+  modifiers:
     QuantizationModifier:
       config_groups:
         group_0:
@@ -11,6 +11,7 @@ test_stage:
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128
+      sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
       targets: [

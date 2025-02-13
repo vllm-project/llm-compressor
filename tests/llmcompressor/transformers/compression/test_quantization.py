@@ -10,10 +10,10 @@ from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
-from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/compression/configs"
@@ -74,6 +74,7 @@ class TestQuantizationMatches(unittest.TestCase):
         )
         from llmcompressor.pytorch.model_load.helpers import get_session_model
 
+        # note: get_session_model() is None outside of function scope
         return get_session_model()
 
     def _get_quant_info(self, model):
@@ -146,7 +147,7 @@ class TestQuantizationMatches(unittest.TestCase):
     @torch.no_grad()
     def test_perplexity(self):
         tokenizer = AutoTokenizer.from_pretrained(self.model_stub)
-        data_args = DatasetArguments(
+        data_args = DataTrainingArguments(
             dataset="ultrachat-200k",
             max_seq_length=self.max_seq_length,
         )

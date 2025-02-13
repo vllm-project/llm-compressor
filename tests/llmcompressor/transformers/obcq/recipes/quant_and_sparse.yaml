@@ -1,5 +1,5 @@
 test_stage:
-  obcq_modifiers:
+  modifiers:
     SmoothQuantModifier:
       smoothing_strength: 0.5
       mappings: [
@@ -18,6 +18,7 @@ test_stage:
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
+      sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
       targets: ["model.layers.0"]

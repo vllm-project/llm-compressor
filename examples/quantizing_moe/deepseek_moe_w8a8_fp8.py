@@ -4,10 +4,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
-# NOTE: transformers 4.48.0 has an import error with DeepSeek.
-# Please consider either downgrading your transformers version to a
-# previous version or upgrading to a version where this bug is fixed
-
 # select a Mixture of Experts model for quantization
 MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 

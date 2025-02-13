@@ -6,10 +6,11 @@ dataset: "gsm8k"
 dataset_config_name: "main"
 recipe: |
   test_stage:
-    obcq_modifiers:
+    modifiers:
       SparseGPTModifier:
         sparsity: 0.5
         block_size: 128
+        sequential_update: False
         targets: [
           're:model.layers.3.mlp.gate_proj.weight'
         ]

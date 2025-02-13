@@ -68,10 +68,7 @@ def copy_and_run_command(
 
 
 def copy_and_run_script(
-    tmp_path: Path,
-    example_dir: str,
-    script_filename: str,
-    flags: Optional[list[str]] = None,
+    tmp_path: Path, example_dir: str, script_filename: str
 ) -> Tuple[List[str], CompletedProcess[str]]:
     """
     Copies the contents of example_dir (relative to the current working directory) to
@@ -84,8 +81,6 @@ def copy_and_run_script(
     :return: subprocess.CompletedProcess object
     """
     command = [sys.executable, script_filename]
-    if flags:
-        command.extend(flags)
     return command, copy_and_run_command(tmp_path, example_dir, command)
 
 

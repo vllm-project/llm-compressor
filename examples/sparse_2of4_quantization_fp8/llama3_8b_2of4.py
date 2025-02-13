@@ -3,8 +3,7 @@ import argparse
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.modifiers.obcq import SparseGPTModifier
-from llmcompressor.modifiers.pruning import ConstantPruningModifier
+from llmcompressor.modifiers.pruning import ConstantPruningModifier, SparseGPTModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
@@ -116,7 +115,5 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n")
 
 # Save compressed model and tokenizer
-model.save_pretrained(
-    save_dir, save_compressed=args.fp8, disable_sparse_compression=True
-)
+model.save_pretrained(save_dir, save_compressed=args.fp8)
 tokenizer.save_pretrained(save_dir)

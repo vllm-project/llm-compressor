@@ -45,7 +45,7 @@ See [configure_fsdp.md](../../../../examples/finetuning/configure_fsdp.md) for a
 ```python
 from llmcompressor.transformers import train
 
-model = "./obcq_deployment"
+model = "./model_path"
 teacher_model = "Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
@@ -74,10 +74,9 @@ train(
 
 Finetuning arguments are split up into 3 groups:
 
-* ModelArguments: `src/llmcompressor/transformers/utils/arg_parser/model_arguments.py`
-* TrainingArguments: `src/llmcompressor/transformers/utils/arg_parser/training_arguments.py`
-* DatasetArguments: `src/llmcompressor/transformers/utils/arg_parser/dataset_arguments.py`
-* RecipeArguments: `src/llmcompressor/transformers/utils/arg_parser/recipe_arguments.py`
+* ModelArguments: `src/llmcompressor/transformers/finetune/model_args.py`
+* TrainingArguments: `src/llmcompressor/transformers/finetune/training_args.py`
+* DataTrainingArguments: `src/llmcompressor/transformers/finetune/data/data_training_args.py`
 
 
 ## Running One-Shot with FSDP

@@ -37,7 +37,7 @@ def test_min_max_observer(symmetric, expected_scale, expected_zero_point):
     num_bits = 8
     weights = QuantizationArgs(num_bits=num_bits, symmetric=symmetric)
 
-    observer = weights.observer
+    observer = weights.get_observer()
     observer = Observer.load_from_registry(observer, quantization_args=weights)
     scale, zero_point = observer(tensor)
 
@@ -52,7 +52,7 @@ def test_min_max_observer_symmetric_scale_range():
     num_bits = 8
     weights = QuantizationArgs(num_bits=num_bits, symmetric=True)
 
-    observer = weights.observer
+    observer = weights.get_observer()
     observer = Observer.load_from_registry(observer, quantization_args=weights)
     scale, zero_point = observer(tensor)
 
@@ -80,7 +80,7 @@ def test_min_max_observer_value_update():
     tensor = inp
     num_bits = 8
     weights = QuantizationArgs(num_bits=num_bits, symmetric=True)
-    observer = weights.observer
+    observer = weights.get_observer()
     observer = Observer.load_from_registry(observer, quantization_args=weights)
     curr_max = 1
     curr_min = 1
@@ -107,7 +107,7 @@ def test_g_idx():
     weights = QuantizationArgs(num_bits=8, group_size=group_size)
     g_idx = make_dummy_g_idx(tensor.shape[1], group_size)
 
-    observer = weights.observer
+    observer = weights.get_observer()
     observer = Observer.load_from_registry(observer, quantization_args=weights)
     scale_g_idx, zero_point_g_idx = observer(tensor, g_idx=g_idx)
 

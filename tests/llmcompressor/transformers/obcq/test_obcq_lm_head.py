@@ -1,10 +1,6 @@
 import unittest
-from unittest.mock import MagicMock
 
 import pytest
-
-from llmcompressor.core.state import State
-from llmcompressor.modifiers.obcq import SparseGPTModifier
 
 
 @pytest.mark.integration
@@ -18,7 +14,6 @@ class TestLMHead(unittest.TestCase):
         self.model = AutoModelForCausalLM.from_pretrained(
             "Xenova/llama2.c-stories15M", device_map=self.device
         )
-
         self.kwargs = {
             "sparsity": 0.5,
             "block_size": 128,
@@ -33,31 +28,21 @@ class TestLMHead(unittest.TestCase):
             ],
         }
 
-        dataset = MagicMock()
-        dataset.column_names = []
-        self.dataloader = MagicMock()
-        self.dataloader.dataset = dataset
-        self.dataloader.__iter__.return_value = iter([])
-
-    def test_no_lm_head_target(self):
-        modifier = SparseGPTModifier(**self.kwargs)
-
-        state = State()
-        state.update(model=self.model, device=self.device, calib_data=self.dataloader)
-        modifier.on_initialize(state)
-
-        assert len(self.model.lm_head._forward_hooks) <= 0
-
-        modifier.finalize(state)
-
     def test_lm_head_target(self):
-        self.kwargs["targets"].append("lm_head")
-        modifier = SparseGPTModifier(**self.kwargs)
+        from llmcompressor.core.state import State
+        from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
+
+        sparsegpt_modifier_no_head = SparseGPTModifier(**self.kwargs)
 
         state = State()
-        state.update(model=self.model, device=self.device, calib_data=self.dataloader)
-        modifier.on_initialize(state)
+        state.update(model=self.model, device=self.device)
+        sparsegpt_modifier_no_head.initialize_compression(state.model)
 
-        assert len(self.model.lm_head._forward_hooks) == 1
+        self.kwargs["targets"].append("lm_head")
+        sparsegpt_modifier_head = SparseGPTModifier(**self.kwargs)
+        sparsegpt_modifier_head.initialize_compression(state.model)
 
-        modifier.finalize(state)
+        # check we pick up the lm_head layer
+        layers_no_head = len(sparsegpt_modifier_no_head.compressible_layers_)
+        layers_head = len(sparsegpt_modifier_head.compressible_layers_)
+        self.assertEqual(layers_head, layers_no_head + 1)

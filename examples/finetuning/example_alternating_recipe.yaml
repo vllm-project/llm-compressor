@@ -1,13 +1,15 @@
 initial_sparsity_stage:
   run_type: oneshot
-  obcq_modifiers:
+  modifiers:
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
+      sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-      targets: ["Linear"]
-      ignore: ["re:.*lm_head"]
+      targets: [
+        "re:model.layers.\\d+$"
+      ]
 initial_training_stage:
   run_type: train
   pruning_modifiers:
@@ -16,14 +18,16 @@ initial_training_stage:
       start: 0
 next_sparsity_stage:
   run_type: oneshot
-  obcq_modifiers:
+  modifiers:
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128
+      sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-      targets: ["Linear"]
-      ignore: ["re:.*lm_head"]
+      targets: [
+        "re:model.layers.\\d+$"
+      ]
 next_training_stage:
   run_type: train
   pruning_modifiers:

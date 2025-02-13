@@ -4,8 +4,7 @@ sparsity_stage:
     SparseGPTModifier:
       sparsity: 0.5
       mask_structure: "2:4"
-      targets: ["Linear"]
-      ignore: ["re:.*lm_head"]
+      sequential_update: false
 quantization_stage:
   run_type: oneshot
   quantization_modifiers:

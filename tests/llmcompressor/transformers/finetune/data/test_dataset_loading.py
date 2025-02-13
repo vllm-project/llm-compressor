@@ -5,13 +5,12 @@ import torch
 from datasets import IterableDataset, load_dataset
 from parameterized import parameterized
 
-from llmcompressor.args import (
-    DatasetArguments,
+from llmcompressor.transformers import (
+    DataTrainingArguments,
     ModelArguments,
-    RecipeArguments,
+    TextGenerationDataset,
     TrainingArguments,
 )
-from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.transformers.finetune.data.data_helpers import (
     format_calibration_data,
 )
@@ -21,7 +20,7 @@ from llmcompressor.transformers.finetune.runner import StageRunner
 @pytest.mark.unit
 class TestConcentrationTokenization(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.data_args = DataTrainingArguments(
             dataset="wikitext",
             dataset_config_name="wikitext-2-raw-v1",
             concatenate_data=True,
@@ -54,7 +53,7 @@ class TestConcentrationTokenization(unittest.TestCase):
 @pytest.mark.unit
 class TestNoPaddingTokenization(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.data_args = DataTrainingArguments(
             dataset="open_platypus", pad_to_max_length=False
         )
 
@@ -97,7 +96,9 @@ class TestNoPaddingTokenization(unittest.TestCase):
 @pytest.mark.unit
 class TestMaxSeqLenClipped(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(dataset="open_platypus", max_seq_length=4096)
+        self.data_args = DataTrainingArguments(
+            dataset="open_platypus", max_seq_length=4096
+        )
 
     @pytest.fixture(autouse=True)
     def prepare_fixture(self, tiny_llama_tokenizer):
@@ -119,7 +120,7 @@ class TestMaxSeqLenClipped(unittest.TestCase):
 @pytest.mark.unit
 class TestDatasetKwargsAndPercent(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.data_args = DataTrainingArguments(
             dataset="wikitext",
             raw_kwargs={
                 "data_files": {
@@ -166,7 +167,7 @@ class TestDatasets(unittest.TestCase):
         ]
     )
     def test_datasets(self, dataset_key, dataset_config, split, do_concat):
-        data_args = DatasetArguments(
+        data_args = DataTrainingArguments(
             dataset=dataset_key,
             dataset_config_name=dataset_config,
             concatenate_data=do_concat,
@@ -205,7 +206,7 @@ class TestEvol(unittest.TestCase):
         self.tiny_llama_tokenizer = tiny_llama_tokenizer
 
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.data_args = DataTrainingArguments(
             dataset="evolcodealpaca",
             dataset_config_name=None,
             concatenate_data=False,
@@ -234,7 +235,7 @@ class TestEvol(unittest.TestCase):
 @pytest.mark.unit
 class TestStreamLoading(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.data_args = DataTrainingArguments(
             dataset="wikitext",
             dataset_config_name="wikitext-2-raw-v1",
             concatenate_data=True,
@@ -275,19 +276,15 @@ class TestSplitLoading(unittest.TestCase):
         [["train"], ["train[60%:]"], [{"train": "train[:20%]"}], [None]]
     )
     def test_split_loading(self, split_def):
-        data_args = DatasetArguments(
+        data_args = DataTrainingArguments(
             dataset="open_platypus",
             splits=split_def,
             trust_remote_code_data=True,
         )
         training_args = TrainingArguments(do_train=True, output_dir="dummy")
         model_args = ModelArguments(model=None)
-        recipe_args = RecipeArguments()
         stage_runner = StageRunner(
-            model_args=model_args,
-            data_args=data_args,
-            training_args=training_args,
-            recipe_args=recipe_args,
+            model_args=model_args, data_args=data_args, training_args=training_args
         )
         stage_runner.populate_datasets(processor=self.tiny_llama_tokenizer)
 
@@ -321,11 +318,10 @@ class TestTokenizationDataset(unittest.TestCase):
         )
         stage_runner = StageRunner(
             model_args=None,
-            data_args=DatasetArguments(
+            data_args=DataTrainingArguments(
                 dataset=tokenized_dataset, shuffle_calibration_samples=False
             ),
             training_args=TrainingArguments(do_oneshot=True),
-            recipe_args=RecipeArguments(),
         )
         stage_runner.populate_datasets(processor=None)
         calib_dataset = stage_runner.get_dataset_split("calibration")

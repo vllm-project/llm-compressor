@@ -22,11 +22,13 @@ class TestOBCQCompletion(unittest.TestCase):
         from torch.utils.data import DataLoader
         from transformers import AutoTokenizer, DefaultDataCollator
 
-        from llmcompressor.args import DatasetArguments
         from llmcompressor.transformers.finetune.data import TextGenerationDataset
+        from llmcompressor.transformers.finetune.data.data_args import (
+            DataTrainingArguments,
+        )
 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        data_args = DatasetArguments(
+        data_args = DataTrainingArguments(
             dataset=dataset_name,
             max_seq_length=512,
             pad_to_max_length=False,

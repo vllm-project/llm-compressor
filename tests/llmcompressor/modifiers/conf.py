@@ -1,7 +1,3 @@
-from unittest.mock import MagicMock
-
-from torch.utils.data import DataLoader
-
 from llmcompressor.core import State
 from llmcompressor.core.events import EventType
 from llmcompressor.core.lifecycle import CallbacksEventLifecycle
@@ -28,7 +24,7 @@ class LifecyleTestingHarness:
             optimizer=optimizer,
             start=start,
             steps_per_epoch=1,
-            calib_data=DataLoader(MagicMock(__len__=lambda _: 0, column_names=[])),
+            calib_data=[],
         )
 
         self.event_lifecycle = CallbacksEventLifecycle(

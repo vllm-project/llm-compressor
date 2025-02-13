@@ -1,4 +1,5 @@
-from typing import Dict, Tuple
+import contextlib
+from typing import Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.utils import (
@@ -12,34 +13,37 @@ from pydantic import PrivateAttr
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.sparsegpt.sgpt_mixin import SparsityModifierMixin
-from llmcompressor.modifiers.pruning.wanda.wanda_sparsify import (
-    accumulate_row_scalars,
-    make_empty_row_scalars,
+from llmcompressor.modifiers.pruning.sparsegpt.sgpt_sparsify import (
+    accumulate_hessian,
+    make_empty_hessian,
     sparsify_weight,
 )
 from llmcompressor.utils.metric_logging import CompressionLogger
 
-__all__ = ["WandaPruningModifier"]
+__all__ = ["SparseGPTModifier"]
 
 
-class WandaPruningModifier(SparsityModifierMixin, Modifier):
+class SparseGPTModifier(SparsityModifierMixin, Modifier):
     """
-    Modifier for applying the one-shot WANDA algorithm to a model
-    from the paper: https://arxiv.org/abs/2306.11695
+    Modifier for applying the one-shot SparseGPT algorithm to a model
 
     | Sample yaml:
     |   test_stage:
-    |       sparsity_modifiers:
-    |           WandaPruningModifier:
+    |       modifiers:
+    |           SparseGPTModifier:
     |               sparsity: 0.5
     |               mask_structure: "2:4"
+    |               dampening_frac: 0.001
+    |               block_size: 128
+    |               targets: ['Linear']
+    |               ignore: ['re:.*lm_head']
 
     Lifecycle:
         - on_initialize
             - register_hook(module, calibrate_module, "forward")
             - run_sequential / run_layer_sequential / run_basic
-                - make_empty_row_scalars
-                - accumulate_row_scalars
+                - make_empty_hessian
+                - accumulate_hessian
         - on_sequential_batch_end
             - sparsify_weight
         - on_finalize
@@ -54,6 +58,14 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
         shape. Defaults to 0:0 which represents an unstructured mask.
     :param owl_m: Number of outliers to use for OWL
     :param owl_lmbda: Lambda value to use for OWL
+    :param block_size: Used to determine number of columns to compress in one pass
+    :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
+        diagonal norm
+    :param preserve_sparsity_mask: Whether or not to preserve the sparsity mask
+        during when applying sparsegpt, this becomes useful when starting from a
+        previously pruned model, defaults to False.
+    :param offload_hessians: Set to True for decreased memory usage but increased
+        runtime.
     :param sequential_targets: list of layer names to compress during OBCQ, or '__ALL__'
         to compress every layer in the model. Alias for `targets`
     :param targets: list of layer names to compress during OBCQ, or '__ALL__'
@@ -62,11 +74,15 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
         quantize even if they match a target. Defaults to empty list.
     """
 
+    # modifier arguments
+    block_size: int = 128
+    dampening_frac: Optional[float] = 0.01
+    preserve_sparsity_mask: bool = False
+    offload_hessians: bool = False
+
     # private variables
-    _row_scalars: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
-        default_factory=dict
-    )
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
 
     def calibrate_module(
         self,
@@ -77,26 +93,26 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
         # Assume that the first argument is the input
         inp = args[0]
 
-        # Initialize row scalars if not present
+        # Initialize hessian if not present
         if module not in self._num_samples:
             device = get_execution_device(module)
-            self._row_scalars[module] = make_empty_row_scalars(module, device=device)
+            self._hessians[module] = make_empty_hessian(module, device=device)
             self._num_samples[module] = 0
 
-        # Accumulate scalars using data
-        self._row_scalars[module], self._num_samples[module] = accumulate_row_scalars(
-            inp,
-            module,
-            self._row_scalars[module],
-            self._num_samples[module],
-        )
+        # Accumulate hessian with input with optional offloading
+        with self._maybe_onload_hessian(module):
+            self._hessians[module], self._num_samples[module] = accumulate_hessian(
+                inp,
+                module,
+                self._hessians[module],
+                self._num_samples[module],
+            )
 
     def on_sequential_batch_end(self):
         """
         Sparsify modules
         TODO: implement with event callback
         """
-
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
@@ -106,24 +122,40 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
             with (
                 torch.no_grad(),
                 align_module_device(module),
-                CompressionLogger(module),
+                CompressionLogger(module) as comp_logger,
             ):
-                sparsified_weight = sparsify_weight(
+                loss, sparsified_weight = sparsify_weight(
                     module=module,
-                    row_scalars_dict=self._row_scalars,
+                    hessians_dict=self._hessians,
                     sparsity=sparsity,
                     prune_n=self._prune_n,
                     prune_m=self._prune_m,
+                    block_size=self.block_size,
+                    dampening_frac=self.dampening_frac,
+                    preserve_sparsity_mask=self.preserve_sparsity_mask,
                 )
+                comp_logger.set_loss(loss)
 
             update_offload_parameter(module, "weight", sparsified_weight)
 
-            # self._row_scalars[module] already deleted by sparsify_weight
+            # self._hessians[module] already deleted by sparsify_weight
             del self._num_samples[module]
+
+    @contextlib.contextmanager
+    def _maybe_onload_hessian(self, module: torch.nn.Module):
+        if self.offload_hessians:
+            device = get_execution_device(module)
+            self._hessians[module] = self._hessians[module].to(device=device)
+
+        yield
+
+        if self.offload_hessians:
+            if module in self._hessians:  # may have been deleted in context
+                self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         self.remove_hooks()
-        self._row_scalars = dict()
+        self._hessians = dict()
         self._num_samples = dict()
         self._module_names = dict()
         self._module_sparsities = dict()

@@ -3,7 +3,7 @@ import unittest
 import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
-from llmcompressor.modifiers.obcq.base import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt.base import SparseGPTModifier
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 

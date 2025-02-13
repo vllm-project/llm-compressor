@@ -1,8 +1,9 @@
 test_stage:
-  obcq_modifiers:
+  modifiers:
     SparseGPTModifier:
       sparsity: 0.5
       block_size: 128
+      sequential_update: False
       percdamp: 0.01
       mask_structure: "2:4"
       targets: [
