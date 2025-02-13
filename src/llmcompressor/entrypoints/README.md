@@ -24,9 +24,9 @@ PTQ is performed to reduce the precision of quantizable weights (e.g., linear la
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
 
 #### 2:4-Sparsity with FP8 Weight, FP8 Input Activation
-- Uses 1. semi-structured sparsity, where for every four contiguous weights in a tensor, two are set to zero. 
-- Useful for efficiently computing sparse matrix multiplications using NVIDIA Sparse Tensor Cores. To preserve as much accuracy from the base model, usually a sparse-finetune step is added. 
-- Recommended for NVIDIA architecture from Amphere onwards, supported on GPUs with Sparse Tensor Cores
+- Uses (1) semi-structured sparsity, where, for every four contiguous weights in a tensor, two are set to zero. (2) Uses channel-wise quantization to compress weights to 8 bits and dynamic per-token quantization to compress activations to 8 bits.
+- Useful for better inference than W8A8-fp8, with almost no drop in accuracy (blog)[https://neuralmagic.com/blog/24-sparse-llama-fp8-sota-performance-for-nvidia-hopper-gpus/]. Note: Small models may experience accuracy drops when the remaining non-zero weights are insufficient to encapsulate the original distribution.
+- Recommended for compute capability >8.9 (Hopper and Ada Lovelace).
 
 ## Code
 
