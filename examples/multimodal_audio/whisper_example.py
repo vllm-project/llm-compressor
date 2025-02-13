@@ -12,7 +12,7 @@ MODEL_ID = "openai/whisper-large-v2"
 model = TraceableWhisperForConditionalGeneration.from_pretrained(
     MODEL_ID,
     device_map="auto",
-    torch_dtype="auto",
+    torch_dtype=torch.float32,  # whisper v3 uses float16 weights
 )
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
