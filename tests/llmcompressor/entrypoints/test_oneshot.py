@@ -1,19 +1,10 @@
-from transformers import AutoModelForCausalLM
-
 from llmcompressor import Oneshot
 from llmcompressor.entrypoints.oneshot import parse_oneshot_args
 
 
 def test_oneshot_from_args():
     # Select model and load it.
-    MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        device_map="auto",
-        torch_dtype="auto",
-    )
-
+    model = "meta-llama/Meta-Llama-3-8B-Instruct"
     dataset = "HuggingFaceH4/ultrachat_200k"
 
     NUM_CALIBRATION_SAMPLES = 512

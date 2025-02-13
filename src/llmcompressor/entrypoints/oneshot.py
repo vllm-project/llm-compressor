@@ -145,7 +145,6 @@ class Oneshot:
 
         # Set instance attributes
         instance.model = instance.model_args.model
-        instance.processor = instance.model_args.processor
         instance.recipe = instance.recipe_args.recipe
 
         return instance
@@ -252,6 +251,8 @@ class Oneshot:
             self.model_args.processor = initialize_processor_from_path(
                 self.model_args, self.model_args.model
             )
+            # TODO: Move to init when stagerunner is deleted
+            self.processor = self.model_args.processor
 
         # Set minimum tokens per module if data arguments are provided
         if self.data_args:
