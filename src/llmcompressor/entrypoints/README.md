@@ -23,8 +23,8 @@ PTQ is performed to reduce the precision of quantizable weights (e.g., linear la
 ### Sparsification
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
 
-#### 2:4-Sparsity
-- Uses semi-structured sparsity, where for every four contiguous weights in a tensor, two are set to zero. 
+#### 2:4-Sparsity with FP8 Weight, FP8 Input Activation
+- Uses 1. semi-structured sparsity, where for every four contiguous weights in a tensor, two are set to zero. 
 - Useful for efficiently computing sparse matrix multiplications using NVIDIA Sparse Tensor Cores. To preserve as much accuracy from the base model, usually a sparse-finetune step is added. 
 - Recommended for NVIDIA architecture from Amphere onwards, supported on GPUs with Sparse Tensor Cores
 
