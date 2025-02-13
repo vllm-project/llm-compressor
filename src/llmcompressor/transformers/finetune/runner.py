@@ -122,7 +122,6 @@ class StageRunner:
         self.datasets = make_dataset_splits(
             tokenized_datasets,
             do_train=self._training_args.do_train,
-            do_eval=self._training_args.do_eval,
             do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
@@ -187,17 +186,6 @@ class StageRunner:
 
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
-
-    def evaluate(self):
-        """
-        Run trainer's evaluation loop on eval_dataset, logging the desired metrics
-        """
-        logger.info("*** Evaluate ***")
-        metrics = self.trainer.evaluate(self.get_dataset_split("validation"))
-
-        metrics["eval_samples"] = len(self.get_dataset_split("validation"))
-        self.trainer.log_metrics("eval", metrics)
-        self.trainer.save_metrics("eval", metrics)
 
     def predict(self):
         """
