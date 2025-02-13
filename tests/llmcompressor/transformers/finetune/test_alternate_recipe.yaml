@@ -1,5 +1,5 @@
 test_oneshot_stage:
-  obcq_modifiers:
+  modifiers:
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128
