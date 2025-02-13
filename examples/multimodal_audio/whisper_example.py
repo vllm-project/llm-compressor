@@ -7,12 +7,12 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-large-v2"
+MODEL_ID = "openai/whisper-large-v3"
 
 model = TraceableWhisperForConditionalGeneration.from_pretrained(
     MODEL_ID,
     device_map="auto",
-    torch_dtype=torch.float32,  # whisper v3 uses float16 weights
+    torch_dtype="auto",
 )
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
@@ -52,19 +52,19 @@ ds = ds.map(preprocess, remove_columns=ds.column_names)
 
 # Process inputs.
 def process(sample):
-    audio_inputs = processor(
+    inputs = processor(
         audio=sample["array"],
         sampling_rate=sample["sampling_rate"],
+        text=sample["text"],
+        add_special_tokens=True,
         return_tensors="pt",
     )
 
-    text_inputs = processor(
-        text=sample["text"], add_special_tokens=True, return_tensors="pt"
-    )
-    text_inputs["decoder_input_ids"] = text_inputs["input_ids"]
-    del text_inputs["input_ids"]
+    inputs["input_features"] = inputs["input_features"].to(dtype=model.dtype)
+    inputs["decoder_input_ids"] = inputs["labels"]
+    del inputs["labels"]
 
-    return dict(**audio_inputs, **text_inputs)
+    return inputs
 
 
 ds = ds.map(process, remove_columns=ds.column_names)
