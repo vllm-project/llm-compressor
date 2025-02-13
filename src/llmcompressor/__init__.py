@@ -36,7 +36,6 @@ __all__ = [
 
 from llmcompressor.core.session_functions import (
     active_session,
-    apply,
     callbacks,
     create_session,
     finalize,
@@ -44,3 +43,5 @@ from llmcompressor.core.session_functions import (
     pre_initialize_structure,
     reset_session,
 )
+
+from .entrypoints import Oneshot, oneshot

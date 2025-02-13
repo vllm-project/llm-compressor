@@ -40,7 +40,6 @@ apply(
     model=model,
     dataset=dataset,
     recipe=recipe,
-    bf16=bf16,
     output_dir=output_dir,
     splits=splits,
     max_seq_length=max_seq_length,

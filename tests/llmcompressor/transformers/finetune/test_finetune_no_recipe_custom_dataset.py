@@ -37,7 +37,6 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
             model=self.model,
             dataset=self.file_extension,
             output_dir=self.output,
-            overwrite_output_dir=True,
             recipe=None,
             num_train_epochs=self.num_train_epochs,
             concatenate_data=concatenate_data,
