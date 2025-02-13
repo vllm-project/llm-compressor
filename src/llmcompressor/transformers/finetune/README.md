@@ -43,7 +43,7 @@ See [configure_fsdp.md](../../../../examples/finetuning/configure_fsdp.md) for a
 ## Launching from Python
 
 ```python
-from llmcompressor.transformers import train
+from llmcompressor import train
 
 model = "./obcq_deployment"
 teacher_model = "Xenova/llama2.c-stories15M"
