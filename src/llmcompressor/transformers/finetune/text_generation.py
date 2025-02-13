@@ -18,7 +18,6 @@
 # vllm-project: no copyright
 
 import os
-import warnings
 from pathlib import PosixPath
 from typing import Optional
 
@@ -27,7 +26,6 @@ from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
     AutoProcessor,
-    HfArgumentParser,
     PreTrainedModel,
     set_seed,
 )
@@ -63,106 +61,6 @@ from llmcompressor.transformers.utils.helpers import (
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
-
-
-def train(**kwargs):
-    """
-    CLI entrypoint for running training
-    """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_train = True
-    main(model_args, data_args, recipe_args, training_args)
-
-
-def eval(**kwargs):
-    """
-    CLI entrypoint for running evaluation
-    """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_eval = True
-    main(model_args, data_args, recipe_args, training_args)
-
-
-def oneshot(**kwargs):
-    """
-    CLI entrypoint for running oneshot calibration
-    """
-    # TODO: Get rid of training args when Oneshot refactor comes in
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_oneshot = True
-
-    main(model_args, data_args, recipe_args, training_args)
-
-
-# alias
-one_shot = oneshot
-
-
-def apply(**kwargs):
-    """
-    CLI entrypoint for any of training, eval, predict or oneshot
-    """
-    report_to = kwargs.get("report_to", None)
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-
-    training_args.run_stages = True
-    if report_to is None:  # user didn't specify any reporters
-        # get rid of the reporters inferred from hugging face
-        training_args.report_to = []
-    main(model_args, data_args, recipe_args, training_args)
-
-
-def compress(**kwargs):
-    apply(**kwargs)
-
-
-def parse_args(**kwargs):
-    """
-    Parses kwargs by grouping into model, data or training arg groups:
-        * model_args in
-            src/llmcompressor/transformers/utils/arg_parser/model_args.py
-        * data_args in
-            src/llmcompressor/transformers/utils/arg_parser/data_args.py
-        * recipe_args in
-            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
-        * training_args in
-            src/llmcompressor/transformers/utils/arg_parser/training_args.py
-
-    """
-    parser = HfArgumentParser(
-        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
-    )
-
-    if not kwargs:
-        parsed_args = parser.parse_args_into_dataclasses()
-    else:
-        parsed_args = parser.parse_dict(kwargs)
-
-    model_args, data_args, recipe_args, training_args = parsed_args
-    if recipe_args.recipe_args is not None:
-        if not isinstance(recipe_args.recipe_args, dict):
-            arg_dict = {}
-            for recipe_arg in recipe_args.recipe_args:
-                key, value = recipe_arg.split("=")
-                arg_dict[key] = value
-            recipe_args.recipe_args = arg_dict
-
-    # raise depreciation warnings
-    if data_args.remove_columns is not None:
-        warnings.warn(
-            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
-            "columns which are invalid inputs the tokenizer will be removed",
-            DeprecationWarning,
-        )
-
-    # silently assign tokenizer to processor
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor")
-        model_args.processor = model_args.tokenizer
-    model_args.tokenizer = None
-
-    return model_args, data_args, recipe_args, training_args
 
 
 def initialize_model_from_path(
@@ -469,7 +367,3 @@ def main(
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:
         reset_session()
-
-
-if __name__ == "__main__":
-    apply()
