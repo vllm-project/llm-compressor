@@ -1,79 +1,133 @@
+import copy
 import shutil
 import tempfile
 import unittest
 
-import torch
 from compressed_tensors import QUANTIZATION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.quantization import QuantizationStatus
 from parameterized import parameterized_class
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIG_DIR = "tests/llmcompressor/transformers/compression/run_compressed_configs"
+CONFIG_DIR = "tests/llmcompressor/transformers/compression/decompression_configs"
 
 
 @requires_gpu
 @parameterized_class(parse_params(CONFIG_DIR))
-class TestQuantizationMatches(unittest.TestCase):
-    model_stub = None
-    empty_model = None
+class TestDecompression(unittest.TestCase):
+    """
+    Check that HFQuantizer decompression is working as expected.
+    Manually decompress a compressed model and compare the generations
+
+    Decompression:
+    Given a skeleton model and path to the optimized model,
+    write the optimized model's safetensors to the skeleton model and decompress
+    Ex. write weight_scale to the skeleton model and then convert from fp4 to fp16
+
+    """
+
+    compressed_model_stub = None
+    skeleton_model_stub = None
+
+    SAMPLE_INPUTS = [
+        "I love 4-bit quantization because",
+        "What is the capital of France?",
+        "def fibonacci(n):",
+    ]
 
     @classmethod
-    def setUpClass(cls):
-        cls.test_dir = tempfile.mkdtemp()
+    def setUpClass(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.tokenizer = AutoTokenizer.from_pretrained(self.compressed_model_stub)
 
-        # TODO: Give option on HFQuantizer to run run_compressed True/False
-        # currently hardcoded to True
-        cls.compressed_model = AutoModelForCausalLM.from_pretrained(
-            cls.model_stub,
+        # Decompress using HFQuantizer from AutoModelForCausalLM
+        self.decompressed_model_hf_quantizer = AutoModelForCausalLM.from_pretrained(
+            self.compressed_model_stub,
             torch_dtype="auto",
             device_map="auto",
-            # run_compressed=True, # TODO: Give option on HFQuantizer
+            quantization_config=CompressedTensorsConfig(run_compressed=False),
         )
-        # TODO: Use ModelCompressor until decompression is supported through
-        # HFQuant/run_compressed can be turned off.
-        cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
-            cls.empty_model,
-            torch_dtype=cls.compressed_model.dtype,
-            device_map=cls.compressed_model.device,
+
+        # Manually decompress this model
+        self.dense_model = AutoModelForCausalLM.from_pretrained(
+            self.skeleton_model_stub,
+            torch_dtype=self.decompressed_model_hf_quantizer.dtype,
+            device_map=self.decompressed_model_hf_quantizer.device,
         )
-        config = AutoConfig.from_pretrained(cls.model_stub)
+
+        # decompression from HFQuantizer should populate weight_scale
+        assert hasattr(
+            self.decompressed_model_hf_quantizer.model.layers[0].self_attn.q_proj,
+            "weight_scale",
+        )
+
+        # dense model should not have weight_scale populated
+        assert not hasattr(
+            self.dense_model.model.layers[0].self_attn.q_proj, "weight_scale"
+        )
+
+        config = AutoConfig.from_pretrained(self.compressed_model_stub)
+
         compression_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
-        cls.compressor = ModelCompressor.from_compression_config(compression_config)
-        cls.compressor.quantization_config.quantization_status = (
+        self.compressor = ModelCompressor.from_compression_config(compression_config)
+        self.compressor.quantization_config.quantization_status = (
             QuantizationStatus.FROZEN
         )
-        cls.compressor.decompress(
-            model_path=cls.model_stub, model=cls.uncompressed_model
+
+        # use the model_path to load the decompressed weights into dense_model
+        dense_model = copy.deepcopy(self.dense_model)
+
+        # overwrite the weights of the dense model
+        self.compressor.decompress(
+            model_path=self.compressed_model_stub,
+            model=self.dense_model,
         )
 
-        cls.tokenizer = AutoTokenizer.from_pretrained(cls.model_stub)
+        # self.dense_model should be decompressed
+        assert dense_model is not self.dense_model
 
-    def test_compressed_matches_uncompressed(self):
-        SAMPLE_INPUT = [
-            "I love 4-bit quantization because",
-            "What is the capital of France?",
-            "def fibonacci(n):",
-        ]
+        self.decompressed_model_manual = self.dense_model
 
-        inputs = self.tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
-            self.compressed_model.device
-        )
-        compressed_output = self.tokenizer.batch_decode(
-            self.compressed_model.generate(**inputs, max_length=50)
-        )
-        uncompressed_output = self.tokenizer.batch_decode(
-            self.uncompressed_model.generate(**inputs, max_length=50)
+        assert hasattr(
+            self.decompressed_model_manual.model.layers[0].self_attn.q_proj,
+            "weight_scale",
         )
 
-        for idx in range(len(SAMPLE_INPUT)):
-            assert compressed_output[idx] == uncompressed_output[idx]
+    def test_hf_quantizer_decompress_match_manual_decompress(self):
+        manual_device = self.decompressed_model_manual.device
+        decompressed_model_hf_quantizer = self.decompressed_model_hf_quantizer.device
+
+        self.decompressed_model_manual = self.decompressed_model_manual.to(
+            manual_device
+        )
+        self.decompressed_model_hf_quantizer = self.decompressed_model_hf_quantizer.to(
+            decompressed_model_hf_quantizer
+        )
+
+        for input in self.SAMPLE_INPUTS:
+            inputs = self.tokenizer(input, return_tensors="pt", padding=True).to(
+                self.decompressed_model_manual.device
+            )
+            inputs = inputs.to(self.decompressed_model_manual.device)
+
+            decompressed_model_manual_output = self.tokenizer.batch_decode(
+                self.decompressed_model_manual.generate(**inputs, max_length=50)
+            )
+
+            decompressed_model_hf_quantizer_out = self.tokenizer.batch_decode(
+                self.decompressed_model_hf_quantizer.generate(**inputs, max_length=50)
+            )
+
+            assert (
+                decompressed_model_hf_quantizer_out == decompressed_model_manual_output
+            )
 
     @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
-        del cls.compressed_model
-        del cls.uncompressed_model
-        torch.cuda.empty_cache()
+    def tearDownClass(self):
+        shutil.rmtree(self.test_dir)
+        del self.dense_model
+        del self.decompressed_model_hf_quantizer
+        del self.decompressed_model_manual

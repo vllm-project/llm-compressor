@@ -74,8 +74,8 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         oneshot(
             model=self.model,
             dataset=self.dataset,
-            output_dir=self.output,
             overwrite_output_dir=True,
+            output_dir=self.output,
             recipe=self.recipe,
             oneshot_device=self.device,
             num_calibration_samples=9,
