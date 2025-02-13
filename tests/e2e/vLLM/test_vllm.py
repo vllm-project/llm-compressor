@@ -25,6 +25,7 @@ except ImportError:
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
+SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 
 EXPECTED_SAVED_FILES = [
     "config.json",
@@ -128,21 +129,22 @@ class TestvLLM:
             fp.write(recipe_yaml_str)
         session.reset()
 
-        logger.info("================= UPLOADING TO HUB ======================")
+        if SKIP_HF_UPLOAD.lower() != "yes":
+            logger.info("================= UPLOADING TO HUB ======================")
 
-        stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+            stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
 
-        self.api.create_repo(
-            repo_id=stub,
-            exist_ok=True,
-            repo_type="model",
-            private=False,
-        )
+            self.api.create_repo(
+                repo_id=stub,
+                exist_ok=True,
+                repo_type="model",
+                private=False,
+            )
 
-        self.api.upload_folder(
-            repo_id=stub,
-            folder_path=self.save_dir,
-        )
+            self.api.upload_folder(
+                repo_id=stub,
+                folder_path=self.save_dir,
+            )
 
         logger.info("================= RUNNING vLLM =========================")
 
