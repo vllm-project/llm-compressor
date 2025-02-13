@@ -70,19 +70,19 @@ class PeoplesSpeech(TextGenerationDataset):
 
     def tokenize(self, data: LazyRow) -> Dict[str, Any]:
         if self.processor_type == "WhisperProcessor":
-            audio_inputs = self.processor(
+            inputs = self.processor(
                 audio=data["audio"],
                 sampling_rate=data["sampling_rate"],
+                text=data["text"],
+                add_special_tokens=True,
                 return_tensors="pt",
             )
 
-            text_inputs = self.processor(
-                text=data["text"], add_special_tokens=True, return_tensors="pt"
-            )
-            text_inputs["decoder_input_ids"] = text_inputs["input_ids"]
-            del text_inputs["input_ids"]
+            inputs["input_features"] = inputs["input_features"]
+            inputs["decoder_input_ids"] = inputs["labels"]
+            del inputs["labels"]
 
-            return dict(**audio_inputs, **text_inputs)
+            return inputs
 
         else:
             return super().tokenize(data)
