@@ -157,3 +157,12 @@ def recipe_from_huggingface_model_id(
         recipe = None
 
     return recipe
+
+
+def resolve_processor_from_model_args(model_args: "ModelArguments"):
+    # silently assign tokenizer to processor
+    if model_args.tokenizer:
+        if model_args.processor:
+            raise ValueError("Cannot use both a tokenizer and processor")
+        model_args.processor = model_args.tokenizer
+    model_args.tokenizer = None

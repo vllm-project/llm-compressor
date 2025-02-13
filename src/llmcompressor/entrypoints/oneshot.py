@@ -18,8 +18,9 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
+from llmcompressor.transformers.utils.helpers import resolve_processor_from_model_args
 
-__all__ = ["Oneshot"]
+__all__ = ["Oneshot", "oneshot", "parse_oneshot_args"]
 
 
 class Oneshot:
@@ -29,8 +30,7 @@ class Oneshot:
     This class handles the entire lifecycle of one-shot calibration, including
     preprocessing (model and tokenizer/processor initialization), model optimization
     (quantization or sparsification), and postprocessing (saving outputs). The
-    intructions for model optimization can be specified by using a recipe (fine-grain
-    details) or by using a scheme (ex. W4A16, W8A8, W4A8).
+    intructions for model optimization can be specified by using a recipe.
 
     - **Input Keyword Arguments:**
         `kwargs` are parsed into:
@@ -44,7 +44,7 @@ class Oneshot:
         Parsers are defined in `src/llmcompressor/args/`.
 
     - **Lifecycle Overview:**
-        The calibration lifecycle consists of three steps:
+        The oneshot calibration lifecycle consists of three steps:
         1. **Preprocessing**:
             - Instantiates a pretrained model and tokenizer/processor.
             - Ensures input and output embedding layers are untied if they share
@@ -60,12 +60,12 @@ class Oneshot:
 
     - **Usage:**
         ```python
-        oneshot = Oneshot.from_kwargs(model=model, recipe=recipe, dataset=dataset)
+        oneshot = Oneshot(model=model, recipe=recipe, dataset=dataset)
         oneshot()
 
         # Access the processed components
         model = oneshot.model
-        tokenizer_or_processor = oneshot.tokenizer_or_processor
+        processor = oneshot.processor
         recipe = oneshot.recipe
         ```
 
@@ -84,7 +84,7 @@ class Oneshot:
             `output_dir`. Supports saving in compressed formats based on model
             arguments.
 
-        _apply_recipe_modifiers(calibration_dataloader, **kwargs):
+        apply_recipe_modifiers(calibration_dataloader, **kwargs):
             Applies lifecycle actions (e.g., `initialize`, `finalize`) using modifiers
             defined in the recipe. Each action is executed via the global
             `CompressionSession`.
@@ -93,7 +93,7 @@ class Oneshot:
             Handles preprocessing steps, including model initialization,
             tokenizer/processor setup, and resolving tied embedding issues.
 
-        _warn_tied_embeddings():
+        check_tied_embeddings():
             Logs a warning if `tie_word_embeddings=True`, which may interfere with
             saving in the one-shot workflow.
 
@@ -104,10 +104,7 @@ class Oneshot:
 
     def __init__(
         self,
-        model_args: ModelArguments,
-        data_args: DatasetArguments,
-        recipe_args: RecipeArguments,
-        output_dir: Optional[str] = None,
+        **kwargs,
     ):
         """
         Initializes the `Oneshot` class with provided arguments.
@@ -125,18 +122,33 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
 
         """
+
+        model_args, data_args, recipe_args, output_dir = parse_oneshot_args(**kwargs)
+
         self.model_args = model_args
         self.data_args = data_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
 
-        # Preprocess the model and tokenizer/processor
-        self._pre_process()
-
         # Set instance attributes
         self.model = self.model_args.model
-        self.tokenizer_or_processor = self.model_args.processor
+        self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
+
+    @classmethod
+    def from_args(cls, model_args, data_args, recipe_args, output_dir):
+        instance = super().__new__(cls)
+        instance.model_args = model_args
+        instance.data_args = data_args
+        instance.recipe_args = recipe_args
+        instance.output_dir = output_dir
+
+        # Set instance attributes
+        instance.model = instance.model_args.model
+        instance.processor = instance.model_args.processor
+        instance.recipe = instance.recipe_args.recipe
+
+        return instance
 
     def __call__(self):
         """
@@ -150,10 +162,14 @@ class Oneshot:
         Args:
             kwargs: Additional keyword arguments for the recipe modifiers.
         """
+        # TODO: move back once stage runner is removed
+        # Preprocess the model and tokenizer/processor
+        self._pre_process()
+
         calibration_dataloader = get_calibration_dataloader(
-            self.data_args, self.tokenizer_or_processor
+            self.data_args, self.processor
         )
-        self._apply_recipe_modifiers(
+        self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
         )
         self._post_process()
@@ -172,23 +188,10 @@ class Oneshot:
             self.output_dir,
             save_compressed=self.model_args.save_compressed,
         )
-        if self.tokenizer_or_processor:
-            self.tokenizer_or_processor.save_pretrained(self.output_dir)
+        if self.processor is not None:
+            self.processor.save_pretrained(self.output_dir)
 
-    @classmethod
-    def from_kwargs(cls, **kwargs):
-        """
-        Alternative constructor to instantiate Oneshot from keyword arguments.
-
-        This method parses `kwargs` to extract model, data, and recipe arguments
-        Args:
-            kwargs: Arbitrary keyword arguments for model, data, and recipe
-            configurations.
-        """
-        model_args, data_args, recipe_args, output_dir = parse_oneshot_args(**kwargs)
-        return cls(model_args, data_args, recipe_args, output_dir)
-
-    def _apply_recipe_modifiers(
+    def apply_recipe_modifiers(
         self,
         calibration_dataloader: Optional[DataLoader],
     ):
@@ -208,16 +211,19 @@ class Oneshot:
         """
 
         session = active_session()
-        for action in (session.initialize, session.finalize):
-            action(
-                model=self.model,
-                recipe=self.recipe,
-                recipe_args=self.recipe_args.recipe_args,
-                calib_data=calibration_dataloader,
-                start=-1,  # oneshot-specific argument
-                copy_data=False,
-                min_tokens_per_module=getattr(self, "min_tokens_per_module", None),
-            )
+
+        session_kwargs = dict(
+            model=self.model,
+            recipe=self.recipe,
+            recipe_args=self.recipe_args.recipe_args,
+            calib_data=calibration_dataloader,
+            start=-1,  # oneshot-specific argument
+            copy_data=False,
+            min_tokens_per_module=getattr(self, "min_tokens_per_module", None),
+        )
+
+        session.initialize(**session_kwargs)
+        session.finalize(**session_kwargs)
 
     def _pre_process(self):
         """
@@ -232,7 +238,7 @@ class Oneshot:
         Raises:
             FileNotFoundError: If the model or processor path is invalid.
         """
-        self._warn_tied_embeddings()
+        self.check_tied_embeddings()
 
         # Initialize model
         if isinstance(self.model_args.model, (str, PosixPath)):
@@ -251,7 +257,7 @@ class Oneshot:
         if self.data_args:
             self.min_tokens_per_module = self.data_args.min_tokens_per_module
 
-    def _warn_tied_embeddings(self):
+    def check_tied_embeddings(self):
         """
         Logs a warning if the model has tied word embeddings.
 
@@ -278,10 +284,17 @@ class Oneshot:
         """
         if self.output_dir is not None:
             self.save()
+            return
+
+        logger.warning(
+            "Optimized model not saved. To save, please provide",
+            "`output_dir` as input arg.",
+            "Ex. `oneshot(..., output_dir=...)`",
+        )
 
 
-def oneshot(**kwargs) -> "PreTrainedModel":
-    one_shot = Oneshot.from_kwargs(**kwargs)
+def oneshot(**kwargs) -> PreTrainedModel:
+    one_shot = Oneshot(**kwargs)
     one_shot()
 
     return one_shot.model
@@ -343,10 +356,6 @@ def parse_oneshot_args(
         )
 
     # silently assign tokenizer to processor
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor")
-        model_args.processor = model_args.tokenizer
-    model_args.tokenizer = None
+    resolve_processor_from_model_args(model_args)
 
     return model_args, data_args, recipe_args, output_dir

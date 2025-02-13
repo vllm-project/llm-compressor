@@ -253,7 +253,7 @@ def get_calibration_dataloader(
     processor,
     add_labels: bool = False,  # for oneshot
     do_oneshot=True,
-):
+) -> torch.utils.data.DataLoader:
     """
     Loads datasets for each flow based on data_args, stores a Dataset for each
     enabled flow in self.datasets

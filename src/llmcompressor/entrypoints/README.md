@@ -6,27 +6,14 @@ Model optimizations compress models while preserving accuracy. One-shot in LLM-C
 
 ### PTQ
 PTQ is performed to reduce the precision of quantizable weights (e.g., linear layers) to a lower bit-width. Supported formats are:
-
-#### W4A16
-- Uses GPTQ to compress weights to 4 bits. 
-- Useful speed ups in low QPS regimes with more weight compression. 
-- Recommended for any GPUs types. 
-#### W8A8-INT8 
-- Uses channel-wise quantization to compress weights to 8 bits, and uses dynamic per-token quantization to compress activations to 8 bits. 
-- Useful for speed ups in high QPS regimes or offline serving on vLLM. 
-- Recommended for NVIDIA GPUs with compute capability <8.9 (Ampere, Turing, Volta, Pascal, or older). 
-#### W8A8-FP8
-- Uses channel-wise quantization to compress weights to 8 bits, and uses dynamic per-token quantization to compress activations to 8 bits. 
-- Useful for speed ups in high QPS regimes or offline serving on vLLM. 
-- Recommended for NVIDIA GPUs with compute capability >8.9 (Hopper and Ada Lovelace). 
+- W4A16
+- W8A8-INT8 
+- W8A8-FP8
 
 ### Sparsification
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
+-  2:4-Sparsity with FP8 Weight, FP8 Input Activation
 
-#### 2:4-Sparsity with FP8 Weight, FP8 Input Activation
-- Uses (1) semi-structured sparsity, where, for every four contiguous weights in a tensor, two are set to zero. (2) Uses channel-wise quantization to compress weights to 8 bits and dynamic per-token quantization to compress activations to 8 bits.
-- Useful for better inference than W8A8-fp8, with almost no drop in accuracy (blog)[https://neuralmagic.com/blog/24-sparse-llama-fp8-sota-performance-for-nvidia-hopper-gpus/]. Note: Small models may experience accuracy drops when the remaining non-zero weights are insufficient to encapsulate the original distribution.
-- Recommended for compute capability >8.9 (Hopper and Ada Lovelace).
 
 ## Code
 

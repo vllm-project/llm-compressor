@@ -22,6 +22,7 @@ import warnings
 from pathlib import PosixPath
 from typing import Optional
 
+from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -83,14 +84,13 @@ def eval(**kwargs):
     main(model_args, data_args, recipe_args, training_args)
 
 
-def oneshot(**kwargs) -> None:
-    logger.warning(
-        (
-            "Detected `oneshot` from llmcompressor.transformers. ",
-            "This pathway will be deprecated.\n",
-            "Please use `from llmcompressor import oneshot` instead.",
-        )
+@deprecated(
+    message=(
+        "`from llmcompressor.transformers import oneshot` is deprecated, "
+        "please use `from llmcompressor import oneshot`."
     )
+)
+def oneshot(**kwargs) -> None:
     from llmcompressor import oneshot
 
     oneshot(**kwargs)

@@ -86,17 +86,6 @@ setup(
             "pre-commit",
         ]
     },
-    entry_points={
-        "console_scripts": [
-            "oneshot=llmcompressor.entrypoints.oneshot:oneshot",  # noqa 501
-            "llmcompressor.transformers.text_generation.apply=llmcompressor.transformers.finetune.text_generation:apply",  # noqa 501
-            "llmcompressor.transformers.text_generation.compress=llmcompressor.transformers.finetune.text_generation:apply",  # noqa 501
-            "llmcompressor.transformers.text_generation.train=llmcompressor.transformers.finetune.text_generation:train",  # noqa 501
-            "llmcompressor.transformers.text_generation.finetune=llmcompressor.transformers.finetune.text_generation:train",  # noqa 501
-            "llmcompressor.transformers.text_generation.eval=llmcompressor.transformers.finetune.text_generation:eval",  # noqa 501
-            "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
-        ]
-    },
     python_requires=">=3.8",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
