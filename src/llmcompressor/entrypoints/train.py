@@ -3,7 +3,7 @@ import math
 from loguru import logger
 
 from llmcompressor.datasets.utils import get_processed_dataset
-from llmcompressor.transformers.finetune.trainer import Trainer
+from llmcompressor.transformers.finetune.trainer import Trainer as NMTrainer
 
 from .utils import parse_args, post_process, preprocess
 
@@ -22,7 +22,7 @@ def train(**kwargs):
     )
     training_dataset = processed_dataset.get("train")
 
-    trainer = Trainer(
+    trainer = NMTrainer(
         model=model_args.model,
         teacher=model_args.distill_teacher,
         recipe=recipe_args.recipe,
