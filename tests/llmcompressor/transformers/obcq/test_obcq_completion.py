@@ -62,7 +62,6 @@ class TestOBCQCompletion(unittest.TestCase):
             output_dir=self.output,
             clear_sparse_session=False,
             precision="bfloat16",
-            bf16=True,
         )
 
         first_tiny_model = get_session_model()

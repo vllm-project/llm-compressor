@@ -89,7 +89,6 @@ class TestSparsitiesGPU(unittest.TestCase):
             clear_sparse_session=False,
             output_dir=self.output,
             precision="bfloat16",
-            bf16=True,
         )
 
         layer_1_sparse = tensor_sparsity(model.model.layers[1].self_attn.k_proj.weight)
