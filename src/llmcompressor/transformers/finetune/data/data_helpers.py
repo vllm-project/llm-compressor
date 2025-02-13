@@ -95,17 +95,15 @@ def make_dataset_splits(
     tokenized_datasets: Dict[str, Any],
     do_train: bool = False,
     do_eval: bool = False,
-    do_predict: bool = False,
     do_oneshot: bool = False,
 ) -> Dict[str, Dataset]:
     """
     Restructures the datasets dictionary based on what tasks will be run
-    (train, eval, predict)
+    (train, eval)
 
     :param tokenized_datasets: dictionary of processed datasets
     :param do_train: Whether to store the train dataset
     :param do_eval: Whether to store the validation dataset
-    :param do_predict: Whether to store the test dataset
     :param do_oneshot: Whether to store the calibration dataset
     :return: Datasets to be used by the requested tasks
     """
@@ -116,7 +114,7 @@ def make_dataset_splits(
         if isinstance(tokenized_datasets, Dataset):
             tokenized_datasets = {"train": tokenized_datasets}
 
-    train_split = eval_split = predict_split = calib_split = None
+    train_split = eval_split = calib_split = None
 
     if do_train:
         if "train" not in tokenized_datasets:
@@ -126,10 +124,6 @@ def make_dataset_splits(
         if "validation" not in tokenized_datasets:
             raise ValueError("--do_eval requires a validation dataset")
         eval_split = tokenized_datasets["validation"]
-    if do_predict:
-        if "test" not in tokenized_datasets:
-            raise ValueError("--do_predict requires a test dataset")
-        predict_split = tokenized_datasets["test"]
     if do_oneshot:
         calib_split = tokenized_datasets.get("calibration")
         if calib_split is None:
@@ -140,7 +134,6 @@ def make_dataset_splits(
     split_datasets = {
         "train": train_split,
         "validation": eval_split,
-        "test": predict_split,
         "calibration": calib_split,
     }
     return split_datasets

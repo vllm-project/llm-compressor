@@ -26,7 +26,7 @@ class TrainingArguments(HFTrainingArgs):
     output_dir: str = field(
         default="./output",
         metadata={
-            "help": "The output directory where the model predictions and "
-            "checkpoints will be written."
+            "help": "The output directory where the model safetensors, "
+            "recipe, config, and optimally checkpoints will be written."
         },
     )

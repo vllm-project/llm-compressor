@@ -16,14 +16,18 @@ def test_combined_datasets():
     datasets = {"all": raw_wikitext2}
 
     split_datasets = make_dataset_splits(
-        datasets, do_train=True, do_eval=True, do_predict=True
+        datasets,
+        do_train=True,
+        do_eval=True,
     )
     assert split_datasets.get("train") is not None
     assert split_datasets.get("validation") is not None
     assert split_datasets.get("test") is not None
 
     split_datasets = make_dataset_splits(
-        datasets, do_train=True, do_eval=False, do_predict=True
+        datasets,
+        do_train=True,
+        do_eval=False,
     )
     assert split_datasets.get("train") is not None
     assert split_datasets.get("validation") is None
@@ -42,7 +46,9 @@ def test_separate_datasets():
         datasets[split_name] = raw_wikitext2
 
     split_datasets = make_dataset_splits(
-        datasets, do_train=True, do_eval=True, do_predict=False
+        datasets,
+        do_train=True,
+        do_eval=True,
     )
     assert split_datasets.get("train") is not None
     assert split_datasets.get("validation") is not None
@@ -51,5 +57,7 @@ def test_separate_datasets():
     with pytest.raises(ValueError):
         # fails due to no test split specified
         split_datasets = make_dataset_splits(
-            datasets, do_train=True, do_eval=True, do_predict=True
+            datasets,
+            do_train=True,
+            do_eval=True,
         )

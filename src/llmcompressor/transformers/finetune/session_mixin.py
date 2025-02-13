@@ -332,31 +332,6 @@ class SessionManagerMixIn:
 
         return loss
 
-    def prediction_step(
-        self,
-        model: Module,
-        inputs: Dict[str, Union[torch.Tensor, Any]],
-        prediction_loss_only: bool,
-        ignore_keys: Optional[List[str]] = None,
-    ) -> Tuple[Optional[float], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """
-        Wraps the prediction step from the original trainer to remove any input entry
-        that should not be passed to the model.
-        This situation may arise when distillation is used and the teacher model
-        contains more inputs than the student model.
-        """
-        self._check_super_defined("prediction_step")
-
-        inputs = {k: inputs[k] for k in inputs if k in self._model_signature_columns}
-
-        model_outputs = super().prediction_step(
-            model=model,
-            inputs=inputs,
-            prediction_loss_only=prediction_loss_only,
-            ignore_keys=ignore_keys,
-        )
-        return model_outputs
-
     def train(self, *args, stage: Optional[str] = None, **kwargs):
         """
         Run a sparsification training cycle. Runs initialization for the sparse session
@@ -409,22 +384,6 @@ class SessionManagerMixIn:
         self.initialize_structure()
 
         output = super().evaluate(*args, **kwargs)
-        self.finalize_session()
-
-        return output
-
-    def predict(self, *args, **kwargs):
-        """
-        Run a sparsification prediction cycle.
-        Runs initialize_structure for the sparse session before calling
-        super().predict() and finalization of the session after.
-
-        :param args: positional args to pass to super().predict()
-        :param kwargs: keyword args to pass to super().predict()
-        :return: the output from super.predict()
-        """
-        self.initialize_structure()
-        output = super().predict(*args, **kwargs)
         self.finalize_session()
 
         return output
