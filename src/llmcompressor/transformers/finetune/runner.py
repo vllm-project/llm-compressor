@@ -190,6 +190,7 @@ class StageRunner:
             completed_stages = get_completed_stages(checkpoint_dir)
 
         self.trainer.accelerator.wait_for_everyone()
+        do_preprocess = True
 
         for stage in recipe_obj.stages:
             # validate stage
@@ -234,9 +235,14 @@ class StageRunner:
                     data_args=self._data_args,
                     recipe_args=self._recipe_args,
                     output_dir=self._training_args.output_dir,
+                    do_preprocess=do_preprocess,
                 )
+                if do_preprocess:
+                    do_preprocess = False
+
                 calibration_dataloader = get_calibration_dataloader(
-                    oneshot.data_args, oneshot.tokenizer_or_processor
+                    oneshot.data_args,
+                    self._model_args.processor,
                 )
                 oneshot.apply_recipe_modifiers(
                     calibration_dataloader=calibration_dataloader,

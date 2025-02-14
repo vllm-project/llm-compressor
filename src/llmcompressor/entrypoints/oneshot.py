@@ -136,16 +136,26 @@ class Oneshot:
         self.recipe = self.recipe_args.recipe
 
     @classmethod
-    def from_args(cls, model_args, data_args, recipe_args, output_dir):
+    def from_args(
+        cls, model_args, data_args, recipe_args, output_dir, do_preprocess: bool = True
+    ):
+        """
+        Used only for the stage runner to populate the args.
+        """
         instance = super().__new__(cls)
         instance.model_args = model_args
         instance.data_args = data_args
         instance.recipe_args = recipe_args
         instance.output_dir = output_dir
 
+        # only run for the first oneshot call
+        if do_preprocess:
+            instance._pre_process()
+
         # Set instance attributes
         instance.model = instance.model_args.model
         instance.recipe = instance.recipe_args.recipe
+        instance.processor = instance.model_args.processor
 
         return instance
 
@@ -158,8 +168,6 @@ class Oneshot:
         are executed sequentially, and the modified model is saved during
         postprocessing.
 
-        Args:
-            kwargs: Additional keyword arguments for the recipe modifiers.
         """
         # TODO: move back once stage runner is removed
         # Preprocess the model and tokenizer/processor
@@ -200,10 +208,8 @@ class Oneshot:
         The modifiers are defined in the recipe and executed via lifecycle actions
         (`initialize`, `finalize`) through the global `CompressionSession`.
 
-        Args:
-            calibration_dataloader (Optional[DataLoader]): Dataloader for calibration
-            data.
-            kwargs: Additional arguments for lifecycle actions.
+
+        :param: calibration_dataloader: Dataloader for calibration data.
 
         Raises:
             RuntimeError: If any modifier fails during execution.
@@ -251,8 +257,6 @@ class Oneshot:
             self.model_args.processor = initialize_processor_from_path(
                 self.model_args, self.model_args.model
             )
-            # TODO: Move to init when stagerunner is deleted
-            self.processor = self.model_args.processor
 
         # Set minimum tokens per module if data arguments are provided
         if self.data_args:
