@@ -3,10 +3,10 @@ test_oneshot_stage:
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128
-      sequential_update: False
       percdamp: 0.01
       mask_structure: "0:0"
-      target_ids: ["attention_mask", "position_ids"]  
+      targets: ["Linear"]
+      ignore: ["re:.*lm_head"]
 test_train_stage:
   pruning_modifiers:
     ConstantPruningModifier:
