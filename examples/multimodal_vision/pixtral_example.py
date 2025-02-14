@@ -3,8 +3,8 @@ import torch
 from PIL import Image
 from transformers import AutoProcessor
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
 
 # Load model.

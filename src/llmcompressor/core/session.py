@@ -200,19 +200,6 @@ class CompressionSession:
             modifier_data=mod_data,
         )
 
-    def apply(self, **kwargs):
-        """
-        Apply the recipe in one-shot manner. This will invoke the initialize
-        and then finalize methods for each modifier in the session's lifecycle.
-        This will also set the session's state to the finalized state.
-
-        :param kwargs: additional kwargs to pass to the lifecycle's initialize and
-            finalize methods
-        """
-        self.initialize(**kwargs)
-
-        return self.finalize(**kwargs)
-
     def event(
         self,
         event_type: EventType,
