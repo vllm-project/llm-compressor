@@ -119,7 +119,7 @@ class CompressionLifecycle:
         extras = self.state.update(**kwargs)
         extras = self.recipe_container.update(**extras)
 
-        self._check_compile_recipe()
+        self._check_compile_recipe() # populate modifiers
         self._set_model_layer_prefix()
         mod_data = []
         for mod in self.modifiers:
@@ -237,13 +237,14 @@ class CompressionLifecycle:
         self.state = State()
         logger.info("State created for compression lifecycle")
 
-    def _check_compile_recipe(self):
+    def _check_compile_recipe(self, state: Optional[str] = None):
         if not self.recipe_container.check_compile_recipe():
             return
 
         logger.debug(
             "Compiling recipe and creating modifiers for compression lifecycle"
         )
+        breakpoint()
         self.modifiers = self.recipe_container.compiled_recipe.create_modifier()
         for mod in self.modifiers:
             if mod.unique_id in self.recipe_container.applied_stages:
