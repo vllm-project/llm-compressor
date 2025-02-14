@@ -26,8 +26,11 @@ except ImportError:
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
+TEST_DATA_FILE = os.environ.get(
+    "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
+)
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
+TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 
 EXPECTED_SAVED_FILES = [
     "config.json",
@@ -171,13 +174,15 @@ class TestvLLM:
 
         timer = get_singleton_manager()
         # fetch dictionary of measurements, where keys are func names
-        # and values are the time it took to run the method
-        # Should be 4 key/values per test case, for each of the 4 methods being timed
+        # and values are the time it took to run the method, each
+        # time it was called
         measurements = timer.measurements
-        # use some library to save the values to disk or fetch the
-        # the measurements in some other way
-        df = pd.DataFrame(measurements)
-        df.to_csv(f"{self.save_dir}.csv")
+        if measurements:
+            p = Path(TIMINGS_DIR)
+            p.mkdir(parents=True, exist_ok=True)
+
+            df = pd.DataFrame(measurements)
+            df.to_csv(p / f"{self.save_dir}.csv")
 
     @log_time
     def _save_compressed_model(self, oneshot_model, tokenizer):

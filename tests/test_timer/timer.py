@@ -1,14 +1,12 @@
-import logging
 import time
 from collections import defaultdict
 from contextlib import contextmanager
 from threading import RLock
 
 import numpy
+from loguru import logger
 
 __all__ = ["Timer"]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class Timer:
@@ -65,6 +63,6 @@ class Timer:
         """
         with self.lock:
             for func_name in self.measurements:
-                _LOGGER.info(f"Average time for {func_name}: ")
-                _LOGGER.info(str(numpy.average(self.measurements.get(func_name))))
+                logger.info(f"Average time for {func_name}: ")
+                logger.info(str(numpy.average(self.measurements.get(func_name))))
                 self.measurements[func_name].clear()
