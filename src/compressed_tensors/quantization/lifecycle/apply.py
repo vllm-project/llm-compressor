@@ -52,8 +52,8 @@ __all__ = [
     "apply_quantization_config",
     "apply_quantization_status",
     "find_name_or_class_matches",
-    "expand_sparse_target_names",
-    "is_sparse_target",
+    "expand_target_names",
+    "is_target",
 ]
 
 from compressed_tensors.quantization.utils.helpers import is_module_quantized
@@ -247,8 +247,10 @@ def apply_quantization_status(model: Module, status: QuantizationStatus):
         model.apply(compress_quantized_weights)
 
 
-def expand_sparse_target_names(
-    model: Module, targets: Iterable[str], ignore: Iterable[str]
+def expand_target_names(
+    model: Module,
+    targets: Optional[Iterable[str]] = None,
+    ignore: Optional[Iterable[str]] = None,
 ) -> Set[str]:
     """
     Finds all unique module names in the model that match the given
@@ -257,20 +259,23 @@ def expand_sparse_target_names(
     Note: Targets must be regexes, layer types, or full layer names.
 
     :param model: model to search for targets in
-    :param targets: list of targets to search for
-    :param ignore: list of targets to ignore
+    :param targets: Iterable of targets to search for
+    :param ignore: Iterable of targets to ignore
     :return: set of all targets that match the given targets and should
         not be ignored
     """
     return {
         name
         for name, module in iter_named_leaf_modules(model)
-        if is_sparse_target(name, module, targets, ignore)
+        if is_target(name, module, targets, ignore)
     }
 
 
-def is_sparse_target(
-    name: str, module: Module, targets: Iterable[str], ignore: Iterable[str]
+def is_target(
+    name: str,
+    module: Module,
+    targets: Optional[Iterable[str]] = None,
+    ignore: Optional[Iterable[str]] = None,
 ) -> bool:
     """
     Determines if a module should be included in the targets based on the
@@ -280,12 +285,12 @@ def is_sparse_target(
 
     :param name: name of the module
     :param module: the module itself
-    :param targets: list of targets to search for
-    :param ignore: list of targets to ignore
+    :param targets: Iterable of targets to search for
+    :param ignore: Iterable of targets to ignore
     :return: True if the module is a target and not ignored, False otherwise
     """
     return bool(
-        find_name_or_class_matches(name, module, targets)
+        find_name_or_class_matches(name, module, targets or [])
         and not find_name_or_class_matches(name, module, ignore or [])
     )
 

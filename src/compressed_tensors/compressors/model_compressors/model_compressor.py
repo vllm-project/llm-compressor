@@ -19,7 +19,7 @@ import os
 import re
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Optional, Set, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, TypeVar, Union
 
 import compressed_tensors
 import torch
@@ -39,13 +39,17 @@ from compressed_tensors.quantization import (
     apply_quantization_config,
     load_pretrained_quantization,
 )
-from compressed_tensors.quantization.lifecycle import expand_sparse_target_names
+from compressed_tensors.quantization.lifecycle import expand_target_names
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import (
     is_module_quantized,
     iter_named_leaf_modules,
 )
-from compressed_tensors.utils import get_safetensors_folder, update_parameter_data
+from compressed_tensors.utils import (
+    get_safetensors_folder,
+    merge_names,
+    update_parameter_data,
+)
 from compressed_tensors.utils.helpers import (
     fix_fsdp_module_name,
     is_compressed_tensors_config,
@@ -254,6 +258,107 @@ class ModelCompressor:
                 quantization_config.format, config=quantization_config
             )
 
+    def get_missing_module_keys(self, model: Module) -> List[str]:
+        """
+        Identifies the expected missing weight keys in the compressed state_dict.
+
+        When a model undergoes sparsity or quantization compression, certain
+        weight tensors may be absent from the checkpoint by virtue of compression.
+        This function determines which weight keys are missing based on the
+        applied compression techniques.
+
+
+        :param model: The PyTorch model to check for missing keys.
+        :return: A list of missing keys expected in the compressed state_dict.
+        """
+        missing_keys = set()
+
+        # Determine missing keys due to sparsity compression
+        if (
+            self.sparsity_compressor
+            and self.sparsity_config.format != CompressionFormat.dense.value
+        ):
+            sparse_targets = expand_target_names(
+                model=model,
+                targets=self.sparsity_config.targets,
+                ignore=self.sparsity_config.ignore,
+            )
+            missing_keys.update(
+                merge_names(target, "weight") for target in sparse_targets
+            )
+
+        # Determine missing keys due to pack quantization
+        if (
+            self.quantization_compressor
+            and self.quantization_config.format
+            == CompressionFormat.pack_quantized.value
+        ):
+            for scheme in self.quantization_config.config_groups.values():
+                quant_targets = expand_target_names(
+                    model=model,
+                    targets=scheme.targets,
+                    ignore=self.quantization_config.ignore,
+                )
+                missing_keys.update(
+                    merge_names(target, "weight") for target in quant_targets
+                )
+
+        return list(missing_keys)
+
+    def get_unexpected_file_keys(self, model: Module) -> List[str]:
+        """
+        Identifies extra keys introduced by the compression process in the
+        compressed state_dict that are not expected by the model graph.
+
+        During sparsity or quantization compression, additional metadata or
+        auxiliary parameters may be stored in the checkpoint, which do not
+        correspond to any parameter in the original model. These keys are
+        typically introduced to support the reconstruction of compressed weights.
+
+        For example, Sparse24Bitmask compression may introduce keys such as
+        'compressed', 'bitmask', and 'shape' in the checkpoint, which are
+        not part of the original model parameters.
+
+        :param model: The PyTorch model to check for unexpected keys.
+        :return: A list of extra keys introduced by the compression process
+                that are not expected by the model.
+        """
+
+        unexpected_keys = set()
+
+        # Identify unexpected keys from sparsity compression
+        if (
+            self.sparsity_compressor
+            and self.sparsity_config.format != CompressionFormat.dense.value
+        ):
+            sparse_targets: Set[str] = expand_target_names(
+                model=model,
+                targets=self.sparsity_config.targets,
+                ignore=self.sparsity_config.ignore,
+            )
+            unexpected_keys.update(
+                merge_names(target, param)
+                for target in sparse_targets
+                for param in self.sparsity_compressor.compression_param_names
+            )
+
+        # Identify unexpected keys from quantization compression
+        if self.quantization_compressor:
+            for scheme in self.quantization_config.config_groups.values():
+                quant_targets: Set[str] = expand_target_names(
+                    model=model,
+                    targets=scheme.targets,
+                    ignore=self.quantization_config.ignore,
+                )
+                unexpected_keys.update(
+                    merge_names(target, param)
+                    for target in quant_targets
+                    for param in self.quantization_compressor.compression_param_names
+                    if param != "weight"
+                )
+
+        return list(unexpected_keys)
+
     def compress(
         self, model: Module, state_dict: Optional[Dict[str, Tensor]] = None
     ) -> Dict[str, Tensor]:
@@ -283,7 +388,7 @@ class ModelCompressor:
                 )
 
         if self.sparsity_compressor is not None:
-            sparse_compression_targets: Set[str] = expand_sparse_target_names(
+            sparse_compression_targets: Set[str] = expand_target_names(
                 model=model,
                 targets=self.sparsity_config.targets,
                 ignore=self.sparsity_config.ignore,
