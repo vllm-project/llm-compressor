@@ -1,10 +1,12 @@
+from transformers import AutoModelForCausalLM
+
 from llmcompressor import Oneshot
 from llmcompressor.entrypoints.oneshot import parse_oneshot_args
 
 
 def test_oneshot_from_args():
     # Select model and load it.
-    model = "meta-llama/Meta-Llama-3-8B-Instruct"
+    model = AutoModelForCausalLM.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct")
     dataset = "HuggingFaceH4/ultrachat_200k"
 
     NUM_CALIBRATION_SAMPLES = 512
@@ -24,7 +26,6 @@ def test_oneshot_from_args():
     )
 
     oneshot = Oneshot.from_args(model_args, data_args, recipe_args, output_dir)
-
     assert oneshot.model == model
     assert oneshot.model_args is model_args
     assert oneshot.data_args is data_args
