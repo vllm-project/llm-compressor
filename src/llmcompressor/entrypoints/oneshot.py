@@ -172,6 +172,9 @@ class Oneshot:
         # TODO: move back once stage runner is removed
         # Preprocess the model and tokenizer/processor
         self._pre_process()
+        self.model = self.model_args.model
+        self.recipe = self.recipe_args.recipe
+        self.processor = self.model_args.processor
 
         calibration_dataloader = get_calibration_dataloader(
             self.data_args, self.processor
@@ -257,6 +260,8 @@ class Oneshot:
             self.model_args.processor = initialize_processor_from_path(
                 self.model_args, self.model_args.model
             )
+            # TODO: move to init once stage runner is removed
+            self.processor = self.model_args.processor
 
         # Set minimum tokens per module if data arguments are provided
         if self.data_args:
