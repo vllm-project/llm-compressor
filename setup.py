@@ -76,6 +76,7 @@ setup(
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
             "trl>=0.10.1",
+            "pandas",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
