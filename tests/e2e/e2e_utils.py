@@ -4,7 +4,28 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.transformers import oneshot
+from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import preprocess_tokenize_dataset
+
+
+@log_time
+def _load_model_and_tokenizer(
+    model: str,
+    device: str,
+):
+    loaded_model = AutoModelForCausalLM.from_pretrained(
+        model, device_map=device, torch_dtype="auto"
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model)
+    return loaded_model, tokenizer
+
+
+@log_time
+def _run_oneshot(device: str, **oneshot_kwargs):
+    oneshot(
+        **oneshot_kwargs,
+        oneshot_device=device,
+    )
 
 
 def run_oneshot_for_e2e_testing(
@@ -21,10 +42,8 @@ def run_oneshot_for_e2e_testing(
 ):
     # Load model.
     oneshot_kwargs = {}
-    loaded_model = AutoModelForCausalLM.from_pretrained(
-        model, device_map=device, torch_dtype="auto"
-    )
-    tokenizer = AutoTokenizer.from_pretrained(model)
+
+    loaded_model, tokenizer = _load_model_and_tokenizer(model=model, device=device)
 
     if dataset_id:
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
@@ -51,8 +70,6 @@ def run_oneshot_for_e2e_testing(
 
     # Apply quantization.
     logger.info("ONESHOT KWARGS", oneshot_kwargs)
-    oneshot(
-        **oneshot_kwargs,
-        oneshot_device=device,
-    )
+    _run_oneshot(device=device, **oneshot_kwargs)
+
     return oneshot_kwargs["model"], tokenizer
