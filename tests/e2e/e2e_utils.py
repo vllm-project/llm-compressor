@@ -18,13 +18,9 @@ def _load_model_and_processor(
 ):
     pretrained_model_class = get_model_class(model_class)
     loaded_model = pretrained_model_class.from_pretrained(
-        model,
-        device_map=device,
-        torch_dtype="auto",
-        trust_remote_code=True,
-        _attn_implementation="eager",
+        model, device_map=device, torch_dtype="auto"
     )
-    processor = AutoProcessor.from_pretrained(model, trust_remote_code=True)
+    processor = AutoProcessor.from_pretrained(model)
     return loaded_model, processor
 
 
