@@ -5,8 +5,8 @@ from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.transformers import oneshot
-from tests.test_timer.timer_utils import log_time
 from llmcompressor.transformers.tracing import get_model_class
+from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
 
@@ -52,7 +52,9 @@ def run_oneshot_for_e2e_testing(
     # Load model.
     oneshot_kwargs = {}
 
-    loaded_model, processor = _load_model_and_processor(model=model, model_class=model_class, device=device)
+    loaded_model, processor = _load_model_and_processor(
+        model=model, model_class=model_class, device=device
+    )
 
     if dataset_id:
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
@@ -62,9 +64,9 @@ def run_oneshot_for_e2e_testing(
         oneshot_kwargs["max_seq_length"] = max_seq_length
         oneshot_kwargs["num_calibration_samples"] = num_calibration_samples
 
-        # TODO better conditional on when multimodal data-collator should be added
+        # Define a data collator for multimodal inputs.
         if "flickr30k" in dataset_id:
-            # Define a oneshot data collator for multimodal inputs.
+
             def data_collator(batch):
                 assert len(batch) == 1
                 return {key: torch.tensor(value) for key, value in batch[0].items()}
