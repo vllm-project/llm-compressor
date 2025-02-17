@@ -101,18 +101,12 @@ class Modifier(ModifierInterface, HooksMixin):
         if self.finalized_:
             raise RuntimeError("cannot initialize a finalized modifier")
 
-        if state.start_event is None:
-            return
-
-        # ignore modifier structure initialized from one-shot
-        if state.start_event.current_index >= 0 and self.calculate_start() < 0:
+        # ignore modifier initialized from one-shot
+        if self.calculate_start() < 0:
             return
 
         # if modifier should have ended by current index, don't initialize
-        if (
-            self.calculate_end() >= 0
-            and state.start_event.current_index >= self.calculate_end()
-        ):
+        if self.calculate_end() >= 0:
             return
 
         initialized = self.on_initialize(state=state, **kwargs)

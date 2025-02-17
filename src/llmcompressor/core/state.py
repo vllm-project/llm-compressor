@@ -94,8 +94,6 @@ class State:
     :type data: Data
     :param hardware: Hardware instance holding info about the target hardware being used
     :type hardware: Hardware
-    :param start_event: The start event to begin compression
-    :type start_event: Event
     :param last_event: The last compression event that occurred
     :type last_event: Event
     :param loggers: LoggerManager instance holding all the loggers to log
@@ -113,7 +111,6 @@ class State:
     batch_data: Any = None
     data: Data = field(default_factory=Data)
     hardware: Hardware = field(default_factory=Hardware)
-    start_event: Optional[Event] = None
     last_event: Optional[Event] = None
     loggers: Optional[LoggerManager] = None
     model_log_cadence: Optional[float] = None
@@ -225,20 +222,6 @@ class State:
 
         if "device" in kwargs:
             self.hardware.device = kwargs["device"]
-
-        if (
-            start is not None
-            or steps_per_epoch is not None
-            or batches_per_step is not None
-        ):
-            if self.start_event is None:
-                self.start_event = Event()
-            if start is not None:
-                self.start_event.current_index = start
-            if steps_per_epoch is not None:
-                self.start_event.steps_per_epoch = steps_per_epoch
-            if batches_per_step is not None:
-                self.start_event.batches_per_step = batches_per_step
 
         loggers = loggers or []
         if isinstance(loggers, list):
