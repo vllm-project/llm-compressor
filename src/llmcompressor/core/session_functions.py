@@ -279,6 +279,14 @@ class LifecycleCallbacks:
         """
         active_session()._log_model_info()
         return cls.event(EventType.BATCH_END, **kwargs)
+    
+    @classmethod
+    def epoch_end(cls, **kwargs) -> ModifiedState:
+        return cls.event(EventType.EPOCH_END, **kwargs)
+    
+    @classmethod
+    def sequential_epoch_end(cls, **kwargs) -> ModifiedState:
+        return cls.event(EventType.EPOCH_END, **kwargs)
 
 
 callbacks = LifecycleCallbacks

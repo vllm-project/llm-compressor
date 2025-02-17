@@ -5,6 +5,7 @@ import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
 
+from llmcompressor.core import LifecycleCallbacks
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
@@ -69,9 +70,7 @@ def run_pipeline(
                 inputs = intermediates.fetch(batch_index, subgraph.input_names)
                 forward_function(model, **inputs)
 
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
+            LifecycleCallbacks.sequential_epoch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules

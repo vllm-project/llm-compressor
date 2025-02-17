@@ -43,10 +43,10 @@ class CompressionLifecycle:
     modifiers: List[StageModifiers] = field(default_factory=list)
     event_lifecycle: Optional[EventLifecycle] = None
 
-    initialized_structure: bool = False
+    initialized_structure: bool = False  # TODO: remove
     initialized_: bool = False
     finalized: bool = False
-    event_called: bool = False
+    event_called: bool = False  # TODO: remove
 
     def reset(self):
         """
@@ -87,6 +87,7 @@ class CompressionLifecycle:
         self._check_create_state()
         extras = self.state.update(**kwargs)
         extras = self.recipe_container.update(**extras)
+        breakpoint()
 
         self._check_compile_recipe()
         mod_data = []
@@ -182,9 +183,10 @@ class CompressionLifecycle:
         :raises ValueError: If called before initialization, after finalization,
             or for an invalid event type
         """
-        if not self.initialized_:
-            logger.error("Cannot invoke event before initializing")
-            raise ValueError("Cannot invoke event before initializing")
+        # TODO: add back when data pipelines are moved out of init functions
+        # if not self.initialized_:
+        #     logger.error("Cannot invoke event before initializing")
+        #     raise ValueError("Cannot invoke event before initializing")
 
         if self.finalized:
             logger.error("Cannot invoke event after finalizing")
@@ -207,12 +209,17 @@ class CompressionLifecycle:
             raise ValueError("Loss must be provided for loss calculated event")
 
         logger.debug("Handling event: {}", event_type)
+        # TODO: add back when data pipelines are moved out of init functions
         self._check_setup_event_lifecycle(event_type)
 
         event = None
         mod_data = []
         for event in self.event_lifecycle.events_from_type(event_type):
-            if self.state.start_event is None:
+            if self.state.start_event is None:  # this is confusing because you can never reach here unless
+                                                # A. the event_lifecycle is not None or
+                                                # B. the start_event is not None
+                                                # And since A requires B (lifecycle can only be set by _check_setup_event_lifecycle)
+                                                # you can never reach here unless start_event is not None
                 self.state.start_event = event
 
             for mod in self.modifiers:

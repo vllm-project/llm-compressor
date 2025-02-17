@@ -45,7 +45,7 @@ class CallbacksEventLifecycle(EventLifecycle):
         - BATCH_END: must be called after LOSS_CALCULATED or OPTIM_POST_STEP
     """
 
-    def __init__(self, type_first: EventType, start: Event):
+    def __init__(self, type_first: EventType, start: Event):  # TODO: remove, as skip_post_step can be moved to the base class init
         """
         Initialize the CallbacksEventLifecycle.
 

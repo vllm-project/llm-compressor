@@ -333,6 +333,7 @@ def main(
     for training and eval
     :param training_args: Arguments pertaining to training loop configuration
     """
+    breakpoint()
 
     # Temporary warning, to be removed
     if model_args.tie_word_embeddings is True:
@@ -384,6 +385,7 @@ def main(
     if isinstance(processor, str) or processor is None:
         processor = initialize_processor_from_path(model_args, model, teacher)
 
+    breakpoint()
     pre_initialize_structure(model=model)
 
     # initialize session manager

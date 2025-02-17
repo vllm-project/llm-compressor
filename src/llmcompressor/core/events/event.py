@@ -51,35 +51,9 @@ class EventType(Enum):
     OPTIM_PRE_STEP = "optim_pre_step"
     OPTIM_POST_STEP = "optim_post_step"
 
-    def order(self) -> int:
-        """
-        Returns the priority order of the current EventType.
-        Lower values have higher priority.
-
-        :raises ValueError: if the event type is invalid.
-        :return: The order of the event type, lower has higher priority.
-        :rtype: int
-        """
-        if self == EventType.PRE_INIT:
-            return 0
-        elif self == EventType.INITIALIZE:
-            return 10
-        elif self == EventType.FINALIZE:
-            return 20
-        elif self == EventType.BATCH_START:
-            return 100
-        elif self == EventType.LOSS_CALCULATED:
-            return 110
-        elif self == EventType.OPTIM_PRE_STEP:
-            return 120
-        elif self == EventType.OPTIM_POST_STEP:
-            return 130
-        elif self == EventType.BATCH_END:
-            return 140
-        else:
-            logger.error("Invalid event type: {}", self)
-            raise ValueError(f"Invalid event type {self}")
-
+    # epoch lifecycle
+    EPOCH_END = "epoch_end"
+    SEQUENTIAL_EPOCH_END = "sequential_epoch_end"
 
 @dataclass
 class Event:
