@@ -1,0 +1,13 @@
+cadence: "weekly"
+model: meta-llama/Meta-Llama-3-8B-Instruct
+scheme: FP8_DYNAMIC
+lmeval:
+  model_args:
+    dtype: bfloat16
+    add_bos_token: True
+  task: "gsm8k"
+  num_fewshot: 5
+  limit: 1000
+  metrics:
+    exact_match,flexible-extract: 0.75
+    exact_match,strict-match: 0.75
