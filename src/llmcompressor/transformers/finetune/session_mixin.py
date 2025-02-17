@@ -80,10 +80,10 @@ class SessionManagerMixIn:
         # parse training and metadata args
         training_args = kwargs.get("args")
 
-        # if "max_seq_length"
         self.metadata = None
         if training_args is not None:
-            # for trl_sft_trainer, training_args has max_seq_len
+            # trl_sft_trainer pathway. Both training_args and data_args
+            # have `max_seq_length` which causes collision error
             training_args_dict = training_args.to_dict()
             if "max_seq_length" in training_args_dict:
                 training_args_dict.pop("max_seq_length")

@@ -51,7 +51,7 @@ test_stage:
 data_collator = DefaultDataCollator()
 trl_sft_config_args = dict(
     output_dir=output_dir,
-    num_train_epochs=0.1,
+    num_train_epochs=0.6,
     logging_steps=50,
     gradient_checkpointing=True,
     bf16=True,
