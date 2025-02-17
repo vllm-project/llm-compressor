@@ -30,3 +30,7 @@ class TrainingArguments(HFTrainingArgs):
             "checkpoints will be written."
         },
     )
+
+    @property
+    def place_model_on_device(self):
+        return False
