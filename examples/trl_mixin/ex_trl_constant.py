@@ -39,9 +39,9 @@ def formatting_prompts_func(example):
 response_template = "Answer:"
 collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer)
 
-training_args = dict(
+trl_sft_config_args = dict(
     output_dir=output_dir,
-    num_train_epochs=0.1,
+    num_train_epochs=0.6,
     logging_steps=50,
     gradient_checkpointing=True,
     max_seq_length=512,
@@ -55,7 +55,7 @@ trainer = SFTTrainer(
     train_dataset=dataset,
     formatting_func=formatting_prompts_func,
     data_collator=collator,
-    args=training_args,
+    trl_sft_config_args=trl_sft_config_args,
     model_args=model_args,
 )
 trainer.train()
