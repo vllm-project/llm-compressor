@@ -49,15 +49,19 @@ def preprocess(example):
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "What does the image show?"},
+                {"type": "text", "text": "What does this image show?"},
                 {"type": "image"},
             ],
-        }
+        },
+        {
+            "role": "assistant",
+            "content": " ".join(example["caption"]),
+        },
     ]
     return {
         "text": processor.apply_chat_template(
             messages,
-            add_generation_prompt=True,
+            add_generation_prompt=False,
         ),
         "images": example["image"],
     }
