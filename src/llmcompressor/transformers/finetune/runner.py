@@ -238,12 +238,6 @@ class StageRunner:
                     "the stage name."
                 )
 
-            # just load structure if stage has already applied
-            if stage_name in completed_stages:
-                self.trainer.initialize_structure(stage=stage)
-                self.trainer.accelerator.wait_for_everyone()
-                continue
-
             # setup checkpoint dir, TODO: this should be optional
             self._output_dir = os.path.join(
                 self.parent_output_dir, "stage_" + stage_name

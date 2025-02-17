@@ -39,10 +39,9 @@ from llmcompressor.args import (
     RecipeArguments,
     TrainingArguments,
 )
-from llmcompressor.core import pre_initialize_structure, reset_session
+from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import (
     fallback_to_cpu,
-    get_session_model,
     initialize_recipe,
     parse_dtype,
 )
@@ -384,8 +383,6 @@ def main(
     if isinstance(processor, str) or processor is None:
         processor = initialize_processor_from_path(model_args, model, teacher)
 
-    pre_initialize_structure(model=model)
-
     # initialize session manager
     initialize_recipe(model, None)
 
@@ -403,7 +400,7 @@ def main(
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     trainer = Trainer(
-        model_init=get_session_model,
+        model_init=lambda: model,
         teacher=teacher,
         recipe=recipe_args.recipe,
         recipe_args=recipe_args.recipe_args,

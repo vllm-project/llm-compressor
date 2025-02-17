@@ -38,12 +38,11 @@ class CompressionLifecycle:
     :type event_lifecycle: Optional[EventLifecycle]
     """
 
-    state: Optional[State] = None
+    state: Optional[State] = field(default_factory=State)
     recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
     modifiers: List[StageModifiers] = field(default_factory=list)
     event_lifecycle: Optional[EventLifecycle] = None
 
-    initialized_structure: bool = False
     initialized_: bool = False
     finalized: bool = False
     event_called: bool = False
@@ -64,47 +63,8 @@ class CompressionLifecycle:
             except Exception as e:
                 logger.warning(f"Exception during finalizing modifier: {e}")
 
-        self.state = None
-        self.recipe_container = RecipeContainer()
-        self.modifiers = []
-        self.event_lifecycle = None
-
-        self.initialized_structure = False
-        self.initialized_ = False
-        self.finalized = False
-        self.event_called = False
+        self.__init__()
         logger.info("Compression lifecycle reset")
-
-    def pre_initialize_structure(self, **kwargs) -> List[Any]:
-        """
-        Pre-initialize the structure of the compression lifecycle.
-
-        :param kwargs: Additional arguments to update the state with
-        :return: List of data returned from pre-initialization of modifiers
-        :rtype: List[Any]
-        """
-        logger.debug("Pre-initializing structure")
-        self._check_create_state()
-        extras = self.state.update(**kwargs)
-        extras = self.recipe_container.update(**extras)
-
-        self._check_compile_recipe()
-        mod_data = []
-        for mod in self.modifiers:
-            data = mod.pre_initialize_structure(state=self.state, **extras)
-            logger.debug("Pre-initialized modifier: {}", mod)
-            if data is not None:
-                mod_data.append(data)
-
-        self.initialized_structure = True
-        applied_stage_names = [mod.unique_id for mod in self.modifiers if mod.applied]
-        self.recipe_container.update_applied_stages(applied_stage_names)
-        logger.info(
-            "Compression lifecycle structure pre-initialized for {} modifiers",
-            len(self.modifiers),
-        )
-
-        return mod_data
 
     def initialize(self, **kwargs) -> List[Any]:
         """
@@ -115,7 +75,6 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
         logger.debug("Initializing compression lifecycle")
-        self._check_create_state()
         extras = self.state.update(**kwargs)
         extras = self.recipe_container.update(**extras)
 
@@ -228,14 +187,6 @@ class CompressionLifecycle:
         self.event_called = True
 
         return mod_data
-
-    def _check_create_state(self):
-        if self.state is not None:
-            return
-
-        logger.debug("Creating new State instance for compression lifecycle")
-        self.state = State()
-        logger.info("State created for compression lifecycle")
 
     def _check_compile_recipe(self):
         if not self.recipe_container.check_compile_recipe():

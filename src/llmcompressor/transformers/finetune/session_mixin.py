@@ -18,7 +18,6 @@ from llmcompressor.core import (
     create_session,
     finalize,
     initialize,
-    pre_initialize_structure,
 )
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
@@ -165,26 +164,6 @@ class SessionManagerMixIn:
                 "pass a yaml file or string to the `recipe` argument."
             )
 
-        torch.cuda.empty_cache()
-
-    def initialize_structure(self, stage: Optional[str] = None):
-        """
-        Initialize any recipe structural changes such as quantization on the model,
-        return immediately if session has already been initialized
-
-        :param stage: Optional stage of recipe to run, or None to run all stages
-        """
-        session = active_session()
-        if session.lifecycle.initialized_:
-            return False
-
-        pre_initialize_structure(
-            model=self.model,
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-        )
-        logger.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
         torch.cuda.empty_cache()
 
     def finalize_session(self):
@@ -399,14 +378,12 @@ class SessionManagerMixIn:
     def evaluate(self, *args, **kwargs):
         """
         Run a sparsification evaluation cycle.
-        Runs initialize_structure for the sparse session before calling
-        super().evaluate() and finalization of the session after.
 
         :param args: positional args to pass to super().evaluate()
         :param kwargs: keyword args to pass to super().evaluate()
         :return: the output from super.evaluate()
         """
-        self.initialize_structure()
+        # TODO remove
 
         output = super().evaluate(*args, **kwargs)
         self.finalize_session()
@@ -416,14 +393,13 @@ class SessionManagerMixIn:
     def predict(self, *args, **kwargs):
         """
         Run a sparsification prediction cycle.
-        Runs initialize_structure for the sparse session before calling
-        super().predict() and finalization of the session after.
 
         :param args: positional args to pass to super().predict()
         :param kwargs: keyword args to pass to super().predict()
         :return: the output from super.predict()
         """
-        self.initialize_structure()
+        # TODO remove
+
         output = super().predict(*args, **kwargs)
         self.finalize_session()
 

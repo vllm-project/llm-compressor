@@ -7,7 +7,7 @@ from loguru import logger
 from safetensors import safe_open
 from torch.nn import Module
 
-from llmcompressor.core import active_session, create_session, pre_initialize_structure
+from llmcompressor.core import active_session, create_session
 from llmcompressor.typing import Processor
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
@@ -33,7 +33,6 @@ def initialize_recipe(model: Module, recipe_path: str):
     """
     if not active_session():
         create_session()
-    pre_initialize_structure(model=model, recipe=recipe_path)
 
     # no need to reload if no recipe was applied
     if recipe_path is None:

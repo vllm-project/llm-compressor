@@ -11,7 +11,6 @@ __all__ = [
     "create_session",
     "active_session",
     "reset_session",
-    "pre_initialize_structure",
     "initialize",
     "finalize",
     "apply",
@@ -58,16 +57,6 @@ def reset_session():
     """
     session = active_session()
     session._lifecycle.reset()
-
-
-def pre_initialize_structure(**kwargs):
-    """
-    A method to pre-initialize the structure of the model for the active session
-
-    :param kwargs: the kwargs to pass to the active session's pre-initialize-structure
-        method
-    """
-    active_session().pre_initialize_structure(**kwargs)
 
 
 def initialize(
