@@ -4,8 +4,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
-from llmcompressor.transformers import oneshot
-
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import preprocess_tokenize_dataset
 
