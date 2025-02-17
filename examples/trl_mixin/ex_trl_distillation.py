@@ -1,11 +1,8 @@
 from sft_trainer import SFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
-from llmcompressor.transformers import (
-    DataTrainingArguments,
-    TextGenerationDataset,
-    TrainingArguments,
-)
+from llmcompressor.args import DatasetArguments, TrainingArguments
+from llmcompressor.transformers import TextGenerationDataset
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
@@ -21,7 +18,7 @@ teacher = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 
 # Load gsm8k using SparseML dataset tools
-data_args = DataTrainingArguments(
+data_args = DatasetArguments(
     dataset="gsm8k", dataset_config_name="main", max_seq_length=512
 )
 dataset_manager = TextGenerationDataset.load_from_registry(
