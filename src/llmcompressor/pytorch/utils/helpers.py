@@ -42,7 +42,6 @@ __all__ = [
     "pseudo_dequantize_linear",
     "tensor_forward_with_input_args",
     "sanitize_kwargs_for_module",
-    "clear_memory",
 ]
 
 
