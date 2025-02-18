@@ -2,11 +2,12 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.utils.offload import is_module_offloaded
 from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.pytorch.utils import (
@@ -14,6 +15,7 @@ from llmcompressor.pytorch.utils import (
     tensor_forward_with_input_args,
 )
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_layer,
     get_layers,
@@ -124,13 +126,9 @@ class AWQModifier(Modifier):
     duo_scaling: bool = True
     apply_clip: bool = True
 
-    hooks_: Optional[List] = None
-    resolved_mappings_: Optional[List] = None
+    resolved_mappings_: Optional[List[AWQMapping]] = None
     scales_: Optional[Dict] = None
     module_kwargs_: Optional[Dict] = None
-
-    def on_initialize_structure(self, state: State, **kwargs):
-        pass  # nothing needed for this modifier
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -155,7 +153,6 @@ class AWQModifier(Modifier):
         self.scales_ = {}
 
         calibration_dataloader = state.data.calib
-        self.hooks_ = []
 
         self._get_module_kwargs(state.model, calibration_dataloader)
         self._setup_scale_hooks()
@@ -179,7 +176,7 @@ class AWQModifier(Modifier):
 
         return True
 
-    def _resolve_mappings(self, model: Module) -> List:
+    def _resolve_mappings(self, model: Module) -> List[AWQMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into AWQMapping objects, resolving regular expressions.
@@ -252,7 +249,7 @@ class AWQModifier(Modifier):
             # is enough, as other balance layers
             # get the same input
             layer = mapping.balance_layers[0]
-            self.hooks_.append(layer.register_forward_hook(create_hook_fn(name)))
+            self.register_hook(layer, create_hook_fn(name), "forward")
 
     @torch.no_grad()
     def _calibrate(self, model: Module, calibration_dataloader: List):
@@ -271,17 +268,16 @@ class AWQModifier(Modifier):
                 " CompressionSession to run the AWQ modifier"
             )
 
-        run_calibration_forward(
-            model,
-            calibration_dataloader,
-            self.num_calibration_steps,
-            self.calibration_function,
-        )
+        with calibration_forward_context(model):
+            run_calibration_forward(
+                model,
+                calibration_dataloader,
+                self.num_calibration_steps,
+                self.calibration_function,
+            )
 
         # remove the hooks now that we are done calibrating
-        for hook in self.hooks_:
-            hook.remove()
-        del self.hooks_
+        self.remove_hooks()
 
     def _concat_collected_activations(self):
         """
@@ -370,6 +366,13 @@ class AWQModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
+                # TODO calls to module._hf_hook.pre_forward(module) and
+                # module._hf_hook.post_forward(module, None) appear a couple places
+                # in SmoothQuantModifier, do we need them anywhere else?
+                offloaded = is_module_offloaded(module)
+                if offloaded:
+                    module._hf_hook.pre_forward(module)
+
                 if module in balance_layers:
                     module.weight.mul_(scales.view(1, -1).to(module.weight.device))
                 elif module == smooth_layer:
@@ -379,6 +382,9 @@ class AWQModifier(Modifier):
                         module.weight.div_(scales.view(-1, 1).to(module.weight.device))
                     if hasattr(module, "bias") and module.bias is not None:
                         module.bias.div_(scales.to(module.bias.device))
+
+                if offloaded:
+                    module._hf_hook.post_forward(module, None)
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -681,7 +687,7 @@ class AWQModifier(Modifier):
 
         best_max_val = torch.cat(best_max_val_all, dim=0)
 
-        #TODO this appears unneeded, clear_memory removed
+        # TODO this appears unneeded, clear_memory removed
         # clear_memory(input_feat)
         # clear_memory(org_out)
 
