@@ -185,7 +185,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 model_path=model.name_or_path
             )
             recipe_container = active_session().lifecycle.recipe_container
-            recipe_container.update(recipe=existing_recipe)
+            recipe_container.update(recipe=existing_recipe)  # TODO: append to beginning, not back
             recipe_container.check_compile_recipe()
 
             recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)

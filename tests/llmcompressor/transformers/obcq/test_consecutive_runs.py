@@ -95,6 +95,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stage_keys), 2)
         self.assertIn("test_stage_0", stage_keys)
         self.assertIn("test_stage_1", stage_keys)
+        # TODO: test order
 
     def tearDown(self):
         shutil.rmtree(self.output)
