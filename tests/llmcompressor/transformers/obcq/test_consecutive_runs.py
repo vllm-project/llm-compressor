@@ -8,6 +8,7 @@ from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -59,10 +60,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         session.reset()
 
-        # reuse the same session, do not construct a new one
-        # TODO: add test which uses new sessions?
-
-        # reload saved model and up sparsity to 0.7
+        # reload saved model and increase sparsity to 0.7
         oneshot(
             model=self.output_first,
             dataset=self.dataset,
@@ -90,7 +88,24 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stage_keys), 2)
         self.assertIn("test_stage_0", stage_keys)
         self.assertIn("test_stage_1", stage_keys)
-        # TODO: test order
+
+        # check saved modifier names are same
+        stage0_modifier_names = list(
+            list(recipe_data["test_stage_0"].values())[0].keys()
+        )
+        exp_stage0_modifier_names = [
+            mod.type
+            for mod in Recipe.create_instance(self.first_recipe).stages[0].modifiers
+        ]
+        stage1_modifier_names = list(
+            list(recipe_data["test_stage_1"].values())[0].keys()
+        )
+        exp_stage1_modifier_names = [
+            mod.type
+            for mod in Recipe.create_instance(self.second_recipe).stages[0].modifiers
+        ]
+        self.assertEqual(stage0_modifier_names, exp_stage0_modifier_names)
+        self.assertEqual(stage1_modifier_names, exp_stage1_modifier_names)
 
     def tearDown(self):
         shutil.rmtree(self.output)
