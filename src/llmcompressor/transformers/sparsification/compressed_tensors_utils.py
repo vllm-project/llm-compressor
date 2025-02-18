@@ -29,58 +29,8 @@ from llmcompressor.transformers.compression.sparsity_config import (
 )
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
-from llmcompressor.typing import Processor
 
-__all__ = ["modify_save_pretrained", "modify_fsdp_model_save_pretrained"]
-
-
-def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
-    """
-    Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
-    supports compression for fsdp model
-    """
-
-    def save_pretrained_compressed(save_pretrained_method):
-        if getattr(save_pretrained_method, "_overridden", False):
-            # `model.save_pretrained` has already been replaced, return.
-            return save_pretrained_method
-
-        # Keep a weak reference to the model class and unbound save_pretrained
-        # method so we can call the original
-        original_save_pretrained = save_pretrained_method.__func__
-        del save_pretrained_method
-
-        @wraps(original_save_pretrained)
-        def save_pretrained_wrapper(
-            save_directory: str,
-            save_compressed: bool = True,
-            **kwargs,
-        ):
-            """
-            Wrapper around PreTrainedModel.save_pretrained(), adds functionality for
-            saving models in a compressed format on disk. The compression format is
-            saved to the model's config file
-
-            :param save_directory: output directory to save model to
-            :param sparsity_config: optional sparsity config to compress model with,
-            if no config is provided it will be inferred from the model
-            :param quantization_format: optional compression format for quantized
-            models. If none is provided it will be inferred from the model
-            :param save_compressed: whether or not to compress the model on disk
-            :param skip_compression_stats: whether to skip the calculation of
-            compression statistics (such as global sparsity and sparsity structure) when
-            saving a model in dense format
-            :param kwargs: additional kwargs to pass on to model.save_pretrained
-            """
-            raise NotImplementedError("")
-
-        save_pretrained_wrapper._overriden = True
-        return save_pretrained_wrapper
-
-    # wrap save_pretrained
-    trainer.model.save_pretrained = save_pretrained_compressed(
-        trainer.model.save_pretrained
-    )
+__all__ = ["modify_save_pretrained"]
 
 
 def modify_save_pretrained(model: PreTrainedModel):

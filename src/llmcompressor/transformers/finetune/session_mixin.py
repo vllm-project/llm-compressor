@@ -63,8 +63,8 @@ class SessionManagerMixIn:
     def __init__(
         self,
         recipe: str,
+        data_args: "DatasetArguments",
         model_args: "ModelArguments",
-        data_args: Optional["DatasetArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         **kwargs,
@@ -390,7 +390,6 @@ class SessionManagerMixIn:
     def evaluate(self, *args, **kwargs):
         """
         Run a sparsification evaluation cycle.
-
         :param args: positional args to pass to super().evaluate()
         :param kwargs: keyword args to pass to super().evaluate()
         :return: the output from super.evaluate()
@@ -405,7 +404,6 @@ class SessionManagerMixIn:
     def predict(self, *args, **kwargs):
         """
         Run a sparsification prediction cycle.
-
         :param args: positional args to pass to super().predict()
         :param kwargs: keyword args to pass to super().predict()
         :return: the output from super.predict()
@@ -460,6 +458,7 @@ class SessionManagerMixIn:
             self.model.prepare_for_save()  # TODO: move to finalize
 
         # save checkpoint
+        self.save_state()
         if self.accelerator.is_main_process:
             processor = getattr(self, "processing_class", self.tokenizer)
             save_checkpoint(

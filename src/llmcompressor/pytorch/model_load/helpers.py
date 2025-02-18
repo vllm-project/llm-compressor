@@ -20,6 +20,7 @@ __all__ = [
     "get_session_model",
     "get_completed_stages",
     "save_completed_stages",
+    "save_checkpoint",
 ]
 
 

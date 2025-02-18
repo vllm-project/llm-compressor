@@ -256,6 +256,7 @@ class StageRunner:
                 self.train(checkpoint=checkpoint, stage=stage_name)
             checkpoint = None
 
+            # save model between stages
             if (
                 self._training_args.output_dir
                 != TrainingArguments.__dataclass_fields__["output_dir"].default

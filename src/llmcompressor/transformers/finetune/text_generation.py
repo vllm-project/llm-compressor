@@ -49,7 +49,6 @@ from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
@@ -412,7 +411,10 @@ def main(
 
     # wrap model.save_pretrained
     if is_fsdp_model(model):
-        modify_fsdp_model_save_pretrained(trainer, processor)
+        raise NotImplementedError(
+            "FSDP models are not supported in the current release but will be "
+            "suported in future releases of LLM Compressor"
+        )
     else:
         modify_save_pretrained(model)
 
