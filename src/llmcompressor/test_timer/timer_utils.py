@@ -1,6 +1,6 @@
 from functools import wraps
 
-from tests.test_timer import Timer
+from llmcompressor.test_timer import Timer
 
 __all__ = ["log_time", "get_singleton_manager"]
 

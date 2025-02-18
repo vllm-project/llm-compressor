@@ -9,6 +9,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.test_timer.timer_utils import log_time
 
 if TYPE_CHECKING:
     from llmcompressor.modifiers import Modifier
@@ -23,6 +24,10 @@ def run_pipeline(
     ignore: List[str],
     callback_modifier: Optional["Modifier"] = None,
 ):
+
+    @log_time
+    def call(forward_function, model, **inputs):
+        return forward_function(model, **inputs)
     """
     Run a sequential data pipeline according to the following steps:
 
@@ -67,7 +72,8 @@ def run_pipeline(
             # do an preliminary pass to trigger modifier hooks
             for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                 inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                forward_function(model, **inputs)
+                #forward_function(model, **inputs)
+                call(forward_function, model, **inputs)
 
             # TODO: replace with a lifecycle event
             if callback_modifier:
@@ -78,7 +84,8 @@ def run_pipeline(
             with HooksMixin.disable_hooks():
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    output = forward_function(model, **inputs)
+                    #output = forward_function(model, **inputs)
+                    output = call(forward_function, model, **inputs)
 
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
