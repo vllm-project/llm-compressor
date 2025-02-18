@@ -83,7 +83,9 @@ class SessionManagerMixIn:
         self.metadata = None
         if training_args is not None:
             # trl_sft_trainer pathway. Both training_args and data_args
-            # have `max_seq_length` which causes collision error
+            # have `max_seq_length` which causes collision error. This is the
+            # only shared parameter, where training arg is `TRLSFTConfig` that
+            # inherits HuggingFace's `TrainingArguments`
             training_args_dict = training_args.to_dict()
             if "max_seq_length" in training_args_dict:
                 training_args_dict.pop("max_seq_length")
