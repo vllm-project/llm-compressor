@@ -1283,7 +1283,7 @@ def pseudo_quantize_tensor(
 
 
 def pseudo_dequantize_linear(
-    w: torch.nn.Linear,
+    w: torch.Tensor,
     scales: torch.Tensor,
     zeros: Optional[torch.Tensor] = None,
     symmetric: bool = False,
