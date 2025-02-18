@@ -452,7 +452,7 @@ class SessionManagerMixIn:
                 output_dir,
                 model=self.model,
                 processor=processor,
-                safe_serialization=self.args.save_safetensors,
+                save_safetensors=self.args.save_safetensors,
                 save_compressed=self.model_args.save_compressed,
             )
         self.accelerator.wait_for_everyone()
