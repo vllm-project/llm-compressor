@@ -109,7 +109,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
     recipe = recipe_from_huggingface_model_id(hf_stub=model_path)
 
     if recipe is None:
-        logger.info("Failed to infer the recipe from the model_path")
+        logger.debug("Failed to infer the recipe from the model_path")
 
     return recipe
 

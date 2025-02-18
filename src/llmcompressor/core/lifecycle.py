@@ -85,8 +85,11 @@ class CompressionLifecycle:
         :return: List of data returned from initialization of modifiers
         :rtype: List[Any]
         """
-        logger.debug("Initializing compression lifecycle")
         self.state.update(**kwargs)
+        if self.initialized_:  # TODO: do not initialize twice
+            return
+
+        logger.debug("Initializing compression lifecycle")
         self.recipe_container.append(recipe, recipe_stage, recipe_args)
         self.modifiers = self.recipe_container.get_modifiers()
         self._set_model_layer_prefix()
