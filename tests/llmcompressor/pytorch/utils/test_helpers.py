@@ -7,6 +7,17 @@ from torch import Tensor
 from torch.nn import Linear, Module, ReLU, Sequential
 
 from llmcompressor.pytorch.utils import (
+    MEMORY_BOUNDED,
+    default_device,
+    get_optim_learning_rate,
+    mask_difference,
+    memory_aware_threshold,
+    sanitize_kwargs_for_module,
+    set_optim_learning_rate,
+    tensor_density,
+    tensor_export,
+    tensor_forward_with_input_args,
+    tensor_sample,
     tensor_sparsity,
     tensors_module_forward,
     tensors_to_device,
@@ -494,3 +505,252 @@ def test_tensor_sparsity_cuda(tensor, dim, expected_sparsity):
     sparsity = tensor_sparsity(tensor, dim)
     assert expected_sparsity.shape == sparsity.shape
     assert torch.sum((sparsity.detach().cpu() - expected_sparsity).abs()) < 0.001
+
+
+@pytest.mark.flaky(reruns=2, min_passes=1)
+@pytest.mark.skipif(
+    os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
+    reason="Skipping pytorch tests",
+)
+@pytest.mark.parametrize(
+    "tensor,dim,expected_density",
+    [
+        (torch.zeros(8, 16), None, torch.tensor(0.0)),
+        (torch.zeros(8, 16), 0, torch.zeros(8)),
+        (torch.zeros(8, 16), 1, torch.zeros(16)),
+        (torch.zeros(8, 16), [0, 1], torch.zeros(8, 16)),
+        (torch.zeros(8, 16), [1, 0], torch.zeros(16, 8)),
+        (torch.zeros(8, 16, 32, 8), [3, 1, 2], torch.zeros(8, 16, 32)),
+        (torch.ones(8, 16), None, torch.tensor(1.0)),
+        (torch.ones(8, 16), 0, torch.ones(8)),
+        (torch.ones(8, 16), 1, torch.ones(16)),
+        (torch.ones(8, 16), [0, 1], torch.ones(8, 16)),
+        (torch.ones(8, 16), [1, 0], torch.ones(16, 8)),
+        (torch.ones(8, 16, 32, 8), [3, 1, 2], torch.ones(8, 16, 32)),
+        (torch.randn(8, 16), None, torch.tensor(1.0)),
+        (torch.randn(8, 16), 0, torch.ones(8)),
+        (torch.randn(8, 16), 1, torch.ones(16)),
+        (torch.randn(8, 16), [0, 1], torch.ones(8, 16)),
+        (torch.randn(8, 16), [1, 0], torch.ones(16, 8)),
+        (torch.randn(8, 16, 32, 8), [3, 1, 2], torch.ones(8, 16, 32)),
+        (
+            torch.tensor([10.0, 0.0, 1.0, 3.0, 2.0, 0.0, 8.0, 0.0, 5.0, 0.0]),
+            None,
+            torch.tensor(0.6),
+        ),
+    ],
+)
+def test_tensor_density(tensor, dim, expected_density):
+    density = tensor_density(tensor, dim)
+    assert expected_density.shape == density.shape
+    assert torch.sum((density - expected_density).abs()) < 0.001
+
+
+@pytest.mark.flaky(reruns=2, min_passes=1)
+@pytest.mark.skipif(
+    os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
+    reason="Skipping pytorch tests",
+)
+@pytest.mark.parametrize(
+    "tensor,dim,expected_density",
+    [
+        (torch.zeros(8, 16), None, torch.tensor(0.0)),
+        (torch.zeros(8, 16, 32, 8), [3, 1, 2], torch.zeros(8, 16, 32)),
+        (torch.ones(8, 16), None, torch.tensor(1.0)),
+        (torch.ones(8, 16, 32, 8), [3, 1, 2], torch.ones(8, 16, 32)),
+        (torch.randn(8, 16), None, torch.tensor(1.0)),
+        (
+            torch.tensor([10.0, 0.0, 1.0, 3.0, 2.0, 0.0, 8.0, 0.0, 5.0, 0.0]),
+            None,
+            torch.tensor(0.6),
+        ),
+    ],
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
+def test_tensor_density_cuda(tensor, dim, expected_density):
+    tensor = tensor.to("cuda")
+    density = tensor_density(tensor, dim)
+    assert expected_density.shape == density.shape
+    assert torch.sum((density.detach().cpu() - expected_density).abs()) < 0.001
+
+
+@pytest.mark.skipif(
+    os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
+    reason="Skipping pytorch tests",
+)
+@pytest.mark.parametrize(
+    "tensor,size,dim,expected_shape",
+    [
+        (torch.randn(8, 16), 100, None, [100]),
+        (torch.randn(8, 16), 100, 0, [8, 100]),
+        (torch.randn(8, 16), 100, 1, [16, 100]),
+        (torch.randn(8, 16), 10, [0, 1], [8, 16, 10]),
+        (torch.randn(8, 16), 10, [1, 0], [16, 8, 10]),
+        (torch.randn(64, 12, 32, 16), 10, 2, [32, 10]),
+        (torch.randn(64, 12, 32, 16), 10, [3, 2], [16, 32, 10]),
+        (torch.randn(64, 12, 32, 16), 10, 1, [12, 10]),
+        (torch.randn(64, 12, 32, 16), 10, [0, 1], [64, 12, 10]),
+    ],
+)
+def test_tensor_sample(tensor, size, dim, expected_shape):
+    sample = tensor_sample(tensor, size, dim)
+    assert len(sample.shape) == len(expected_shape)
+    for s1, s2 in zip(sample.shape, expected_shape):
+        assert s1 == s2
+
+
+@pytest.mark.skipif(
+    os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
+    reason="Skipping pytorch tests",
+)
+@pytest.mark.parametrize(
+    "tensor,size,dim,expected_shape",
+    [
+        (torch.randn(8, 16), 100, None, [100]),
+        (torch.randn(8, 16), 100, 0, [8, 100]),
+        (torch.randn(8, 16), 100, 1, [16, 100]),
+        (torch.randn(8, 16), 10, [0, 1], [8, 16, 10]),
+        (torch.randn(8, 16), 10, [1, 0], [16, 8, 10]),
+        (torch.randn(64, 12, 32, 16), 10, 2, [32, 10]),
+        (torch.randn(64, 12, 32, 16), 10, [3, 2], [16, 32, 10]),
+        (torch.randn(64, 12, 32, 16), 10, 1, [12, 10]),
+        (torch.randn(64, 12, 32, 16), 10, [0, 1], [64, 12, 10]),
+    ],
+)
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
+def test_tensor_sample_cuda(tensor, size, dim, expected_shape):
+    tensor = tensor.to("cuda")
+    sample = tensor_sample(tensor, size, dim)
+    assert len(sample.shape) == len(expected_shape)
+    for s1, s2 in zip(sample.shape, expected_shape):
+        assert s1 == s2
+
+
+@pytest.mark.skipif(
+    os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
+    reason="Skipping pytorch tests",
+)
+@pytest.mark.parametrize(
+    "old_mask,new_mask,expected_diff",
+    [
+        (torch.zeros(8, 8), torch.zeros(8, 8), torch.zeros(8, 8)),
+        (torch.zeros(8, 8), torch.ones(8, 8), torch.ones(8, 8)),
+        (torch.ones(8, 8), torch.zeros(8, 8), -1.0 * torch.ones(8, 8)),
+        (torch.ones(8, 8), torch.ones(8, 8), torch.zeros(8, 8)),
+        (
+            torch.tensor([0.0, 0.0, 1.0, 0.0, 1.0, 1.0]),
+            torch.tensor([0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+            torch.tensor([0.0, 1.0, -1.0, 0.0, -1.0, 0.0]),
+        ),
+    ],
+)
+def test_mask_difference(old_mask, new_mask, expected_diff):
+    diff = mask_difference(old_mask, new_mask)
+    assert torch.sum((diff - expected_diff).abs()) < sys.float_info.epsilon
+
+
+@pytest.mark.skipif(
+    os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
+    reason="Skipping pytorch tests",
+)
+@pytest.mark.parametrize(
+    "model,state_dict,test_input",
+    [
+        (
+            Sequential(Conv2d(3, 16, (1, 1)), BatchNorm2d(16), Conv2d(16, 16, (1, 1))),
+            {
+                "0.weight": torch.randn(8, 3, 1, 1),
+                "0.bias": torch.randn(8),
+                "1.weight": torch.randn(8),
+                "1.bias": torch.randn(8),
+                "1.running_mean": torch.randn(8),
+                "1.running_var": torch.randn(8),
+                "2.weight": torch.randn(12, 8, 1, 1),
+                "2.bias": torch.randn(12),
+            },
+            torch.randn(2, 3, 16, 16),
+        ),
+        (
+            Sequential(Linear(8, 12), Linear(12, 16)),
+            {
+                "0.weight": torch.randn(7, 8),
+                "0.bias": torch.randn(7),
+                "1.weight": torch.randn(9, 7),
+                "1.bias": torch.randn(9),
+            },
+            torch.randn(5, 8),
+        ),
+    ],
+)
+def test_thin_model_from_checkpoint(model, state_dict, test_input):
+    with pytest.raises(RuntimeError):
+        model.load_state_dict(state_dict)
+
+    thin_model_from_checkpoint(model, state_dict)
+    model.load_state_dict(state_dict, strict=True)
+    assert isinstance(model(test_input), Tensor)
+
+
+@pytest.mark.parametrize(
+    "tensor,idx",
+    [
+        (torch.rand(1), 0),
+        (torch.rand(1_000), 123),
+        (torch.rand(10_000), 4321),
+        (torch.rand(100_000), 12345),
+    ],
+)
+def test_memory_aware_threshold(tensor, idx):
+    prior_state = os.getenv(MEMORY_BOUNDED)
+
+    dev = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    tensor = tensor.to(dev)
+
+    os.environ[MEMORY_BOUNDED] = "True"
+    t1 = memory_aware_threshold(tensor, idx)
+    os.environ[MEMORY_BOUNDED] = "False"
+    t2 = memory_aware_threshold(tensor, idx)
+    assert abs(t1 - t2) < 1e-3
+
+    if prior_state is not None:
+        os.environ[MEMORY_BOUNDED] = prior_state
+
+
+class TestSanitizeKwargsForModule:
+    @pytest.fixture
+    def module(self):
+        return Linear(10, 20)
+
+    def test_sanitize_kwargs_for_module_not_dict(self, module):
+        # Test with kwargs that are not a dictionary
+        with pytest.raises(TypeError):
+            sanitize_kwargs_for_module("not a dictionary", module)
+
+    def test_sanitize_kwargs_for_module_not_in_signature(self, module):
+        # Test with kwargs that are not in the signature of the forward method
+        kwargs = {"not_in_signature": 123}
+        sanitized_kwargs = sanitize_kwargs_for_module(kwargs, module)
+        assert sanitized_kwargs == {}
+
+    def test_sanitize_kwargs_for_module_in_signature(self, module):
+        # Test with kwargs that are in the signature of the forward method
+        kwargs = {"input": torch.randn(1, 10)}
+        sanitized_kwargs = sanitize_kwargs_for_module(kwargs, module)
+        assert sanitized_kwargs == kwargs
+
+
+class TestTensorForwardWithInputArgs:
+    @pytest.fixture
+    def module(self):
+        return Linear(10, 20)
+
+    def test_tensor_forward_with_input_args(self, module):
+        # Test with valid inputs and input_kwargs
+        inputs = torch.randn(1, 10)
+        input_kwargs = {}
+        output = tensor_forward_with_input_args(module, inputs, input_kwargs)
+        assert output.shape == (1, 20)
+
+        # Test with input_kwargs that are not in the signature of the forward method
+        input_kwargs = {"not_in_signature": 123}
+        tensor_forward_with_input_args(module, inputs, input_kwargs)
