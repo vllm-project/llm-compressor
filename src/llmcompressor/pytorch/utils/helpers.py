@@ -3,6 +3,7 @@ Utility / helper functions
 """
 
 import functools
+import gc
 import inspect
 import os
 import random
@@ -91,6 +92,7 @@ __all__ = [
     "pseudo_dequantize_linear",
     "tensor_forward_with_input_args",
     "sanitize_kwargs_for_module",
+    "clear_memory",
 ]
 
 
@@ -1298,3 +1300,10 @@ def pseudo_dequantize_linear(
         w = w.weight.data * scales
 
     return w
+
+
+def clear_memory(value: Optional[Any] = None):
+    if value is not None:
+        del value
+    gc.collect()
+    torch.cuda.empty_cache()
