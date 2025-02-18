@@ -93,7 +93,7 @@ class SessionManagerMixIn:
                 )
                 logger.warning(
                     "Detected `max_seq_length` in both data_args ",
-                    "andx training_args. This is expected for TRL in distillation. ",
+                    "and training_args. This is expected for TRL in distillation. ",
                     "Updating metadata to `training_args_max_seq_length`",
                 )
 
