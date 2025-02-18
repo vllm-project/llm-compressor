@@ -4,6 +4,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors.utils.offload import is_module_offloaded
 from loguru import logger
+from pydantic import ConfigDict
 from torch.nn import Module
 
 from llmcompressor.core import State
@@ -98,6 +99,9 @@ class SmoothQuantModifier(Modifier):
     :param calibration_function: optional function to use for the forward pass, or None
     to use the default tensor_module_forward
     """
+
+    # Allow arbitrary types because AWQMapping has field of type torch.nn.Module
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     smoothing_strength: float = 0.5
     mappings: Optional[List[Union[Tuple, List]]] = None
