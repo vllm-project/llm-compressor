@@ -4,6 +4,7 @@ from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data import (
     C4Dataset,
     OpenPlatypusDataset,
+    PileEvalDataset,
     TextGenerationDataset,
     WikiTextDataset,
 )
@@ -57,3 +58,4 @@ def test_open_platypus_initializes(tiny_llama_tokenizer):
     assert op_manager.dataset_args.text_column == "text"
     assert not op_manager.padding
     assert op_manager.max_seq_length == dataset_args.max_seq_length
+
