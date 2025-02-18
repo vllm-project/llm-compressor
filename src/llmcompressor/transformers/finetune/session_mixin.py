@@ -482,6 +482,7 @@ class SessionManagerMixIn:
             self.model.prepare_for_save()  # TODO: move to finalize
 
         # save checkpoint
+        self.save_state()
         if self.accelerator.is_main_process:
             processor = getattr(self, "processing_class", self.tokenizer)
             save_checkpoint(
