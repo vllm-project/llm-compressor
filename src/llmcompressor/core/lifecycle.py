@@ -38,7 +38,7 @@ class CompressionLifecycle:
     :type event_lifecycle: Optional[EventLifecycle]
     """
 
-    state: Optional[State] = field(default_factory=State)
+    state: State = field(default_factory=State)
     recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
     modifiers: List[StageModifiers] = field(default_factory=list)
     event_lifecycle: Optional[EventLifecycle] = None
