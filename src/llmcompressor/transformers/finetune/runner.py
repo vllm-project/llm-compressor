@@ -17,6 +17,7 @@ from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
     get_completed_stages,
     get_session_model,
+    save_checkpoint,
     save_completed_stages,
 )
 from llmcompressor.pytorch.utils import tensors_to_device
@@ -27,7 +28,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     make_dataset_splits,
 )
 from llmcompressor.typing import Processor
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recipe
+from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 class StageRunner:
@@ -258,14 +259,16 @@ class StageRunner:
             if (
                 self._training_args.output_dir
                 != TrainingArguments.__dataclass_fields__["output_dir"].default
+                and self.trainer.accelerator.is_main_process
             ):
-                save_model_and_recipe(
-                    model=self.trainer.model,
+                save_checkpoint(
                     save_path=self._output_dir,
+                    model=self.trainer.model,
                     processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._model_args.save_compressed,
                 )
+            self.trainer.accelerator.is_main_process.wait_for_everyone()
 
             # save stage to checkpoint dir
             if self.trainer.accelerator.is_main_process:

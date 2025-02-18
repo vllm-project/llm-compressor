@@ -9,7 +9,6 @@ from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
-from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
@@ -27,7 +26,6 @@ class TestConsecutiveRuns(unittest.TestCase):
         import math
 
         from llmcompressor.core import active_session
-        from llmcompressor.pytorch.model_load.helpers import initialize_recipe
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
@@ -61,9 +59,8 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         session.reset()
 
-        recipe = infer_recipe_from_model_path(model_path=self.output_first)
-        if recipe:
-            initialize_recipe(model=first_model, recipe_path=recipe)
+        # reuse the same session, do not construct a new one
+        # TODO: add test which uses new sessions?
 
         # reload saved model and up sparsity to 0.7
         oneshot(

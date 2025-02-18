@@ -42,8 +42,8 @@ from llmcompressor.args import (
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import (
     fallback_to_cpu,
-    initialize_recipe,
     parse_dtype,
+    save_checkpoint,
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.runner import StageRunner
@@ -383,9 +383,6 @@ def main(
     if isinstance(processor, str) or processor is None:
         processor = initialize_processor_from_path(model_args, model, teacher)
 
-    # initialize session manager
-    initialize_recipe(model, None)
-
     # Load datasets
     stage_runner = StageRunner(
         model_args=model_args,
@@ -452,16 +449,19 @@ def main(
         stage_runner.predict()
 
     # save if model was provided as a string or custom output_dir was set
-
     if isinstance(model_args.model, str) or (
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
+        and trainer.accelerator.is_main_process()
     ):
-        model.save_pretrained(
-            training_args.output_dir, save_compressed=model_args.save_compressed
+        save_checkpoint(
+            save_path=training_args.output_dir,
+            model=model,
+            processor=processor,
+            save_safetensors=True,
+            save_compressed=model_args.save_compressed,
         )
-        if processor is not None:
-            processor.save_pretrained(training_args.output_dir)
+    trainer.accelerator.wait_for_everyone()
 
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:

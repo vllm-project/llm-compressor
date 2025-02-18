@@ -16,6 +16,7 @@ from compressed_tensors import (
 )
 from loguru import logger
 from safetensors.torch import storage_ptr
+from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
@@ -26,11 +27,8 @@ from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
+from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.typing import Processor
-from llmcompressor.utils.fsdp.helpers import (
-    find_and_move_state_dicts_to_cpu,
-    unwrap_and_export_model,
-)
 
 __all__ = ["modify_save_pretrained", "modify_fsdp_model_save_pretrained"]
 
@@ -54,6 +52,7 @@ def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
         @wraps(original_save_pretrained)
         def save_pretrained_wrapper(
             save_directory: str,
+            save_compressed: bool = True,
             **kwargs,
         ):
             """
@@ -72,24 +71,7 @@ def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
             saving a model in dense format
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
-            try:
-                trainer.save_model(output_dir=save_directory, _is_oneshot=True)
-            except AssertionError:
-                # fallback to this in the case of quantization
-                unwrap_and_export_model(
-                    model=trainer.model,
-                    accelerator=trainer.accelerator,
-                    output_dir=save_directory,
-                    processor=processor,
-                )
-                # only allow the main process move the state
-                # dicts to cpu
-                if trainer.accelerator.is_main_process:
-                    # assuming quantization is the last step
-                    # we no longer need the original model
-                    # and can safely delete it to save memory
-                    del trainer.model
-                    find_and_move_state_dicts_to_cpu(save_directory)
+            raise NotImplementedError("")
 
         save_pretrained_wrapper._overriden = True
         return save_pretrained_wrapper
@@ -100,7 +82,7 @@ def modify_fsdp_model_save_pretrained(trainer, processor: Processor):
     )
 
 
-def modify_save_pretrained(model: torch.nn.Module):
+def modify_save_pretrained(model: PreTrainedModel):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
     supports compression
@@ -124,6 +106,7 @@ def modify_save_pretrained(model: torch.nn.Module):
             sparsity_config: Optional[SparsityCompressionConfig] = None,
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
+            safe_serialization: bool = True,
             skip_compression_stats: bool = False,
             disable_sparse_compression: bool = False,
             **kwargs,
@@ -189,12 +172,21 @@ def modify_save_pretrained(model: torch.nn.Module):
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
                 compressed_state_dict = compressor.compress(model, state_dict)
-
-                kwargs["safe_serialization"] = kwargs.get("safe_serialization", True)
                 original_save_pretrained.__get__(model, model_class)(
-                    save_directory, state_dict=compressed_state_dict, **kwargs
+                    save_directory,
+                    state_dict=compressed_state_dict,
+                    safe_serialization=safe_serialization,
+                    **kwargs,
                 )
                 compressor.update_config(save_directory)
+
+            # save recipe
+            existing_recipe = infer_recipe_from_model_path(
+                model_path=model.name_or_path
+            )
+            recipe_container = active_session().lifecycle.recipe_container
+            recipe_container.update(recipe=existing_recipe)
+            recipe_container.check_compile_recipe()
 
             recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
             session = active_session()
