@@ -8,7 +8,8 @@ import yaml
 from loguru import logger
 from pydantic import Field, model_validator
 
-from llmcompressor.modifiers import Modifier, StageModifiers
+from llmcompressor.modifiers import Modifier,
+from llmcompressor.modifiers.stage import StageModifiers
 from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.metadata import RecipeMetaData

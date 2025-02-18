@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import ConfigDict, Field, model_validator
 
-from llmcompressor.modifiers import StageModifiers
+from llmcompressor.modifiers.stage import StageModifiers
 from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.modifier import RecipeModifier

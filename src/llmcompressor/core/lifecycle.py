@@ -17,7 +17,7 @@ from llmcompressor.core.events import (
     OptimizerEventLifecycle,
 )
 from llmcompressor.core.state import State
-from llmcompressor.modifiers import StageModifiers
+from llmcompressor.modifiers.stage import StageModifiers
 from llmcompressor.recipe import RecipeContainer
 
 __all__ = ["CompressionLifecycle"]
