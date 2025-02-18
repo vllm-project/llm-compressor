@@ -20,6 +20,7 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
+from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
@@ -180,22 +181,8 @@ def modify_save_pretrained(model: PreTrainedModel):
                 )
                 compressor.update_config(save_directory)
 
-            # save recipe
-            existing_recipe = infer_recipe_from_model_path(
-                model_path=model.name_or_path
-            )
-            recipe_container = active_session().lifecycle.recipe_container
-            recipe_container.update(
-                recipe=existing_recipe
-            )  # TODO: append to beginning, not back
-            recipe_container.check_compile_recipe()
-
-            recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
-            session = active_session()
-
-            if (recipe_yaml_str := session.get_serialized_recipe()) is not None:
-                with open(recipe_path, "w") as fp:
-                    fp.write(recipe_yaml_str)
+            # update existing recipe
+            update_and_save_recipe(model.name_or_path, save_directory)
 
             # copy python files from cache dir to save_path if any
             copy_python_files_from_model_cache(model, save_directory)
@@ -314,3 +301,20 @@ def get_model_compressor(
         sparsity_config=sparsity_config,
         quantization_format=quantization_format,
     )
+
+
+def update_and_save_recipe(model_path: str, save_directory: str):
+    recipes_to_save = []
+    existing_recipe = infer_recipe_from_model_path(model_path)
+    if existing_recipe is not None:
+        recipes_to_save.append(existing_recipe)
+
+    new_recipe = active_session().lifecycle.recipe_container.compiled_recipe
+    if new_recipe is not None:
+        recipes_to_save.append(new_recipe)
+
+    recipe = Recipe.simplify_combine_recipes(recipes_to_save)
+
+    # save recipe
+    recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
+    recipe.yaml(recipe_path)

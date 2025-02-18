@@ -18,7 +18,12 @@ from llmcompressor.core.events import (
 )
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import StageModifiers
-from llmcompressor.recipe import RecipeContainer
+from llmcompressor.recipe import (
+    RecipeArgsInput,
+    RecipeContainer,
+    RecipeInput,
+    RecipeStageInput,
+)
 
 __all__ = ["CompressionLifecycle"]
 
@@ -66,7 +71,13 @@ class CompressionLifecycle:
         self.__init__()
         logger.info("Compression lifecycle reset")
 
-    def initialize(self, **kwargs) -> List[Any]:
+    def initialize(
+        self,
+        recipe: Optional[RecipeInput] = None,
+        recipe_stage: Optional[RecipeStageInput] = None,
+        recipe_args: Optional[RecipeArgsInput] = None,
+        **kwargs,
+    ) -> List[Any]:
         """
         Initialize the compression lifecycle.
 
@@ -75,14 +86,14 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
         logger.debug("Initializing compression lifecycle")
-        extras = self.state.update(**kwargs)
-        extras = self.recipe_container.update(**extras)
-
-        self._check_compile_recipe()
+        self.state.update(**kwargs)
+        self.recipe_container.append(recipe, recipe_stage, recipe_args)
+        self.modifiers = self.recipe_container.get_modifiers()
         self._set_model_layer_prefix()
+
         mod_data = []
         for mod in self.modifiers:
-            data = mod.initialize(state=self.state, **extras)
+            data = mod.initialize(state=self.state, **kwargs)
             logger.debug("Initialized modifier: {}", mod)
             if data is not None:
                 mod_data.append(data)
@@ -187,22 +198,6 @@ class CompressionLifecycle:
         self.event_called = True
 
         return mod_data
-
-    def _check_compile_recipe(self):
-        if not self.recipe_container.check_compile_recipe():
-            return
-
-        logger.debug(
-            "Compiling recipe and creating modifiers for compression lifecycle"
-        )
-        self.modifiers = self.recipe_container.compiled_recipe.create_modifier()
-        for mod in self.modifiers:
-            if mod.unique_id in self.recipe_container.applied_stages:
-                mod.applied = True
-        logger.info(
-            "Recipe compiled and {} modifiers created",
-            len(self.modifiers),
-        )
 
     def _check_setup_event_lifecycle(self, event_type: EventType):
         if self.event_lifecycle is not None:

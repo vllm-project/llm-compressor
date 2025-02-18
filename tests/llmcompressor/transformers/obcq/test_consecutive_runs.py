@@ -84,11 +84,6 @@ class TestConsecutiveRuns(unittest.TestCase):
         assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
         assert qat_active(second_model)
 
-        session = active_session()
-        session_recipe = session.lifecycle.recipe_container.compiled_recipe
-        stages = [stage.group for stage in session_recipe.stages]
-        self.assertEqual(len(stages), 2)
-
         recipe_path = self.output_second / "recipe.yaml"
         recipe_data = yaml.safe_load(recipe_path.read_text())
         stage_keys = recipe_data.keys()

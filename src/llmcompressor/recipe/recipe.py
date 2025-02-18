@@ -14,7 +14,13 @@ from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.metadata import RecipeMetaData
 from llmcompressor.recipe.stage import RecipeStage
 
-__all__ = ["Recipe", "RecipeTuple"]
+__all__ = [
+    "Recipe",
+    "RecipeTuple",
+    "RecipeInput",
+    "RecipeStageInput",
+    "RecipeArgsInput",
+]
 
 
 class Recipe(RecipeBase):
@@ -150,7 +156,7 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_recipe(
-        recipe: Union["Recipe", "RecipeTuple"], shift: Optional[int] = None
+        recipe: Union[str, "Recipe", "RecipeTuple"], shift: Optional[int] = None
     ) -> "Recipe":
         """
         Simplify a RecipeTuple by removing stages that are not in the target_stages
@@ -177,6 +183,9 @@ class Recipe(RecipeBase):
             defaults to None (No shift)
         :return: The simplified Recipe instance
         """
+        if isinstance(recipe, str):
+            recipe = Recipe.create_instance(recipe)
+
         if isinstance(recipe, Recipe):
             recipe.evaluate(shift=shift)
             return recipe
@@ -212,7 +221,7 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_combine_recipes(
-        recipes: List[Union["Recipe", "RecipeTuple"]],
+        recipes: List[Union[str, "Recipe", "RecipeTuple"]],
     ) -> "Recipe":
         """
         A method to combine multiple recipes into one recipe
@@ -571,6 +580,11 @@ class Recipe(RecipeBase):
         return yaml_recipe_dict
 
 
+RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
+RecipeStageInput = Union[str, List[str], List[List[str]]]
+RecipeArgsInput = Union[Dict[str, Any], List[Dict[str, Any]]]
+
+
 @dataclass
 class RecipeTuple:
     """
@@ -587,6 +601,58 @@ class RecipeTuple:
     recipe: Recipe
     target_stages: List[str]
     override_args: Dict[str, Any]
+
+    @staticmethod
+    def from_inputs(
+        cls,
+        recipe: Optional[RecipeInput] = None,
+        recipe_stage: Optional[RecipeStageInput] = None,
+        recipe_args: Optional[RecipeArgsInput] = None,
+    ) -> List["RecipeTuple"]:
+        if recipe is None or recipe == []:
+            return []
+
+        # prepare recipe
+        if isinstance(recipe, Modifier) or (
+            isinstance(recipe, list)
+            and all(isinstance(mod, Modifier) for mod in recipe)
+        ):
+            recipe = Recipe.create_instance(recipe)
+
+        if not isinstance(recipe, list):
+            recipe = [recipe]
+
+        recipe = [
+            Recipe.create_instance(rec) if isinstance(rec, str) else rec
+            for rec in recipe
+        ]
+
+        # prepare stage
+        if recipe_stage is None:
+            recipe_stage = [None] * len(recipe)
+        else:
+            if not isinstance(recipe_stage, list):
+                recipe_stage = [[recipe_stage]] * len(recipe)
+            if not isinstance(recipe_stage[0], list):
+                recipe_stage = [recipe_stage] * len(recipe)
+
+        # prepare args
+        if recipe_args is None:
+            recipe_args = [{}] * len(recipe)
+        elif not isinstance(recipe_args, list):
+            recipe_args = [recipe_args] * len(recipe)
+
+        # validation
+        if len(recipe) != len(recipe_stage) or len(recipe) != len(recipe_args):
+            raise ValueError(
+                "recipe, recipe_stage, and recipe_args must be the same length"
+            )
+
+        # create tuples
+        return [
+            cls(rec, stage, args)
+            for rec, stage, args in zip(recipe, recipe_stage, recipe_args)
+        ]
 
 
 def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
