@@ -77,15 +77,29 @@ class SessionManagerMixIn:
 
         # parse training and metadata args
         training_args = kwargs.get("args")
-        self.metadata = (
-            self._extract_metadata(
+
+        self.metadata = None
+        if training_args is not None:
+            # trl_sft_trainer pathway. Both training_args and data_args
+            # have `max_seq_length` which causes collision error. This is the
+            # only shared parameter, where training arg is `TRLSFTConfig` that
+            # inherits HuggingFace's `TrainingArguments`
+            training_args_dict = training_args.to_dict()
+            if "max_seq_length" in training_args_dict:
+                training_args_dict["training_args_max_seq_length"] = (
+                    training_args_dict.pop("max_seq_length")
+                )
+                logger.warning(
+                    "Detected `max_seq_length` in both data_args ",
+                    "and training_args. This is expected for TRL in distillation. ",
+                    "Updating metadata to `training_args_max_seq_length`",
+                )
+
+            self.metadata = self._extract_metadata(
                 metadata_args=METADATA_ARGS,
-                training_args_dict=training_args.to_dict(),
+                training_args_dict=training_args_dict,
                 data_args_dict=asdict(data_args) if data_args else {},
             )
-            if training_args and METADATA_ARGS
-            else None
-        )
 
         # setup metrics and session
         self.logger_manager = LoggerManager(log_python=False)
