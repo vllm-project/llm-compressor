@@ -41,6 +41,5 @@ from llmcompressor.core.session_functions import (
     create_session,
     finalize,
     initialize,
-    pre_initialize_structure,
     reset_session,
 )

@@ -8,13 +8,12 @@ from safetensors import safe_open
 from torch.nn import Module
 from transformers import PreTrainedModel
 
-from llmcompressor.core import active_session, create_session, pre_initialize_structure
+from llmcompressor.core import active_session
 from llmcompressor.typing import Processor
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
 __all__ = [
-    "initialize_recipe",
     "copy_python_files_from_model_cache",
     "fallback_to_cpu",
     "parse_dtype",
@@ -23,30 +22,6 @@ __all__ = [
     "save_completed_stages",
     "save_checkpoint",
 ]
-
-
-def initialize_recipe(model: Module, recipe_path: str):
-    """
-    Initializes a recipe that has been previously applied to the model
-    :param model: PyTorch model to apply structure to
-    :param recipe_path: path to recipe to apply to the model
-    """
-    if not active_session():
-        create_session()
-    pre_initialize_structure(model=model, recipe=recipe_path)
-
-    # no need to reload if no recipe was applied
-    if recipe_path is None:
-        return
-
-    session = active_session()
-    num_stages = len(session.lifecycle.recipe_container.compiled_recipe.stages)
-    msg = (
-        "an unstaged recipe"
-        if num_stages == 1
-        else f"a staged recipe with {num_stages} stages"
-    )
-    logger.info(f"Applied {msg} to the model")
 
 
 def save_checkpoint(
