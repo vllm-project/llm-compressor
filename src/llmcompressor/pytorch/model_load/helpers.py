@@ -14,6 +14,7 @@ from llmcompressor.typing import Processor
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
 __all__ = [
+    "initialize_recipe",
     "copy_python_files_from_model_cache",
     "fallback_to_cpu",
     "parse_dtype",
