@@ -202,7 +202,7 @@ class LifecycleCallbacks:
         :param kwargs: additional kwargs to pass to the current session's event method
         :return: the modified state of the active session after invoking the event
         """
-        if event_type in [EventType.PRE_INIT, EventType.INITIALIZE, EventType.FINALIZE]:
+        if event_type in [EventType.INITIALIZE, EventType.FINALIZE]:
             raise ValueError(
                 f"Cannot invoke {event_type} event. "
                 f"Use the corresponding method instead."

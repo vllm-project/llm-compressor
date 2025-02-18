@@ -149,7 +149,7 @@ class CompressionLifecycle:
             logger.error("Cannot invoke event after finalizing")
             raise ValueError("Cannot invoke event after finalizing")
 
-        if event_type in [EventType.PRE_INIT, EventType.INITIALIZE, EventType.FINALIZE]:
+        if event_type in [EventType.INITIALIZE, EventType.FINALIZE]:
             logger.error(
                 "Cannot invoke {} event. Use the corresponding method instead.",
                 event_type,
