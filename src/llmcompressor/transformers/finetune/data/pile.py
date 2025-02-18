@@ -1,6 +1,6 @@
 from copy import deepcopy
 from typing import Optional
-from copy import deepcopy
+
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
 
