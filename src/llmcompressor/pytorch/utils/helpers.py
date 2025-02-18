@@ -3,7 +3,6 @@ Utility / helper functions
 """
 
 import functools
-import gc
 import inspect
 import os
 import random
@@ -723,4 +722,3 @@ def pseudo_dequantize_linear(
         w = w.weight.data * scales
 
     return w
-

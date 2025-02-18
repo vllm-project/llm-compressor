@@ -105,7 +105,7 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    resolved_mappings_: Optional[List] = None
+    resolved_mappings_: Optional[List[SmoothQuantMapping]] = None
     scales_: Optional[Dict] = None
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -166,7 +166,7 @@ class SmoothQuantModifier(Modifier):
         )
 
     @handle_mapping_resolution_errors
-    def _resolve_mappings(self, model: Module) -> List:
+    def _resolve_mappings(self, model: Module) -> List[SmoothQuantMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into SmoothQuantMapping objects, resolving regular expressions.
