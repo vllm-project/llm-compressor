@@ -140,20 +140,9 @@ def recipe_from_huggingface_model_id(
         return None
 
     try:
-        logger.info(
-            "Attempting to download a recipe ",
-            f"{hf_stub} " f"from {HUGGINGFACE_CO_URL_HOME}",
-        )
         recipe = hf_hub_download(repo_id=hf_stub, filename=recipe_file_name)
         logger.info(f"Found recipe: {recipe_file_name} for model ID: {hf_stub}.")
-    except Exception as e:
-        logger.error(
-            (
-                f"Unable to find recipe {recipe_file_name} "
-                f"for model ID: {hf_stub}: {e}."
-                "Skipping recipe resolution."
-            )
-        )
+    except Exception:  # TODO: narrow acceptable exceptions
         recipe = None
 
     return recipe

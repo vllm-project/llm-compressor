@@ -602,58 +602,6 @@ class RecipeTuple:
     target_stages: List[str]
     override_args: Dict[str, Any]
 
-    @staticmethod
-    def from_inputs(
-        cls,
-        recipe: Optional[RecipeInput] = None,
-        recipe_stage: Optional[RecipeStageInput] = None,
-        recipe_args: Optional[RecipeArgsInput] = None,
-    ) -> List["RecipeTuple"]:
-        if recipe is None or recipe == []:
-            return []
-
-        # prepare recipe
-        if isinstance(recipe, Modifier) or (
-            isinstance(recipe, list)
-            and all(isinstance(mod, Modifier) for mod in recipe)
-        ):
-            recipe = Recipe.create_instance(recipe)
-
-        if not isinstance(recipe, list):
-            recipe = [recipe]
-
-        recipe = [
-            Recipe.create_instance(rec) if isinstance(rec, str) else rec
-            for rec in recipe
-        ]
-
-        # prepare stage
-        if recipe_stage is None:
-            recipe_stage = [None] * len(recipe)
-        else:
-            if not isinstance(recipe_stage, list):
-                recipe_stage = [[recipe_stage]] * len(recipe)
-            if not isinstance(recipe_stage[0], list):
-                recipe_stage = [recipe_stage] * len(recipe)
-
-        # prepare args
-        if recipe_args is None:
-            recipe_args = [{}] * len(recipe)
-        elif not isinstance(recipe_args, list):
-            recipe_args = [recipe_args] * len(recipe)
-
-        # validation
-        if len(recipe) != len(recipe_stage) or len(recipe) != len(recipe_args):
-            raise ValueError(
-                "recipe, recipe_stage, and recipe_args must be the same length"
-            )
-
-        # create tuples
-        return [
-            cls(rec, stage, args)
-            for rec, stage, args in zip(recipe, recipe_stage, recipe_args)
-        ]
-
 
 def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
     # try loading as json first, then yaml
