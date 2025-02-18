@@ -88,12 +88,11 @@ class SessionManagerMixIn:
             # inherits HuggingFace's `TrainingArguments`
             training_args_dict = training_args.to_dict()
             if "max_seq_length" in training_args_dict:
-                training_args_dict.pop("max_seq_length")
+                training_args_dict["training_args_max_seq_length"] = training_args_dict.pop("max_seq_length")
                 logger.warning(
                     "Detected `max_seq_length` in both data_args ",
-                    "and training_args. This is expected for TRL in distillation. ",
-                    "Updating metadata with "
-                    f"`max_seq_length`: {data_args.max_seq_length} from data_args.",
+                    "andx training_args. This is expected for TRL in distillation. ",
+                    "Updating metadata to `training_args_max_seq_length`"
                 )
 
             self.metadata = self._extract_metadata(
