@@ -268,7 +268,7 @@ class StageRunner:
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._model_args.save_compressed,
                 )
-            self.trainer.accelerator.is_main_process.wait_for_everyone()
+            self.trainer.accelerator.wait_for_everyone()
 
             # save stage to checkpoint dir
             if self.trainer.accelerator.is_main_process:

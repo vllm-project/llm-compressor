@@ -452,7 +452,7 @@ def main(
     if isinstance(model_args.model, str) or (
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
-        and trainer.accelerator.is_main_process()
+        and trainer.accelerator.is_main_process
     ):
         save_checkpoint(
             save_path=training_args.output_dir,
