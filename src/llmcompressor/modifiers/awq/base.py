@@ -10,7 +10,6 @@ from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.pytorch.utils import (
-    clear_memory,
     pseudo_quantize_tensor,
     tensor_forward_with_input_args,
 )
@@ -83,12 +82,12 @@ class AWQModifier(Modifier):
     example recipe:
     ```yaml
     AWQModifier:
-    bits: 4
-    mappings: [
+      bits: 4
+      mappings: [
         [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*self_attn_layer_norm"],
         [["re:.*fc1"], "re:.*final_layer_norm"]
-    ]
-    ignore: ["model.decoder.final_layer_norm"]
+      ]
+      ignore: ["model.decoder.final_layer_norm"]
     ```
 
     :param mappings: list activation layers to smooth, and which layers to
@@ -165,18 +164,6 @@ class AWQModifier(Modifier):
         self._apply_smoothing(state.model)
 
         return True
-
-    def on_start(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        pass
-
-    def on_event(self, state: State, event: Event, **kwargs):
-        pass
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -694,8 +681,9 @@ class AWQModifier(Modifier):
 
         best_max_val = torch.cat(best_max_val_all, dim=0)
 
-        clear_memory(input_feat)
-        clear_memory(org_out)
+        #TODO this appears unneeded, clear_memory removed
+        # clear_memory(input_feat)
+        # clear_memory(org_out)
 
         return best_max_val.squeeze(1)
 
