@@ -20,7 +20,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # its recommended to use more calibration samples for MoE models so each expert is hit
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 100
+NUM_CALIBRATION_SAMPLES = 2048
 MAX_SEQUENCE_LENGTH = 2048
 
 
