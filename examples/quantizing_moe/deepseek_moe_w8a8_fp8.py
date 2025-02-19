@@ -4,7 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 
-# NOTE: transformers 4.48.0 has an import error with DeepSeek.
+# NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
 # Please consider either downgrading your transformers version to a
 # previous version or upgrading to a version where this bug is fixed
 
@@ -20,7 +20,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # its recommended to use more calibration samples for MoE models so each expert is hit
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 2048
+NUM_CALIBRATION_SAMPLES = 100
 MAX_SEQUENCE_LENGTH = 2048
 
 

@@ -1,0 +1,40 @@
+A new version of the following files was downloaded from https://huggingface.co/deepseek-ai/DeepSeek-V2.5:
+- configuration_deepseek.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+A new version of the following files was downloaded from https://huggingface.co/deepseek-ai/DeepSeek-V2.5:
+- modeling_deepseek.py
+. Make sure to double-check they do not contain any added malicious code. To avoid downloading new versions of the code file, you can pin a revision.
+Downloading shards:   0%|          | 0/55 [00:00<?, ?it/s]Downloading shards:   2%|▏         | 1/55 [03:25<3:04:34, 205.08s/it]Downloading shards:   4%|▎         | 2/55 [06:49<3:00:54, 204.80s/it]Downloading shards:   5%|▌         | 3/55 [10:14<2:57:33, 204.87s/it]Downloading shards:   7%|▋         | 4/55 [13:39<2:54:10, 204.92s/it]Downloading shards:   9%|▉         | 5/55 [17:06<2:51:14, 205.49s/it]Downloading shards:  11%|█         | 6/55 [20:31<2:47:44, 205.41s/it]Downloading shards:  13%|█▎        | 7/55 [23:56<2:44:17, 205.36s/it]Downloading shards:  15%|█▍        | 8/55 [27:21<2:40:46, 205.24s/it]Downloading shards:  16%|█▋        | 9/55 [30:46<2:37:17, 205.16s/it]Downloading shards:  18%|█▊        | 10/55 [34:11<2:33:50, 205.12s/it]Downloading shards:  20%|██        | 11/55 [37:36<2:30:24, 205.09s/it]Downloading shards:  22%|██▏       | 12/55 [41:01<2:26:57, 205.06s/it]Downloading shards:  24%|██▎       | 13/55 [44:27<2:23:36, 205.15s/it]Downloading shards:  25%|██▌       | 14/55 [47:51<2:20:04, 204.98s/it]Downloading shards:  27%|██▋       | 15/55 [51:16<2:16:39, 204.99s/it]Downloading shards:  29%|██▉       | 16/55 [54:41<2:13:14, 204.99s/it]Downloading shards:  31%|███       | 17/55 [58:06<2:09:45, 204.88s/it]Downloading shards:  33%|███▎      | 18/55 [1:01:30<2:06:15, 204.74s/it]Downloading shards:  35%|███▍      | 19/55 [1:04:55<2:02:53, 204.82s/it]Downloading shards:  36%|███▋      | 20/55 [1:08:20<1:59:30, 204.87s/it]Downloading shards:  38%|███▊      | 21/55 [1:11:45<1:56:07, 204.91s/it]Downloading shards:  40%|████      | 22/55 [1:15:10<1:52:43, 204.94s/it]Downloading shards:  42%|████▏     | 23/55 [1:18:35<1:49:18, 204.96s/it]Downloading shards:  44%|████▎     | 24/55 [1:22:00<1:45:53, 204.96s/it]Downloading shards:  45%|████▌     | 25/55 [1:25:25<1:42:29, 204.97s/it]Downloading shards:  47%|████▋     | 26/55 [1:28:50<1:39:05, 205.01s/it]/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/huggingface_hub/file_download.py:651: UserWarning: Not enough free disk space to download the file. The expected file size is: 8604.90 MB. The target location /home/dsikka/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-V2.5/blobs only has 7254.05 MB free disk space.
+  warnings.warn(
+Downloading shards:  47%|████▋     | 26/55 [1:31:36<1:42:10, 211.41s/it]
+Traceback (most recent call last):
+  File "/home/dsikka/llm-compressor/examples/quantizing_moe/deepseek_moe_w4a16.py", line 13, in <module>
+    device_map = calculate_offload_device_map(
+  File "/home/dsikka/llm-compressor/src/llmcompressor/transformers/compression/helpers.py", line 239, in calculate_offload_device_map
+    dummy_model = model_cls.from_pretrained(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/transformers/models/auto/auto_factory.py", line 559, in from_pretrained
+    return model_class.from_pretrained(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/transformers/modeling_utils.py", line 3990, in from_pretrained
+    resolved_archive_file, sharded_metadata = get_checkpoint_shard_files(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/transformers/utils/hub.py", line 1098, in get_checkpoint_shard_files
+    cached_filename = cached_file(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/transformers/utils/hub.py", line 403, in cached_file
+    resolved_file = hf_hub_download(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/huggingface_hub/utils/_validators.py", line 114, in _inner_fn
+    return fn(*args, **kwargs)
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/huggingface_hub/file_download.py", line 860, in hf_hub_download
+    return _hf_hub_download_to_cache_dir(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/huggingface_hub/file_download.py", line 1009, in _hf_hub_download_to_cache_dir
+    _download_to_tmp_and_move(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/huggingface_hub/file_download.py", line 1543, in _download_to_tmp_and_move
+    http_get(
+  File "/home/dsikka/venv/llm-env-latest/lib/python3.10/site-packages/huggingface_hub/file_download.py", line 455, in http_get
+    temp_file.write(chunk)
+OSError: [Errno 28] No space left on device
+Error in sys.excepthook:
+Traceback (most recent call last):
+
+
+Original exception was:
+Traceback (most recent call last):
+
