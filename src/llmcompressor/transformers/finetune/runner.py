@@ -21,7 +21,10 @@ from llmcompressor.pytorch.model_load.helpers import (
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_helpers import make_dataset_splits
+from llmcompressor.transformers.finetune.data.data_helpers import (
+    format_calibration_data,
+    make_dataset_splits,
+)
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import save_model_and_recipe
 
@@ -183,7 +186,6 @@ class StageRunner:
 
         :param checkpoint: optional checkpoint to pick up a stage from
         """
-
         recipe_obj = Recipe.create_instance(self._recipe_args.recipe)
         with self.trainer.accelerator.main_process_first():
             checkpoint_dir = self._model_args.model
@@ -223,9 +225,6 @@ class StageRunner:
             # run stage
             if run_type is StageRunType.ONESHOT:
                 from llmcompressor import Oneshot
-                from llmcompressor.transformers.finetune.data.data_helpers import (
-                    get_calibration_dataloader,
-                )
 
                 model = get_session_model()
                 self._model_args.model = model
@@ -237,15 +236,21 @@ class StageRunner:
                     output_dir=self._training_args.output_dir,
                     do_preprocess=do_preprocess,
                 )
+
+                if self.get_dataset_split("calibration") is not None:
+                    calib_data = format_calibration_data(
+                        tokenized_dataset=self.get_dataset_split("calibration"),
+                        num_calibration_samples=self._data_args.num_calibration_samples,
+                        do_shuffle=self._data_args.shuffle_calibration_samples,
+                        collate_fn=self._data_args.data_collator,
+                        accelerator=self.trainer.accelerator,
+                    )
+
                 if do_preprocess:
                     do_preprocess = False
-
-                calibration_dataloader = get_calibration_dataloader(
-                    oneshot.data_args,
-                    self._model_args.processor,
-                )
                 oneshot.apply_recipe_modifiers(
-                    calibration_dataloader=calibration_dataloader,
+                    calibration_dataloader=calib_data,
+                    recipe_stage=stage_name,
                 )
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)

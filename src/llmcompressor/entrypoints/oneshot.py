@@ -204,6 +204,7 @@ class Oneshot:
     def apply_recipe_modifiers(
         self,
         calibration_dataloader: Optional[DataLoader],
+        recipe_stage: Optional[str] = None,
     ):
         """
         Applies recipe modifiers to the model during the lifecycle.
@@ -228,6 +229,7 @@ class Oneshot:
             start=-1,  # oneshot-specific argument
             copy_data=False,
             min_tokens_per_module=getattr(self, "min_tokens_per_module", None),
+            recipe_stage=recipe_stage,
         )
 
         session.initialize(**session_kwargs)
