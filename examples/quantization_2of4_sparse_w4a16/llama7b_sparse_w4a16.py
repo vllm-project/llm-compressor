@@ -17,7 +17,7 @@ model = AutoModelForCausalLM.from_pretrained(
 dataset = "ultrachat-200k"
 
 # save location of quantized model
-output_dir = "output_llama7b_2of4_w4a16_channel-refac"
+output_dir = "output_llama7b_2of4_w4a16_channel"
 
 # set dataset config parameters
 splits = {"calibration": "train_gen[:5%]", "train": "train_gen"}
