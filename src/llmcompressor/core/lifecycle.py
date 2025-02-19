@@ -108,6 +108,13 @@ class CompressionLifecycle:
 
         return mod_data
 
+    def update_state(self, **kwargs):
+        """
+        TODO
+        """
+        logger.info(f"Updated state with {kwargs}")
+        self.state.update(**kwargs)
+
     def finalize(self, **kwargs) -> List[Any]:
         """
         Finalize the compression lifecycle.

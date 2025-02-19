@@ -143,6 +143,21 @@ class CompressionSession:
             modifier_data=mod_data,
         )
 
+    def update_state(self, **kwargs) -> ModifiedState:
+        """
+        TODO
+        """
+
+        self._lifecycle.update_state(
+            **kwargs,
+        )
+
+        return ModifiedState(
+            model=self.state.model,
+            optimizer=self.state.optimizer,
+            loss=self.state.loss,
+        )
+
     def finalize(self, **kwargs) -> ModifiedState:
         """
         Finalize the session for compression. This will run the finalize method
