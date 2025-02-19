@@ -13,15 +13,6 @@ class ModifierInterface(ABC):
 
     @property
     @abstractmethod
-    def initialized_structure(self) -> bool:
-        """
-        :return: True if the modifier structure has been
-            applied to the model
-        """
-        raise NotImplementedError()
-
-    @property
-    @abstractmethod
     def initialized(self) -> bool:
         """
         :return: True if the modifier has been initialized
@@ -55,16 +46,6 @@ class ModifierInterface(ABC):
     def calculate_end(self) -> float:
         """
         :return: the end step for the modifier
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def pre_initialize_structure(self, state: State, **kwargs):
-        """
-        Apply the modifier structure to the model
-
-        :param state: The current state of the model
-        :param kwargs: Additional arguments for the modifier
         """
         raise NotImplementedError()
 

@@ -65,45 +65,6 @@ class CompressionSession:
         """
         return self._lifecycle.state
 
-    def pre_initialize_structure(
-        self,
-        model: Any,
-        recipe: Union[str, List[str], Recipe, List[Recipe], None] = None,
-        recipe_stage: Union[str, List[str], None] = None,
-        recipe_args: Union[Dict[str, Any], List[Dict[str, Any]], None] = None,
-        **kwargs,
-    ) -> ModifiedState:
-        """
-        A method to pre-initialize the structure of the model for compression.
-        This will run the pre-initialize structure method for each modifier in the
-        session's lifecycle. This will also set the session's state to the
-        pre-initialized state. Takes care of cases when the model(s) structure
-        has been previously modified by a modifier.
-
-        :param model: the model to pre-initialize the structure for
-        :param recipe: the recipe to use for the compression, can be a path to a
-            recipe file, a raw recipe string, a recipe object, or a list
-            of recipe objects.
-        :param recipe_stage: the stage to use for the compression
-        :param recipe_args: the args to use for overriding the recipe defaults
-        :return: A ModifiedState instance holding the modified model and modifier_data
-            after pre-initializing the structure
-        """
-        mod_data = self._lifecycle.pre_initialize_structure(
-            model=model,
-            recipe=recipe,
-            recipe_stage=recipe_stage,
-            recipe_args=recipe_args,
-            **kwargs,
-        )
-
-        return ModifiedState(
-            model=self.state.model,
-            optimizer=None,
-            loss=None,
-            modifier_data=mod_data,
-        )
-
     def initialize(
         self,
         recipe: Union[str, List[str], "Recipe", List["Recipe"], None] = None,
@@ -240,6 +201,7 @@ class CompressionSession:
         )
 
     def log(self, event_type: EventType, loss: Optional[Any] = None):
+        # TODO: I'm fairly certain this is unused and can be removed
         """
         Log model and loss information for the current event type
 
@@ -274,6 +236,7 @@ class CompressionSession:
         logger.warning("Recipe not found in session - it may have been reset")
 
     def _log_model_info(self):
+        # TODO: I'm fairly certain this is unused and can be removed
         # Log model level logs if cadence reached
         event_lifecycle = self._lifecycle.event_lifecycle
         if event_lifecycle is None:
@@ -300,6 +263,7 @@ class CompressionSession:
             self.state.loggers.log_written(epoch)
 
     def _log_loss(self, event_type: EventType, loss: Any):
+        # TODO: I'm fairly certain this is unused and can be removed
         if event_type != EventType.LOSS_CALCULATED:
             # only log loss when loss is calculated
             return

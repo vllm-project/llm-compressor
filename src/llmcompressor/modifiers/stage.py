@@ -19,21 +19,13 @@ class StageModifiers(ModifierInterface, BaseModel):
     :param index: The index of the stage, if applicable
     :param group: The group name of the stage, if applicable
     :param applied: Flag for indicating if this stage has has already been
-    applied to the model, through structure initialization or finalization
+    applied to the model through finalization
     """
 
     modifiers: List["Modifier"] = Field(default_factory=list)
     index: Optional[int] = None
     group: Optional[str] = None
     applied: bool = False
-
-    @property
-    def initialized_structure(self) -> bool:
-        """
-        :return: True if any of the stage modifiers have initialized structure,
-            False otherwise
-        """
-        return any(mod.initialized_structure for mod in self.modifiers)
 
     @property
     def initialized(self) -> bool:
@@ -92,20 +84,6 @@ class StageModifiers(ModifierInterface, BaseModel):
         modifiers have set ends
         """
         return max(mod.calculate_end() for mod in self.modifiers)
-
-    def pre_initialize_structure(self, state: "State", **kwargs):
-        """
-        Pre initialize the structure for all stage modifiers mark the stage applied
-
-        :param state: The current state of the training
-        :param kwargs: Additional kwargs to pass to the modifier(s)
-            pre_initialize_structure method
-        """
-        for modifier in self.modifiers:
-            modifier.pre_initialize_structure(state, **kwargs)
-
-        self.applied = True
-        state.loggers.system.info(tag="stage", string="Model structure initialized")
 
     def initialize(self, state: "State", **kwargs):
         """

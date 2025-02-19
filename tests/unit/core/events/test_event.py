@@ -4,13 +4,6 @@ from llmcompressor.core import Event, EventType
 
 
 @pytest.mark.smoke
-def test_event_type_order():
-    assert EventType.PRE_INIT.order() == 0
-    assert EventType.INITIALIZE.order() == 10
-    assert EventType.FINALIZE.order() == 20
-
-
-@pytest.mark.smoke
 def test_event_epoch_based():
     event = Event(steps_per_epoch=10)
     assert event.epoch_based is True
