@@ -45,7 +45,12 @@ class TestLMEval:
     """  # noqa: E501
 
     def set_up(self):
-        eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
+        if TEST_DATA_FILE is not None:
+            eval_config = yaml.safe_load(
+                Path(TEST_DATA_FILE).read_text(encoding="utf-8")
+            )
+        else:
+            pytest.skip("Skipping test; no eval config present")
 
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
