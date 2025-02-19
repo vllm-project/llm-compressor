@@ -1,0 +1,4 @@
+cadence: "nightly"
+test_type: "regression"
+model: Qwen/Qwen2.5-0.5B
+scheme: FP8_DYNAMIC

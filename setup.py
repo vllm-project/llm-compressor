@@ -59,8 +59,8 @@ setup(
         "transformers>4.0,<5.0",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
-        "pynvml==11.5.3",
-        "compressed-tensors"
+        "pynvml",
+        "compressed-tensors==0.9.2"
         if version_info.build_type == "release"
         else "compressed-tensors-nightly",
     ],
@@ -76,6 +76,7 @@ setup(
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
             "trl>=0.10.1",
+            "pandas",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
@@ -94,6 +95,7 @@ setup(
             "llmcompressor.transformers.text_generation.finetune=llmcompressor.transformers.finetune.text_generation:train",  # noqa 501
             "llmcompressor.transformers.text_generation.eval=llmcompressor.transformers.finetune.text_generation:eval",  # noqa 501
             "llmcompressor.transformers.text_generation.oneshot=llmcompressor.transformers.finetune.text_generation:oneshot",  # noqa 501
+            "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
     python_requires=">=3.8",

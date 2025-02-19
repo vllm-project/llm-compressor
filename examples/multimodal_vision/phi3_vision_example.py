@@ -1,9 +1,12 @@
+# NOTE: this model requires modification in order to work with transformers>4.48
+# https://huggingface.co/microsoft/Phi-3-vision-128k-instruct/discussions/69
+
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.utils.data_collator import phi3_vision_data_collator
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"
@@ -30,11 +33,14 @@ ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 # Apply chat template
 def preprocess(example):
-    messages = [{"role": "user", "content": "<|image_1|>\nWhat does the image show?"}]
+    messages = [
+        {"role": "user", "content": "<|image_1|>\nWhat does this image show?"},
+        {"role": "assistant", "content": " ".join(example["caption"])},
+    ]
     return {
         "text": processor.apply_chat_template(
             messages,
-            add_generation_prompt=True,
+            add_generation_prompt=False,
         ),
         "images": example["image"],
     }
@@ -59,15 +65,19 @@ def tokenize(sample):
 ds = ds.map(tokenize, writer_batch_size=1, remove_columns=ds.column_names)
 
 
+# Define a oneshot data collator for multimodal inputs.
+def data_collator(batch):
+    assert len(batch) == 1
+    return {key: torch.tensor(value) for key, value in batch[0].items()}
+
+
 # Recipe
-recipe = [
-    GPTQModifier(
-        targets="Linear",
-        scheme="W4A16",
-        sequential_targets=["Phi3DecoderLayer"],
-        ignore=["lm_head", "re:model.vision_embed_tokens.*"],
-    ),
-]
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    sequential_targets=["Phi3DecoderLayer"],
+    ignore=["lm_head", "re:model.vision_embed_tokens.*"],
+)
 
 # Perform oneshot
 oneshot(
@@ -77,7 +87,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    data_collator=phi3_vision_data_collator,
+    data_collator=data_collator,
 )
 
 # Confirm generations of the quantized model look sane.

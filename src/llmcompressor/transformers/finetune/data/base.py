@@ -8,7 +8,7 @@ from datasets import Dataset, IterableDataset
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
 
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
+from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     LABELS_MASK_VALUE,
     get_custom_datasets_from_path,
@@ -41,7 +41,7 @@ class TextGenerationDataset(RegistryMixin):
 
     def __init__(
         self,
-        data_args: DataTrainingArguments,
+        data_args: DatasetArguments,
         split: str,
         processor: Processor,
     ):
@@ -97,6 +97,7 @@ class TextGenerationDataset(RegistryMixin):
                 self.preprocess,
                 batched=False,
                 num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Preprocessing",
             )
             logger.debug(f"Dataset after preprocessing: {get_columns(dataset)}")
@@ -105,7 +106,9 @@ class TextGenerationDataset(RegistryMixin):
         dataset = self.rename_columns(dataset)
         logger.debug(f"Dataset after column renaming: {get_columns(dataset)}")
 
-        if "input_ids" not in get_columns(dataset):
+        # use processor.model_input_names to determine if the ds is already tokenized
+        model_input_names = getattr(self.processor, "model_input_names", ["input_ids"])
+        if not any(col_name in model_input_names for col_name in get_columns(dataset)):
             # tokenize/ process
             dataset = self.filter_tokenizer_args(dataset)
             logger.debug(f"Tokenizer args after filtering: {get_columns(dataset)}")

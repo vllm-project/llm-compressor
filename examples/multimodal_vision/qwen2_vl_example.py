@@ -1,6 +1,7 @@
 import base64
 from io import BytesIO
 
+import torch
 from datasets import load_dataset
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor
@@ -8,7 +9,6 @@ from transformers import AutoProcessor
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableQwen2VLForConditionalGeneration
-from llmcompressor.transformers.utils.data_collator import qwen2_vl_data_collator
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
@@ -43,12 +43,18 @@ def preprocess_and_tokenize(example):
             "role": "user",
             "content": [
                 {"type": "image", "image": base64_qwen},
-                {"type": "text", "text": "What does the image show?"},
+                {"type": "text", "text": "What does this image show?"},
             ],
-        }
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": " ".join(example["caption"])},
+            ],
+        },
     ]
     text = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
+        messages, tokenize=False, add_generation_prompt=False
     )
     image_inputs, video_inputs = process_vision_info(messages)
 
@@ -64,6 +70,13 @@ def preprocess_and_tokenize(example):
 
 
 ds = ds.map(preprocess_and_tokenize, remove_columns=ds["calibration"].column_names)
+
+
+# Define a oneshot data collator for multimodal inputs.
+def data_collator(batch):
+    assert len(batch) == 1
+    return {key: torch.tensor(value) for key, value in batch[0].items()}
+
 
 # Recipe
 recipe = [
@@ -84,7 +97,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    data_collator=qwen2_vl_data_collator,
+    data_collator=data_collator,
 )
 
 # Confirm generations of the quantized model look sane.

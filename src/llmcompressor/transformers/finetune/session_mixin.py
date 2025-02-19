@@ -36,8 +36,7 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers import DataTrainingArguments
-
+    from llmcompressor.args import DatasetArguments, ModelArguments
 
 __all__ = [
     "SessionManagerMixIn",
@@ -66,27 +65,43 @@ class SessionManagerMixIn:
 
     def __init__(
         self,
-        recipe: Optional[str] = None,
-        recipe_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional["DataTrainingArguments"] = None,
+        recipe: str,
+        model_args: "ModelArguments",
+        data_args: Optional["DatasetArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
+        recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         **kwargs,
     ):
         self.recipe = recipe
         self.recipe_args = recipe_args
+        self.model_args = model_args
         self.teacher = teacher
 
         # parse training and metadata args
         training_args = kwargs.get("args")
-        self.metadata = (
-            self._extract_metadata(
+
+        self.metadata = None
+        if training_args is not None:
+            # trl_sft_trainer pathway. Both training_args and data_args
+            # have `max_seq_length` which causes collision error. This is the
+            # only shared parameter, where training arg is `TRLSFTConfig` that
+            # inherits HuggingFace's `TrainingArguments`
+            training_args_dict = training_args.to_dict()
+            if "max_seq_length" in training_args_dict:
+                training_args_dict["training_args_max_seq_length"] = (
+                    training_args_dict.pop("max_seq_length")
+                )
+                logger.warning(
+                    "Detected `max_seq_length` in both data_args ",
+                    "and training_args. This is expected for TRL in distillation. ",
+                    "Updating metadata to `training_args_max_seq_length`",
+                )
+
+            self.metadata = self._extract_metadata(
                 metadata_args=METADATA_ARGS,
-                training_args_dict=training_args.to_dict(),
+                training_args_dict=training_args_dict,
                 data_args_dict=asdict(data_args) if data_args else {},
             )
-            if training_args and METADATA_ARGS
-            else None
-        )
 
         # setup metrics and session
         self.logger_manager = LoggerManager(log_python=False)
@@ -374,8 +389,8 @@ class SessionManagerMixIn:
         self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
 
         # do not save checkpoints as compressed
-        original_save_compressed = self.args.save_compressed
-        self.args.save_compressed = False
+        original_save_compressed = self.model_args.save_compressed
+        self.model_args.save_compressed = False
 
         # train with accelerator
         self.accelerator.wait_for_everyone()
@@ -383,7 +398,7 @@ class SessionManagerMixIn:
         self.accelerator.wait_for_everyone()
 
         # restore original setting for saving final model
-        self.args.save_compressed = original_save_compressed
+        self.model_args.save_compressed = original_save_compressed
 
         # lifecycle
         self.finalize_session()
@@ -433,7 +448,6 @@ class SessionManagerMixIn:
     ):
         """
         Run oneshot calibration on the active model
-
         :param stage: which stage of the recipe to run, or None to run whole recipe
         :param calib_data: dataloader of calibration data
         """
@@ -474,7 +488,7 @@ class SessionManagerMixIn:
         if not is_fsdp_model(self.model):
             self.model.save_pretrained(
                 output_dir,
-                save_compressed=self.args.save_compressed,
+                save_compressed=self.model_args.save_compressed,
                 safe_serialization=self.args.save_safetensors,
             )
         else:  # FSDP model
@@ -482,7 +496,7 @@ class SessionManagerMixIn:
                 model=self.model,
                 accelerator=self.accelerator,
                 output_dir=output_dir,
-                save_compressed=self.args.save_compressed,
+                save_compressed=self.model_args.save_compressed,
                 save_safetensors=self.metadata.get("save_safetensors", False),
             )
 

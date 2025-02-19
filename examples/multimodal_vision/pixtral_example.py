@@ -1,11 +1,11 @@
 import requests
+import torch
 from PIL import Image
 from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
-from llmcompressor.transformers.utils.data_collator import pixtral_data_collator
 
 # Load model.
 model_id = "mgoin/pixtral-12b"
@@ -16,9 +16,22 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
-DATASET_SPLIT = {"calibration": "test[:512]"}
 NUM_CALIBRATION_SAMPLES = 512
+DATASET_SPLIT = {"calibration": f"test[:{NUM_CALIBRATION_SAMPLES}]"}
 MAX_SEQUENCE_LENGTH = 2048
+
+
+# Define a oneshot data collator for multimodal inputs.
+# NOTE: for transformers<4.48.0, please squeeze the first dimension of `pixel_values`
+# by appending `[0]` to the end of line 32
+def data_collator(batch):
+    assert len(batch) == 1
+    return {
+        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
+        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
+        "pixel_values": torch.tensor(batch[0]["pixel_values"]),
+    }
+
 
 # Recipe
 recipe = [
@@ -40,7 +53,7 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    data_collator=pixtral_data_collator,
+    data_collator=data_collator,
 )
 
 # Confirm generations of the quantized model look sane.

@@ -5,7 +5,7 @@ from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers import DataTrainingArguments as DataArgs
+    from llmcompressor.args import DatasetArguments
 
 
 @TextGenerationDataset.register(name="ptb")
@@ -18,7 +18,7 @@ class PtbDataset(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
-    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
+    def __init__(self, data_args: "DatasetArguments", split: str, processor: Processor):
         data_args = deepcopy(data_args)
         data_args.dataset = "ptb_text_only"
         data_args.text_column = "sentence"
