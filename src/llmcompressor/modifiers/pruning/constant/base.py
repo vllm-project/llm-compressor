@@ -26,7 +26,7 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
         if "use_hooks" in kwargs:
             self._use_hooks = kwargs["use_hooks"]
 
-        if not state.model or not state.start_event:
+        if not state.model:
             return False
 
         self.parameterized_layers_ = get_layers_params(self.targets, state.model)

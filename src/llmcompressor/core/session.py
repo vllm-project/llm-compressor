@@ -201,6 +201,7 @@ class CompressionSession:
         )
 
     def log(self, event_type: EventType, loss: Optional[Any] = None):
+        # TODO: I'm fairly certain this is unused and can be removed
         """
         Log model and loss information for the current event type
 
@@ -235,6 +236,7 @@ class CompressionSession:
         logger.warning("Recipe not found in session - it may have been reset")
 
     def _log_model_info(self):
+        # TODO: I'm fairly certain this is unused and can be removed
         # Log model level logs if cadence reached
         event_lifecycle = self._lifecycle.event_lifecycle
         if event_lifecycle is None:
@@ -261,6 +263,7 @@ class CompressionSession:
             self.state.loggers.log_written(epoch)
 
     def _log_loss(self, event_type: EventType, loss: Any):
+        # TODO: I'm fairly certain this is unused and can be removed
         if event_type != EventType.LOSS_CALCULATED:
             # only log loss when loss is calculated
             return

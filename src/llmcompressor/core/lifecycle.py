@@ -10,12 +10,7 @@ from typing import Any, List, Optional
 
 from loguru import logger
 
-from llmcompressor.core.events import (
-    CallbacksEventLifecycle,
-    EventLifecycle,
-    EventType,
-    OptimizerEventLifecycle,
-)
+from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import StageModifiers
 from llmcompressor.recipe import (
@@ -39,14 +34,12 @@ class CompressionLifecycle:
     :type recipe_container: RecipeContainer
     :param modifiers: The list of stage modifiers
     :type modifiers: List[StageModifiers]
-    :param event_lifecycle: The event lifecycle manager
-    :type event_lifecycle: Optional[EventLifecycle]
     """
 
     state: State = field(default_factory=State)
     recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
     modifiers: List[StageModifiers] = field(default_factory=list)
-    event_lifecycle: Optional[EventLifecycle] = None
+    current_index: int = 0
 
     initialized_: bool = False
     finalized: bool = False
@@ -173,6 +166,8 @@ class CompressionLifecycle:
                 f"Use the corresponding method instead."
             )
 
+        # TODO: populate current_index with event
+
         if event_type == EventType.LOSS_CALCULATED and (
             "loss" not in kwargs or kwargs["loss"] is None
         ):
@@ -180,19 +175,14 @@ class CompressionLifecycle:
             raise ValueError("Loss must be provided for loss calculated event")
 
         logger.debug("Handling event: {}", event_type)
-        self._check_setup_event_lifecycle(event_type)
 
-        event = None
+        event = Event(event_type=event_type)
         mod_data = []
-        for event in self.event_lifecycle.events_from_type(event_type):
-            if self.state.start_event is None:
-                self.state.start_event = event
-
-            for mod in self.modifiers:
-                data = mod.update_event(state=self.state, event=event, **kwargs)
-                logger.debug("Updated event with modifier: {}", mod)
-                if data is not None:
-                    mod_data.append(data)
+        for mod in self.modifiers:
+            data = mod.update_event(state=self.state, event=event, **kwargs)
+            logger.debug("Updated event with modifier: {}", mod)
+            if data is not None:
+                mod_data.append(data)
 
         assert (
             event is not None
@@ -201,64 +191,6 @@ class CompressionLifecycle:
         self.event_called = True
 
         return mod_data
-
-    def _check_setup_event_lifecycle(self, event_type: EventType):
-        if self.event_lifecycle is not None:
-            return
-
-        if (
-            self.state is None
-            or self.state.model is None
-            or self.state.start_event is None
-            or self.recipe_container.compiled_recipe is None
-        ):
-            logger.error("Cannot invoke event before recipe, model, and start are set")
-            raise ValueError(
-                "Cannot invoke event before recipe, model, and start are set"
-            )
-
-        if not self.state.compression_ready:
-            logger.error("Cannot invoke event before recipe, model, and start are set")
-            raise ValueError(
-                "Cannot invoke event before recipe, model, and start are set"
-            )
-
-        logger.debug("Setting up event lifecycle for event type: {}", event_type)
-
-        for mod in self.modifiers:
-            logger.debug("Checking if modifier is initialized: {}", mod)
-            mod.check_initialized()
-
-        # first check for creation of a callbacks event lifecycle
-        # must start with BATCH_START event
-        if event_type == EventType.BATCH_START:
-            self.event_lifecycle = CallbacksEventLifecycle(
-                type_first=EventType.BATCH_START, start=self.state.start_event
-            )
-        elif (
-            event_type == EventType.LOSS_CALCULATED
-            or event_type == EventType.OPTIM_PRE_STEP
-        ):
-            self.event_lifecycle = OptimizerEventLifecycle(
-                type_first=event_type, start=self.state.start_event
-            )
-        else:
-            logger.error(
-                "Invalid event type for initializing event lifecycle: "
-                "{}. Must be BATCH_START, LOSS_CALCULATED, or OPTIM_PRE_STEP",
-                event_type,
-            )
-            raise ValueError(
-                f"Invalid event type for initializing event lifecycle: "
-                f"{event_type}. Must be BATCH_START, LOSS_CALCULATED, or OPTIM_PRE_STEP"
-            )
-
-        logger.info(
-            "Event lifecycle for compression lifecycle created: "
-            "{} with start event type: {}",
-            self.event_lifecycle,
-            event_type,
-        )
 
     def _set_model_layer_prefix(self):
         compiled_recipe = self.recipe_container.compiled_recipe
