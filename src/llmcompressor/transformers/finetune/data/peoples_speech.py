@@ -78,7 +78,9 @@ class PeoplesSpeech(TextGenerationDataset):
                 return_tensors="pt",
             )
 
-            inputs["input_features"] = inputs["input_features"]
+            # TODO: inputs["input_features"] is a float dtype, which may conflict with
+            # the dtype of the model. Add logic to in data pipeline to move inputs to
+            # the matching model device and dtype
             inputs["decoder_input_ids"] = inputs["labels"]
             del inputs["labels"]
 
