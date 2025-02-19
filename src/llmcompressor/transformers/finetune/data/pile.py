@@ -1,6 +1,8 @@
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
@@ -8,10 +10,10 @@ if TYPE_CHECKING:
     from llmcompressor.args import DatasetArguments
 
 
-@TextGenerationDataset.register(name="pile_eval")
-class PileEvalDataset(TextGenerationDataset):
+@TextGenerationDataset.register(name="mit-han-lab/pile-val-backup", alias="pile_val")
+class PileValDataset(TextGenerationDataset):
     """
-    Child text generation class for the PileEval dataset
+    Child text generation class for "The Pile" dataset
     :param data_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
     :param tokenizer: tokenizer to use on dataset

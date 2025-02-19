@@ -158,7 +158,7 @@ class AWQModifier(Modifier):
 
         calibration_dataloader = state.data.calib
 
-        self._get_module_kwargs(state.model, calibration_dataloader)
+        self._set_module_kwargs(state.model, calibration_dataloader)
         self._setup_scale_hooks()
         self._calibrate(state.model, calibration_dataloader)
         self._concat_collected_activations()
@@ -530,7 +530,7 @@ class AWQModifier(Modifier):
 
         return loss
 
-    def _get_module_kwargs(self, model, dataloader):
+    def _set_module_kwargs(self, model, dataloader) -> None:
         _, modules = next(iter(get_layers("re:.*layers", model).items()))
 
         samples = [batch["input_ids"] for batch in dataloader]
@@ -575,7 +575,7 @@ class AWQModifier(Modifier):
 
         # Update the layer kwargs with `prepare_inputs_for_generation` method
         # that takes care of everything to avoid unexpected errors.
-        layer_kwargs = model.prepare_inputs_for_generation(samples, **layer_kwargs)
+        layer_kwargs |= model.prepare_inputs_for_generation(samples, **layer_kwargs)
         # Pop the input_ids as they are not needed at all.
         layer_kwargs.pop("input_ids")
 
