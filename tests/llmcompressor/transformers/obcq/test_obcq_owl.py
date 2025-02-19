@@ -3,7 +3,7 @@ import torch
 from datasets import Dataset
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.modifiers.obcq import SparseGPTModifier
+from llmcompressor.modifiers.pruning import SparseGPTModifier
 from llmcompressor.transformers.finetune.data.data_helpers import (
     format_calibration_data,
 )

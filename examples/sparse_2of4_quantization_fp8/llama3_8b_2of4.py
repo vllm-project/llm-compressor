@@ -3,8 +3,7 @@ import argparse
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.modifiers.obcq import SparseGPTModifier
-from llmcompressor.modifiers.pruning import ConstantPruningModifier
+from llmcompressor.modifiers.pruning import ConstantPruningModifier, SparseGPTModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers import oneshot
 

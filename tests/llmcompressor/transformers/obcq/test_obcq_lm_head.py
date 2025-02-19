@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from llmcompressor.core.state import State
-from llmcompressor.modifiers.obcq import SparseGPTModifier
+from llmcompressor.modifiers.pruning import SparseGPTModifier
 
 
 @pytest.mark.integration

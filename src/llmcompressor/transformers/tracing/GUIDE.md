@@ -12,7 +12,7 @@ such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
 
 ## 1. Why is Tracing Required? ##
 Due to the memory-intensive nature of some modifiers such as [GPTQModifier](/src/llmcompressor/modifiers/quantization/gptq/base.py)
-and [SparseGPTModifier](/src/llmcompressor/modifiers/obcq/base.py), a [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
+and [SparseGPTModifier](/src/llmcompressor/modifiers/pruning/sparsegpt/base.py), a [Sequential Pipeline](/src/llmcompressor/pipelines/sequential/pipeline.py)
 is required in order to offload activations and reduce memory usage as well as propagate
 the activation error induced by compression.
 
