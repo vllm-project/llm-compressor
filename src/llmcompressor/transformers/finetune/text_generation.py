@@ -74,15 +74,6 @@ def train(**kwargs):
     main(model_args, data_args, recipe_args, training_args)
 
 
-def eval(**kwargs):
-    """
-    CLI entrypoint for running evaluation
-    """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_eval = True
-    main(model_args, data_args, recipe_args, training_args)
-
-
 def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
@@ -100,7 +91,7 @@ one_shot = oneshot
 
 def apply(**kwargs):
     """
-    CLI entrypoint for any of training, eval, predict or oneshot
+    CLI entrypoint for any of training, eval or oneshot
     """
     report_to = kwargs.get("report_to", None)
     model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
@@ -325,7 +316,7 @@ def main(
         - Trainer()
             - SessionMixIn()
             - HFTransformersTrainer()
-        - StageRunner.train() and/or evaluate() and/or predict() and/or oneshot()
+        - StageRunner.train() and/or evaluate() and/or oneshot()
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
@@ -445,14 +436,6 @@ def main(
     # One Shot
     if training_args.do_oneshot:
         stage_runner.one_shot()
-
-    # Evaluation
-    if training_args.do_eval:
-        stage_runner.evaluate()
-
-    # Prediction
-    if training_args.do_predict:
-        stage_runner.predict()
 
     # save if model was provided as a string or custom output_dir was set
 
