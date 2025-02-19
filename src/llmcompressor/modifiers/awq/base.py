@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.utils.offload import is_module_offloaded
+from accelerate.utils import align_module_device
 from loguru import logger
 from pydantic import ConfigDict
 from torch.nn import Module
@@ -318,7 +318,7 @@ class AWQModifier(Modifier):
 
             # [STEP 1]: Compute per-channel mean of normalised weights
             # All layer weights are concatted together
-            weight = torch.cat([_m.weight for _m in balance_layers], dim=0)
+            weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
             org_shape = weight.shape
             # The weights are reshaped to be organised by quantization group
             weight = weight.view(-1, self.group_size)
@@ -373,22 +373,18 @@ class AWQModifier(Modifier):
                 # TODO calls to module._hf_hook.pre_forward(module) and
                 # module._hf_hook.post_forward(module, None) appear a couple places
                 # in SmoothQuantModifier, do we need them anywhere else?
-                offloaded = is_module_offloaded(module)
-                if offloaded:
-                    module._hf_hook.pre_forward(module)
-
-                if module in balance_layers:
-                    module.weight.mul_(scales.view(1, -1).to(module.weight.device))
-                elif module == smooth_layer:
-                    if module.weight.ndim == 1:
-                        module.weight.div_(scales.to(module.weight.device))
-                    else:
-                        module.weight.div_(scales.view(-1, 1).to(module.weight.device))
-                    if hasattr(module, "bias") and module.bias is not None:
-                        module.bias.div_(scales.to(module.bias.device))
-
-                if offloaded:
-                    module._hf_hook.post_forward(module, None)
+                with align_module_device(module):
+                    if module in balance_layers:
+                        module.weight.mul_(scales.view(1, -1).to(module.weight.device))
+                    elif module == smooth_layer:
+                        if module.weight.ndim == 1:
+                            module.weight.div_(scales.to(module.weight.device))
+                        else:
+                            module.weight.div_(
+                                scales.view(-1, 1).to(module.weight.device)
+                            )
+                        if hasattr(module, "bias") and module.bias is not None:
+                            module.bias.div_(scales.to(module.bias.device))
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -461,16 +457,17 @@ class AWQModifier(Modifier):
 
             # Q(W * s)
             for fc in linears2scale:
-                fc.weight.mul_(scales_view)
-                fc.weight.data = (
-                    pseudo_quantize_tensor(
-                        w=fc.weight.data,
-                        symmetric=self.symmetric,
-                        bit_width=self.bits,
-                        group_size=self.group_size,
-                    )[0]
-                    / scales_view
-                )
+                with align_module_device(fc):
+                    fc.weight.mul_(scales_view)
+                    fc.weight.data = (
+                        pseudo_quantize_tensor(
+                            w=fc.weight.data,
+                            symmetric=self.symmetric,
+                            bit_width=self.bits,
+                            group_size=self.group_size,
+                        )[0]
+                        / scales_view
+                    )
 
             # W * X
             int_w_output = self._forward_input_with_kwargs(
@@ -691,10 +688,6 @@ class AWQModifier(Modifier):
 
         best_max_val = torch.cat(best_max_val_all, dim=0)
 
-        # TODO this appears unneeded, clear_memory removed
-        # clear_memory(input_feat)
-        # clear_memory(org_out)
-
         return best_max_val.squeeze(1)
 
 
@@ -711,8 +704,9 @@ def _apply_clip(module, clip_list: Tuple[str, torch.Tensor]):
     for name, max_val in clip_list:
         _, layer = get_layer(target=name, module=module)
         assert isinstance(layer, torch.nn.Linear)
-        max_val = max_val.to(layer.weight.device)
-        org_shape = layer.weight.shape
-        layer.weight.data = layer.weight.data.reshape(*max_val.shape[:2], -1)
-        layer.weight.data = torch.clamp(layer.weight.data, -max_val, max_val)
-        layer.weight.data = layer.weight.data.reshape(org_shape)
+        with align_module_device(layer):
+            max_val = max_val.to(layer.weight.device)
+            org_shape = layer.weight.shape
+            layer.weight.data = layer.weight.data.reshape(*max_val.shape[:2], -1)
+            layer.weight.data = torch.clamp(layer.weight.data, -max_val, max_val)
+            layer.weight.data = layer.weight.data.reshape(org_shape)
