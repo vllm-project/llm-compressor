@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.utils.offload import is_module_offloaded
+from accelerate.utils import align_module_device
 from loguru import logger
 from pydantic import ConfigDict
 from torch.nn import Module
@@ -293,22 +293,16 @@ class SmoothQuantModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
-                offloaded = is_module_offloaded(module)
-                if offloaded:
-                    module._hf_hook.pre_forward(module)
-
-                if module in balance_layers:
-                    module.weight.mul_(scales.view(1, -1))
-                elif module == smooth_layer:
-                    if module.weight.ndim == 1:
-                        module.weight.div_(scales)
-                    else:
-                        module.weight.div_(scales.view(-1, 1))
-                    if hasattr(module, "bias") and module.bias is not None:
-                        module.bias.div_(scales)
-
-                if offloaded:
-                    module._hf_hook.post_forward(module, None)
+                with align_module_device(module):
+                    if module in balance_layers:
+                        module.weight.mul_(scales.view(1, -1))
+                    elif module == smooth_layer:
+                        if module.weight.ndim == 1:
+                            module.weight.div_(scales)
+                        else:
+                            module.weight.div_(scales.view(-1, 1))
+                        if hasattr(module, "bias") and module.bias is not None:
+                            module.bias.div_(scales)
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -333,15 +327,9 @@ class SmoothQuantModifier(Modifier):
         # get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
-            offloaded = is_module_offloaded(layer)
-            if offloaded:
-                layer._hf_hook.pre_forward(layer)
-
-            scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
-            weight_scales.append(scale)
-
-            if offloaded:
-                layer._hf_hook.post_forward(layer, None)
+            with align_module_device(layer):
+                scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
+                weight_scales.append(scale)
 
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
