@@ -41,7 +41,6 @@ from llmcompressor.args import (
 )
 from llmcompressor.core import pre_initialize_structure, reset_session
 from llmcompressor.pytorch.model_load.helpers import (
-    fallback_to_cpu,
     get_session_model,
     initialize_recipe,
     parse_dtype,
@@ -150,10 +149,18 @@ def parse_args(**kwargs):
     # raise depreciation warnings
     if data_args.remove_columns is not None:
         warnings.warn(
-            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "`remove_columns` argument is deprecated. When tokenizing datasets, all "
             "columns which are invalid inputs the tokenizer will be removed",
             DeprecationWarning,
         )
+    if model_args.oneshot_device is not None:
+        warnings.warn(
+            "`oneshot_device` argument is deprecated. Please use `device_map` instead",
+            DeprecationWarning,
+        )
+        device_map_default = ModelArguments.__dataclass_fields__["device_map"].default
+        if model_args.device_map == device_map_default:
+            model_args.device_map = model_args.oneshot_device
 
     # silently assign tokenizer to processor
     if model_args.tokenizer:
@@ -233,17 +240,12 @@ def initialize_model_from_path(
         else model_args.model_name_or_path
     )
 
-    # Fallback to CPU if GPU requested and not available
-    model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
-
     # Trainer handles device assignment for FSDP and training, don't do mapping here
     # if running oneshot outside of FSDP, apply user device settings
-
     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-
-    device_map = model_args.oneshot_device
     if not fsdp_enabled and training_args is not None and training_args.do_train:
-        device_map = "auto"
+        logger.log("Detected FSDP training, setting device map to `auto`")
+        model_args.device_map = "auto"
 
     model_kwargs = {
         "config": config,
@@ -251,7 +253,7 @@ def initialize_model_from_path(
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
         "torch_dtype": parse_dtype(model_args.precision),
-        "device_map": device_map,
+        "device_map": model_args.device_map,
         "trust_remote_code": model_args.trust_remote_code_model,
     }
 
