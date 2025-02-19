@@ -22,6 +22,7 @@ import warnings
 from pathlib import PosixPath
 from typing import Optional
 
+from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -83,6 +84,18 @@ def oneshot(**kwargs):
     training_args.do_oneshot = True
 
     main(model_args, data_args, recipe_args, training_args)
+
+
+@deprecated(
+    message=(
+        "`from llmcompressor.transformers import train` is deprecated, "
+        "please use `from llmcompressor import train`."
+    )
+)
+def train(**kwargs):
+    from llmcompressor import train
+
+    train(**kwargs)
 
 
 # alias

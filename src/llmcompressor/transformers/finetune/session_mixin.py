@@ -248,7 +248,7 @@ class SessionManagerMixIn:
                 len(self.train_dataset) / total_batch_size
             )
 
-        initialize(optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch)
+        active_session().initialize(optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch)
 
         return self.optimizer
 
