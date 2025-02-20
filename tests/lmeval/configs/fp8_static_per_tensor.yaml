@@ -1,0 +1,9 @@
+cadence: "weekly"
+model: meta-llama/Meta-Llama-3-8B-Instruct
+scheme: FP8
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+lmeval:
+  metrics:
+    exact_match,flexible-extract: 0.75
+    exact_match,strict-match: 0.75
