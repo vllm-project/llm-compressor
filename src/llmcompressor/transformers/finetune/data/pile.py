@@ -1,8 +1,6 @@
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
-from loguru import logger
-
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
@@ -26,8 +24,4 @@ class PileValDataset(TextGenerationDataset):
         super().__init__(data_args=data_args, split=split, processor=processor)
 
     def dataset_template(self, sample):
-        return {
-            "text": self.processor.apply_chat_template(
-                sample["text"].strip(),
-            ),
-        }
+        return {"text": sample["text"].strip()}
