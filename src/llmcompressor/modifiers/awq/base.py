@@ -25,7 +25,10 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 DEFAULT_AWQ_MAPPINGS = [
-    [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*input_layernorm"],
+    [
+        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj", "re:.*o_proj"],
+        "re:.*input_layernorm",
+    ],
     [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"],
     [["re:.*down_proj"], "re:.*up_proj"],
 ]
