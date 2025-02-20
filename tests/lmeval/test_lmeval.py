@@ -16,9 +16,9 @@ from tests.examples.utils import requires_gpu_count
 class LmEvalConfig(BaseModel):
     model: str = "hf"
     model_args: dict = {"add_bos_token": True, "dtype": "bfloat16"}
-    task: str
-    num_fewshot: int
-    limit: int
+    task: str = "gsm8k"
+    num_fewshot: int = 5
+    limit: int = 1000
     metrics: dict
     batch_size: int = 100
 
@@ -64,7 +64,7 @@ class TestLMEval:
 
         self.model = eval_config["model"]
         self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
-        self.lmeval = LmEvalConfig(**eval_config.get("lmeval"))
+        self.lmeval = LmEvalConfig(**eval_config.get("lmeval", {}))
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
