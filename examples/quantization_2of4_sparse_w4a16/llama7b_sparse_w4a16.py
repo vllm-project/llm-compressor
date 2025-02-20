@@ -33,6 +33,7 @@ learning_rate = 0.0001
 bf16 = False  # using full precision for training
 lr_scheduler_type = "cosine"
 warmup_ratio = 0.1
+preprocessing_num_workers = 8
 
 # this will run the recipe stage by stage:
 # oneshot sparsification -> finetuning -> oneshot quantization
@@ -52,6 +53,7 @@ apply(
     learning_rate=learning_rate,
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
+    preprocessing_num_workers=preprocessing_num_workers,
 )
 logger.info(
     "Note: llcompressor does not currently support running ",

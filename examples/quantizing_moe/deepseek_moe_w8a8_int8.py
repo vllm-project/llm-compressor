@@ -2,8 +2,8 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 # NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
