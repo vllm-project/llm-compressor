@@ -37,14 +37,16 @@ logger = logging.get_logger(__name__)
 
 
 # TRACING: This function is not traceable
-@torch.fx.wrap
 def _prepare_cross_attention_mask(
     cross_attention_mask: torch.Tensor,
     num_vision_tokens: int,
     dtype: str,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     # reshape so it can be used by attn module
-    batch_size, text_total_length, *_ = cross_attention_mask.shape
+    # TRACING: cannot unpack cross_attention_mask with arbitrary number of args
+    # batch_size, text_total_length, *_ = cross_attention_mask.shape
+    batch_size, text_total_length = cross_attention_mask.shape[:2]
+
     cross_attention_mask = cross_attention_mask.repeat_interleave(num_vision_tokens, dim=3)
     cross_attention_mask = cross_attention_mask.view(batch_size, text_total_length, -1)
     cross_attention_mask = cross_attention_mask.unsqueeze(1)
@@ -66,7 +68,7 @@ def _prepare_cross_attention_mask(
     return cross_attention_mask, full_text_row_masked_out_mask
 
 
-# TRACING: needs to use wrapped _prepare_cross_attention_mask
+# TRACING: needs to use updated _prepare_cross_attention_mask
 @add_start_docstrings(
     """The Mllama model which consists of a vision encoder and a language model.""",
     MLLAMA_START_DOCSTRING,
@@ -90,7 +92,8 @@ class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
-        num_logits_to_keep: int = 0,
+        num_logits_to_keep: int = 0,  # backwards compatibility
+        logits_to_keep: Union[int, torch.Tensor] = 0,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -127,7 +130,7 @@ class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
             )
 
         if cross_attention_mask is not None:
-            # TRACING: use wrapped function
+            # TRACING: use updated function
             cross_attention_mask, full_text_row_masked_out_mask = _prepare_cross_attention_mask(
                 cross_attention_mask,
                 num_vision_tokens=self.vision_model.num_patches,
@@ -155,7 +158,7 @@ class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
             output_attentions=output_attentions,
             return_dict=return_dict,
             cache_position=cache_position,
-            num_logits_to_keep=num_logits_to_keep,
+            logits_to_keep=logits_to_keep,
         )
 
         return outputs
