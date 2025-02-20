@@ -43,7 +43,6 @@ class CompressionLifecycle:
     modifiers: List[StageModifiers] = field(default_factory=list)
     event_lifecycle: Optional[EventLifecycle] = None
 
-    initialized_structure: bool = False
     initialized_: bool = False
     finalized: bool = False
 
@@ -68,7 +67,6 @@ class CompressionLifecycle:
         self.modifiers = []
         self.event_lifecycle = None
 
-        self.initialized_structure = False
         self.initialized_ = False
         self.finalized = False
         logger.info("Compression lifecycle reset")
@@ -94,7 +92,6 @@ class CompressionLifecycle:
             if data is not None:
                 mod_data.append(data)
 
-        self.initialized_structure = True
         applied_stage_names = [mod.unique_id for mod in self.modifiers if mod.applied]
         self.recipe_container.update_applied_stages(applied_stage_names)
         logger.info(
