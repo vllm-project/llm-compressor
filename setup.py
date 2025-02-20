@@ -60,7 +60,7 @@ setup(
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
-        "compressed-tensors"
+        "compressed-tensors==0.9.2"
         if version_info.build_type == "release"
         else "compressed-tensors-nightly",
     ],
@@ -76,6 +76,7 @@ setup(
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
             "trl>=0.10.1",
+            "pandas",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",

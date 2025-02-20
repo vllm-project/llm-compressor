@@ -6,7 +6,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-# NOTE: transformers 4.48.0 has an import error with DeepSeek.
+# NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
 # Please consider either downgrading your transformers version to a
 # previous version or upgrading to a version where this bug is fixed
 
