@@ -155,7 +155,8 @@ def parse_args(**kwargs):
         )
     if model_args.oneshot_device is not None:
         warnings.warn(
-            "`oneshot_device` argument is deprecated. Please use `device_map` instead",
+            "`oneshot_device` argument is deprecated and will no longer fall back to "
+            "CPU. Please use `device_map` instead",
             DeprecationWarning,
         )
         device_map_default = ModelArguments.__dataclass_fields__["device_map"].default
