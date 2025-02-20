@@ -2,6 +2,8 @@
 Utility / helper functions
 """
 
+import functools
+import inspect
 import os
 import random
 import re
@@ -85,6 +87,10 @@ __all__ = [
     "detach",
     "adjust_quantization_for_onnx_export",
     "get_dependency_order",
+    "pseudo_quantize_tensor",
+    "pseudo_dequantize_linear",
+    "tensor_forward_with_input_args",
+    "sanitize_kwargs_for_module",
 ]
 
 
@@ -680,6 +686,43 @@ def mask_difference(old_mask: Tensor, new_mask: Tensor) -> Tensor:
     return -1.0 * newly_masked + newly_unmasked
 
 
+def sanitize_kwargs_for_module(
+    kwargs: Dict[str, Any], module: Module
+) -> Dict[str, Any]:
+    """
+    Sanitize the kwargs for a Module by removing any keys that are not
+    in the signature of the forward method.
+    :param kwargs: the kwargs to sanitize
+    :param module: the Module to sanitize the kwargs for
+    :return: the sanitized kwargs for the callable object
+    """
+    if not isinstance(kwargs, dict):
+        raise TypeError(f"Expected a dictionary as kwargs, but got {kwargs}")
+
+    allowed_params = inspect.signature(module.forward).parameters
+    return {key: value for key, value in kwargs.items() if key in allowed_params}
+
+
+def tensor_forward_with_input_args(
+    module: Module, inputs: Tensor, input_kwargs: Dict[str, Any]
+) -> Tensor:
+    """
+    Forward the given inputs through the given module with the given input_kwargs.
+    This function is a wrapper around tensors_module_forward that ensures that the
+    input_kwargs are sanitized and passed to the module as keyword arguments during
+    the forward pass.
+    :param module: the module to forward the inputs through
+    :param inputs: the inputs to forward through the module
+    :param input_kwargs: the keyword arguments to pass to the
+        module during the forward pass
+    :return: the output of the module after forwarding the inputs through it
+    """
+    inputs = inputs.to(next(module.parameters()).device)
+    input_kwargs = sanitize_kwargs_for_module(input_kwargs, module)
+
+    return tensors_module_forward(inputs, functools.partial(module, **input_kwargs))
+
+
 ##############################
 #
 # pytorch module helper functions
@@ -1194,3 +1237,62 @@ def swap_modules(
     parent.__setattr__(sections[-1], submodule_to_replace)
 
     return cur
+
+
+def pseudo_quantize_tensor(
+    w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
+):
+    org_w_shape = w.shape
+    if group_size > 0:
+        assert org_w_shape[-1] % group_size == 0
+        w = w.reshape(-1, group_size)
+    assert w.dim() == 2
+    assert torch.isnan(w).sum() == 0
+
+    if not symmetric:
+        max_val = w.amax(dim=1, keepdim=True)
+        min_val = w.amin(dim=1, keepdim=True)
+        max_int = 2**bit_width - 1
+        min_int = 0
+        scales = (max_val - min_val).clamp(min=1e-5) / max_int
+        zeros = (-torch.round(min_val / scales)).clamp_(min_int, max_int)
+        w = (
+            torch.clamp(torch.round(w / scales) + zeros, min_int, max_int) - zeros
+        ) * scales
+        zeros = zeros.view(org_w_shape[0], -1)
+    else:
+        max_val = w.abs().amax(dim=1, keepdim=True)
+        max_val = max_val.clamp(min=1e-5)
+        max_int = 2 ** (bit_width - 1) - 1
+        min_int = -(2 ** (bit_width - 1))
+        scales = max_val / max_int
+        zeros = None
+        w = torch.clamp(torch.round(w / scales), min_int, max_int) * scales
+
+    assert torch.isnan(scales).sum() == 0
+    assert torch.isnan(w).sum() == 0
+
+    scales = scales.view(org_w_shape[0], -1)
+    w = w.reshape(org_w_shape)
+
+    return w, scales, zeros
+
+
+def pseudo_dequantize_linear(
+    w: torch.Tensor,
+    scales: torch.Tensor,
+    zeros: Optional[torch.Tensor] = None,
+    symmetric: bool = False,
+):
+    # get repeated count
+    repeat_count = w.weight.data.shape[-1] // scales.shape[-1]
+    scales = scales.repeat(1, repeat_count).reshape(w.weight.data.shape)
+
+    # dequantize
+    if not symmetric:
+        zeros = zeros.repeat(1, repeat_count).reshape(w.weight.data.shape)
+        w = (w.weight.data - zeros) * scales
+    else:
+        w = w.weight.data * scales
+
+    return w
