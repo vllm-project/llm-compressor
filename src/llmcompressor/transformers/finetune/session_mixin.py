@@ -17,7 +17,6 @@ from llmcompressor.core import (
     callbacks,
     create_session,
     finalize,
-    initialize,
     pre_initialize_structure,
 )
 from llmcompressor.metrics import LoggerManager
@@ -156,18 +155,20 @@ class SessionManagerMixIn:
 
         self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
-            initialize(
-                model=self.model,
-                teacher_model=self.teacher,  # TODO: what about for self/disable?
+            active_session().initialize(
                 recipe=self.recipe,
                 recipe_stage=stage,
                 recipe_args=self.recipe_args,
+                model=self.model,
+                teacher_model=self.teacher,  # TODO: what about for self/disable?
                 train_data=train_data,
                 start=epoch,
                 copy_data=False,
+                attach_optim_callbacks=True,
                 fsdp_active=self.is_fsdp_enabled,
                 metadata=self.metadata,
             )
+
         self.accelerator.wait_for_everyone()
         model = get_session_model()
         self.model_wrapped = self.model = model
@@ -247,7 +248,7 @@ class SessionManagerMixIn:
                 len(self.train_dataset) / total_batch_size
             )
 
-        initialize(optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch)
+        active_session().initialize(optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch)
 
         return self.optimizer
 

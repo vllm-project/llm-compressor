@@ -22,6 +22,7 @@ import warnings
 from pathlib import PosixPath
 from typing import Optional
 
+from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -65,15 +66,6 @@ from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
-def train(**kwargs):
-    """
-    CLI entrypoint for running training
-    """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_train = True
-    main(model_args, data_args, recipe_args, training_args)
-
-
 def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
@@ -92,6 +84,18 @@ def oneshot(**kwargs):
     training_args.do_oneshot = True
 
     main(model_args, data_args, recipe_args, training_args)
+
+
+@deprecated(
+    message=(
+        "`from llmcompressor.transformers import train` is deprecated, "
+        "please use `from llmcompressor import train`."
+    )
+)
+def train(**kwargs):
+    from llmcompressor import train
+
+    train(**kwargs)
 
 
 # alias
@@ -433,14 +437,6 @@ def main(
 
         # exit immediately
         return
-    # Training
-    if training_args.do_train:
-        checkpoint = None
-        if training_args.resume_from_checkpoint is not None:
-            checkpoint = training_args.resume_from_checkpoint
-        elif last_checkpoint is not None:
-            checkpoint = last_checkpoint
-        stage_runner.train(checkpoint)
 
     # One Shot
     if training_args.do_oneshot:
