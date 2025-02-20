@@ -60,6 +60,7 @@ __all__ = [
     "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
+    "get_parent_by_name",
 ]
 
 
@@ -338,3 +339,23 @@ def get_no_split_params(module: Module) -> Union[str, List[str]]:
     if hasattr(model, "_no_split_modules"):
         return model._no_split_modules
     return ALL_TARGET
+
+
+def get_parent_by_name(layer_name: str, model: Module) -> Tuple[str, Module]:
+    """
+    Get the parent layer of a layer by name.
+
+    :param layer_name: Name of the layer to find the parent of.
+    :param model: Model to search for the parent layer.
+    :return: Tuple containing the name of the parent layer
+        and the parent layer itself.
+    """
+    if not any(layer_name == name for name, _ in model.named_modules()):
+        raise ValueError(f"Layer '{layer_name}' not found in model")
+
+    parent_name_parts = layer_name.split(".")[:-1]
+    if not parent_name_parts:
+        return "", model
+
+    parent_name = ".".join(parent_name_parts)
+    return get_layer(parent_name, model)
