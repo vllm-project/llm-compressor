@@ -43,10 +43,8 @@ class CompressionLifecycle:
     modifiers: List[StageModifiers] = field(default_factory=list)
     event_lifecycle: Optional[EventLifecycle] = None
 
-    initialized_structure: bool = False
     initialized_: bool = False
     finalized: bool = False
-    event_called: bool = False
 
     def reset(self):
         """
@@ -69,10 +67,8 @@ class CompressionLifecycle:
         self.modifiers = []
         self.event_lifecycle = None
 
-        self.initialized_structure = False
         self.initialized_ = False
         self.finalized = False
-        self.event_called = False
         logger.info("Compression lifecycle reset")
 
     def pre_initialize_structure(self, **kwargs) -> List[Any]:
@@ -96,7 +92,6 @@ class CompressionLifecycle:
             if data is not None:
                 mod_data.append(data)
 
-        self.initialized_structure = True
         applied_stage_names = [mod.unique_id for mod in self.modifiers if mod.applied]
         self.recipe_container.update_applied_stages(applied_stage_names)
         logger.info(
@@ -225,7 +220,6 @@ class CompressionLifecycle:
             event is not None
         ), f"Event lifecycle did not return an event for {event_type}"
         self.state.last_event = event
-        self.event_called = True
 
         return mod_data
 
