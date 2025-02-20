@@ -45,7 +45,6 @@ class CompressionLifecycle:
 
     initialized_: bool = False
     finalized: bool = False
-    event_called: bool = False
 
     def reset(self):
         """
@@ -70,7 +69,6 @@ class CompressionLifecycle:
 
         self.initialized_ = False
         self.finalized = False
-        self.event_called = False
         logger.info("Compression lifecycle reset")
 
     def pre_initialize_structure(self, **kwargs) -> List[Any]:
@@ -222,7 +220,6 @@ class CompressionLifecycle:
             event is not None
         ), f"Event lifecycle did not return an event for {event_type}"
         self.state.last_event = event
-        self.event_called = True
 
         return mod_data
 
