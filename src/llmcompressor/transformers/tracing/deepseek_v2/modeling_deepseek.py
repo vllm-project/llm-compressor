@@ -574,9 +574,9 @@ class DeepseekV2MoE(nn.Module):
         topk_idx, topk_weight, aux_loss = self.gate(hidden_states)
         hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
         flat_topk_idx = topk_idx.view(-1)
-        # TRACING: pass activations to all experts
+        # CALIBRATION: pass activations to all experts
         #if self.training:
-        if True:
+        if self.config.moe_calibrate_experts or self.training:
             hidden_states = hidden_states.repeat_interleave(
                 self.num_experts_per_tok, dim=0
             )
@@ -586,9 +586,9 @@ class DeepseekV2MoE(nn.Module):
             y = (y.view(*topk_weight.shape, -1) * topk_weight.unsqueeze(-1)).sum(dim=1)
             y = y.to(hidden_states.dtype).view(*orig_shape)
             y = AddAuxiliaryLoss.apply(y, aux_loss)
-        # TRACING: Give option to calibrate with top_k experts, as if in inference time
+        # CALIBRATION: Give option to calibrate with top_k experts, as if in inference time
         #else:
-        if self.config.moe_top_k_activation:
+        if self.config.moe_eval_mode:
             y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(*orig_shape)
         if self.config.n_shared_experts is not None:
             y = y + self.shared_experts(identity)
