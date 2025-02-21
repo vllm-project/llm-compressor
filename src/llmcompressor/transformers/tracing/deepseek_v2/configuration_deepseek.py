@@ -155,8 +155,9 @@ class DeepseekV2Config(PretrainedConfig):
         rope_scaling=None,
         attention_bias=False,
         attention_dropout=0.0,
-        # TRACING: add calibration options
-        moe_top_k_activation=True,
+        # CALIBRATION: add option to use inference-time activations
+        moe_calibrate_experts=False,
+        moe_eval_mode=False,
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -199,7 +200,9 @@ class DeepseekV2Config(PretrainedConfig):
         self.rope_scaling = rope_scaling
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
-        self.moe_top_k_activation = moe_top_k_activation
+        # CALIBRATION: add calibration options
+        self.moe_calibrate_experts = moe_calibrate_experts
+        self.moe_eval_mode = moe_eval_mode
 
         super().__init__(
             pad_token_id=pad_token_id,
