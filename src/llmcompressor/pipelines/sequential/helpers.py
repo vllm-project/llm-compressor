@@ -1,7 +1,7 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Callable, Dict, List, Set, Union
 
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
@@ -13,7 +13,7 @@ from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
 
 __all__ = ["trace_subgraphs", "Subgraph"]
 
@@ -114,6 +114,7 @@ def get_tracer(
     :param sequential_targets: modules which are sequential targets
     :param ignore: modules which are ignored
     """
+    # TODO: redefine skip_trace_modules to all non-ancestors of sequential_targets
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
     skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
@@ -131,6 +132,22 @@ def get_tracer(
             return module in skip_trace_modules or super().is_leaf_module(
                 module, module_qualified_name
             )
+
+        def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
+            if isinstance(root, Module):
+                with preserve_attr(type(root), "forward"):
+                    # due to a bug in Tracer.create_args_for_root (_patch_function),
+                    # we must unwrap function wrappers prior to tracing, for example
+                    # the `deprecate_kwarg` by transformers which wraps forward
+
+                    # we override the class method because the
+                    # class method is the one being traced
+                    type(root).forward = inspect.unwrap(type(root).forward)
+
+                    return super().trace(root, *args, **kwargs)
+
+            else:
+                return super().trace(root, *args, **kwargs)
 
     return SequentialTracer()
 

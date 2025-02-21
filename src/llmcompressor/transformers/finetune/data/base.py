@@ -8,7 +8,7 @@ from datasets import Dataset, IterableDataset
 from datasets.formatting.formatting import LazyRow
 from loguru import logger
 
-from llmcompressor.transformers.finetune.data.data_args import DataTrainingArguments
+from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data.data_helpers import (
     LABELS_MASK_VALUE,
     get_custom_datasets_from_path,
@@ -41,7 +41,7 @@ class TextGenerationDataset(RegistryMixin):
 
     def __init__(
         self,
-        data_args: DataTrainingArguments,
+        data_args: DatasetArguments,
         split: str,
         processor: Processor,
     ):
@@ -97,6 +97,7 @@ class TextGenerationDataset(RegistryMixin):
                 self.preprocess,
                 batched=False,
                 num_proc=self.data_args.preprocessing_num_workers,
+                load_from_cache_file=not self.data_args.overwrite_cache,
                 desc="Preprocessing",
             )
             logger.debug(f"Dataset after preprocessing: {get_columns(dataset)}")
