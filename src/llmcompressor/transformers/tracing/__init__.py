@@ -16,6 +16,12 @@ from .whisper import (
 from .qwen2_5_vl import (
     Qwen2_5_VLForConditionalGeneration as TraceableQwen2_5_VLForConditionalGeneration
 )
+from .deepseek_v2.modeling_deepseek import (
+    DeepseekV2ForCausalLM as TraceableDeepseekV2ForCausalLM
+)
+# from .deepseek_v3.modeling_deepseek import (
+#     DeepseekV3ForCausalLM as TraceableDeepseekV3ForCausalLM
+# )
 
 __all__ = [
     "TraceableLlavaForConditionalGeneration",
@@ -24,4 +30,6 @@ __all__ = [
     "TraceableIdefics3ForConditionalGeneration",
     "TraceableWhisperForConditionalGeneration",
     "TraceableQwen2_5_VLForConditionalGeneration",
+    "TraceableDeepseekV2ForCausalLM",
+    # "TraceableDeepseekV3ForCausalLM",
 ]
