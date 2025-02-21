@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Dict, Optional, Union
+
+import torch
 
 
 @dataclass
@@ -80,8 +82,11 @@ class ModelArguments:
         metadata={"help": "Whether to compress sparse models during save"},
     )
     oneshot_device: Optional[str] = field(
-        default="cuda:0",
-        metadata={"help": "Device to run oneshot calibration on"},
+        default=None,
+        metadata={
+            "help": "This field is deprecated, please use `device_map` instead. "
+            "Device to run oneshot calibration on"
+        },
     )
     model_revision: str = field(
         default="main",
@@ -89,4 +94,7 @@ class ModelArguments:
             "help": "The specific model version to use "
             "(can be a branch name, tag name or commit id)"
         },
+    )
+    device_map: Dict[str, Union[int, str, torch.device]] = field(
+        default="auto", metadata={}
     )

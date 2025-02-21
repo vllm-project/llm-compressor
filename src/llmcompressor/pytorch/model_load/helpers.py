@@ -16,7 +16,6 @@ __all__ = [
     "initialize_recipe",
     "save_model_and_recipe",
     "copy_python_files_from_model_cache",
-    "fallback_to_cpu",
     "parse_dtype",
     "get_session_model",
     "get_completed_stages",
@@ -85,22 +84,6 @@ def save_model_and_recipe(
 
     # copy python files from cache dir to save_path if any
     copy_python_files_from_model_cache(model, save_path)
-
-
-def fallback_to_cpu(device: str) -> str:
-    """
-    Takes in a device string and forces it to cpu if cuda is not available
-
-    :param device: device id to check
-    :return: device modified for CUDA status
-    """
-    if "cuda" in device and not torch.cuda.is_available():
-        logger.warning(
-            f"Requested {device} but CUDA is not available, falling back to CPU"
-        )
-        return "cpu"
-
-    return device
 
 
 def parse_dtype(dtype_arg: Union[str, torch.dtype]) -> torch.dtype:
