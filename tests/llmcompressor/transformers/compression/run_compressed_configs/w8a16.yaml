@@ -1,0 +1,4 @@
+cadence: "commit"
+test_type: "regression"
+compressed_model_stub: nm-testing/TinyLlama-1.1B-Chat-v1.0-W8A16-G128-compressed
+uncompressed_model_stub: nm-testing/TinyLlama-1.1B-Chat-v1.0-W8A16-G128-uncompressed

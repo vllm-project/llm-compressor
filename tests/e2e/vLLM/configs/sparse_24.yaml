@@ -1,0 +1,8 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+recipe: tests/e2e/vLLM/recipes/Sparse_2of4/recipe_sparse_2of4.yaml
+scheme: sparse2of4_only
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+save_compressed: True

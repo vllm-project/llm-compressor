@@ -39,6 +39,8 @@ Applying quantization with `llmcompressor`:
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8)
 * [Weight only quantization to `int4`](examples/quantization_w4a16)
 * [Quantizing MoE LLMs](examples/quantizing_moe)
+* [Quantizing Vision-Language Models](examples/multimodal_vision)
+* [Quantizing Audio-Language Models](examples/multimodal_audio)
 
 ### User Guides
 Deep dives into advanced usage of `llmcompressor`:
@@ -54,10 +56,9 @@ Note that the model can be swapped for a local or remote HF-compatible checkpoin
 Quantization is applied by selecting an algorithm and calling the `oneshot` API.
 
 ```python
-from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from transformers import AutoModelForCausalLM
 
 # Select quantization algorithm. In this case, we:
 #   * apply SmoothQuant to make the activations easier to quantize

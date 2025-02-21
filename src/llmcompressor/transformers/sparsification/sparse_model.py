@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM
 
 __all__ = [
     "SparseAutoModelForCausalLM",
-    "get_shared_processor_src",
+    "get_processor_name_from_model",
 ]
 
 
@@ -20,7 +20,7 @@ class SparseAutoModelForCausalLM:
         return AutoModelForCausalLM.from_pretrained(*args, **kwargs)
 
 
-def get_shared_processor_src(student: Module, teacher: Optional[Module]) -> str:
+def get_processor_name_from_model(student: Module, teacher: Optional[Module]) -> str:
     """
     Get a processor/tokenizer source used for both student and teacher, assuming
     that they could be shared

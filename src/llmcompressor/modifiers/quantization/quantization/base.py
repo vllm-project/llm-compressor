@@ -32,6 +32,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import (
     run_calibration_forward,
 )
 from llmcompressor.observers.helpers import get_observer_token_count
+from llmcompressor.utils.helpers import calibration_forward_context
 
 __all__ = ["QuantizationModifier"]
 
@@ -309,18 +310,13 @@ class QuantizationModifier(Modifier):
             f"{len(self.calibration_dataloader_)} samples..."
         )
 
-        module_training = module.training
-        module.eval()
-
-        run_calibration_forward(
-            module,
-            self.calibration_dataloader_,
-            self.num_calibration_steps,
-            self.calibration_function_,
-        )
-
-        if module_training:
-            module.train()
+        with calibration_forward_context(module):
+            run_calibration_forward(
+                module,
+                self.calibration_dataloader_,
+                self.num_calibration_steps,
+                self.calibration_function_,
+            )
 
     def _check_token_distribution(
         self, model: Module, threshold: Optional[float] = None
