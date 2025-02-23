@@ -292,7 +292,15 @@ def initialize_processor_from_path(
             use_auth_token=True if model_args.use_auth_token else None,
             trust_remote_code=model_args.trust_remote_code_model,
         )
-    except Exception:
+    except ValueError as exception:
+        if "trust_remote_code=True" in exception.value:
+            raise ValueError(
+                f"The repository for {processor_src} contains custom code which must "
+                "be executed to correctly load the tokenizer/processor. You can "
+                f"inspect the repository content at https://hf.co/{processor_src}.\n"
+                "Please pass the argument `trust_remote_code_model=True`."
+            )
+
         logger.debug("Could not load fast processor, loading slow processor instead")
         processor = AutoProcessor.from_pretrained(
             processor_src,
