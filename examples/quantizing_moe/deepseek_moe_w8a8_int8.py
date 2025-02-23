@@ -37,7 +37,7 @@ MAX_SEQUENCE_LENGTH = 2048
 
 
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
+ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
 ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 
