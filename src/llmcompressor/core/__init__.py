@@ -11,7 +11,6 @@ from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.session_functions import (
     LifecycleCallbacks,
     active_session,
-    apply,
     callbacks,
     create_session,
     finalize,
