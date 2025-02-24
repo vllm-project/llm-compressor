@@ -24,15 +24,6 @@ from llmcompressor.utils.pytorch.module import (
     get_parent_by_name,
 )
 
-DEFAULT_AWQ_MAPPINGS = [
-    [
-        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj", "re:.*o_proj"],
-        "re:.*input_layernorm",
-    ],
-    [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"],
-    [["re:.*down_proj"], "re:.*up_proj"],
-]
-
 __all__ = ["AWQScale", "AWQMapping", "AWQModifier"]
 
 
@@ -48,8 +39,42 @@ class AWQScale:
 @dataclass
 class AWQMapping:
     """
-    Dataclass for storing the mapping between an activation layer and the following
-    weights that must be balanced during smoothing
+    Dataclass storing config of activation mappings to smooth
+    The output activations of smooth_layer are input activations
+    into the balance_layers
+
+    `AWQMapping`s are resolved into `ResolvedMapping`s, which
+    retain pointers to the actual `torch.nn.Module`s and additional
+    metadata at runtime
+    """
+
+    smooth_layer: str
+    balance_layers: list[str]
+
+
+DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
+    AWQMapping(
+        "re:.*input_layernorm",
+        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+    ),
+    AWQMapping(
+        "re:.*post_attention_layernorm",
+        ["re:.*gate_proj", "re:.*up_proj"],
+    ),
+    AWQMapping(
+        "re:.*up_proj",
+        ["re:.*down_proj"],
+    ),
+    # TODO check with this uncommented
+    # AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+]
+
+
+@dataclass
+class ResolvedMapping:
+    """
+    Dataclass for storing the resolved mappings between an activation layer
+    and the following weights that must be balanced during smoothing
 
     :param smooth_name: name of the activation layer
     :param smooth_layer: PyTorch module storing the activation layer
@@ -89,9 +114,11 @@ class AWQModifier(Modifier):
     ```yaml
     AWQModifier:
       bits: 4
-      mappings: [
-        [["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"], "re:.*self_attn_layer_norm"],
-        [["re:.*fc1"], "re:.*final_layer_norm"]
+      mappings:
+        - smooth_layer: "re:.*self_attn_layer_norm"
+          balance_layers: ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"]
+        - smooth_layer: "re:.*final_layer_norm"
+          balance_layers: ["re:.*fc1"]
       ]
       ignore: ["model.decoder.final_layer_norm"]
     ```
@@ -119,10 +146,10 @@ class AWQModifier(Modifier):
     :param apply_clip: whether to apply clipping to the weights after scaling
     """
 
-    # Allow arbitrary types because AWQMapping has field of type torch.nn.Module
+    # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
-    mappings: List[Tuple] = DEFAULT_AWQ_MAPPINGS
+    mappings: List[AWQMapping] = DEFAULT_AWQ_MAPPINGS
     ignore: Optional[List[str]] = None
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
@@ -133,7 +160,7 @@ class AWQModifier(Modifier):
     duo_scaling: bool = True
     apply_clip: bool = True
 
-    resolved_mappings_: Optional[List[AWQMapping]] = None
+    resolved_mappings_: Optional[List[ResolvedMapping]] = None
     scales_: Optional[Dict] = None
     module_kwargs_: Optional[Dict] = None
 
@@ -156,13 +183,11 @@ class AWQModifier(Modifier):
             )
 
         self.ignore = [] if not self.ignore else self.ignore
-        self.resolved_mappings_ = self._resolve_mappings(state.model)
+        self.resolved_mappings_ = self._get_resolved_mappings(state.model)
         self.scales_ = {}
 
         calibration_dataloader = state.data.calib
 
-        # TODO is it ok to wrap the whole model in this context?
-        # I don't think we ever want gradients or to use kv cache
         with calibration_forward_context(state.model):
             self._set_module_kwargs(state.model, calibration_dataloader)
             self._setup_scale_hooks()
@@ -186,10 +211,10 @@ class AWQModifier(Modifier):
 
         return True
 
-    def _resolve_mappings(self, model: Module) -> List[AWQMapping]:
+    def _get_resolved_mappings(self, model: Module) -> List[ResolvedMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
-        into AWQMapping objects, resolving regular expressions.
+        into ResolvedMapping objects, resolving regular expressions.
 
         For each activation in the mapping list, we find the corresponding weight to
         balance by searching for the longest substring. For instance, if our balance
@@ -197,13 +222,13 @@ class AWQModifier(Modifier):
         would match model.layer.0.p_proj to model.layer.0.self_attn_layer_norm and
         repeat for model.layer.1 and so on
         """
-        resolved_mappings = []
-        for to_balance, to_smooth in self.mappings:
-            to_smooth_layers = get_layers(to_smooth, model)
+        resolved_mappings: list[ResolvedMapping] = []
+        for mapping in self.mappings:
+            to_smooth_layers = get_layers(mapping.smooth_layer, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
                 if layer_name not in self.ignore:
                     balance_layers, balance_names = [], []
-                    for balance_suffix in to_balance:
+                    for balance_suffix in mapping.balance_layers:
                         # find the submodule that matches the activation layer
                         balance_name, balance_layer = get_matching_layer(
                             balance_suffix, layer_name, model
@@ -224,15 +249,16 @@ class AWQModifier(Modifier):
                         parent_name, parent = get_parent_by_name(
                             layer_name=balance_name, model=model
                         )
-                    mapping = AWQMapping(
-                        layer_name,
-                        smooth_layer,
-                        balance_layers,
-                        balance_names=balance_names,
-                        parent=parent,
-                        parent_name=parent_name,
+                    resolved_mappings.append(
+                        ResolvedMapping(
+                            layer_name,
+                            smooth_layer,
+                            balance_layers,
+                            balance_names=balance_names,
+                            parent=parent,
+                            parent_name=parent_name,
+                        )
                     )
-                    resolved_mappings.append(mapping)
         return resolved_mappings
 
     def _setup_scale_hooks(self):
