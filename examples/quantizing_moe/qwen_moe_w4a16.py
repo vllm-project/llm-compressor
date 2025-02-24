@@ -64,7 +64,11 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # define a llmcompressor recipe for W416 quantization with a group size of 128
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head", "re:.*mlp.gate$"])
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
+)
 
 SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
 
