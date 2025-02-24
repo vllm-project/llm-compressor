@@ -74,6 +74,15 @@ def train(**kwargs):
     main(model_args, data_args, recipe_args, training_args)
 
 
+def eval(**kwargs):
+    """
+    CLI entrypoint for running evaluation
+    """
+    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    training_args.do_eval = True
+    main(model_args, data_args, recipe_args, training_args)
+
+
 def oneshot(**kwargs):
     """
     CLI entrypoint for running oneshot calibration
