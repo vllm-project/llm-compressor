@@ -401,30 +401,6 @@ class SessionManagerMixIn:
 
         return output
 
-    def one_shot(
-        self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
-    ):
-        """
-        Run oneshot calibration on the active model
-        :param stage: which stage of the recipe to run, or None to run whole recipe
-        :param calib_data: dataloader of calibration data
-        """
-        apply(
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-            model=self.model,
-            calib_data=calibration_data,
-            start=-1,
-            copy_data=False,
-            accelerator=self.accelerator,
-            min_tokens_per_module=self.min_tokens_per_module,
-        )
-
-        # log model sparsity
-        # self.maybe_log_model_sparsification()
-        self.accelerator.wait_for_everyone()
-
     def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """
         Override of the save_model function and expects it to exist in the parent.
