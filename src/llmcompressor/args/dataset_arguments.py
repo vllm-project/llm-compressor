@@ -70,7 +70,7 @@ class CustomDatasetArguments(DVCDatasetArguments):
 class DatasetArguments(CustomDatasetArguments):
     """
     Arguments pertaining to what data we are going to input our model for
-    calibration, training or eval
+    calibration, training
 
     Using `HfArgumentParser` we can turn this class into argparse
     arguments to be able to specify them on the command line
@@ -148,13 +148,6 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": "For debugging purposes or quicker training, truncate the number "
             "of training examples to this value if set."
-        },
-    )
-    max_eval_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": "For debugging purposes or quicker training, truncate the number "
-            "of evaluation examples to this value if set."
         },
     )
     max_predict_samples: Optional[int] = field(
