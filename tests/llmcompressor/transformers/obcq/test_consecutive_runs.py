@@ -26,10 +26,10 @@ class TestConsecutiveRuns(unittest.TestCase):
     ):
         import math
 
+        from llmcompressor import oneshot
         from llmcompressor.core import active_session
         from llmcompressor.pytorch.model_load.helpers import initialize_recipe
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
 
         # test recipe with 50% sparsity, quantization and smoothquant

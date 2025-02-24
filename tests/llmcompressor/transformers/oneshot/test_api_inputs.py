@@ -48,7 +48,7 @@ class TestOneShotInputs(unittest.TestCase):
             self.tokenizer = None
 
     def test_one_shot_inputs(self):
-        from llmcompressor.transformers import oneshot
+        from llmcompressor import oneshot
 
         oneshot(
             model=self.model,
