@@ -38,7 +38,7 @@ class StageRunner:
     LifeCycle
         - populate_datasets()
         - set_trainer()
-        - train() 
+        - train()
 
     :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows

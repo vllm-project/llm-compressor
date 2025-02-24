@@ -383,7 +383,6 @@ class SessionManagerMixIn:
 
         return output
 
-
     def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """
         Override of the save_model function and expects it to exist in the parent.

@@ -92,6 +92,7 @@ def eval(**kwargs):
 )
 def oneshot(**kwargs) -> None:
     from llmcompressor import oneshot
+
     oneshot(**kwargs)
 
 
