@@ -90,37 +90,3 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cud
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
-
-
-# Run the model on vLLM
-try:
-    from vllm import LLM, SamplingParams
-
-    vllm_installed = True
-except ImportError:
-    vllm_installed = False
-
-if vllm_installed:
-    print("vLLM installed, running using vLLM")
-    sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-    llm = LLM(
-        model=SAVE_DIR,
-        tensor_parallel_size=2,
-        trust_remote_code=True,
-        max_model_len=1042,
-        dtype=torch.half,
-    )
-    prompts = [
-        "The capital of France is",
-        "The president of the US is",
-        "My name is",
-    ]
-
-    outputs = llm.generate(prompts, sampling_params)
-    print("================= vLLM GENERATION ======================")
-    for output in outputs:
-        assert output
-        prompt = output.prompt
-        generated_text = output.outputs[0].text
-        print("PROMPT", prompt)
-        print("GENERATED TEXT", generated_text)
