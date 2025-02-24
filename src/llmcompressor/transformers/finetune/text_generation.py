@@ -75,15 +75,15 @@ def eval(**kwargs):
     main(model_args, data_args, recipe_args, training_args)
 
 
-def oneshot(**kwargs):
-    """
-    CLI entrypoint for running oneshot calibration
-    """
-    # TODO: Get rid of training args when Oneshot refactor comes in
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_oneshot = True
-
-    main(model_args, data_args, recipe_args, training_args)
+@deprecated(
+    message=(
+        "`from llmcompressor.transformers import oneshot` is deprecated, "
+        "please use `from llmcompressor import oneshot`."
+    )
+)
+def oneshot(**kwargs) -> None:
+    from llmcompressor import oneshot
+    oneshot(**kwargs)
 
 
 @deprecated(
@@ -94,12 +94,8 @@ def oneshot(**kwargs):
 )
 def train(**kwargs):
     from llmcompressor import train
-
     train(**kwargs)
 
-
-# alias
-one_shot = oneshot
 
 
 def apply(**kwargs):
@@ -437,10 +433,6 @@ def main(
 
         # exit immediately
         return
-
-    # One Shot
-    if training_args.do_oneshot:
-        stage_runner.one_shot()
 
     # Evaluation
     if training_args.do_eval:
