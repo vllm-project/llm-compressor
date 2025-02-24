@@ -2,9 +2,9 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
-from llmcompressor.modifiers.quantization import GPTQModifier
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
