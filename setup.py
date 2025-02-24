@@ -60,7 +60,7 @@ setup(
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
-        "compressed-tensors==0.9.2"
+        "compressed-tensors"
         if version_info.build_type == "release"
         else "compressed-tensors-nightly",
     ],
@@ -85,6 +85,11 @@ setup(
             "flake8~=7.0.0",
             # pre commit hooks
             "pre-commit",
+        ]
+    },
+    entry_points={
+        "console_scripts": [
+            "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
     python_requires=">=3.8",
