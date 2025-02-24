@@ -32,14 +32,14 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_model_and_recip
 
 class StageRunner:
     """
-    Launcher class for train, eval and one_shot flows. Manages data splits for each
+    Launcher class for train, and one_shot flows. Manages data splits for each
     flow and configurations. In the future this class will also handle alternating
     between the different flows
 
     LifeCycle
         - populate_datasets()
         - set_trainer()
-        - train() / evaluate() / predict()
+        - train() / predict()
 
     :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows

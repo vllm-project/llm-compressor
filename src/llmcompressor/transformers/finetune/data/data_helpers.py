@@ -99,7 +99,7 @@ def make_dataset_splits(
 ) -> Dict[str, Dataset]:
     """
     Restructures the datasets dictionary based on what tasks will be run
-    (train, eval, predict)
+    (train, predict)
 
     :param tokenized_datasets: dictionary of processed datasets
     :param do_train: Whether to store the train dataset
@@ -212,7 +212,7 @@ def transform_dataset_keys(data_files: Dict[str, Any]):
     Transform dict keys to `train`, `val` or `test` for the given input dict
     if matches exist with the existing keys. Note that there can only be one
     matching file name.
-    Ex. Folder(train_eval.json)          -> Folder(train.json)
+    Ex. Folder(train_foo.json)           -> Folder(train.json)
         Folder(train1.json, train2.json) -> Same
 
     :param data_files: The dict where keys will be transformed
