@@ -27,7 +27,7 @@ class TrainingArguments(HFTrainingArgs):
         default="./output",
         metadata={
             "help": "The output directory where the model safetensors, "
-            "recipe, config, and optimally checkpoints will be written."
+            "recipe, config, and optionally checkpoints will be written."
         },
     )
 
