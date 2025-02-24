@@ -44,7 +44,6 @@ __all__ = [
 TRAINER_STATE_NAME = "trainer_state.json"
 METADATA_ARGS = [
     "per_device_train_batch_size",
-    "per_device_eval_batch_size",
     "max_seq_length",
     "save_safetensors",
     "fp16",
@@ -406,23 +405,6 @@ class SessionManagerMixIn:
         # log model sparsity
         self.maybe_log_model_sparsification()
         self.accelerator.wait_for_everyone()
-
-        return output
-
-    def evaluate(self, *args, **kwargs):
-        """
-        Run a sparsification evaluation cycle.
-        Runs initialize_structure for the sparse session before calling
-        super().evaluate() and finalization of the session after.
-
-        :param args: positional args to pass to super().evaluate()
-        :param kwargs: keyword args to pass to super().evaluate()
-        :return: the output from super.evaluate()
-        """
-        self.initialize_structure()
-
-        output = super().evaluate(*args, **kwargs)
-        self.finalize_session()
 
         return output
 
