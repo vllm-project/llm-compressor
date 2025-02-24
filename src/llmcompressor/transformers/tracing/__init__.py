@@ -13,6 +13,9 @@ from .idefics3 import (
 from .whisper import (
     WhisperForConditionalGeneration as TraceableWhisperForConditionalGeneration
 )
+from .qwen2_5_vl import (
+    Qwen2_5_VLForConditionalGeneration as TraceableQwen2_5_VLForConditionalGeneration
+)
 
 __all__ = [
     "TraceableLlavaForConditionalGeneration",
@@ -20,4 +23,5 @@ __all__ = [
     "TraceableQwen2VLForConditionalGeneration",
     "TraceableIdefics3ForConditionalGeneration",
     "TraceableWhisperForConditionalGeneration",
+    "TraceableQwen2_5_VLForConditionalGeneration",
 ]

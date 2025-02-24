@@ -8,11 +8,13 @@ from transformers import AutoProcessor
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.tracing import TraceableQwen2VLForConditionalGeneration
+from llmcompressor.transformers.tracing import (
+    TraceableQwen2_5_VLForConditionalGeneration,
+)
 
 # Load model.
-model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = TraceableQwen2VLForConditionalGeneration.from_pretrained(
+model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
+model = TraceableQwen2_5_VLForConditionalGeneration.from_pretrained(
     model_id,
     device_map="auto",
     torch_dtype="auto",
@@ -43,18 +45,12 @@ def preprocess_and_tokenize(example):
             "role": "user",
             "content": [
                 {"type": "image", "image": base64_qwen},
-                {"type": "text", "text": "What does this image show?"},
+                {"type": "text", "text": "What does the image show?"},
             ],
-        },
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "text", "text": " ".join(example["caption"])},
-            ],
-        },
+        }
     ]
     text = processor.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=False
+        messages, tokenize=False, add_generation_prompt=True
     )
     image_inputs, video_inputs = process_vision_info(messages)
 
@@ -83,7 +79,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["Qwen2VLDecoderLayer"],
+        sequential_targets=["Qwen2_5_VLDecoderLayer"],
         ignore=["lm_head", "re:visual.*"],
     ),
 ]

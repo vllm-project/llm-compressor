@@ -1,20 +1,17 @@
+from typing import Dict, Optional
+
 from trl import SFTConfig as TRLSFTConfig
 from trl import SFTTrainer as TRLSFTTrainer
 
-from llmcompressor.args import TrainingArguments
 from llmcompressor.transformers.finetune.session_mixin import SessionManagerMixIn
 
 __all__ = ["SFTTrainer"]
 
 
 class SFTTrainer(SessionManagerMixIn, TRLSFTTrainer):
-    def __init__(self, *args, **kwargs):
-        sft_config_args = kwargs.get("args")
-        if (
-            sft_config_args is not None
-            and sft_config_args.__class__.__name__ == "TrainingArguments"
-        ):
-            kwargs["args"] = SFTConfig(**sft_config_args.to_dict())
+    def __init__(self, trl_sft_config_args: Optional[Dict] = None, *args, **kwargs):
+        if trl_sft_config_args is not None:
+            kwargs["args"] = TRLSFTConfig(**trl_sft_config_args)
         super().__init__(*args, **kwargs)
 
     def _prepare_dataset(self, dataset, *args, **kwargs):
@@ -23,14 +20,3 @@ class SFTTrainer(SessionManagerMixIn, TRLSFTTrainer):
             return dataset
 
         return super()._prepare_dataset(dataset, *args, **kwargs)
-
-
-class SFTConfig(TrainingArguments, TRLSFTConfig):
-    """
-    This class is needed to wrap the llmcompressor.transformers.TrainingArguments
-    and TRLSFTConfig classes. This allows for the use of arguments and
-    configurations from both classes when training a model.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
