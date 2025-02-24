@@ -37,4 +37,6 @@ def test_separate_datasets():
 
     with pytest.raises(ValueError):
         # fails due to no test split specified
+
+        datasets.pop("train")
         split_datasets = make_dataset_splits(datasets, do_train=True)
