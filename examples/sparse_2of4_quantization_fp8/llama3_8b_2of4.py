@@ -116,7 +116,5 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n")
 
 # Save compressed model and tokenizer
-model.save_pretrained(
-    save_dir, save_compressed=args.fp8, disable_sparse_compression=True
-)
+model.save_pretrained(save_dir, save_compressed=args.fp8)
 tokenizer.save_pretrained(save_dir)
