@@ -8,4 +8,4 @@ dataset_id: HuggingFaceH4/ultrachat_200k
 dataset_split: train_sft
 exact_match,flexible-extract: 0.72
 exact_match,strict-match: 0.72
-scheme: W4A16_actorder_group
+scheme: W4A16_actorder_weight
