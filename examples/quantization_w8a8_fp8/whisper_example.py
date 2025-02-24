@@ -1,8 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoProcessor, WhisperForConditionalGeneration
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "openai/whisper-large-v2"
 
