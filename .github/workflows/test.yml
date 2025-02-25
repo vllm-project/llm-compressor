@@ -96,7 +96,7 @@ jobs:
                   venv: ${{ steps.create_venv.outputs.penv }}
 
             - name: summary
-              uses: neuralmagic/nm-actions/actions/summary-test@v1.2.0
+              uses: neuralmagic/nm-actions/actions/summary-test@v1.13.0
               if: success() || failure()
               with:
                   test_label: ${{ inputs.test_label }}
