@@ -6,6 +6,7 @@ import torch
 from loguru import logger
 from safetensors import safe_open
 from torch.nn import Module
+from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session, create_session, pre_initialize_structure
 from llmcompressor.typing import Processor
@@ -14,20 +15,19 @@ COMPLETED_STAGES_FILENAME = "completed_stages.json"
 
 __all__ = [
     "initialize_recipe",
-    "save_model_and_recipe",
     "copy_python_files_from_model_cache",
     "fallback_to_cpu",
     "parse_dtype",
     "get_session_model",
     "get_completed_stages",
     "save_completed_stages",
+    "save_checkpoint",
 ]
 
 
 def initialize_recipe(model: Module, recipe_path: str):
     """
     Initializes a recipe that has been previously applied to the model
-
     :param model: PyTorch model to apply structure to
     :param recipe_path: path to recipe to apply to the model
     """
@@ -49,42 +49,21 @@ def initialize_recipe(model: Module, recipe_path: str):
     logger.info(f"Applied {msg} to the model")
 
 
-def save_model_and_recipe(
-    model: Module,
+def save_checkpoint(
     save_path: str,
-    processor: Optional[Processor] = None,
-    save_safetensors: bool = False,
-    save_compressed: bool = False,
+    model: PreTrainedModel,
+    processor: Processor,
+    save_safetensors: bool = True,
+    save_compressed: bool = True,
 ):
-    """
-    Save a model, processor and the currently loaded recipe to file
-
-    :param model: pytorch model to save
-    :param save_path: path to save output to
-    :param processor: model processor or tokenizer to save
-    :param save_safetensors: whether to save as safetensors or pickle (bin)
-    :param save_compressed: whether to compress sparse weights on disk
-    """
-    # avoid circular import
-    from llmcompressor.transformers.utils.helpers import RECIPE_FILE_NAME
-
+    # saving the model also saves the recipe
     model.save_pretrained(
-        save_path, save_compressed=save_compressed, safe_serialization=save_safetensors
+        save_path,
+        save_safetensors=save_safetensors,
+        save_compressed=save_compressed,
     )
-
     if processor is not None:
         processor.save_pretrained(save_path)
-
-    logger.info("Saving output to {}".format(os.path.abspath(save_path)))
-
-    recipe_path = os.path.join(save_path, RECIPE_FILE_NAME)
-    session = active_session()
-    recipe_yaml_str = session.get_serialized_recipe()
-    with open(recipe_path, "w") as fp:
-        fp.write(recipe_yaml_str)
-
-    # copy python files from cache dir to save_path if any
-    copy_python_files_from_model_cache(model, save_path)
 
 
 def fallback_to_cpu(device: str) -> str:

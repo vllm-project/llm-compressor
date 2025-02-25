@@ -50,12 +50,12 @@ from llmcompressor.pytorch.model_load.helpers import (
     get_session_model,
     initialize_recipe,
     parse_dtype,
+    save_checkpoint,
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
@@ -105,7 +105,7 @@ def train(**kwargs):
 
 def apply(**kwargs):
     """
-    CLI entrypoint for any of training, eval, predict or oneshot
+    CLI entrypoint for any of training, oneshot
     """
     report_to = kwargs.get("report_to", None)
     model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
@@ -330,12 +330,13 @@ def main(
         - Trainer()
             - SessionMixIn()
             - HFTransformersTrainer()
-        - StageRunner.train() and/or evaluate() and/or predict() and/or oneshot()
+        - StageRunner.train() and/or  oneshot()
+
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
     :param data_args: Arguments pertaining to what data we are going to input our model
-    for training and eval
+    for training
     :param training_args: Arguments pertaining to training loop configuration
     """
 
@@ -365,7 +366,7 @@ def main(
         f"distributed training: {bool(training_args.local_rank != -1)}, "
         f"16-bits training: {training_args.fp16}"
     )
-    logger.info(f"Training/evaluation parameters {training_args}")
+    logger.info(f"Training parameters {training_args}")
 
     # Detecting last checkpoint.
     last_checkpoint = None
@@ -404,7 +405,6 @@ def main(
     add_labels = training_args.do_train or training_args.run_stages
     stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
     train_dataset = stage_runner.get_dataset_split("train")
-    eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     trainer = Trainer(
@@ -416,14 +416,16 @@ def main(
         model_args=model_args,
         data_args=data_args,
         train_dataset=train_dataset or calib_dataset,
-        eval_dataset=eval_dataset,
         processing_class=processor,
         data_collator=data_args.data_collator,
     )
 
     # wrap model.save_pretrained
     if is_fsdp_model(model):
-        modify_fsdp_model_save_pretrained(trainer, processor)
+        raise NotImplementedError(
+            "FSDP models are not supported in the current release but will be "
+            "suported in future releases of LLM Compressor"
+        )
     else:
         modify_save_pretrained(model)
 
@@ -439,25 +441,20 @@ def main(
         # exit immediately
         return
 
-    # Evaluation
-    if training_args.do_eval:
-        stage_runner.evaluate()
-
-    # Prediction
-    if training_args.do_predict:
-        stage_runner.predict()
-
     # save if model was provided as a string or custom output_dir was set
-
     if isinstance(model_args.model, str) or (
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
+        and trainer.accelerator.is_main_process
     ):
-        model.save_pretrained(
-            training_args.output_dir, save_compressed=model_args.save_compressed
+        save_checkpoint(
+            save_path=training_args.output_dir,
+            model=model,
+            processor=processor,
+            save_safetensors=True,
+            save_compressed=model_args.save_compressed,
         )
-        if processor is not None:
-            processor.save_pretrained(training_args.output_dir)
+    trainer.accelerator.wait_for_everyone()
 
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:

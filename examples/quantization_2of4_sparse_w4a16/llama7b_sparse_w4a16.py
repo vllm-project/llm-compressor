@@ -56,8 +56,8 @@ apply(
     preprocessing_num_workers=preprocessing_num_workers,
 )
 logger.info(
-    "Note: llcompressor does not currently support running ",
-    "compressed models in the marlin-24 format. The model ",
-    "produced from this example can be run on vLLM with ",
-    "dtype=torch.float16",
+    "llmcompressor does not currently support running compressed models in the marlin24 format."  # noqa
+)
+logger.info(
+    "The model produced from this example can be run on vLLM with dtype=torch.float16"
 )

@@ -17,6 +17,7 @@ from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
     get_completed_stages,
     get_session_model,
+    save_checkpoint,
     save_completed_stages,
 )
 from llmcompressor.recipe import Recipe, StageRunType
@@ -26,19 +27,18 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     make_dataset_splits,
 )
 from llmcompressor.typing import Processor
-from llmcompressor.utils.fsdp.helpers import save_model_and_recipe
 
 
 class StageRunner:
     """
-    Launcher class for train, eval and one_shot flows. Manages data splits for each
+    Launcher class for train, and one_shot flows. Manages data splits for each
     flow and configurations. In the future this class will also handle alternating
     between the different flows
 
     LifeCycle
         - populate_datasets()
         - set_trainer()
-        - train() / evaluate() / predict()
+        - train()
 
     :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows
@@ -121,8 +121,6 @@ class StageRunner:
         self.datasets = make_dataset_splits(
             tokenized_datasets,
             do_train=self._training_args.do_train,
-            do_eval=self._training_args.do_eval,
-            do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
 
@@ -155,29 +153,6 @@ class StageRunner:
 
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
-
-    def evaluate(self):
-        """
-        Run trainer's evaluation loop on eval_dataset, logging the desired metrics
-        """
-        logger.info("*** Evaluate ***")
-        metrics = self.trainer.evaluate(self.get_dataset_split("validation"))
-
-        metrics["eval_samples"] = len(self.get_dataset_split("validation"))
-        self.trainer.log_metrics("eval", metrics)
-        self.trainer.save_metrics("eval", metrics)
-
-    def predict(self):
-        """
-        Run trainer's prediction loop on predict_dataset, logging the desired metrics
-        """
-        logger.info("*** Predict ***")
-        results = self.trainer.predict(self.dataset["test"])
-        metrics = results.metrics
-
-        metrics["predict_samples"] = len(self.dataset["test"])
-        self.trainer.log_metrics("predict", metrics)
-        self.trainer.save_metrics("predict", metrics)
 
     def run_sequential_stages(self, checkpoint: Optional[str] = None):
         """
@@ -256,14 +231,20 @@ class StageRunner:
 
             checkpoint = None
 
-            if self._training_args.output_dir:
-                save_model_and_recipe(
-                    model=self.trainer.model,
+            # save model between stages
+            if (
+                self._training_args.output_dir
+                != TrainingArguments.__dataclass_fields__["output_dir"].default
+                and self.trainer.accelerator.is_main_process
+            ):
+                save_checkpoint(
                     save_path=self._output_dir,
+                    model=self.trainer.model,
                     processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._model_args.save_compressed,
                 )
+            self.trainer.accelerator.wait_for_everyone()
 
             # save stage to checkpoint dir
             if self.trainer.accelerator.is_main_process:
