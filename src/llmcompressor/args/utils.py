@@ -1,3 +1,5 @@
+from typing import Tuple
+
 from loguru import logger
 from transformers import HfArgumentParser
 
@@ -10,7 +12,9 @@ from llmcompressor.args import (
 from llmcompressor.transformers.utils.helpers import resolve_processor_from_model_args
 
 
-def parse_args(include_training_args: bool = False, **kwargs):
+def parse_args(
+    include_training_args: bool = False, **kwargs
+) -> Tuple[ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments, str]:
     """
     Keyword arguments passed in from `oneshot` or `train` will
     separate the arguments into the following:

@@ -49,7 +49,7 @@ The high-level description of the argument parser is as follows:
 - `DatasetArguments`: Arguments for dataset-related configurations, such as
     calibration dataloaders.
 - `RecipeArguments`: Arguments for defining and configuring recipes that specify
-    compression methods.
+    parameters for compression.
 
 For more information, please check the [README.md](../../llmcompressor/args/README.md) in `src/llmcompressor/args`.
 
@@ -86,7 +86,7 @@ This will automatically save the model in the SafeTensors format, along with the
 
 
 ## Train
-Compressed models can be trained to imporve accuracy. LLM Compressor uses HuggingFace's [Trainer](https://huggingface.co/docs/transformers/en/main_classes/trainer) for training.
+Compressed models can be trained to improve accuracy. Training is carried out using HuggingFace's [Trainer](https://huggingface.co/docs/transformers/en/main_classes/trainer).
 
 ### Finetuning an Compressed Model
 LLM-Compressor supports fine-tuning of quantized, sparsified, or sparse-quantized models. It offers both vanilla fine-tuning and knowledge distillation.
@@ -124,7 +124,7 @@ with create_session():
 
 ```
 
-To carry out knowledge distillation, a teacher model and a student model (the compressed model) must be defined. Use the above training with 
+To carry out knowledge distillation, a teacher model and a student model (the compressed model) must be defined. Use the above training code and add the following:
 
 ```python
 

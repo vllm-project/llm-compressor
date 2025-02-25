@@ -5,7 +5,6 @@ import torch
 from datasets import Dataset
 from loguru import logger
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from transformers import ProcessorMixin
 from transformers.data import default_data_collator
 
 from llmcompressor.args import DatasetArguments
@@ -18,12 +17,17 @@ def get_processed_dataset(
     processor: Processor,
     do_oneshot: bool = False,
     do_train: bool = True,
-):
+) -> Dict[str, Dataset]:
     """
     Loads datasets for each flow based on dataset_args, stores a Dataset for each
     enabled flow in datasets
 
+    :param dataset_args: DatasetArguments that contain dataset loading and
+        processing params
     :param processor: processor or tokenizer to use for dataset tokenization
+    :param do_oneshot: True for oneshot pathway
+    :param do_train: True for train pathway
+    :return: A dataset corresponding to either train or calibration (oneshot)
 
     """
     if dataset_args.dataset is None:
@@ -78,7 +82,7 @@ def get_processed_dataset(
 
 def get_calibration_dataloader(
     dataset_args: DatasetArguments,
-    processor: ProcessorMixin,
+    processor: Processor,
 ) -> torch.utils.data.DataLoader:
     """
     Get the dataloader used for oneshot calibration.
@@ -86,6 +90,7 @@ def get_calibration_dataloader(
     :param dataset_args: DatasetArguments that contains the dataset parameters.
     :param processor: Processor or the tokenizer of the model.
     :return: PyTorch dataloader object that contains the calibration dataset.
+
     """
 
     datasets = get_processed_dataset(
@@ -120,6 +125,7 @@ def format_calibration_data(
         samples, true by default
     :param collate_fn: optional custom collate function, or use default
     :return: list of trimmed calibration data tensors
+
     """
     safe_calibration_samples = len(tokenized_dataset)
     if num_calibration_samples is not None:
@@ -159,8 +165,8 @@ def make_dataset_splits(
 
     :param tokenized_datasets: dictionary of processed datasets
     :param do_oneshot: Whether to store the calibration dataset
+    :return: A dataset corresponding to either train or calibration (oneshot)
 
-    :return: Datasets to be used by the requested tasks
     """
 
     # handles case where all splits are contained in a single dataset

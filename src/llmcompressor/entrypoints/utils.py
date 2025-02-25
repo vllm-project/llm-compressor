@@ -1,7 +1,7 @@
 import inspect
 import os
 from pathlib import PosixPath
-from typing import Optional
+from typing import Optional, Tuple
 
 from loguru import logger
 from torch.nn import Module
@@ -112,7 +112,7 @@ def _warn_tied_embeddings(tie_word_embeddings: bool = False):
 def initialize_model_from_path(
     model_args: ModelArguments,
     training_args: Optional[TrainingArguments] = None,
-):
+) -> Tuple[PreTrainedModel, Optional[PreTrainedModel]]:
     # Load pretrained model
     # The .from_pretrained methods guarantee that only one local process can
     # concurrently download model & vocab.
