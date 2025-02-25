@@ -65,7 +65,7 @@ DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
         "re:.*up_proj",
         ["re:.*down_proj"],
     ),
-    # TODO check with this uncommented
+    # TODO this generally results in higher perplexity for llama 2 7B on wikitext
     # AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
 ]
 
@@ -269,8 +269,7 @@ class AWQModifier(Modifier):
 
         def create_hook_fn(layer_name):
             def hook_fn(module, inp, out):
-                inp = inp[0]
-                inp.cpu().detach()
+                inp = inp[0].cpu().detach()
 
                 if layer_name in self.scales_:
                     self.scales_[layer_name].inps.append(inp)
@@ -365,8 +364,8 @@ class AWQModifier(Modifier):
 
             # [STEP 2]: Compute per-channel mean of the input activation with chunking
             # move inp to cpu to avoid memory leak
-            inp = activations
-            inp_flat = inp.cpu().abs().view(-1, inp.shape[-1])
+            inp = activations.to(weight.device)
+            inp_flat = activations.cpu().abs().view(-1, inp.shape[-1])
             num_elements = inp_flat.size(0)
             num_channels = inp_flat.size(1)
             element_size_bytes = inp_flat.element_size() * 2  # multiplied by 2 for FP32
