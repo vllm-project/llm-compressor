@@ -98,7 +98,7 @@ def oneshot(**kwargs) -> None:
 
 def apply(**kwargs):
     """
-    CLI entrypoint for any of training, predict or oneshot
+    CLI entrypoint for any of training, oneshot
     """
     report_to = kwargs.get("report_to", None)
     model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
@@ -323,7 +323,8 @@ def main(
         - Trainer()
             - SessionMixIn()
             - HFTransformersTrainer()
-        - StageRunner.train() and/or predict() and/or oneshot()
+        - StageRunner.train() and/or  oneshot()
+
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
@@ -440,10 +441,6 @@ def main(
         elif last_checkpoint is not None:
             checkpoint = last_checkpoint
         stage_runner.train(checkpoint)
-
-    # Prediction
-    if training_args.do_predict:
-        stage_runner.predict()
 
     # save if model was provided as a string or custom output_dir was set
     if isinstance(model_args.model, str) or (
