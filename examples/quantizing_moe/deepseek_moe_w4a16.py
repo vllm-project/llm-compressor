@@ -2,7 +2,7 @@ import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 from llmcompressor.transformers.tracing import TraceableDeepseekV2ForCausalLM
 from llmcompressor.transformers.tracing.deepseek_v2.configuration_deepseek import (
