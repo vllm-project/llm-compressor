@@ -8,6 +8,7 @@ from .evolcodealpaca import EvolCodeAlpacaDataset
 from .flickr_30k import Flickr30K
 from .gsm8k import GSM8KDataset
 from .open_platypus import OpenPlatypusDataset
+from .pile import PileEvalDataset
 from .ptb import PtbDataset
 from .ultrachat_200k import UltraChatDataset
 from .wikitext import WikiTextDataset
