@@ -62,32 +62,16 @@ class Oneshot:
             Initializes the `Oneshot` object by parsing input arguments, performing
             preprocessing, and setting instance attributes.
 
-        run(**kwargs):
+        __call__(**kwargs):
             Performs the one-shot calibration process by preparing a calibration
             dataloader, applying recipe modifiers to the model, and executing
             postprocessing steps.
-
-        save():
-            Saves the calibrated model and tokenizer/processor to the specified
-            `output_dir`. Supports saving in compressed formats based on model
-            arguments.
 
         apply_recipe_modifiers(calibration_dataloader, **kwargs):
             Applies lifecycle actions (e.g., `initialize`, `finalize`) using modifiers
             defined in the recipe. Each action is executed via the global
             `CompressionSession`.
 
-        _pre_process():
-            Handles preprocessing steps, including model initialization,
-            tokenizer/processor setup, and resolving tied embedding issues.
-
-        check_tied_embeddings():
-            Logs a warning if `tie_word_embeddings=True`, which may interfere with
-            saving in the one-shot workflow.
-
-        _post_process():
-            Executes postprocessing steps such as saving the model and resetting
-            lifecycle actions, especially when a custom `output_dir` is specified.
     """
 
     def __init__(
