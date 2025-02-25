@@ -39,7 +39,6 @@ class CompressionLifecycle:
     state: State = field(default_factory=State)
     recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
     modifiers: List[StageModifiers] = field(default_factory=list)
-    current_index: int = 0
 
     initialized_: bool = False
     finalized: bool = False
@@ -165,8 +164,6 @@ class CompressionLifecycle:
                 f"Cannot invoke {event_type} event. "
                 f"Use the corresponding method instead."
             )
-
-        # TODO: populate current_index with event
 
         if event_type == EventType.LOSS_CALCULATED and (
             "loss" not in kwargs or kwargs["loss"] is None

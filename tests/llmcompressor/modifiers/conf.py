@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 from torch.utils.data import DataLoader
 
-from llmcompressor.core import State, Event, EventType
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
