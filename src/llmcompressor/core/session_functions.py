@@ -125,7 +125,7 @@ def initialize(
 
 def update_state(**kwargs) -> ModifiedState:
     """
-    TODO
+    Update the session state with new values
     """
     return active_session().update_state(**kwargs)
 

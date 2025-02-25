@@ -145,12 +145,9 @@ class CompressionSession:
 
     def update_state(self, **kwargs) -> ModifiedState:
         """
-        TODO
+        Update the lifecycle state with new values
         """
-
-        self._lifecycle.update_state(
-            **kwargs,
-        )
+        self._lifecycle.update_state(**kwargs)
 
         return ModifiedState(
             model=self.state.model,
