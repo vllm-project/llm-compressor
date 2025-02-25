@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
-from llmcompressor.core.events import Event
 from llmcompressor.metrics import BaseLogger, LoggerManager
 
 __all__ = ["State", "Data", "Hardware", "ModifiedState"]
