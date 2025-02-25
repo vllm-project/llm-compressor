@@ -109,7 +109,7 @@ def infer_recipe_from_model_path(model_path: Union[str, Path]) -> Optional[str]:
     recipe = recipe_from_huggingface_model_id(hf_stub=model_path)
 
     if recipe is None:
-        logger.info("Failed to infer the recipe from the model_path")
+        logger.debug("Failed to infer the recipe from the model_path")
 
     return recipe
 
@@ -140,14 +140,10 @@ def recipe_from_huggingface_model_id(
         return None
 
     try:
-        logger.info(
-            "Attempting to download a recipe ",
-            f"{hf_stub} " f"from {HUGGINGFACE_CO_URL_HOME}",
-        )
         recipe = hf_hub_download(repo_id=hf_stub, filename=recipe_file_name)
         logger.info(f"Found recipe: {recipe_file_name} for model ID: {hf_stub}.")
-    except Exception as e:
-        logger.error(
+    except Exception as e:  # TODO: narrow acceptable exceptions
+        logger.debug(
             (
                 f"Unable to find recipe {recipe_file_name} "
                 f"for model ID: {hf_stub}: {e}."

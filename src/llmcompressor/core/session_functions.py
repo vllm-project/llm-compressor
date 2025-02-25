@@ -11,7 +11,6 @@ __all__ = [
     "create_session",
     "active_session",
     "reset_session",
-    "pre_initialize_structure",
     "initialize",
     "finalize",
     "callbacks",
@@ -57,16 +56,6 @@ def reset_session():
     """
     session = active_session()
     session._lifecycle.reset()
-
-
-def pre_initialize_structure(**kwargs):
-    """
-    A method to pre-initialize the structure of the model for the active session
-
-    :param kwargs: the kwargs to pass to the active session's pre-initialize-structure
-        method
-    """
-    active_session().pre_initialize_structure(**kwargs)
 
 
 def initialize(
@@ -156,7 +145,7 @@ class LifecycleCallbacks:
         :param kwargs: additional kwargs to pass to the current session's event method
         :return: the modified state of the active session after invoking the event
         """
-        if event_type in [EventType.PRE_INIT, EventType.INITIALIZE, EventType.FINALIZE]:
+        if event_type in [EventType.INITIALIZE, EventType.FINALIZE]:
             raise ValueError(
                 f"Cannot invoke {event_type} event. "
                 f"Use the corresponding method instead."

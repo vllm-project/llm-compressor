@@ -71,7 +71,7 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier.on_initialize_structure(testing_harness.get_state())
+        modifier._check_build_quant_modifier(testing_harness.get_state().model)
         assert modifier.quantize
         assert isinstance(modifier._quantization_modifier, QuantizationModifier)
         modifier._quantization_modifier.create_init_config()
@@ -105,10 +105,6 @@ class TestSetQuantIfModifierAlreadyExists(unittest.TestCase):
 
         modifier = GPTQModifier(block_size=128)
         assert not modifier._quantization_modifier
-
-        modifier.on_initialize_structure(testing_harness.get_state())
-        # since quantization modifier is already applied, quantization must be set in
-        # GPTQ
         assert modifier.quantize
 
 
@@ -142,7 +138,7 @@ class TestSetQuantInGPTQ(unittest.TestCase):
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier.on_initialize_structure(testing_harness.get_state())
+        modifier._check_build_quant_modifier(testing_harness.get_state().model)
         assert modifier.quantize
         self.assertIsInstance(modifier._quantization_modifier, QuantizationModifier)
 

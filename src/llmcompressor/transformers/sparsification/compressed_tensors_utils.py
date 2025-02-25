@@ -20,6 +20,7 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
+from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
@@ -27,6 +28,7 @@ from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
+from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
 __all__ = ["modify_save_pretrained"]
 
@@ -129,7 +131,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 )
                 compressor.update_config(save_directory)
 
-            # TODO: update existing recipe
+            # update existing recipe
             update_and_save_recipe(model.name_or_path, save_directory)
 
             # copy python files from cache dir to save_path if any
@@ -253,10 +255,17 @@ def get_model_compressor(
 
 
 def update_and_save_recipe(model_path: str, save_directory: str):
-    # TODO: update existing recipe
-    recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
-    session = active_session()
+    recipes_to_save = []
+    existing_recipe = infer_recipe_from_model_path(model_path)
+    if existing_recipe is not None:
+        recipes_to_save.append(existing_recipe)
 
-    if (recipe_yaml_str := session.get_serialized_recipe()) is not None:
-        with open(recipe_path, "w") as fp:
-            fp.write(recipe_yaml_str)
+    new_recipe = active_session().lifecycle.recipe_container.compiled_recipe
+    if new_recipe is not None:
+        recipes_to_save.append(new_recipe)
+
+    recipe = Recipe.simplify_combine_recipes(recipes_to_save)
+
+    # save recipe
+    recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
+    recipe.yaml(recipe_path)

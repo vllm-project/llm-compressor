@@ -8,8 +8,8 @@ from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
-from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
@@ -28,7 +28,6 @@ class TestConsecutiveRuns(unittest.TestCase):
 
         from llmcompressor import oneshot
         from llmcompressor.core import active_session
-        from llmcompressor.pytorch.model_load.helpers import initialize_recipe
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.utils.pytorch import qat_active
 
@@ -61,11 +60,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         session.reset()
 
-        recipe = infer_recipe_from_model_path(model_path=self.output_first)
-        if recipe:
-            initialize_recipe(model=first_model, recipe_path=recipe)
-
-        # reload saved model and up sparsity to 0.7
+        # reload saved model and increase sparsity to 0.7
         oneshot(
             model=self.output_first,
             dataset=self.dataset,
@@ -87,17 +82,30 @@ class TestConsecutiveRuns(unittest.TestCase):
         assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
         assert qat_active(second_model)
 
-        session = active_session()
-        session_recipe = session.lifecycle.recipe_container.compiled_recipe
-        stages = [stage.group for stage in session_recipe.stages]
-        self.assertEqual(len(stages), 2)
-
         recipe_path = self.output_second / "recipe.yaml"
         recipe_data = yaml.safe_load(recipe_path.read_text())
         stage_keys = recipe_data.keys()
         self.assertEqual(len(stage_keys), 2)
         self.assertIn("test_stage_0", stage_keys)
         self.assertIn("test_stage_1", stage_keys)
+
+        # check saved modifier names are same
+        stage0_modifier_names = list(
+            list(recipe_data["test_stage_0"].values())[0].keys()
+        )
+        exp_stage0_modifier_names = [
+            mod.type
+            for mod in Recipe.create_instance(self.first_recipe).stages[0].modifiers
+        ]
+        stage1_modifier_names = list(
+            list(recipe_data["test_stage_1"].values())[0].keys()
+        )
+        exp_stage1_modifier_names = [
+            mod.type
+            for mod in Recipe.create_instance(self.second_recipe).stages[0].modifiers
+        ]
+        self.assertEqual(stage0_modifier_names, exp_stage0_modifier_names)
+        self.assertEqual(stage1_modifier_names, exp_stage1_modifier_names)
 
     def tearDown(self):
         shutil.rmtree(self.output)

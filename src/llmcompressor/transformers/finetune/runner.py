@@ -6,6 +6,7 @@ from typing import List, Optional
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
+from transformers import PreTrainedModel
 
 from llmcompressor.args import (
     DatasetArguments,
@@ -154,7 +155,9 @@ class StageRunner:
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
 
-    def run_sequential_stages(self, checkpoint: Optional[str] = None):
+    def run_sequential_stages(
+        self, model: PreTrainedModel, checkpoint: Optional[str] = None
+    ):
         """
         Run the recipe stage by stage, allowing for alternating between one-shot and
         finetuning flows. Optionally save the model output at the end of each stage
@@ -181,12 +184,6 @@ class StageRunner:
                     "the stage name."
                 )
 
-            # just load structure if stage has already applied
-            if stage_name in completed_stages:
-                self.trainer.initialize_structure(stage=stage)
-                self.trainer.accelerator.wait_for_everyone()
-                continue
-
             # setup checkpoint dir, TODO: this should be optional
             self._output_dir = os.path.join(
                 self.parent_output_dir, "stage_" + stage_name
@@ -201,7 +198,6 @@ class StageRunner:
             if run_type is StageRunType.ONESHOT:
                 from llmcompressor import Oneshot
 
-                model = get_session_model()
                 self._model_args.model = model
 
                 oneshot = Oneshot.from_args(
