@@ -17,15 +17,11 @@ import torch
 from torch.nn import Module
 
 from llmcompressor.core.state import State
-from llmcompressor.pytorch.model_load.helpers import save_model_and_recipe
-from llmcompressor.typing import Processor
-from llmcompressor.utils.pytorch import set_layer
 
 __all__ = [
     "is_fsdp_model",
     "maybe_get_wrapped",
     "set_wrapped_model",
-    "unwrap_and_export_model",
     "save_pretrained_fsdp",
     "get_fsdp_parent",
     "find_and_move_state_dicts_to_cpu",
@@ -70,34 +66,6 @@ def set_wrapped_model(state: State, wrapped_model: Module):
         state.model._fsdp_wrapped_module = wrapped_model
     else:
         state.model = wrapped_model
-
-
-def unwrap_and_export_model(model, accelerator, output_dir: str, processor: Processor):
-    """
-    Recursively unwraps an FSDP model, then saves the unwrapped model and the
-    currently active recipe to disk
-
-    :param model: model to unwrap
-    :param accelerator: Accelerator instance used to perform unwrapping
-    :param output_dir: where to save output model
-    :param processor: processor used by the model
-    """
-    full_state_dict_config = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-    with FullyShardedDataParallel.state_dict_type(
-        model,
-        StateDictType.FULL_STATE_DICT,
-        full_state_dict_config,
-    ):
-        unwrapped_model = accelerator.unwrap_model(model)
-        for name, module in unwrapped_model.named_modules():
-            if isinstance(module, FullyShardedDataParallel):
-                set_layer(name, accelerator.unwrap_model(module), unwrapped_model)
-
-        save_model_and_recipe(
-            model=unwrapped_model,
-            save_path=output_dir,
-            processor=processor,
-        )
 
 
 def find_and_move_state_dicts_to_cpu(output_dir: str):
