@@ -254,6 +254,7 @@ class Oneshot:
         if isinstance(self.model_args.model, (str, PosixPath)):
             self.model_args.model, _ = initialize_model_from_path(self.model_args)
 
+        breakpoint()
         patch_tied_tensors_bug(self.model_args.model)
         modify_save_pretrained(self.model_args.model)
 
