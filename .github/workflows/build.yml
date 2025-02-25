@@ -23,9 +23,6 @@ on:
       whl:
         description: 'basename for generated whl'
         value: ${{ jobs.BUILD.outputs.whl }}
-      testmo_run_id:
-        description: 'testmo run id'
-        value: ${{ jobs.BUILD.outputs.testmo_run_id }}
 
   # makes workflow manually callable
   workflow_dispatch:
@@ -61,7 +58,6 @@ jobs:
             run_id: ${{ github.run_id }}
             whl: ${{ steps.build.outputs.whlname }}
             tarfile: ${{ steps.build.outputs.tarname }}
-            testmo_run_id: ${{ steps.create_testmo_run.outputs.id }}
 
         steps:
 
@@ -75,16 +71,6 @@ jobs:
               uses: actions/checkout@v4
               with:
                   ref: ${{ inputs.gitref }}
-
-            - name: create testmo run
-              id: create_testmo_run
-              uses: neuralmagic/nm-actions/actions/testmo-run-create@v1.11.0
-              with:
-                testmo_url: https://neuralmagic.testmo.net
-                testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
-                source: 'build-test'
-                project_id: 14
-                run_name: compressedtensors-${{ inputs.wf_category }}-${{ inputs.gitref }}-${GITHUB_ACTOR}
 
             - name: build
               id: build
@@ -135,17 +121,6 @@ jobs:
                   label: ${{ inputs.build_label }}
                   gitref: ${{ inputs.gitref }}
                   whl_status: ${{ steps.build.outputs.status }}
-
-            - name: report build status to testmo
-              id: report_build
-              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.11.0
-              if: success() || failure()
-              with:
-                  testmo_url: https://neuralmagic.testmo.net
-                  testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
-                  testmo_run_id: ${{ steps.create_testmo_run.outputs.id }}
-                  results: build-results
-                  step_status: ${{ steps.build.outputs.status }}
 
             - name: run status
               id: run_status

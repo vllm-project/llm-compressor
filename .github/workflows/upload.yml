@@ -20,10 +20,6 @@ on:
                 description: "push asset to public pypi."
                 type: boolean
                 default: false
-            testmo_run_id:
-                description: "testmo run id"
-                type: string
-                default: ''
 
     workflow_dispatch:
         inputs:
@@ -43,10 +39,6 @@ on:
                 description: "push asset to public pypi."
                 type: boolean
                 default: false
-            testmo_run_id:
-                description: "testmo run id"
-                type: string
-                default: ''
 
 jobs:
 
@@ -68,14 +60,6 @@ jobs:
               uses: actions/setup-python@v5
               with:
                 python-version: 3.10.12
-
-            - name: complete testmo run
-              uses: neuralmagic/nm-actions/actions/testmo-run-complete@v1.11.0
-              if: (success() || failure()) && inputs.testmo_run_id != ''
-              with:
-                  testmo_url: https://neuralmagic.testmo.net
-                  testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
-                  testmo_run_id: ${{ inputs.testmo_run_id }}
 
             # GCP
             - name: 'Authenticate to Google Cloud'

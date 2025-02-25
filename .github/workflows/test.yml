@@ -23,10 +23,6 @@ on:
         description: "whl to test (variable appears late binding so unusable outside 'download artifact')"
         type: string
         required: true
-      testmo_run_id:
-        description: "testmo run id"
-        type: string
-        default: ''
 
   # makes workflow manually callable
   workflow_dispatch:
@@ -51,10 +47,6 @@ on:
         description: "whl to test (variable appears late binding so unusable outside 'download artifact')"
         type: string
         required: true
-      testmo_run_id:
-        description: "testmo run id"
-        type: string
-        default: ''
 
 jobs:
 
@@ -103,24 +95,12 @@ jobs:
               with:
                   venv: ${{ steps.create_venv.outputs.penv }}
 
-            - name: report test results
-              id: report_test
-              uses: neuralmagic/nm-actions/actions/testmo-run-submit-thread@v1.11.0
-              if: (success() || failure()) && inputs.testmo_run_id != ''
-              with:
-                  testmo_url: https://neuralmagic.testmo.net
-                  testmo_token: ${{ secrets.TESTMO_TEST_TOKEN }}
-                  testmo_run_id: ${{ inputs.testmo_run_id }}
-                  results: test-results
-                  step_status: ${{ steps.test.outputs.status }}
-
             - name: summary
               uses: neuralmagic/nm-actions/actions/summary-test@v1.2.0
               if: success() || failure()
               with:
                   test_label: ${{ inputs.test_label }}
                   gitref: ${{ inputs.gitref }}
-                  testmo_run_url: https://neuralmagic.testmo.net/automation/runs/view/${{ inputs.testmo_run_id }}
                   python: ${{ inputs.python }}
                   whl: ${{ inputs.whl }}
                   test_status: ${{ steps.test.outputs.status }}
