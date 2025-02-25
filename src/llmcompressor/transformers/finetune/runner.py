@@ -20,7 +20,6 @@ from llmcompressor.pytorch.model_load.helpers import (
     save_checkpoint,
     save_completed_stages,
 )
-from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.transformers.finetune.data.data_helpers import (
@@ -28,19 +27,18 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     make_dataset_splits,
 )
 from llmcompressor.typing import Processor
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
 class StageRunner:
     """
-    Launcher class for train, eval and one_shot flows. Manages data splits for each
+    Launcher class for train, and one_shot flows. Manages data splits for each
     flow and configurations. In the future this class will also handle alternating
     between the different flows
 
     LifeCycle
         - populate_datasets()
         - set_trainer()
-        - train() / evaluate() / predict()
+        - train()
 
     :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows
@@ -123,8 +121,6 @@ class StageRunner:
         self.datasets = make_dataset_splits(
             tokenized_datasets,
             do_train=self._training_args.do_train,
-            do_eval=self._training_args.do_eval,
-            do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
 
@@ -136,37 +132,6 @@ class StageRunner:
         :return: dataset split labeled by split_name
         """
         return self.datasets.get(split_name, None)
-
-    def one_shot(self, stage: Optional[str] = None):
-        """
-        Run oneshot calibration on the active model
-
-        :param stage: which stage of the recipe to run, or None to run whole recipe
-        """
-        logger.info("*** One Shot ***")
-
-        calib_data = None
-        if self.get_dataset_split("calibration") is not None:
-            calib_data = format_calibration_data(
-                tokenized_dataset=self.get_dataset_split("calibration"),
-                num_calibration_samples=self._data_args.num_calibration_samples,
-                do_shuffle=self._data_args.shuffle_calibration_samples,
-                collate_fn=self._data_args.data_collator,
-                accelerator=self.trainer.accelerator,
-            )
-
-            # if we don't run a forward pass after initializing the FSDP model for the
-            # first time, calls to summon_full_params will fail ¯\_(ツ)_/¯
-            if is_fsdp_model(self.trainer.model):
-                dummy_inp = dict(next(iter(calib_data)))
-                model_device = next(self.trainer.model.parameters()).device
-                dummy_inp = tensors_to_device(dummy_inp, model_device)
-                with torch.no_grad():
-                    self.trainer.model(**dummy_inp)
-
-        self.trainer.accelerator.wait_for_everyone()
-
-        self.trainer.one_shot(calibration_data=calib_data, stage=stage)
 
     def train(self, checkpoint: str, stage: Optional[str] = None):
         """
@@ -189,29 +154,6 @@ class StageRunner:
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
 
-    def evaluate(self):
-        """
-        Run trainer's evaluation loop on eval_dataset, logging the desired metrics
-        """
-        logger.info("*** Evaluate ***")
-        metrics = self.trainer.evaluate(self.get_dataset_split("validation"))
-
-        metrics["eval_samples"] = len(self.get_dataset_split("validation"))
-        self.trainer.log_metrics("eval", metrics)
-        self.trainer.save_metrics("eval", metrics)
-
-    def predict(self):
-        """
-        Run trainer's prediction loop on predict_dataset, logging the desired metrics
-        """
-        logger.info("*** Predict ***")
-        results = self.trainer.predict(self.dataset["test"])
-        metrics = results.metrics
-
-        metrics["predict_samples"] = len(self.dataset["test"])
-        self.trainer.log_metrics("predict", metrics)
-        self.trainer.save_metrics("predict", metrics)
-
     def run_sequential_stages(self, checkpoint: Optional[str] = None):
         """
         Run the recipe stage by stage, allowing for alternating between one-shot and
@@ -219,13 +161,13 @@ class StageRunner:
 
         :param checkpoint: optional checkpoint to pick up a stage from
         """
-
         recipe_obj = Recipe.create_instance(self._recipe_args.recipe)
         with self.trainer.accelerator.main_process_first():
             checkpoint_dir = self._model_args.model
             completed_stages = get_completed_stages(checkpoint_dir)
 
         self.trainer.accelerator.wait_for_everyone()
+        do_preprocess = True
 
         for stage in recipe_obj.stages:
             # validate stage
@@ -251,9 +193,36 @@ class StageRunner:
 
             # run stage
             if run_type is StageRunType.ONESHOT:
-                self.one_shot(stage=stage_name)
+                from llmcompressor import Oneshot
+
+                model = get_session_model()
+                self._model_args.model = model
+
+                oneshot = Oneshot.from_args(
+                    model_args=self._model_args,
+                    data_args=self._data_args,
+                    recipe_args=self._recipe_args,
+                    output_dir=self._training_args.output_dir,
+                    do_preprocess=do_preprocess,
+                )
+
+                calib_data = format_calibration_data(
+                    tokenized_dataset=self.get_dataset_split("calibration"),
+                    num_calibration_samples=self._data_args.num_calibration_samples,
+                    do_shuffle=self._data_args.shuffle_calibration_samples,
+                    collate_fn=self._data_args.data_collator,
+                    accelerator=self.trainer.accelerator,
+                )
+
+                if do_preprocess:
+                    do_preprocess = False
+                oneshot.apply_recipe_modifiers(
+                    calibration_dataloader=calib_data,
+                    recipe_stage=stage_name,
+                )
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
+
             checkpoint = None
 
             # save model between stages

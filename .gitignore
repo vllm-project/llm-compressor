@@ -800,5 +800,6 @@ integrations/pytorch/pytorch_vision*
 nm_temp_test_logs/*
 sparse_logs/*
 wandb/
+timings/
 output_finetune/
 env_log.json
