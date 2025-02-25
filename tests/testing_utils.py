@@ -9,7 +9,7 @@ from typing import List, Optional, Union
 
 import yaml
 from datasets import Dataset
-from transformers import PreTrainedTokenizer
+from transformers import ProcessorMixin
 
 from tests.data import CustomTestConfig, TestConfig
 
@@ -125,8 +125,8 @@ def run_cli_command(cmd: List[str], cwd: Optional[Union[str, Path]] = None):
     return run(cmd, stdout=PIPE, stderr=STDOUT, check=False, encoding="utf-8", cwd=cwd)
 
 
-def preprocess_tokenize_dataset(
-    ds: Dataset, tokenizer: PreTrainedTokenizer, max_seq_length: int
+def process_dataset(
+    ds: Dataset, processor: ProcessorMixin, max_seq_length: int
 ) -> Dataset:
     """
     Helper function to preprocess and tokenize a dataset according to presets
@@ -138,11 +138,8 @@ def preprocess_tokenize_dataset(
     ds_name = ds.info.dataset_name.lower()
     if ds_name == "gsm8k":
 
-        def preprocess(example):
-            return example
-
-        def tokenize(sample):
-            return tokenizer(
+        def process(sample):
+            return processor(
                 sample["question"],
                 padding=False,
                 max_length=max_seq_length,
@@ -152,17 +149,12 @@ def preprocess_tokenize_dataset(
 
     elif ds_name == "ultrachat_200k":
 
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["messages"],
+        def process(sample):
+            return processor(
+                processor.apply_chat_template(
+                    sample["messages"],
                     tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
+                ),
                 padding=False,
                 max_length=max_seq_length,
                 truncation=True,
@@ -171,17 +163,12 @@ def preprocess_tokenize_dataset(
 
     elif ds_name == "llm_compression_calibration":
 
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["text"],
+        def process(sample):
+            return processor(
+                processor.apply_chat_template(
+                    sample["text"],
                     tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
+                ),
                 padding=False,
                 max_length=max_seq_length,
                 truncation=True,
@@ -190,17 +177,12 @@ def preprocess_tokenize_dataset(
 
     elif ds_name == "open-platypus":
         # use the output rather than the instruction
-        def preprocess(example):
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["output"],
+        def process(sample):
+            return processor(
+                processor.apply_chat_template(
+                    sample["output"],
                     tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
+                ),
                 padding=False,
                 max_length=max_seq_length,
                 truncation=True,
@@ -209,32 +191,46 @@ def preprocess_tokenize_dataset(
 
     elif ds_name == "slimorca-deduped-cleaned-corrected":
         # find the first element corresponding to a message from a human
-        def preprocess(example):
+        def process(sample):
             conversation_idx = 0
-            for idx, conversation in enumerate(example["conversations"]):
+            for idx, conversation in enumerate(sample["conversations"]):
                 if conversation["from"] == "human":
                     conversation_idx = idx
                     break
-            return {
-                "text": tokenizer.apply_chat_template(
-                    example["conversations"][conversation_idx]["value"],
+            return processor(
+                processor.apply_chat_template(
+                    sample["conversations"][conversation_idx]["value"],
                     tokenize=False,
-                )
-            }
-
-        def tokenize(sample):
-            return tokenizer(
-                sample["text"],
+                ),
                 padding=False,
                 max_length=max_seq_length,
                 truncation=True,
                 add_special_tokens=False,
             )
 
+    elif ds_name == "flickr30k":
+
+        def process(sample):
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": "What does the image show?"},
+                    ],
+                }
+            ]
+            return {
+                "text": processor.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                ),
+                "images": sample["image"],
+            }
+
     else:
         raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
 
-    ds = ds.map(preprocess)
-    ds = ds.map(tokenize, remove_columns=ds.column_names)
+    ds = ds.map(process, remove_columns=ds.column_names)
 
     return ds
