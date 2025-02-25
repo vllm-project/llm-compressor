@@ -1,3 +1,4 @@
+import inspect
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -57,7 +58,7 @@ DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
         ["re:.*down_proj"],
     ),
     # TODO this generally results in higher perplexity for llama 2 7B on wikitext
-    # AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
 ]
 
 
@@ -141,7 +142,7 @@ class AWQModifier(Modifier):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     mappings: List[AWQMapping] = DEFAULT_AWQ_MAPPINGS
-    ignore: Optional[List[str]] = None
+    ignore: List[str] = []
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
     group_size: int = 128
@@ -151,9 +152,9 @@ class AWQModifier(Modifier):
     duo_scaling: bool = True
     apply_clip: bool = True
 
-    resolved_mappings_: Optional[List[ResolvedMapping]] = None
-    scales_: Dict[str, torch.Tensor | List[torch.Tensor]] = Field(default_factory=dict)
-    module_kwargs_: Dict = Field(default_factory=dict)
+    resolved_mappings_: List[ResolvedMapping] = []
+    scales_: Dict[str, torch.Tensor | List[torch.Tensor]] = {}
+    module_kwargs_: Dict = {}
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -162,8 +163,7 @@ class AWQModifier(Modifier):
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
         """
-        
-        self.ignore = [] if not self.ignore else self.ignore
+
         self.resolved_mappings_ = self._get_resolved_mappings(state.model)
 
         calibration_dataloader = state.data.calib
@@ -368,7 +368,12 @@ class AWQModifier(Modifier):
 
             # [STEP 3]: Compute output of module
             fp16_output = self._forward_input_with_kwargs(
-                module=module2inspect, inputs=inp, input_kwargs=self.module_kwargs_
+                module=module2inspect,
+                inputs=inp,
+                input_kwargs=self._sanitize_kwargs(self.module_kwargs_, module2inspect),
+            )
+            fp16_output = fp16_output.clip(
+                torch.finfo(fp16_output.dtype).min, torch.finfo(fp16_output.dtype).max
             )
 
             # [STEP 4]: Compute loss
@@ -380,9 +385,6 @@ class AWQModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
-                # TODO calls to module._hf_hook.pre_forward(module) and
-                # module._hf_hook.post_forward(module, None) appear a couple places
-                # in SmoothQuantModifier, do we need them anywhere else?
                 with align_module_device(module):
                     if module in balance_layers:
                         module.weight.mul_(scales.view(1, -1).to(module.weight.device))
@@ -589,7 +591,7 @@ class AWQModifier(Modifier):
 
         # Update the layer kwargs with `prepare_inputs_for_generation` method
         # that takes care of everything to avoid unexpected errors.
-        layer_kwargs |= model.prepare_inputs_for_generation(samples, **layer_kwargs)
+        layer_kwargs = model.prepare_inputs_for_generation(samples, **layer_kwargs)
         # Pop the input_ids as they are not needed at all.
         layer_kwargs.pop("input_ids")
 
@@ -620,6 +622,7 @@ class AWQModifier(Modifier):
         :return: the first output tensor from the forward pass
         """
         kwargs = input_kwargs or self.module_kwargs_
+        kwargs = self._sanitize_kwargs(kwargs, module)
         return tensor_forward_with_input_args(
             module=module,
             inputs=inputs,
@@ -703,6 +706,25 @@ class AWQModifier(Modifier):
         best_max_val = torch.cat(best_max_val_all, dim=0)
 
         return best_max_val.squeeze(1)
+
+    def _sanitize_kwargs(self, inputs_kwargs, module):
+        """
+        Remove the arguments that are not supported in the module's
+        forward pass to avoid breaking behaviour between different versions
+        of transformers.
+
+        Args:
+            inputs_kwargs (`dict`):
+                The input dictionary to pass to the model layer
+            module (`torch.nn.Module`):
+                Target module to quantize.
+        """
+        module_signature = inspect.signature(module.forward).parameters
+        sanitized_kwargs = {}
+        for k, v in inputs_kwargs.items():
+            if k in module_signature and k != "use_cache":
+                sanitized_kwargs[k] = v
+        return sanitized_kwargs
 
 
 @torch.no_grad()
