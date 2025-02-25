@@ -41,6 +41,10 @@ from llmcompressor.args import (
     TrainingArguments,
 )
 from llmcompressor.core import pre_initialize_structure, reset_session
+from llmcompressor.entrypoints.utils import (
+    initialize_model_from_path,
+    initialize_processor_from_path,
+)
 from llmcompressor.pytorch.model_load.helpers import (
     fallback_to_cpu,
     get_session_model,
@@ -83,6 +87,7 @@ def eval(**kwargs):
 )
 def oneshot(**kwargs) -> None:
     from llmcompressor import oneshot
+
     oneshot(**kwargs)
 
 
@@ -94,8 +99,8 @@ def oneshot(**kwargs) -> None:
 )
 def train(**kwargs):
     from llmcompressor import train
-    train(**kwargs)
 
+    train(**kwargs)
 
 
 def apply(**kwargs):
@@ -165,145 +170,145 @@ def parse_args(**kwargs):
     return model_args, data_args, recipe_args, training_args
 
 
-def initialize_model_from_path(
-    model_args: ModelArguments,
-    training_args: Optional[TrainingArguments] = None,
-):
-    # Load pretrained model
-    # The .from_pretrained methods guarantee that only one local process can
-    # concurrently download model & vocab.
-    model_path = model_args.model
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        tie_word_embeddings=model_args.tie_word_embeddings,
-        trust_remote_code=model_args.trust_remote_code_model,
-    )
+# def initialize_model_from_path(
+#     model_args: ModelArguments,
+#     training_args: Optional[TrainingArguments] = None,
+# ):
+#     # Load pretrained model
+#     # The .from_pretrained methods guarantee that only one local process can
+#     # concurrently download model & vocab.
+#     model_path = model_args.model
+#     config = AutoConfig.from_pretrained(
+#         model_args.config_name if model_args.config_name else model_path,
+#         cache_dir=model_args.cache_dir,
+#         revision=model_args.model_revision,
+#         use_auth_token=True if model_args.use_auth_token else None,
+#         tie_word_embeddings=model_args.tie_word_embeddings,
+#         trust_remote_code=model_args.trust_remote_code_model,
+#     )
 
-    last_checkpoint = None
-    teacher = None
+#     last_checkpoint = None
+#     teacher = None
 
-    if training_args is not None:
-        # Load teacher configuration if applicable
-        teacher_config = (
-            AutoConfig.from_pretrained(
-                model_args.distill_teacher,
-                use_auth_token=True if model_args.use_auth_token else None,
-                tie_word_embeddings=model_args.tie_word_embeddings,
-                trust_remote_code=model_args.trust_remote_code_model,
-            )
-            if model_args.distill_teacher
-            else None
-        )
+#     if training_args is not None:
+#         # Load teacher configuration if applicable
+#         teacher_config = (
+#             AutoConfig.from_pretrained(
+#                 model_args.distill_teacher,
+#                 use_auth_token=True if model_args.use_auth_token else None,
+#                 tie_word_embeddings=model_args.tie_word_embeddings,
+#                 trust_remote_code=model_args.trust_remote_code_model,
+#             )
+#             if model_args.distill_teacher
+#             else None
+#         )
 
-        # Detect last checkpoint
-        last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
+#         # Detect last checkpoint
+#         last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
 
-        # Set seed before initializing model
-        set_seed(training_args.seed)
+#         # Set seed before initializing model
+#         set_seed(training_args.seed)
 
-        # Initialize teacher model if teacher path is provided
-        if model_args.distill_teacher is not None:
-            teacher_device_map = (
-                None
-                if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-                else "auto"
-            )
-            teacher_kwargs = {
-                "config": teacher_config,
-                "cache_dir": model_args.cache_dir,
-                "use_auth_token": True if model_args.use_auth_token else None,
-                "torch_dtype": parse_dtype(model_args.precision),
-                "device_map": teacher_device_map,
-                "trust_remote_code": model_args.trust_remote_code_model,
-            }
+#         # Initialize teacher model if teacher path is provided
+#         if model_args.distill_teacher is not None:
+#             teacher_device_map = (
+#                 None
+#                 if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
+#                 else "auto"
+#             )
+#             teacher_kwargs = {
+#                 "config": teacher_config,
+#                 "cache_dir": model_args.cache_dir,
+#                 "use_auth_token": True if model_args.use_auth_token else None,
+#                 "torch_dtype": parse_dtype(model_args.precision),
+#                 "device_map": teacher_device_map,
+#                 "trust_remote_code": model_args.trust_remote_code_model,
+#             }
 
-            teacher = AutoModelForCausalLM.from_pretrained(
-                model_args.distill_teacher,
-                **teacher_kwargs,
-            )
-            if "sequence_length" in teacher_kwargs:
-                teacher.seqlen = teacher_kwargs["sequence_length"]
+#             teacher = AutoModelForCausalLM.from_pretrained(
+#                 model_args.distill_teacher,
+#                 **teacher_kwargs,
+#             )
+#             if "sequence_length" in teacher_kwargs:
+#                 teacher.seqlen = teacher_kwargs["sequence_length"]
 
-    model_path = (
-        last_checkpoint or model_args.model
-        if hasattr(model_args, "model")
-        else model_args.model_name_or_path
-    )
+#     model_path = (
+#         last_checkpoint or model_args.model
+#         if hasattr(model_args, "model")
+#         else model_args.model_name_or_path
+#     )
 
-    # Fallback to CPU if GPU requested and not available
-    model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
+#     # Fallback to CPU if GPU requested and not available
+#     model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
 
-    # Trainer handles device assignment for FSDP and training, don't do mapping here
-    # if running oneshot outside of FSDP, apply user device settings
+#     # Trainer handles device assignment for FSDP and training, don't do mapping here
+#     # if running oneshot outside of FSDP, apply user device settings
 
-    fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
+#     fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
 
-    device_map = model_args.oneshot_device
-    if not fsdp_enabled and training_args is not None and training_args.do_train:
-        device_map = "auto"
+#     device_map = model_args.oneshot_device
+#     if not fsdp_enabled and training_args is not None and training_args.do_train:
+#         device_map = "auto"
 
-    model_kwargs = {
-        "config": config,
-        "cache_dir": model_args.cache_dir,
-        "revision": model_args.model_revision,
-        "use_auth_token": True if model_args.use_auth_token else None,
-        "torch_dtype": parse_dtype(model_args.precision),
-        "device_map": device_map,
-        "trust_remote_code": model_args.trust_remote_code_model,
-    }
+#     model_kwargs = {
+#         "config": config,
+#         "cache_dir": model_args.cache_dir,
+#         "revision": model_args.model_revision,
+#         "use_auth_token": True if model_args.use_auth_token else None,
+#         "torch_dtype": parse_dtype(model_args.precision),
+#         "device_map": device_map,
+#         "trust_remote_code": model_args.trust_remote_code_model,
+#     }
 
-    # this calls from_pretrained under the hood so should be FSDP safe
+#     # this calls from_pretrained under the hood so should be FSDP safe
 
-    # optimized models must be decompressed to carry out oneshot/train/etc
-    if is_model_ct_quantized_from_path(model_path):
-        model_kwargs["quantization_config"] = CompressedTensorsConfig(
-            run_compressed=False
-        )
+#     # optimized models must be decompressed to carry out oneshot/train/etc
+#     if is_model_ct_quantized_from_path(model_path):
+#         model_kwargs["quantization_config"] = CompressedTensorsConfig(
+#             run_compressed=False
+#         )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        **model_kwargs,
-    )
-    if "sequence_length" in model_kwargs:
-        model.seqlen = model_kwargs["sequence_length"]
+#     model = AutoModelForCausalLM.from_pretrained(
+#         model_path,
+#         **model_kwargs,
+#     )
+#     if "sequence_length" in model_kwargs:
+#         model.seqlen = model_kwargs["sequence_length"]
 
-    return model, teacher
+#     return model, teacher
 
 
-def initialize_processor_from_path(
-    model_args: ModelArguments,
-    model: PreTrainedModel,
-    teacher: Optional[PreTrainedModel] = None,
-) -> Processor:
-    processor_src = model_args.processor or get_processor_name_from_model(
-        model, teacher
-    )
-    # The use_fast=True option is not currently supported safely in Transformers
-    # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
-    try:
-        processor = AutoProcessor.from_pretrained(
-            processor_src,
-            cache_dir=model_args.cache_dir,
-            use_fast=True,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-            trust_remote_code=model_args.trust_remote_code_model,
-        )
-    except Exception:
-        logger.debug("Could not load fast processor, loading slow processor instead")
-        processor = AutoProcessor.from_pretrained(
-            processor_src,
-            cache_dir=model_args.cache_dir,
-            use_fast=False,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-            trust_remote_code=model_args.trust_remote_code_model,
-        )
+# def initialize_processor_from_path(
+#     model_args: ModelArguments,
+#     model: PreTrainedModel,
+#     teacher: Optional[PreTrainedModel] = None,
+# ) -> Processor:
+#     processor_src = model_args.processor or get_processor_name_from_model(
+#         model, teacher
+#     )
+#     # The use_fast=True option is not currently supported safely in Transformers
+#     # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
+#     try:
+#         processor = AutoProcessor.from_pretrained(
+#             processor_src,
+#             cache_dir=model_args.cache_dir,
+#             use_fast=True,
+#             revision=model_args.model_revision,
+#             use_auth_token=True if model_args.use_auth_token else None,
+#             trust_remote_code=model_args.trust_remote_code_model,
+#         )
+#     except Exception:
+#         logger.debug("Could not load fast processor, loading slow processor instead")
+#         processor = AutoProcessor.from_pretrained(
+#             processor_src,
+#             cache_dir=model_args.cache_dir,
+#             use_fast=False,
+#             revision=model_args.model_revision,
+#             use_auth_token=True if model_args.use_auth_token else None,
+#             trust_remote_code=model_args.trust_remote_code_model,
+#         )
 
-    return processor
+#     return processor
 
 
 def main(

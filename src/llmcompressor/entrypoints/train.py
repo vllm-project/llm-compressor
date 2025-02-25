@@ -2,15 +2,17 @@ import math
 
 from loguru import logger
 
+from llmcompressor.args import parse_args
 from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
 
-from .utils import parse_args, post_process, preprocess
+from .utils import post_process, preprocess
 
 
 def train(**kwargs):
-    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_train = True
+    model_args, dataset_args, recipe_args, training_args, _ = parse_args(
+        do_train=True, **kwargs
+    )
 
     preprocess(model_args)
 

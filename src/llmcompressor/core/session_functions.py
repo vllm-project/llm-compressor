@@ -1,11 +1,10 @@
 import threading
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional
 
 from llmcompressor.core.events import EventType
 from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.state import ModifiedState
-from llmcompressor.recipe import Recipe
 
 __all__ = [
     "create_session",
