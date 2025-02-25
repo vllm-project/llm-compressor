@@ -31,14 +31,14 @@ from llmcompressor.utils.fsdp.helpers import save_model_and_recipe
 
 class StageRunner:
     """
-    Launcher class for train, eval and one_shot flows. Manages data splits for each
+    Launcher class for train, and one_shot flows. Manages data splits for each
     flow and configurations. In the future this class will also handle alternating
     between the different flows
 
     LifeCycle
         - populate_datasets()
         - set_trainer()
-        - train() / evaluate() / predict()
+        - train()
 
     :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows
@@ -121,8 +121,6 @@ class StageRunner:
         self.datasets = make_dataset_splits(
             tokenized_datasets,
             do_train=self._training_args.do_train,
-            do_eval=self._training_args.do_eval,
-            do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
 
@@ -155,29 +153,6 @@ class StageRunner:
 
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
-
-    def evaluate(self):
-        """
-        Run trainer's evaluation loop on eval_dataset, logging the desired metrics
-        """
-        logger.info("*** Evaluate ***")
-        metrics = self.trainer.evaluate(self.get_dataset_split("validation"))
-
-        metrics["eval_samples"] = len(self.get_dataset_split("validation"))
-        self.trainer.log_metrics("eval", metrics)
-        self.trainer.save_metrics("eval", metrics)
-
-    def predict(self):
-        """
-        Run trainer's prediction loop on predict_dataset, logging the desired metrics
-        """
-        logger.info("*** Predict ***")
-        results = self.trainer.predict(self.dataset["test"])
-        metrics = results.metrics
-
-        metrics["predict_samples"] = len(self.dataset["test"])
-        self.trainer.log_metrics("predict", metrics)
-        self.trainer.save_metrics("predict", metrics)
 
     def run_sequential_stages(self, checkpoint: Optional[str] = None):
         """
