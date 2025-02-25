@@ -17,6 +17,7 @@ from llmcompressor.core import (
     create_session,
     finalize,
     initialize,
+    update_state,
 )
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
@@ -222,7 +223,9 @@ class SessionManagerMixIn:
                 len(self.train_dataset) / total_batch_size
             )
 
-        initialize(optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch)
+        update_state(
+            optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch
+        )
 
         return self.optimizer
 

@@ -85,8 +85,12 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
         self.state.update(**kwargs)
-        if self.initialized_:  # TODO: do not initialize twice
-            return
+        if self.initialized_:
+            raise ValueError(
+                "Initialize was called twice. To update state values after "
+                "initialization, please use "
+                "`llmcompressor.core.session_functions.update_state`"
+            )
 
         logger.debug("Initializing compression lifecycle")
         self.recipe_container.append(recipe, recipe_stage, recipe_args)
@@ -106,6 +110,13 @@ class CompressionLifecycle:
         )
 
         return mod_data
+
+    def update_state(self, **kwargs):
+        """
+        Update the lifecycle state with new values
+        """
+        logger.info(f"Updated state with {kwargs}")
+        self.state.update(**kwargs)
 
     def finalize(self, **kwargs) -> List[Any]:
         """
