@@ -10,7 +10,7 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     get_calibration_dataloader,
 )
 
-__all__ = ["Oneshot", "oneshot", "parse_oneshot_args"]
+__all__ = ["Oneshot", "oneshot"]
 
 
 class Oneshot:
@@ -140,7 +140,6 @@ class Oneshot:
 
         # only run for the first oneshot call
         if do_preprocess:
-            # instance._pre_process()
             preprocess(model_args)
 
         # Set instance attributes
