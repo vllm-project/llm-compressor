@@ -675,7 +675,7 @@ def pseudo_quantize_tensor(
     assert w.dim() == 2
     assert torch.isnan(w).sum() == 0
 
-    if not symmetric:
+    if symmetric:
         max_val = w.amax(dim=1, keepdim=True)
         min_val = w.amin(dim=1, keepdim=True)
         max_int = 2**bit_width - 1
