@@ -111,15 +111,8 @@ class Modifier(ModifierInterface, HooksMixin):
         if not self.initialized_:
             raise RuntimeError("cannot finalize an uninitialized modifier")
 
-        finalized = self.on_finalize(state=state, **kwargs)
-
-        if not isinstance(finalized, bool):
-            raise ValueError(
-                "on_finalize must return a boolean value; "
-                "True for success, False for not finalized"
-            )
-
-        self.finalized_ = finalized
+        # TODO: all finalization should succeed
+        self.finalized_ = self.on_finalize(state=state, **kwargs)
 
     def update_event(self, state: State, event: Event, **kwargs):
         """
@@ -134,10 +127,10 @@ class Modifier(ModifierInterface, HooksMixin):
         :param kwargs: Additional arguments for updating the modifier
         """
         if not self.initialized_:
-            return
+            raise RuntimeError("Cannot update an uninitialized modifier")
 
         if self.finalized_:
-            raise RuntimeError("cannot update a finalized modifier")
+            raise RuntimeError("Cannot update a finalized modifier")
 
         self.on_event(state, event, **kwargs)
 
