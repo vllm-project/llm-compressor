@@ -180,13 +180,8 @@ def initialize_model_from_path(
     # Fallback to CPU if GPU requested and not available
     model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
 
-    # Trainer handles device assignment for FSDP and training, don't do mapping here
-    # if running oneshot outside of FSDP, apply user device settings
-
-    fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-
     device_map = model_args.oneshot_device
-    if not fsdp_enabled and training_args is not None and training_args.do_train:
+    if training_args is not None and training_args.do_train:
         device_map = "auto"
 
     model_kwargs = {
@@ -198,8 +193,6 @@ def initialize_model_from_path(
         "device_map": device_map,
         "trust_remote_code": model_args.trust_remote_code_model,
     }
-
-    # this calls from_pretrained under the hood so should be FSDP safe
 
     # optimized models must be decompressed to carry out oneshot/train/etc
     if is_model_ct_quantized_from_path(model_path):

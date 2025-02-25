@@ -164,7 +164,6 @@ class Oneshot:
         """
         # TODO: move back once stage runner is removed
         # Preprocess the model and tokenizer/processor
-        # self._pre_process()
         preprocess(self.model_args)
         self.model = self.model_args.model
         self.recipe = self.recipe_args.recipe
@@ -176,7 +175,6 @@ class Oneshot:
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
         )
-        # self._post_process()
         post_process(self.model_args, self.output_dir)
 
     def apply_recipe_modifiers(
