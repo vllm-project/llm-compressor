@@ -38,7 +38,7 @@ class StageRunner:
     LifeCycle
         - populate_datasets()
         - set_trainer()
-        - train() / predict()
+        - train()
 
     :param model_args: Arguments pertaining to model/config/processor
     :param data_args: Arguments pertaining to what data to use for different flows
@@ -121,7 +121,6 @@ class StageRunner:
         self.datasets = make_dataset_splits(
             tokenized_datasets,
             do_train=self._training_args.do_train,
-            do_predict=self._training_args.do_predict,
             do_oneshot=self._training_args.do_oneshot,
         )
 
@@ -154,18 +153,6 @@ class StageRunner:
 
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
-
-    def predict(self):
-        """
-        Run trainer's prediction loop on predict_dataset, logging the desired metrics
-        """
-        logger.info("*** Predict ***")
-        results = self.trainer.predict(self.dataset["test"])
-        metrics = results.metrics
-
-        metrics["predict_samples"] = len(self.dataset["test"])
-        self.trainer.log_metrics("predict", metrics)
-        self.trainer.save_metrics("predict", metrics)
 
     def run_sequential_stages(self, checkpoint: Optional[str] = None):
         """

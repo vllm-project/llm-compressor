@@ -150,15 +150,6 @@ class DatasetArguments(CustomDatasetArguments):
             "of training examples to this value if set."
         },
     )
-    max_predict_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of "
-                "prediction examples to this value if set."
-            ),
-        },
-    )
     min_tokens_per_module: Optional[float] = field(
         default=None,
         metadata={
