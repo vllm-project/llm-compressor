@@ -2,19 +2,15 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-# NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
-# Please consider either downgrading your transformers version to a
-# previous version or upgrading to a version where this bug is fixed
-
 # select a Mixture of Experts model for quantization
-MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
+MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 
 # adjust based off number of desired GPUs
-# if not enough memory is available, some layers will automatically be offlaoded to cpu
+# if not enough memory is available, some layers will automatically be offloaded to cpu
 device_map = calculate_offload_device_map(
     MODEL_ID,
     reserve_for_hessians=True,
@@ -29,10 +25,9 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
-# its recommended to use more calibration samples for MoE models so each expert is hit
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 2048
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 
@@ -66,18 +61,17 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# define a llmcompressor recipe for INT8 W8A8 quantization
+# define a llmcompressor recipe for W416 quantization with a group size of 128
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
-recipe = [
-    GPTQModifier(
-        targets="Linear",
-        scheme="W8A8",
-        ignore=["lm_head", "re:.*mlp.gate$"],
-    ),
-]
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
+)
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
+
 
 oneshot(
     model=model,
@@ -85,15 +79,14 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    trust_remote_code_model=True,
     save_compressed=True,
+    trust_remote_code_model=True,
     output_dir=SAVE_DIR,
 )
 
+# Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
-SAMPLE_INPUT = ["I love quantization because"]
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-inputs = tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(model.device)
-output = model.generate(**inputs, max_length=50)
-text_output = tokenizer.batch_decode(output)
-print(text_output)
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+output = model.generate(input_ids, max_new_tokens=20)
+print(tokenizer.decode(output[0]))
+print("==========================================")

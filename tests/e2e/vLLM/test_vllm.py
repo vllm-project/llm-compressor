@@ -182,7 +182,7 @@ class TestvLLM:
             p.mkdir(parents=True, exist_ok=True)
 
             df = pd.DataFrame(measurements)
-            df.to_csv(p / f"{self.save_dir}.csv")
+            df.to_csv(p / f"{self.save_dir}.csv", index=False)
 
     @log_time
     def _save_compressed_model(self, oneshot_model, tokenizer):

@@ -7,13 +7,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 import torch
 from loguru import logger
 from torch.nn import Module
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import IterableDataset
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
 
 from llmcompressor.core import (
     active_session,
-    apply,
     callbacks,
     create_session,
     finalize,
@@ -42,7 +41,6 @@ __all__ = [
 TRAINER_STATE_NAME = "trainer_state.json"
 METADATA_ARGS = [
     "per_device_train_batch_size",
-    "per_device_eval_batch_size",
     "max_seq_length",
     "save_safetensors",
     "fp16",
@@ -323,31 +321,6 @@ class SessionManagerMixIn:
 
         return loss
 
-    def prediction_step(
-        self,
-        model: Module,
-        inputs: Dict[str, Union[torch.Tensor, Any]],
-        prediction_loss_only: bool,
-        ignore_keys: Optional[List[str]] = None,
-    ) -> Tuple[Optional[float], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """
-        Wraps the prediction step from the original trainer to remove any input entry
-        that should not be passed to the model.
-        This situation may arise when distillation is used and the teacher model
-        contains more inputs than the student model.
-        """
-        self._check_super_defined("prediction_step")
-
-        inputs = {k: inputs[k] for k in inputs if k in self._model_signature_columns}
-
-        model_outputs = super().prediction_step(
-            model=model,
-            inputs=inputs,
-            prediction_loss_only=prediction_loss_only,
-            ignore_keys=ignore_keys,
-        )
-        return model_outputs
-
     def train(self, *args, stage: Optional[str] = None, **kwargs):
         """
         Run a sparsification training cycle. Runs initialization for the sparse session
@@ -386,58 +359,6 @@ class SessionManagerMixIn:
         self.accelerator.wait_for_everyone()
 
         return output
-
-    def evaluate(self, *args, **kwargs):
-        """
-        Run a sparsification evaluation cycle.
-        :param args: positional args to pass to super().evaluate()
-        :param kwargs: keyword args to pass to super().evaluate()
-        :return: the output from super.evaluate()
-        """
-        # TODO remove
-
-        output = super().evaluate(*args, **kwargs)
-        self.finalize_session()
-
-        return output
-
-    def predict(self, *args, **kwargs):
-        """
-        Run a sparsification prediction cycle.
-        :param args: positional args to pass to super().predict()
-        :param kwargs: keyword args to pass to super().predict()
-        :return: the output from super.predict()
-        """
-        # TODO remove
-
-        output = super().predict(*args, **kwargs)
-        self.finalize_session()
-
-        return output
-
-    def one_shot(
-        self, calibration_data: Optional[DataLoader] = None, stage: Optional[str] = None
-    ):
-        """
-        Run oneshot calibration on the active model
-        :param stage: which stage of the recipe to run, or None to run whole recipe
-        :param calib_data: dataloader of calibration data
-        """
-        apply(
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-            model=self.model,
-            calib_data=calibration_data,
-            start=-1,
-            copy_data=False,
-            accelerator=self.accelerator,
-            min_tokens_per_module=self.min_tokens_per_module,
-        )
-
-        # log model sparsity
-        # self.maybe_log_model_sparsification()
-        self.accelerator.wait_for_everyone()
 
     def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """

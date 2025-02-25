@@ -10,9 +10,9 @@ from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
+from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -59,10 +59,9 @@ class TestQuantizationMatches(unittest.TestCase):
         max_seq_length = 512
         pad_to_max_length = False
 
-        oneshot(
+        model = oneshot(
             model=model,
             dataset=dataset,
-            overwrite_output_dir=True,
             output_dir=output_dir,
             max_seq_length=max_seq_length,
             num_calibration_samples=num_calibration_samples,
@@ -72,9 +71,7 @@ class TestQuantizationMatches(unittest.TestCase):
             splits={"calibration": "train_gen[:5%]"},
             save_compressed=False,
         )
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
-
-        return get_session_model()
+        return model
 
     def _get_quant_info(self, model):
         quant_info_weights = {}

@@ -75,7 +75,7 @@ Configure and apply the FP8 quantization for weights, activations, and KV cache.
 Notice the new `kv_cache_scheme` section:
 
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 
 recipe = """
 quant_stage:

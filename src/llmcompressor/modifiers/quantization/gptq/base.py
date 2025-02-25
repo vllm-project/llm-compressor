@@ -140,7 +140,7 @@ class GPTQModifier(Modifier, HooksMixin):
 
         return True
 
-    def _maybe_build_quant_modifier(self, model: torch.nn.Module):
+    def _check_build_quant_modifier(self, model: torch.nn.Module):
         """
         Check the model's quantization state matches that expected by this modifier,
         adding a default quantization scheme if needed
@@ -197,7 +197,7 @@ class GPTQModifier(Modifier, HooksMixin):
         :param state: session state storing input model and calibration data
         """
         # build quantization modifier
-        self._maybe_build_quant_modifier(state.model)
+        self._check_build_quant_modifier(state.model)
 
         if self._quantization_modifier:
             self._quantization_modifier.initialize(state, **kwargs)

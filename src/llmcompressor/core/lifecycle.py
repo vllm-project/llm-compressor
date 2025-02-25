@@ -42,7 +42,6 @@ class CompressionLifecycle:
 
     initialized_: bool = False
     finalized: bool = False
-    event_called: bool = False
 
     def reset(self):
         """
@@ -184,7 +183,6 @@ class CompressionLifecycle:
         assert (
             event is not None
         ), f"Event lifecycle did not return an event for {event_type}"
-        self.event_called = True
 
         return mod_data
 

@@ -1,7 +1,7 @@
 from transformers import AutoProcessor, LlavaForConditionalGeneration
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 

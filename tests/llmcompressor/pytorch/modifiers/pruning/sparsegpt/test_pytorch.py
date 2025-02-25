@@ -71,7 +71,7 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier._maybe_build_quant_modifier(testing_harness.get_state().model)
+        modifier._check_build_quant_modifier(testing_harness.get_state().model)
         assert modifier.quantize
         assert isinstance(modifier._quantization_modifier, QuantizationModifier)
         modifier._quantization_modifier.create_init_config()
@@ -138,7 +138,7 @@ class TestSetQuantInGPTQ(unittest.TestCase):
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier._maybe_build_quant_modifier(testing_harness.get_state().model)
+        modifier._check_build_quant_modifier(testing_harness.get_state().model)
         assert modifier.quantize
         self.assertIsInstance(modifier._quantization_modifier, QuantizationModifier)
 
