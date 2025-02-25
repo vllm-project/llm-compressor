@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors.utils import align_module_device, update_offload_parameter
 from loguru import logger
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -24,16 +24,7 @@ from llmcompressor.utils.pytorch.module import (
     get_parent_by_name,
 )
 
-__all__ = ["AWQScale", "AWQMapping", "AWQModifier"]
-
-
-@dataclass
-class AWQScale:
-    """
-    Dataclass for storing the input activations of a layer to be smoothed
-    """
-
-    inps: Union[List[torch.Tensor], torch.Tensor]
+__all__ = ["AWQMapping", "AWQModifier"]
 
 
 @dataclass
@@ -161,8 +152,8 @@ class AWQModifier(Modifier):
     apply_clip: bool = True
 
     resolved_mappings_: Optional[List[ResolvedMapping]] = None
-    scales_: Optional[Dict] = None
-    module_kwargs_: Optional[Dict] = None
+    scales_: Dict[str, torch.Tensor | List[torch.Tensor]] = Field(default_factory=dict)
+    module_kwargs_: Dict = Field(default_factory=dict)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -171,20 +162,9 @@ class AWQModifier(Modifier):
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
         """
-        if not (self.end is None or self.end == -1):
-            raise ValueError(
-                f"{self.__class__.__name__} can only be applied during one-shot. "
-                f" Expected end to be None or -1, got {self.end}"
-            )
-        if self.start and self.start != -1:
-            raise ValueError(
-                f"{self.__class__.__name__} can only be applied during one-shot. "
-                f"Expected start to be None or -1, got {self.end}"
-            )
-
+        
         self.ignore = [] if not self.ignore else self.ignore
         self.resolved_mappings_ = self._get_resolved_mappings(state.model)
-        self.scales_ = {}
 
         calibration_dataloader = state.data.calib
 
@@ -272,9 +252,9 @@ class AWQModifier(Modifier):
                 inp = inp[0].cpu().detach()
 
                 if layer_name in self.scales_:
-                    self.scales_[layer_name].inps.append(inp)
+                    self.scales_[layer_name].append(inp)
                 else:
-                    self.scales_[layer_name] = AWQScale(inps=[inp])
+                    self.scales_[layer_name] = [inp]
 
             return hook_fn
 
@@ -324,7 +304,7 @@ class AWQModifier(Modifier):
         """
         for mapping in self.resolved_mappings_:
             name = mapping.smooth_name
-            self.scales_[name].inps = torch.cat(self.scales_[name].inps, dim=0)
+            self.scales_[name] = torch.cat(self.scales_[name], dim=0)
 
         torch.cuda.empty_cache()
 
@@ -343,7 +323,7 @@ class AWQModifier(Modifier):
             balance_layers = mapping.balance_layers
             balance_names = mapping.balance_names
 
-            activations = self.scales_[mapping.smooth_name].inps
+            activations = self.scales_[mapping.smooth_name]
 
             module2inspect = mapping.parent
 
@@ -445,7 +425,7 @@ class AWQModifier(Modifier):
         module2inspect: torch.nn.Module,
         linears2scale: List[torch.nn.Linear],
         fp16_output: torch.Tensor,
-    ):
+    ) -> torch.Tensor:
         """
         Compute loss and select best scales
 
@@ -639,7 +619,7 @@ class AWQModifier(Modifier):
         :param input_kwargs: additional arguments to pass to the module
         :return: the first output tensor from the forward pass
         """
-        kwargs = input_kwargs or self.module_kwargs_ or {}
+        kwargs = input_kwargs or self.module_kwargs_
         return tensor_forward_with_input_args(
             module=module,
             inputs=inputs,
