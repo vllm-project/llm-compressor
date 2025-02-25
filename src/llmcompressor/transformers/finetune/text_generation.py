@@ -22,18 +22,7 @@ from pathlib import PosixPath
 from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
 
-from llmcompressor.args import (
-    DatasetArguments,
-    ModelArguments,
-    RecipeArguments,
-    TrainingArguments,
-    parse_args,
-)
 from llmcompressor.core import pre_initialize_structure, reset_session
-from llmcompressor.entrypoints.utils import (
-    initialize_model_from_path,
-    initialize_processor_from_path,
-)
 from llmcompressor.pytorch.model_load.helpers import (
     get_session_model,
     initialize_recipe,
@@ -77,8 +66,10 @@ def apply(**kwargs):
     """
     CLI entrypoint for any of training, oneshot
     """
+    from llmcompressor.args import parse_args
+
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, recipe_args, training_args, _ = parse_args(
+    model_args, dataset_args, recipe_args, training_args, _ = parse_args(
         include_training_args=True, **kwargs
     )
 
@@ -86,7 +77,7 @@ def apply(**kwargs):
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
         training_args.report_to = []
-    main(model_args, data_args, recipe_args, training_args)
+    main(model_args, dataset_args, recipe_args, training_args)
 
 
 def compress(**kwargs):
@@ -94,10 +85,10 @@ def compress(**kwargs):
 
 
 def main(
-    model_args: ModelArguments,
-    data_args: DatasetArguments,
-    recipe_args: RecipeArguments,
-    training_args: TrainingArguments,
+    model_args,
+    dataset_args,
+    recipe_args,
+    training_args,
 ):
     """
     Main entrypoint for finetuning text generation models. A model can be loaded from
@@ -117,10 +108,15 @@ def main(
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
-    :param data_args: Arguments pertaining to what data we are going to input our model
-    for training
+    :param dataset_args: Arguments pertaining to what data we are
+        going to input our model for training
     :param training_args: Arguments pertaining to training loop configuration
     """
+    from llmcompressor.args import TrainingArguments
+    from llmcompressor.entrypoints.utils import (
+        initialize_model_from_path,
+        initialize_processor_from_path,
+    )
 
     # Temporary warning, to be removed
     if model_args.tie_word_embeddings is True:
@@ -180,7 +176,7 @@ def main(
     # Load datasets
     stage_runner = StageRunner(
         model_args=model_args,
-        data_args=data_args,
+        dataset_args=dataset_args,
         training_args=training_args,
         recipe_args=recipe_args,
     )
@@ -196,10 +192,10 @@ def main(
         recipe_args=recipe_args.recipe_args,
         args=training_args,
         model_args=model_args,
-        data_args=data_args,
+        dataset_args=dataset_args,
         train_dataset=train_dataset or calib_dataset,
         processing_class=processor,
-        data_collator=data_args.data_collator,
+        data_collator=dataset_args.data_collator,
     )
 
     # wrap model.save_pretrained

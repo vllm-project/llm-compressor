@@ -11,16 +11,14 @@ from .utils import post_process, preprocess
 
 def train(**kwargs):
     model_args, dataset_args, recipe_args, training_args, _ = parse_args(
-        do_train=True, **kwargs
+        include_training_args=True, **kwargs
     )
 
     preprocess(model_args)
 
     processed_dataset = get_processed_dataset(
-        data_args=dataset_args,
-        training_args=training_args,
+        dataset_args=dataset_args,
         processor=model_args.processor,
-        add_labels=True,
     )
     training_dataset = processed_dataset.get("train")
 
@@ -31,7 +29,7 @@ def train(**kwargs):
         recipe_args=recipe_args.recipe_args,
         args=training_args,
         model_args=model_args,
-        data_args=dataset_args,
+        dataset_args=dataset_args,
         train_dataset=training_dataset,
         processing_class=model_args.processor,
         data_collator=dataset_args.data_collator,

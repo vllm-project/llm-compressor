@@ -1,5 +1,5 @@
 import re
-from typing import Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from datasets import Dataset
@@ -10,7 +10,6 @@ from transformers.data import default_data_collator
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_helpers import make_dataset_splits
 from llmcompressor.typing import Processor
 
 
@@ -147,3 +146,44 @@ def format_calibration_data(
     calibration_dataloader = DataLoader(tokenized_calibration, **dataloader_params)
 
     return calibration_dataloader
+
+
+def make_dataset_splits(
+    tokenized_datasets: Dict[str, Any],
+    do_oneshot: bool = True,
+    do_train: bool = False,
+) -> Dict[str, Dataset]:
+    """
+    Restructures the datasets dictionary based on what tasks will be run
+    train
+
+    :param tokenized_datasets: dictionary of processed datasets
+    :param do_oneshot: Whether to store the calibration dataset
+
+    :return: Datasets to be used by the requested tasks
+    """
+
+    # handles case where all splits are contained in a single dataset
+    if "all" in tokenized_datasets and len(tokenized_datasets) == 1:
+        tokenized_datasets = tokenized_datasets.get("all")
+        if isinstance(tokenized_datasets, Dataset):
+            tokenized_datasets = {"train": tokenized_datasets}
+
+    train_split = calib_split = None
+
+    if do_train:
+        if "train" not in tokenized_datasets:
+            raise ValueError("--do_train requires a train dataset")
+        train_split = tokenized_datasets["train"]
+    if do_oneshot:
+        calib_split = tokenized_datasets.get("calibration")
+        if calib_split is None:
+            if "train" not in tokenized_datasets:
+                raise ValueError("--do_oneshot requires a calibration dataset")
+            calib_split = tokenized_datasets["train"]
+
+    split_datasets = {
+        "train": train_split,
+        "calibration": calib_split,
+    }
+    return split_datasets

@@ -1,7 +1,10 @@
+import inspect
 import os
+from pathlib import PosixPath
 from typing import Optional
 
 from loguru import logger
+from torch.nn import Module
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -16,9 +19,6 @@ from llmcompressor.pytorch.model_load.helpers import fallback_to_cpu, parse_dtyp
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
-)
-from llmcompressor.transformers.sparsification.sparse_model import (
-    get_processor_name_from_model,
 )
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
@@ -35,14 +35,14 @@ def preprocess(model_args: "ModelArguments"):
     - Applies patches to fix tied tensor issues and modifies `save_pretrained`
         behavior.
     - Initializes the processor if specified as a path or `None`.
-    - Sets the minimum tokens per module if `data_args` are provided.
+    - Sets the minimum tokens per module if `dataset_args` are provided.
     Raises:
         FileNotFoundError: If the model or processor path is invalid.
     """
     _warn_tied_embeddings(model_args.tie_word_embeddings)
 
     # Initialize model
-    if isinstance(model_args.model, str):
+    if isinstance(model_args.model, (str, PosixPath)):
         model, distill_teacher = initialize_model_from_path(model_args)
         if is_fsdp_model(model):
             raise NotImplementedError(
@@ -248,3 +248,31 @@ def initialize_processor_from_path(
         )
 
     return processor
+
+
+def get_processor_name_from_model(student: Module, teacher: Optional[Module]) -> str:
+    """
+    Get a processor/tokenizer source used for both student and teacher, assuming
+    that they could be shared
+
+    :param student: the student model
+    :param teacher: the teacher model
+    :return: the source for the processor/tokenizer shared between teacher and model
+    """
+    if teacher is not None and teacher not in ("disable", "self"):
+        student_forward_params = list(
+            inspect.signature(student.forward).parameters.keys()
+        )
+        teacher_forward_params = list(
+            inspect.signature(teacher.forward).parameters.keys()
+        )
+        diff = [p for p in student_forward_params if p not in teacher_forward_params]
+        if diff:
+            raise RuntimeError(
+                "Teacher tokenizer cannot be used for student "
+                f"due to missing args: {diff}"
+            )
+        src_model = teacher
+    else:
+        src_model = student
+    return src_model.config._name_or_path

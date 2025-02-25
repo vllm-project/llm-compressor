@@ -5,10 +5,8 @@ from transformers import PreTrainedModel
 
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
+from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, preprocess
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    get_calibration_dataloader,
-)
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -26,7 +24,7 @@ class Oneshot:
         `kwargs` are parsed into:
         - `model_args`: Arguments for loading and configuring a pretrained model
           (e.g., `AutoModelForCausalLM`).
-        - `data_args`: Arguments for dataset-related configurations, such as
+        - `dataset_args`: Arguments for dataset-related configurations, such as
           calibration dataloaders.
         - `recipe_args`: Arguments for defining and configuring recipes that specify
           optimization actions.
@@ -99,13 +97,13 @@ class Oneshot:
         """
         Initializes the `Oneshot` class with provided arguments.
 
-        Parses the input keyword arguments into `model_args`, `data_args`, and
+        Parses the input keyword arguments into `model_args`, `dataset_args`, and
         `recipe_args`. Performs preprocessing to initialize the model and
         tokenizer/processor.
 
         :param model_args: ModelArguments parameters, responsible for controlling
             model loading and saving logic
-        :param data_args: DatasetArguments parameters, responsible for controlling
+        :param dataset_args: DatasetArguments parameters, responsible for controlling
             dataset loading, preprocessing and dataloader loading
         :param recipe_args: RecipeArguments parameters, responsible for containing
             recipe-related parameters
@@ -113,10 +111,10 @@ class Oneshot:
 
         """
 
-        model_args, data_args, recipe_args, _, output_dir = parse_args(**kwargs)
+        model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
-        self.data_args = data_args
+        self.dataset_args = dataset_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
 
@@ -127,14 +125,19 @@ class Oneshot:
 
     @classmethod
     def from_args(
-        cls, model_args, data_args, recipe_args, output_dir, do_preprocess: bool = True
+        cls,
+        model_args,
+        dataset_args,
+        recipe_args,
+        output_dir,
+        do_preprocess: bool = True,
     ):
         """
         Used only for the stage runner to populate the args.
         """
         instance = super().__new__(cls)
         instance.model_args = model_args
-        instance.data_args = data_args
+        instance.dataset_args = dataset_args
         instance.recipe_args = recipe_args
         instance.output_dir = output_dir
 
@@ -168,7 +171,7 @@ class Oneshot:
         self.processor = self.model_args.processor
 
         calibration_dataloader = get_calibration_dataloader(
-            self.data_args, self.processor
+            self.dataset_args, self.processor
         )
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
@@ -203,7 +206,7 @@ class Oneshot:
             calib_data=calibration_dataloader,
             start=-1,  # oneshot-specific argument
             copy_data=False,
-            min_tokens_per_module=self.data_args.min_tokens_per_module,
+            min_tokens_per_module=self.dataset_args.min_tokens_per_module,
             recipe_stage=recipe_stage,
         )
 
