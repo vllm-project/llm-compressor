@@ -11,7 +11,7 @@ on:
       - '**/**.md'
   push:
     branches: main
-    paths:
+    paths-ignore:
       - 'examples/**'
       - 'tests/e2e/**'
       - 'tests/lmeval/**'
