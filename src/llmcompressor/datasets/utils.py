@@ -17,7 +17,7 @@ def get_processed_dataset(
     processor: Processor,
     do_oneshot: bool = False,
     do_train: bool = True,
-) -> Dict[str, Dataset]:
+) -> Optional[Dict[str, Dataset]]:
     """
     Loads datasets for each flow based on dataset_args, stores a Dataset for each
     enabled flow in datasets
@@ -92,6 +92,9 @@ def get_calibration_dataloader(
     :return: PyTorch dataloader object that contains the calibration dataset.
 
     """
+    if dataset_args.dataset is None:
+        # weight-only quantization or dynamic quantization
+        return
 
     datasets = get_processed_dataset(
         dataset_args=dataset_args,
@@ -99,6 +102,7 @@ def get_calibration_dataloader(
         do_oneshot=True,
         do_train=False,
     )
+
     calibration_dataset = datasets.get("calibration")
 
     return format_calibration_data(

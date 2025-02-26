@@ -86,6 +86,7 @@ def post_process(
         )
         if model_args.processor:
             model_args.processor.save_pretrained(output_dir)
+        return
 
     logger.warning(
         "Optimized model is not saved. To save, please provide",
