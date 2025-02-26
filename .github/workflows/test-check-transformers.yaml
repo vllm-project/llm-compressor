@@ -51,14 +51,6 @@ jobs:
       - name: Get changed files
         id: changed-files-unfiltered
         uses: tj-actions/changed-files@v45
-        with:
-          files_ignore: |
-            examples/**
-            tests/e2e/**
-            tests/lmeval/**
-            tests/examples/**
-            **/*.md
-            .github/workflows/*
 
       - name: 'results: detect'
         run: |
