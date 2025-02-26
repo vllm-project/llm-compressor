@@ -56,7 +56,7 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
         self.enable_masks()
 
     @torch.no_grad()
-    def on_update(self, state: State, event: Event, **kwargs):
+    def on_event(self, state: State, event: Event, **kwargs):
         if self._use_hooks:
             # hooks are used to update, so nothing to do here
             return

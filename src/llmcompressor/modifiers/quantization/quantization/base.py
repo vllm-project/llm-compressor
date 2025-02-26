@@ -121,7 +121,7 @@ class QuantizationModifier(Modifier):
         module = state.model
         module.apply(update_weight_zp_scale)
 
-    def on_update(self, state: State, event: Event, **kwargs):
+    def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.BATCH_START:
             if self.check_should_disable_observer(event):
                 module = state.model

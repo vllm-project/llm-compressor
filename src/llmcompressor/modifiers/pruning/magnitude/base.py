@@ -107,7 +107,7 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
 
         self.enable_masks()
 
-    def on_update(self, state: State, event: Event, **kwargs):
+    def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.BATCH_START:
             sparsity = self.scheduler_function_(event, state)
             if sparsity != self.current_sparsity_:

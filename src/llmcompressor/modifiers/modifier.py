@@ -156,7 +156,7 @@ class Modifier(ModifierInterface, HooksMixin):
     def update_event(self, state: State, event: Event, **kwargs):
         """
         Update modifier based on the given event. In turn calls
-        on_start, on_update, and on_end based on the event and
+        on_start, on_event, and on_end based on the event and
         modifier settings. Returns immediately if the modifier is
         not initialized
 
@@ -166,12 +166,10 @@ class Modifier(ModifierInterface, HooksMixin):
         :param kwargs: Additional arguments for updating the modifier
         """
         if not self.initialized_:
-            return
+            raise RuntimeError("Please call `initialize()` before triggering events")
 
         if self.finalized_:
-            raise RuntimeError("cannot update a finalized modifier")
-
-        self.on_event(state, event, **kwargs)
+            raise RuntimeError("Cannot trigger events after `finalize()`")
 
         # handle starting the modifier if needed
         if (
@@ -181,9 +179,8 @@ class Modifier(ModifierInterface, HooksMixin):
         ):
             self.on_start(state, event, **kwargs)
             self.started_ = True
-            self.on_update(state, event, **kwargs)
 
-            return
+        self.on_event(state, event, **kwargs)
 
         # handle ending the modifier if needed
         if (
@@ -193,12 +190,6 @@ class Modifier(ModifierInterface, HooksMixin):
         ):
             self.on_end(state, event, **kwargs)
             self.ended_ = True
-            self.on_update(state, event, **kwargs)
-
-            return
-
-        if self.started_ and not self.ended_:
-            self.on_update(state, event, **kwargs)
 
     def should_start(self, event: Event) -> bool:
         """
@@ -267,18 +258,6 @@ class Modifier(ModifierInterface, HooksMixin):
         :param state: The current state of the model
         :param event: The event that triggered the start
         :param kwargs: Additional arguments for starting the modifier
-        """
-        pass
-
-    def on_update(self, state: State, event: Event, **kwargs):
-        """
-        on_update is called when the model in question must be
-        updated based on passed in event. Must be implemented by the
-        inheriting modifier.
-
-        :param state: The current state of the model
-        :param event: The event that triggered the update
-        :param kwargs: Additional arguments for updating the model
         """
         pass
 
