@@ -251,8 +251,9 @@ def get_model_compressor(
     )
 
 
-def update_and_save_recipe(save_directory: str):
+def update_and_save_recipe(model_path: str, save_directory: str):
     """Save the recipe from the session in the output directory"""
+    # TODO: Update recipe from the model path
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     session = active_session()
     if (recipe_yaml_str := session.get_serialized_recipe()) is not None:

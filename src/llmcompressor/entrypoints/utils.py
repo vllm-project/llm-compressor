@@ -15,6 +15,7 @@ from transformers import (
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.args import ModelArguments, RecipeArguments, TrainingArguments
+from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import fallback_to_cpu, parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
@@ -83,8 +84,11 @@ def post_process(
 
     if output_dir is not None:
         if recipe_args is not None and recipe_args.stage is not None:
-            output_dir = f"{recipe_args.stage}_{output_dir}"
-            logger.info("[Save] Stage detected. Updating output_dir to {output_dir}")
+            output_dir = os.path.join(output_dir, recipe_args.stage)
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+
+            logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
         model_args.model.save_pretrained(
             output_dir,
@@ -92,13 +96,16 @@ def post_process(
         )
         if model_args.processor:
             model_args.processor.save_pretrained(output_dir)
-        return
 
-    logger.warning(
-        "Optimized model is not saved. To save, please provide",
-        "`output_dir` as input arg.",
-        "Ex. `oneshot(..., output_dir=...)`",
-    )
+    else:
+        logger.warning(
+            "Optimized model is not saved. To save, please provide",
+            "`output_dir` as input arg.",
+            "Ex. `oneshot(..., output_dir=...)`",
+        )
+
+    # Reset the one-time-use session upon completion
+    reset_session()
 
 
 def _warn_tied_embeddings(tie_word_embeddings: bool = False):
