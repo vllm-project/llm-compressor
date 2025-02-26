@@ -14,7 +14,7 @@ from transformers import (
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.args import ModelArguments, TrainingArguments
+from llmcompressor.args import ModelArguments, RecipeArguments, TrainingArguments
 from llmcompressor.pytorch.model_load.helpers import fallback_to_cpu, parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
@@ -67,6 +67,7 @@ def preprocess(model_args: "ModelArguments"):
 
 def post_process(
     model_args: "ModelArguments",
+    recipe_args: Optional["RecipeArguments"] = None,
     output_dir: Optional[str] = None,
 ):
     """
@@ -79,7 +80,12 @@ def post_process(
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
+
     if output_dir is not None:
+        if recipe_args is not None and recipe_args.stage is not None:
+            output_dir = f"{recipe_args.stage}_{output_dir}"
+            logger.info("[Save] Stage detected. Updating output_dir to {output_dir}")
+
         model_args.model.save_pretrained(
             output_dir,
             save_compressed=model_args.save_compressed,

@@ -359,7 +359,11 @@ class SessionManagerMixIn:
 
         # lifecycle
         checkpoint, epoch = self._calculate_checkpoint_info(kwargs)
-        self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
+        self.initialize_session(
+            epoch=epoch,
+            checkpoint=checkpoint,
+            stage=stage,
+        )
 
         # do not save checkpoints as compressed
         original_save_compressed = self.model_args.save_compressed

@@ -21,7 +21,7 @@ from llmcompressor.pytorch.model_load.helpers import (
     save_checkpoint,
     save_completed_stages,
 )
-from llmcompressor.recipe import Recipe, StageRunType
+from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 

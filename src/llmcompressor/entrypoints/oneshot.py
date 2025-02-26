@@ -158,8 +158,9 @@ class Oneshot:
         )
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
+            recipe_stage=self.recipe_args.stage,
         )
-        post_process(self.model_args, self.output_dir)
+        post_process(self.model_args, self.recipe_args, self.output_dir)
 
     def apply_recipe_modifiers(
         self,

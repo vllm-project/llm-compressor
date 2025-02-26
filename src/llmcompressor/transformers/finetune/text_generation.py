@@ -21,6 +21,7 @@ from pathlib import PosixPath
 
 from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
+from transformers import PreTrainedModel
 
 from llmcompressor.core import pre_initialize_structure, reset_session
 from llmcompressor.pytorch.model_load.helpers import (
@@ -28,7 +29,7 @@ from llmcompressor.pytorch.model_load.helpers import (
     initialize_recipe,
     save_checkpoint,
 )
-from llmcompressor.recipe import Recipe, StageRunType
+from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
@@ -44,10 +45,11 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model
         "please use `from llmcompressor import oneshot`."
     )
 )
-def oneshot(**kwargs) -> None:
+def oneshot(**kwargs) -> PreTrainedModel:
     from llmcompressor import oneshot
 
-    oneshot(**kwargs)
+    model = oneshot(**kwargs)
+    return model
 
 
 @deprecated(
@@ -56,10 +58,11 @@ def oneshot(**kwargs) -> None:
         "please use `from llmcompressor import train`."
     )
 )
-def train(**kwargs):
+def train(**kwargs) -> PreTrainedModel:
     from llmcompressor import train
 
-    train(**kwargs)
+    model = train(**kwargs)
+    return model
 
 
 def apply(**kwargs):
@@ -235,8 +238,8 @@ def main(
     trainer.accelerator.wait_for_everyone()
 
     # Clean up the CompressionSession before exit if requested
-    if recipe_args.clear_sparse_session:
-        reset_session()
+    # By default, keep the applied recipe history
+    reset_session()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 import math
 
 from loguru import logger
+from transformers import PreTrainedModel
 
 from llmcompressor.args import parse_args
 from llmcompressor.datasets.utils import get_processed_dataset
@@ -9,7 +10,7 @@ from llmcompressor.transformers.finetune.trainer import Trainer
 from .utils import post_process, preprocess
 
 
-def train(**kwargs):
+def train(**kwargs) -> PreTrainedModel:
     """
     Fine-tuning entrypoint that supports vanilla fine-tuning and
     knowledge distillation for compressed model using `oneshot`.
@@ -87,6 +88,7 @@ def train(**kwargs):
     logger.info("*** Train ***")
     train_result = trainer.train(
         resume_from_checkpoint=checkpoint,
+        stage=recipe_args.stage,
     )
 
     # return output
@@ -99,4 +101,10 @@ def train(**kwargs):
     # this includes saving the state, optimizer and scheduler
     trainer.save_model(output_dir=training_args.output_dir)
 
-    post_process(model_args=model_args, output_dir=training_args.output_dir)
+    post_process(
+        model_args=model_args,
+        recipe_args=recipe_args,
+        output_dir=training_args.output_dir,
+    )
+
+    return model_args.model

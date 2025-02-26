@@ -129,7 +129,6 @@ def modify_save_pretrained(model: PreTrainedModel):
                 )
                 compressor.update_config(save_directory)
 
-            # TODO: update existing recipe
             update_and_save_recipe(model.name_or_path, save_directory)
 
             # copy python files from cache dir to save_path if any
@@ -252,11 +251,10 @@ def get_model_compressor(
     )
 
 
-def update_and_save_recipe(model_path: str, save_directory: str):
-    # TODO: update existing recipe
+def update_and_save_recipe(save_directory: str):
+    """Save the recipe from the session in the output directory"""
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     session = active_session()
-
     if (recipe_yaml_str := session.get_serialized_recipe()) is not None:
         with open(recipe_path, "w") as fp:
             fp.write(recipe_yaml_str)

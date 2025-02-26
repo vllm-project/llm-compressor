@@ -188,7 +188,7 @@ class Recipe(RecipeBase):
             stages = recipe.recipe.stages
         else:
             for stage in recipe.recipe.stages:
-                if stage.group in stage_names:
+                if any(stage.group in stage_name for stage_name in stage_names):
                     stages.append(stage)
 
         # default args in recipe
@@ -248,7 +248,6 @@ class Recipe(RecipeBase):
         """
 
         combined = Recipe()
-
         for recipe in recipes:
             simplified = Recipe.simplify_recipe(
                 recipe=recipe,
@@ -258,7 +257,6 @@ class Recipe(RecipeBase):
             combined.stages.extend(simplified.stages)
             combined.args.update(simplified.args)
             combined.combine_metadata(simplified.metadata)
-
         return combined
 
     version: str = None
@@ -365,6 +363,9 @@ class Recipe(RecipeBase):
     @model_validator(mode="before")
     @classmethod
     def remap_stages(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Called after Recipe.model_validate(...)
+        """
         stages = []
 
         modifiers = RecipeStage.extract_dict_modifiers(values)
@@ -462,6 +463,7 @@ class Recipe(RecipeBase):
             if key.endswith("_stage"):
                 remove_keys.append(key)
                 value["group"] = key.rsplit("_stage", 1)[0]
+                # value["group"] = key
                 stages.append(value)
 
         for key in remove_keys:
