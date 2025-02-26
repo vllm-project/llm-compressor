@@ -9,6 +9,7 @@ on:
       - 'tests/lmeval/**'
       - 'tests/examples**'
       - '**/**.md'
+      - '.github/workflows/**'
   push:
     branches: main
     paths-ignore:
@@ -17,6 +18,7 @@ on:
       - 'tests/lmeval/**'
       - 'tests/examples**'
       - '**/**.md'
+      - '.github/workflows/**'
 
 env:
   CADENCE: "commit"
