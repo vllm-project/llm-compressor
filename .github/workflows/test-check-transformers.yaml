@@ -15,29 +15,20 @@ env:
   CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
-  detect-directory-changes:
-    name: "Detect Directory Changes"
+  detect-changes:
     runs-on: ubuntu-latest
+
     outputs:
-      changed: ${{ steps.detect.outputs.changed }}
+      changes-present: ${{ steps.changed-files.outputs.any_modified }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect Directory Changes
-        id: detect
-        uses: tchupp/actions-detect-directory-changes@v1
-
-      - name: Detect Directory Changes
-        id: detect-2
-        uses: tchupp/actions-detect-directory-changes@v1
-        with:
-          included-paths: '!./.github/workflows/**'
-
       - name: Get changed files
-        id: changed-files-filtered
+        id: changed-files
         uses: tj-actions/changed-files@v45
         with:
           files_ignore: |
@@ -48,45 +39,24 @@ jobs:
             **/*.md
             .github/workflows/*
 
-      - name: Get changed files
-        id: changed-files-unfiltered
-        uses: tj-actions/changed-files@v45
-
-      - name: 'results: detect'
-        run: |
-          echo "${{ steps.detect.outputs.changed }}"
-          echo "---"
-          echo "${{ fromJson(steps.detect.outputs.changed) }}"
-        shell: bash
-
-      - name: 'results: detect-2'
-        run: |
-          echo "${{ steps.detect-2.outputs.changed }}"
-          echo "---"
-          echo "${{ fromJson(steps.detect-2.outputs.changed) }}"
-        shell: bash
-
-      - name: 'results: changed-files-filtered'
-        run: |
-          echo "any_changed: ${{ steps.changed-files-filtered.outputs.any_changed }}"
-          echo "all_changed_files: ${{ steps.changed-files-filtered.outputs.all_changed_files }}"
-          echo "---"
-          echo "any_modified: ${{ steps.changed-files-filtered.outputs.any_modified }}"
-          echo "all_modified_files: ${{ steps.changed-files-filtered.outputs.all_modified_files }}"
-        shell: bash
-
-      - name: 'results: changed-files-unfiltered'
-        run: |
-          echo "any_changed: ${{ steps.changed-files-filtered.outputs.any_changed }}"
-          echo "all_changed_files: ${{ steps.changed-files-filtered.outputs.all_changed_files }}"
-          echo "---"
-          echo "any_modified: ${{ steps.changed-files-filtered.outputs.any_modified }}"
-          echo "all_modified_files: ${{ steps.changed-files-filtered.outputs.all_modified_files }}"
-        shell: bash
+  downstream:
+    needs: [detect-changes]
+    runs-on: ubuntu-latest
+    steps:
+      - name: comparison-boolean-explicit
+        if: needs.detect-changes.outputs.changes-present == true
+        run: echo "Hello, world!"
+      - name: comparison-boolean-implicit
+        if: needs.detect-changes.outputs.changes-present
+        run: echo "Hello, world!"
+      - name: comparison-string
+        if: needs.detect-changes.outputs.changes-present == 'true'
+        run: echo "Hello, world!"
 
   # transformers-tests:
+  #   needs: [detect-changes]
   #   runs-on: gcp-k8s-vllm-l4-solo
-  #   if: contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push'
+  #   if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.changes-present
   #   steps:
   #     - uses: actions/setup-python@v5
   #       with:
