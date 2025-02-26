@@ -39,6 +39,12 @@ jobs:
             **/*.md
             .github/workflows/*
 
+      - name: Log relevant output
+        run: |
+          echo "changes-present: ${{ steps.changed-files.outputs.any_modified }}"
+          echo "all modified files: ${{ steps.changed-files.outputs.all_modified_files }}"
+        shell: bash
+
   downstream:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.changes-present == 'true'
