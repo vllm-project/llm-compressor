@@ -30,13 +30,15 @@ jobs:
         id: changed-files
         uses: tj-actions/changed-files@v45
         with:
-          files_ignore: |
-            examples/**
-            tests/e2e/**
-            tests/lmeval/**
-            tests/examples/**
-            **/*.md
-            .github/workflows/*
+          files: |
+            **
+            !examples/**
+            !tests/e2e/**
+            !tests/lmeval/**
+            !tests/examples/**
+            !**/*.md
+            !.github/**
+            .github/workflows/test-check-transformers.yaml
 
       - name: Log relevant output
         run: |
