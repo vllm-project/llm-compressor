@@ -15,9 +15,33 @@ env:
   CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+
+    outputs:
+      changes-present: ${{ steps.changed-files.outputs.any_modified }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v45
+        with:
+          files_ignore: |
+            examples/**
+            tests/e2e/**
+            tests/lmeval/**
+            tests/examples/**
+            **/*.md
+            .github/workflows/*
+
   transformers-tests:
+    needs: [detect-changes]
     runs-on: gcp-k8s-vllm-l4-solo
-    if: contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push'
+    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.changes-present
     steps:
       - uses: actions/setup-python@v5
         with:
