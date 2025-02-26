@@ -200,8 +200,8 @@ def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Te
     kv_cache = getattr(module, "kv_cache")
     k_scale = kv_cache.k_scales[module.layer_idx]
     v_scale = kv_cache.v_scales[module.layer_idx]
-    update_parameter_data(module, k_scale, KVCacheScaleType.KEY)
-    update_parameter_data(module, v_scale, KVCacheScaleType.VALUE)
+    update_parameter_data(module, k_scale, KVCacheScaleType.KEY.value)
+    update_parameter_data(module, v_scale, KVCacheScaleType.VALUE.value)
 
 
 def set_unset_kv_cache(module: Module):
