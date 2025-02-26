@@ -1,0 +1,7 @@
+cadence: "weekly"
+model: meta-llama/Meta-Llama-3-8B-Instruct
+scheme: FP8_DYNAMIC
+lmeval:
+  metrics:
+    exact_match,flexible-extract: 0.75
+    exact_match,strict-match: 0.75
