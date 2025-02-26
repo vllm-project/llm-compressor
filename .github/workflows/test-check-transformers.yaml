@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Detect Directory Changes
         id: detect
@@ -35,7 +37,19 @@ jobs:
           included-paths: '!./.github/workflows/**'
 
       - name: Get changed files
-        id: changed-files
+        id: changed-files-filtered
+        uses: tj-actions/changed-files@v45
+        with:
+          files_ignore: |
+            examples/**
+            tests/e2e/**
+            tests/lmeval/**
+            tests/examples/**
+            **/*.md
+            .github/workflows/*
+
+      - name: Get changed files
+        id: changed-files-unfiltered
         uses: tj-actions/changed-files@v45
         with:
           files_ignore: |
@@ -60,13 +74,22 @@ jobs:
           echo "${{ fromJson(steps.detect-2.outputs.changed) }}"
         shell: bash
 
-      - name: 'results: changed-files'
+      - name: 'results: changed-files-filtered'
         run: |
-          echo "any_changed: ${{ steps.changed-files.outputs.any_changed }}"
-          echo "all_changed_files: ${{ steps.changed-files.outputs.all_changed_files }}"
+          echo "any_changed: ${{ steps.changed-files-filtered.outputs.any_changed }}"
+          echo "all_changed_files: ${{ steps.changed-files-filtered.outputs.all_changed_files }}"
           echo "---"
-          echo "any_modified: ${{ steps.changed-files.outputs.any_modified }}"
-          echo "all_modified_files: ${{ steps.changed-files.outputs.all_modified_files }}"
+          echo "any_modified: ${{ steps.changed-files-filtered.outputs.any_modified }}"
+          echo "all_modified_files: ${{ steps.changed-files-filtered.outputs.all_modified_files }}"
+        shell: bash
+
+      - name: 'results: changed-files-unfiltered'
+        run: |
+          echo "any_changed: ${{ steps.changed-files-filtered.outputs.any_changed }}"
+          echo "all_changed_files: ${{ steps.changed-files-filtered.outputs.all_changed_files }}"
+          echo "---"
+          echo "any_modified: ${{ steps.changed-files-filtered.outputs.any_modified }}"
+          echo "all_modified_files: ${{ steps.changed-files-filtered.outputs.all_modified_files }}"
         shell: bash
 
   # transformers-tests:
