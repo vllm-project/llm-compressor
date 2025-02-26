@@ -3,8 +3,20 @@ on:
   pull_request:
     branches: main
     types: [ labeled, synchronize ]
+    paths-ignore:
+      - 'examples/**'
+      - 'tests/e2e/**'
+      - 'tests/lmeval/**'
+      - 'tests/examples**'
+      - '**/**.md'
   push:
     branches: main
+    paths:
+      - 'examples/**'
+      - 'tests/e2e/**'
+      - 'tests/lmeval/**'
+      - 'tests/examples**'
+      - '**/**.md'
 
 env:
   CADENCE: "commit"
