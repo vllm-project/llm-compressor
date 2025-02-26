@@ -1,7 +1,5 @@
 """
 Tools for integrating LLM Compressor with transformers training flows
-
-Also, kwyjibo.
 """
 
 # flake8: noqa
