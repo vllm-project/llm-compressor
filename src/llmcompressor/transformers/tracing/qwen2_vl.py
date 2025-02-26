@@ -27,11 +27,7 @@ import torch
 import torch.nn as nn
 import torch.utils.checkpoint
 from torch.nn import CrossEntropyLoss
-from transformers.cache_utils import (
-    Cache,
-    SlidingWindowCache,
-    StaticCache,
-)
+from transformers.cache_utils import Cache, SlidingWindowCache, StaticCache
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.models.qwen2_vl.configuration_qwen2_vl import Qwen2VLConfig
 
@@ -47,7 +43,7 @@ from transformers.utils.fx import HFProxy
 # TRACING: cannot iterate input ids
 @torch.fx.wrap
 def get_rope_index(
-    config,
+    config: Qwen2VLConfig,
     input_ids: torch.LongTensor,
     image_grid_thw: Optional[torch.LongTensor] = None,
     video_grid_thw: Optional[torch.LongTensor] = None,

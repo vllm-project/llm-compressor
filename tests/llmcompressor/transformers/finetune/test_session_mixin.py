@@ -49,13 +49,11 @@ def mixin_trainer():
     model = AutoModelForCausalLM.from_pretrained(model_state_path)
     recipe = "tests/llmcompressor/transformers/finetune/test_quantization.yaml"
     train_dataset = "open-platypus"
-    eval_dataset = "open-platypus"
 
     return MixInTest(
         model=model,
         recipe=recipe,
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
     )
 
 

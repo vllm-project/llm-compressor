@@ -21,8 +21,8 @@ class TestOneshotWithModifierObject(unittest.TestCase):
         self.output = Path("./finetune_output")
 
     def test_oneshot_with_modifier_object(self):
+        from llmcompressor import oneshot
         from llmcompressor.modifiers.obcq.base import SparseGPTModifier
-        from llmcompressor.transformers import oneshot
 
         recipe_str = [
             SparseGPTModifier(sparsity=0.5, targets=[r"re:model.layers.\d+$"])

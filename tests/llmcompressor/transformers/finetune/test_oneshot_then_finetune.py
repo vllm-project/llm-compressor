@@ -6,9 +6,10 @@ import pytest
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor import oneshot
 from llmcompressor.core import create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot, train
+from llmcompressor.transformers import train
 
 
 @pytest.mark.unit
