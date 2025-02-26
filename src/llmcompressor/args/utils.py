@@ -20,13 +20,13 @@ def parse_args(
     separate the arguments into the following:
 
         * ModelArguments in
-            src/llmcompressor/transformers/utils/arg_parser/model_args.py
+            src/llmcompressor/args/model_args.py
         * DatasetArguments in
-            src/llmcompressor/transformers/utils/arg_parser/dataset_args.py
+            src/llmcompressor/args/dataset_args.py
         * RecipeArguments in
-            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
+            src/llmcompressor/args/recipe_args.py
         * TrainingArguments in
-            src/llmcompressor/transformers/utils/arg_parser/training_args.py
+            src/llmcompressor/args/training_args.py
 
     ModelArguments, DatasetArguments, and RecipeArguments are used for both
     `oneshot` and `train`. TrainingArguments is only used for `train`.
