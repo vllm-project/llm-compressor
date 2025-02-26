@@ -422,7 +422,7 @@ def main(
         checkpoint = None
         if last_checkpoint is not None:
             checkpoint = last_checkpoint
-        stage_runner.run_sequential_stages(checkpoint)
+        stage_runner.run_sequential_stages(model, checkpoint)
 
         # exit immediately
         return

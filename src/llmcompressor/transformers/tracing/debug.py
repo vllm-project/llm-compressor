@@ -12,6 +12,10 @@ from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.args import DatasetArguments
 
+__all__ = [
+    "get_model_class"
+]
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Trace a model into subgraphs")
