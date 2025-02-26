@@ -15,49 +15,80 @@ env:
   CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
-  transformers-tests:
-    runs-on: gcp-k8s-vllm-l4-solo
-    if: contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push'
+  detect-directory-changes:
+    name: "Detect Directory Changes"
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
     steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.9'
-      - uses: actions/checkout@v4
-      - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev]
-      - uses: actions/checkout@v4
-        with:
-          repository: "neuralmagic/compressed-tensors"
-          path: "compressed-tensors"
-      - name: "⚙️ Install compressed-tensors dependencies"
-        id: install
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect Directory Changes
+        id: detect
+        uses: tchupp/actions-detect-directory-changes@v1
+
+      - name: Detect Directory Changes
+        id: detect-2
+        uses: tchupp/actions-detect-directory-changes@v1
+
+      - name: 'results: detect'
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
-      - name: "Clean compressed-tensors directory"
-        run: rm -r compressed-tensors/
-      - name: "🔬 Running transformers tests"
-        if: (success() || failure()) && steps.install.outcome == 'success'
+          echo "${{ steps.detect.outputs.changed }}"
+          echo "---"
+          echo "${{ fromJson(steps.detect.outputs.changed) }}"
+        shell: bash
+
+      - name: 'results: detect-2'
         run: |
-          pytest -v tests/llmcompressor/transformers/compression
-      - name: Run Finetune Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/finetune
-      - name: Running GPTQ Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/gptq
-      - name: Running ONESHOT Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/oneshot
-      - name: Running Sparsification Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest tests/llmcompressor/transformers/sparsification -v
-          pytest tests/llmcompressor/transformers/test_clear_ml.py -v
-      - name: Running OBCQ Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest -v tests/llmcompressor/transformers/obcq
+          echo "${{ steps.detect-2.outputs.changed }}"
+          echo "---"
+          echo "${{ fromJson(steps.detect-2.outputs.changed) }}"
+        shell: bash
+
+  # transformers-tests:
+  #   runs-on: gcp-k8s-vllm-l4-solo
+  #   if: contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push'
+  #   steps:
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.9'
+  #     - uses: actions/checkout@v4
+  #     - name: "⚙️ Install dependencies"
+  #       run: pip3 install -U pip setuptools && pip3 install .[dev]
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         repository: "neuralmagic/compressed-tensors"
+  #         path: "compressed-tensors"
+  #     - name: "⚙️ Install compressed-tensors dependencies"
+  #       id: install
+  #       run: |
+  #         pip3 uninstall -y compressed-tensors compressed-tensors-nightly
+  #         pip3 install ./compressed-tensors/
+  #     - name: "Clean compressed-tensors directory"
+  #       run: rm -r compressed-tensors/
+  #     - name: "🔬 Running transformers tests"
+  #       if: (success() || failure()) && steps.install.outcome == 'success'
+  #       run: |
+  #         pytest -v tests/llmcompressor/transformers/compression
+  #     - name: Run Finetune Tests
+  #       if: (success() || failure()) && steps.install.outcome == 'success'
+  #       run: |
+  #         pytest -v tests/llmcompressor/transformers/finetune
+  #     - name: Running GPTQ Tests
+  #       if: (success() || failure()) && steps.install.outcome == 'success'
+  #       run: |
+  #         pytest -v tests/llmcompressor/transformers/gptq
+  #     - name: Running ONESHOT Tests
+  #       if: (success() || failure()) && steps.install.outcome == 'success'
+  #       run: |
+  #         pytest -v tests/llmcompressor/transformers/oneshot
+  #     - name: Running Sparsification Tests
+  #       if: (success() || failure()) && steps.install.outcome == 'success'
+  #       run: |
+  #         pytest tests/llmcompressor/transformers/sparsification -v
+  #         pytest tests/llmcompressor/transformers/test_clear_ml.py -v
+  #     - name: Running OBCQ Tests
+  #       if: (success() || failure()) && steps.install.outcome == 'success'
+  #       run: |
+  #         pytest -v tests/llmcompressor/transformers/obcq
