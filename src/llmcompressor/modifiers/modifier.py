@@ -29,19 +29,10 @@ class Modifier(ModifierInterface, HooksMixin):
     end: Optional[float] = None
     update: Optional[float] = None
 
-    initialized_structure_: bool = False
     initialized_: bool = False
     finalized_: bool = False
     started_: bool = False
     ended_: bool = False
-
-    @property
-    def initialized_structure(self) -> bool:
-        """
-        :return: True if the modifier structure has been
-            applied to the model
-        """
-        return self.initialized_structure_
 
     @property
     def initialized(self) -> bool:
@@ -77,15 +68,6 @@ class Modifier(ModifierInterface, HooksMixin):
         :return: the end epoch for the modifier if set, else -1
         """
         return self.end if self.end is not None else -1
-
-    def pre_initialize_structure(self, state: State, **kwargs):
-        """
-        :param state: The current state of the model
-        :param kwargs: Additional arguments for initializing the structure
-            of the model in question
-        """
-        self.on_initialize_structure(state, **kwargs)
-        self.initialized_structure_ = True
 
     def initialize(self, state: State, **kwargs):
         """
@@ -211,19 +193,6 @@ class Modifier(ModifierInterface, HooksMixin):
         current = event.current_index
 
         return self.end is not None and current >= self.end
-
-    def on_initialize_structure(self, state: State, **kwargs):
-        """
-        on_initialize_structure is called before the model is initialized
-        with the modifier structure.
-
-        TODO: Depreciate this function as part of the lifecycle
-
-        :param state: The current state of the model
-        :param kwargs: Additional arguments for initializing the structure
-            of the model in question
-        """
-        pass
 
     @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
