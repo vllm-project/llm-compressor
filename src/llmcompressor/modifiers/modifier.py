@@ -125,8 +125,6 @@ class Modifier(ModifierInterface, HooksMixin):
         if self.finalized_:
             raise RuntimeError("Cannot update a finalized modifier")
 
-        self.on_event(state, event, **kwargs)
-
         # handle starting the modifier if needed
         if (
             event.type_ == EventType.BATCH_START
@@ -138,6 +136,8 @@ class Modifier(ModifierInterface, HooksMixin):
             self.on_update(state, event, **kwargs)
 
             return
+
+        self.on_event(state, event, **kwargs)
 
         # handle ending the modifier if needed
         if (
