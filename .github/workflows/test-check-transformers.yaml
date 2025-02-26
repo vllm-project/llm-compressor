@@ -41,6 +41,7 @@ jobs:
 
   downstream:
     needs: [detect-changes]
+    if: needs.detect-changes.outputs.changes-present == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: comparison-boolean-explicit
