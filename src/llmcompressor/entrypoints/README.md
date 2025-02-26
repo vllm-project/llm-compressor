@@ -6,23 +6,24 @@ An ideal compression technique reduces memory footprint while maintaining accura
 
 ### PTQ
 PTQ is performed to reduce the precision of quantizable weights (e.g., linear layers) to a lower bit-width. Supported formats are:
-- W4A16
-- W8A8-INT8 
-- W8A8-FP8
+- [W4A16](../../../examples/quantization_w4a16/README.md)
+- [W8A8-INT8](../../../examples/quantization_w8a8_int8/README.md)
+- [W8A8-FP8](../../../examples/quantization_w8a8_fp8/README.md)
 
 ### Sparsification
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
--  2:4-Sparsity with FP8 Weight, FP8 Input Activation
-
+-  [2:4-Sparsity with FP4 Weight](../../../examples/quantization_2of4_sparse_w4a16/README.md)
+-  [2:4-Sparsity with FP8 Weight, FP8 Input Activation](../../../examples/sparse_2of4_quantization_fp8/README.md)
 
 ## Code
 
-Example scripts for all the above formats are located in the [examples](../../../examples/) folder. A [W8A8-FP8](../../../examples/quantization_w8a8_fp8/llama3_example.py) example is shown below: 
+Example scripts for all the above formats are located in the [examples](../../../examples/) folder. The [W8A8-FP8](../../../examples/quantization_w8a8_fp8/llama3_example.py) example is shown below: 
 
 ```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Define the model to compress
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -93,16 +94,19 @@ This will automatically save the model weights to a compressed SafeTensors forma
 Compressed models can be trained to improve accuracy. Training is carried out using HuggingFace's [Trainer](https://huggingface.co/docs/transformers/en/main_classes/trainer).
 
 ### Finetuning a Compressed Model
-LLM-Compressor supports fine-tuning of quantized, sparsified, and sparse-quantized models. It offers both standard fine-tuning and knowledge distillation.
+LLM-Compressor supports fine-tuning of quantized, sparsified, and sparse-quantized models. It offers both standard fine-tuning, knowledge distillation and SFT Trainer.
 
 ## Code
 
-A compressed model generated using `oneshot` is saved to disk in a compressed format. To load it, the model must be decompressed using `CompressedTensorsConfig` with `AutoModelForCausalLM`. If the above `oneshot` example script was executed and the compressed model was saved to `./oneshot_model,` you can use the following code to perform fine-tuning:
+### Finetuning
+
+A compressed model generated using `oneshot` is saved to disk in a compressed format. To load it, the model must be decompressed using `CompressedTensorsConfig` with `AutoModelForCausalLM`. If the above `oneshot` example script was executed and the compressed model was saved to `./oneshot_model`, the following code is used to perform fine-tuning:
 
 
 ```python
-from llmcompressor import create_session, train
 from transformers.utils.quantization_config import CompressedTensorsConfig
+
+from llmcompressor import create_session, train
 
 # The saving directory
 output_dir = "./oneshot_model"
@@ -114,24 +118,28 @@ model = AutoModelForCausalLM.from_pretrained(
     quantization_config=CompressedTensorsConfig(run_compressed=False),
 )
 
-dataset = "open_platypus"   # Define dataset to use for kd
-output_dir = "./finetuned_model"    
-splits = "train[:50%]"      # Use 50% of the training data
-max_steps = 25              # Number of training steps (updates) before stopping the training process
-num_calibration_samples = 8 # Number of workers processing datasets in parallel
+dataset = "open_platypus"  # Define dataset to use for kd
+output_dir = "./finetuned_model"
+splits = "train[:50%]"  # Use 50% of the training data
+max_steps = (
+    25  # Number of training steps (updates) before stopping the training process
+)
+num_calibration_samples = 8  # Number of workers processing datasets in parallel
 
 # Create an isolated session independent from the previous runs
 with create_session():
     train(
-        model=model,            # The model to finetune
-        dataset=dataset,        # The data to carry out finetuning
-        output_dir=output_dir,  # THe output directory to save 
-        num_calibration_samples=num_calibration_samples,    # The number of workers to carry out dataset processing 
-        splits=splits,          # The dataset key and percentage of samples to use
-        max_steps=max_steps,    # The total number of iterations to carry out training
+        model=model,  # The model to finetune
+        dataset=dataset,  # The data to carry out finetuning
+        output_dir=output_dir,  # The output directory to save
+        num_calibration_samples=num_calibration_samples,  # The number of workers to carry out dataset processing
+        splits=splits,  # The dataset key and percentage of samples to use
+        max_steps=max_steps,  # The total number of iterations to carry out training
     )
-
 ```
+
+
+### Knowledge Distillation
 
 To perform knowledge distillation, a teacher model and a student model (the compressed model) must be defined. The loss between the student and the teacher can be specified in the recipe by defining the `comparison` key. In this case, KL divergence is used to compare the output distributions of the student and the teacher.
 Comparisons are defined in `/src/llmcompressor/modifiers/distillation/utils/pytorch/kd_factory.py`.
@@ -181,7 +189,7 @@ The output terminal will provide the sparsification, quantization and training m
   train_steps_per_second   =      0.107
 ```
 
-## End-to-end Script 
+### End-to-end Script 
 The end-to-end script for carrying out `oneshot` for `W8A8-FP8` and then knowledge distillation is shown below:
 
 ```python
@@ -202,7 +210,7 @@ model = AutoModelForCausalLM.from_pretrained(
 # Load the tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Define the recipe, scheme="FP8_DYNAMIC" compresses to W8A8-FP8, which is
+# Define the recipe. `scheme="FP8_DYNAMIC"` compresses to W8A8-FP8, which is
 # FP8 channel-wise for weight, and FP8 dynamic per token activation
 recipe = QuantizationModifier(
     targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
@@ -211,9 +219,9 @@ recipe = QuantizationModifier(
 # compress the model
 oneshot(model=model, recipe=recipe, output_dir=oneshot_output_dir)
 
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor import create_session, train
-from transformers.utils.quantization_config import CompressedTensorsConfig
 
 # Student model
 model = AutoModelForCausalLM.from_pretrained(
@@ -222,15 +230,17 @@ model = AutoModelForCausalLM.from_pretrained(
     quantization_config=CompressedTensorsConfig(run_compressed=False),
 )
 
-dataset = "open_platypus"   # Define dataset to use for knowledge distillation
-finetune_output_dir = "./finetuned_model"   # The output saving directory
-splits = "train[:50%]"      # Use 50% of the training data
-max_steps = 25              # The number of training steps (updates) before stopping the training process
-num_calibration_samples = 8 # The number of workers processing datasets in parallel
+dataset = "open_platypus"  # Define dataset to use for knowledge distillation
+finetune_output_dir = "./finetuned_model"  # The output saving directory
+splits = "train[:50%]"  # Use 50% of the training data
+max_steps = (
+    25  # The number of training steps (updates) before stopping the training process
+)
+num_calibration_samples = 8  # The number of workers processing datasets in parallel
 
 # Define teacher model
 distill_teacher = AutoModelForCausalLM.from_pretrained(
-    "meta-llama/Meta-Llama-3-8B-Instruct",  
+    "meta-llama/Meta-Llama-3-8B-Instruct",
     device_map="auto",
 )
 
@@ -250,13 +260,20 @@ kd_stage:
 # Create an isolated session from the previous runs
 with create_session():
     train(
-        model=model,            # The student model
-        dataset=dataset,        # The data to carry out finetuning
-        output_dir=finetune_output_dir,  # Output directory to save 
-        num_calibration_samples=num_calibration_samples,    # The number of workers to carry out dataset processing 
-        splits=splits,                      # The percentage of the subsets of a dataset to use
-        max_steps=max_steps,                # The number of training steps
-        distill_teacher=distill_teacher,    # The teacher model
-        recipe=recipe,                      # The recipe to use
+        model=model,  # The student model
+        dataset=dataset,  # The data to carry out finetuning
+        output_dir=finetune_output_dir,  # Output directory to save
+        num_calibration_samples=num_calibration_samples,  # The number of workers to carry out dataset processing
+        splits=splits,  # The percentage of the subsets of a dataset to use
+        max_steps=max_steps,  # The number of training steps
+        distill_teacher=distill_teacher,  # The teacher model
+        recipe=recipe,  # The recipe to use
     )
 ```
+
+### SFT Trainer
+
+TRL's SFT Trainer can be used for sparse fine-tuning or applying sparse knowledge distillation. Examples are available in the `examples/` folder.
+
+- [Sparse-fine-tune a 50% sparse Llama-7b model](../../../examples/trl_mixin/README.md)
+- [Sparse-fine-tune a 50% sparse Llama-7b model using knowledge distillation](../../../examples/trl_mixin/README.md)
