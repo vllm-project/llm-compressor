@@ -40,20 +40,20 @@ class RecipeStage(RecipeBase):
     exclude_default: bool = False
     args_evaluated: Optional[RecipeArgs] = None
 
-    def infer_run_type(self) -> Optional[StageRunType]:
-        """
-        Infers the stage type from the type attribute or stage name, falls back to None
+    # def infer_run_type(self) -> Optional[StageRunType]:
+    #     """
+    #     Infers the stage type from the type attribute or stage name, falls back to None
 
-        :return: string representing stage type, either train or oneshot, or None if
-        stage cannot be inferred
-        """
-        if self.run_type == StageRunType.TRAIN or self.run_type == StageRunType.ONESHOT:
-            return self.run_type
-        if StageRunType.TRAIN.value in self.group:
-            return StageRunType.TRAIN
-        if StageRunType.ONESHOT.value in self.group:
-            return StageRunType.ONESHOT
-        return None
+    #     :return: string representing stage type, either train or oneshot, or None if
+    #     stage cannot be inferred
+    #     """
+    #     if self.run_type == StageRunType.TRAIN or self.run_type == StageRunType.ONESHOT:
+    #         return self.run_type
+    #     if StageRunType.TRAIN.value in self.group:
+    #         return StageRunType.TRAIN
+    #     if StageRunType.ONESHOT.value in self.group:
+    #         return StageRunType.ONESHOT
+    #     return None
 
     def calculate_start(self) -> int:
         """

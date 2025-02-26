@@ -90,3 +90,10 @@ class ModelArguments:
             "(can be a branch name, tag name or commit id)"
         },
     )
+    stage: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "The specific recipe stage to run. A stage "
+            "must be defined in the read me",
+        },
+    )
