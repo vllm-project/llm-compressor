@@ -104,9 +104,8 @@ def test_constant_pruning_modifier_e2e(model, optimizer):
     assert manipulated_sparsities != expected_sparsities, "Sparsity manipulation failed"
 
     # apply modifier
-
-    modifier.on_update(state, event=Event(type_=EventType.OPTIM_PRE_STEP))
-    modifier.on_update(state, event=Event(type_=EventType.OPTIM_POST_STEP))
+    modifier.on_event(state, event=Event(type_=EventType.OPTIM_PRE_STEP))
+    modifier.on_event(state, event=Event(type_=EventType.OPTIM_POST_STEP))
     modifier.on_end(state, None)
 
     # copy old mask settings as finalize will remove them
