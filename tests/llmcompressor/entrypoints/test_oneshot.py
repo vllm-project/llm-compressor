@@ -1,7 +1,7 @@
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import Oneshot
-from llmcompressor.entrypoints.oneshot import parse_oneshot_args
+from llmcompressor.args import parse_args
 
 
 def test_oneshot_from_args():
@@ -17,7 +17,7 @@ def test_oneshot_from_args():
 
     output_dir = "bar_output_dir"
 
-    model_args, data_args, recipe_args, output_dir = parse_oneshot_args(
+    model_args, data_args, recipe_args, _, output_dir = parse_args(
         model=model,
         dataset=dataset,
         recipe=recipe,
