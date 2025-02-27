@@ -23,7 +23,7 @@ def test_combined_datasets():
 
 @pytest.mark.unit
 def test_separate_datasets():
-    splits = {"train": "train[:10%]", "validation": "train[10%:20%]"}
+    splits = {"train": "train[:5%]", "validation": "train[5%:7%]"}
     data_args = DatasetArguments(
         dataset="wikitext", dataset_config_name="wikitext-2-raw-v1"
     )
