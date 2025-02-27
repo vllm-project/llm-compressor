@@ -70,7 +70,7 @@ def format_calibration_data(
 
 
 def get_raw_dataset(
-    data_args,
+    dataset_args,
     cache_dir: Optional[str] = None,
     streaming: Optional[bool] = False,
     **kwargs,
@@ -84,11 +84,11 @@ def get_raw_dataset(
 
     """
     raw_datasets = load_dataset(
-        data_args.dataset,
-        data_args.dataset_config_name,
+        dataset_args.dataset,
+        dataset_args.dataset_config_name,
         cache_dir=cache_dir,
         streaming=streaming,
-        trust_remote_code=data_args.trust_remote_code_data,
+        trust_remote_code=dataset_args.trust_remote_code_data,
         **kwargs,
     )
     return raw_datasets
@@ -235,26 +235,26 @@ def transform_dataset_keys(data_files: Dict[str, Any]):
 
 
 def get_calibration_dataloader(
-    data_args,
+    dataset_args,
     processor,
     add_labels: bool = False,  # for oneshot
     do_oneshot=True,
 ) -> torch.utils.data.DataLoader:
     """
-    Loads datasets for each flow based on data_args, stores a Dataset for each
+    Loads datasets for each flow based on dataset_args, stores a Dataset for each
     enabled flow in self.datasets
 
     :param processor: processor or tokenizer to use for dataset tokenization
     :param add_labels: if True, add labels column to dataset splits
     """
-    if data_args.dataset is None:
+    if dataset_args.dataset is None:
         logger.info(
             "Running oneshot without calibration data. This is expected for "
             "weight-only and dynamic quantization"
         )
         return
 
-    splits = data_args.splits
+    splits = dataset_args.splits
     tokenized_datasets = {}
 
     def _get_split_name(inp_str):
@@ -272,9 +272,9 @@ def get_calibration_dataloader(
         splits = {_get_split_name(s): s for s in splits}
 
     # default to custom dataset if dataset provided isn't a string
-    registry_id = data_args.dataset if isinstance(data_args.dataset, str) else "custom"
+    registry_id = dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
     for split_name, split_str in splits.items():
-        dataset = data_args.dataset
+        dataset = dataset_args.dataset
         if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
             # dataset is already tokenized
             tokenized_datasets[split_name] = dataset
@@ -286,7 +286,7 @@ def get_calibration_dataloader(
 
             dataset_manager = TextGenerationDataset.load_from_registry(
                 registry_id,
-                data_args=data_args,
+                dataset_args=dataset_args,
                 split=split_str,
                 processor=processor,
             )
@@ -301,7 +301,7 @@ def get_calibration_dataloader(
 
     return format_calibration_data(
         tokenized_dataset=calibration_dataset,
-        num_calibration_samples=data_args.num_calibration_samples,
-        do_shuffle=data_args.shuffle_calibration_samples,
-        collate_fn=data_args.data_collator,
+        num_calibration_samples=dataset_args.num_calibration_samples,
+        do_shuffle=dataset_args.shuffle_calibration_samples,
+        collate_fn=dataset_args.data_collator,
     )

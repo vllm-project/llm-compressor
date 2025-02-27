@@ -21,7 +21,7 @@ from llmcompressor.transformers.finetune.runner import StageRunner
 @pytest.mark.unit
 class TestConcentrationTokenization(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.dataset_args = DatasetArguments(
             dataset="wikitext",
             dataset_config_name="wikitext-2-raw-v1",
             concatenate_data=True,
@@ -33,8 +33,8 @@ class TestConcentrationTokenization(unittest.TestCase):
 
     def test_concatenation_tokenization(self):
         wiki_manager = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train[:5%]",
             processor=self.tiny_llama_tokenizer,
         )
@@ -54,7 +54,7 @@ class TestConcentrationTokenization(unittest.TestCase):
 @pytest.mark.unit
 class TestNoPaddingTokenization(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.dataset_args = DatasetArguments(
             dataset="open_platypus", pad_to_max_length=False
         )
 
@@ -65,8 +65,8 @@ class TestNoPaddingTokenization(unittest.TestCase):
     @pytest.mark.usefixtures("tiny_llama_tokenizer")
     def test_no_padding_tokenization(self):
         op_manager = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train[5%:10%]",
             processor=self.tiny_llama_tokenizer,
         )
@@ -75,7 +75,7 @@ class TestNoPaddingTokenization(unittest.TestCase):
             dataset,
             op_manager.preprocess,
             batched=False,
-            num_proc=op_manager.data_args.preprocessing_num_workers,
+            num_proc=op_manager.dataset_args.preprocessing_num_workers,
         )
         dataset = op_manager.rename_columns(dataset)  # rename
         self.assertGreater(len(dataset), 0)
@@ -97,7 +97,7 @@ class TestNoPaddingTokenization(unittest.TestCase):
 @pytest.mark.unit
 class TestMaxSeqLenClipped(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(dataset="open_platypus", max_seq_length=4096)
+        self.dataset_args = DatasetArguments(dataset="open_platypus", max_seq_length=4096)
 
     @pytest.fixture(autouse=True)
     def prepare_fixture(self, tiny_llama_tokenizer):
@@ -105,8 +105,8 @@ class TestMaxSeqLenClipped(unittest.TestCase):
 
     def test_max_seq_len_clipped(self):
         op_manager = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train[80%:]",
             processor=self.tiny_llama_tokenizer,
         )
@@ -119,7 +119,7 @@ class TestMaxSeqLenClipped(unittest.TestCase):
 @pytest.mark.unit
 class TestDatasetKwargsAndPercent(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.dataset_args = DatasetArguments(
             dataset="wikitext",
             raw_kwargs={
                 "data_files": {
@@ -134,16 +134,16 @@ class TestDatasetKwargsAndPercent(unittest.TestCase):
 
     def test_dataset_kwargs_and_percentages(self):
         c4_manager_a = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train[5%:10%]",
             processor=self.tiny_llama_tokenizer,
         )
         raw_dataset_a = c4_manager_a.load_dataset()
 
         c4_manager_b = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train[5%:15%]",
             processor=self.tiny_llama_tokenizer,
         )
@@ -166,15 +166,15 @@ class TestDatasets(unittest.TestCase):
         ]
     )
     def test_datasets(self, dataset_key, dataset_config, split, do_concat):
-        data_args = DatasetArguments(
+        dataset_args = DatasetArguments(
             dataset=dataset_key,
             dataset_config_name=dataset_config,
             concatenate_data=do_concat,
             trust_remote_code_data=True,
         )
         manager = TextGenerationDataset.load_from_registry(
-            data_args.dataset,
-            data_args=data_args,
+            dataset_args.dataset,
+            dataset_args=dataset_args,
             split=split,
             processor=self.tiny_llama_tokenizer,
         )
@@ -205,7 +205,7 @@ class TestEvol(unittest.TestCase):
         self.tiny_llama_tokenizer = tiny_llama_tokenizer
 
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.dataset_args = DatasetArguments(
             dataset="evolcodealpaca",
             dataset_config_name=None,
             concatenate_data=False,
@@ -213,8 +213,8 @@ class TestEvol(unittest.TestCase):
 
     def test_evol(self):
         evol_manager = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train[:2%]",
             processor=self.tiny_llama_tokenizer,
         )
@@ -234,7 +234,7 @@ class TestEvol(unittest.TestCase):
 @pytest.mark.unit
 class TestStreamLoading(unittest.TestCase):
     def setUp(self):
-        self.data_args = DatasetArguments(
+        self.dataset_args = DatasetArguments(
             dataset="wikitext",
             dataset_config_name="wikitext-2-raw-v1",
             concatenate_data=True,
@@ -247,8 +247,8 @@ class TestStreamLoading(unittest.TestCase):
 
     def test_stream_loading(self):
         manager = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train",
             processor=self.tiny_llama_tokenizer,
         )
@@ -275,7 +275,7 @@ class TestSplitLoading(unittest.TestCase):
         [["train"], ["train[60%:]"], [{"train": "train[:20%]"}], [None]]
     )
     def test_split_loading(self, split_def):
-        data_args = DatasetArguments(
+        dataset_args = DatasetArguments(
             dataset="open_platypus",
             splits=split_def,
             trust_remote_code_data=True,
@@ -285,7 +285,7 @@ class TestSplitLoading(unittest.TestCase):
         recipe_args = RecipeArguments()
         stage_runner = StageRunner(
             model_args=model_args,
-            data_args=data_args,
+            dataset_args=dataset_args,
             training_args=training_args,
             recipe_args=recipe_args,
         )
@@ -321,7 +321,7 @@ class TestTokenizationDataset(unittest.TestCase):
         )
         stage_runner = StageRunner(
             model_args=None,
-            data_args=DatasetArguments(
+            dataset_args=DatasetArguments(
                 dataset=tokenized_dataset, shuffle_calibration_samples=False
             ),
             training_args=TrainingArguments(do_oneshot=True),
@@ -339,7 +339,7 @@ class TestTokenizationDataset(unittest.TestCase):
         calib_dataloader = format_calibration_data(
             tokenized_dataset=calib_dataset,
             num_calibration_samples=self.num_calib_samples,
-            do_shuffle=stage_runner._data_args.shuffle_calibration_samples,
+            do_shuffle=stage_runner._dataset_args.shuffle_calibration_samples,
         )
         self.assertEqual(len(calib_dataloader), self.num_calib_samples)
         dataloader_sample = next(iter(calib_dataloader))["input_ids"]

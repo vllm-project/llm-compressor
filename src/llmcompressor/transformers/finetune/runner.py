@@ -41,19 +41,19 @@ class StageRunner:
         - train()
 
     :param model_args: Arguments pertaining to model/config/processor
-    :param data_args: Arguments pertaining to what data to use for different flows
+    :param dataset_args: Arguments pertaining to what data to use for different flows
     :param training_args: Arguments pertaining to training loop configuration
     :model: unwrapped model to run flows on
     """
 
     def __init__(
         self,
-        data_args: "DatasetArguments",
+        dataset_args: "DatasetArguments",
         model_args: "ModelArguments",
         training_args: "TrainingArguments",
         recipe_args: "RecipeArguments",
     ):
-        self._data_args = data_args
+        self._dataset_args = dataset_args
         self._model_args = model_args
         self._training_args = training_args
         self._recipe_args = recipe_args
@@ -66,13 +66,13 @@ class StageRunner:
 
     def populate_datasets(self, processor: Processor, add_labels: bool = True):
         """
-        Loads datasets for each flow based on data_args, stores a Dataset for each
+        Loads datasets for each flow based on dataset_args, stores a Dataset for each
         enabled flow in self.datasets
 
         :param processor: processor or tokenizer to use for dataset tokenization
         :param add_labels: if True, add labels column to dataset splits
         """
-        if self._data_args.dataset is None:
+        if self._dataset_args.dataset is None:
             self.processor = self._model_args.processor
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
@@ -80,7 +80,7 @@ class StageRunner:
             )
             return
 
-        splits = self._data_args.splits
+        splits = self._dataset_args.splits
         tokenized_datasets = {}
 
         def _get_split_name(inp_str):
@@ -99,12 +99,12 @@ class StageRunner:
 
         # default to custom dataset if dataset provided isn't a string
         registry_id = (
-            self._data_args.dataset
-            if isinstance(self._data_args.dataset, str)
+            self._dataset_args.dataset
+            if isinstance(self._dataset_args.dataset, str)
             else "custom"
         )
         for split_name, split_str in splits.items():
-            dataset = self._data_args.dataset
+            dataset = self._dataset_args.dataset
             if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
                 # dataset is already tokenized
                 tokenized_datasets[split_name] = dataset
@@ -112,7 +112,7 @@ class StageRunner:
                 # dataset needs to be tokenized
                 dataset_manager = TextGenerationDataset.load_from_registry(
                     registry_id,
-                    data_args=self._data_args,
+                    dataset_args=self._dataset_args,
                     split=split_str,
                     processor=processor,
                 )
@@ -206,7 +206,7 @@ class StageRunner:
 
                 oneshot = Oneshot.from_args(
                     model_args=self._model_args,
-                    data_args=self._data_args,
+                    dataset_args=self._dataset_args,
                     recipe_args=self._recipe_args,
                     output_dir=self._training_args.output_dir,
                     do_preprocess=do_preprocess,
@@ -214,9 +214,9 @@ class StageRunner:
 
                 calib_data = format_calibration_data(
                     tokenized_dataset=self.get_dataset_split("calibration"),
-                    num_calibration_samples=self._data_args.num_calibration_samples,
-                    do_shuffle=self._data_args.shuffle_calibration_samples,
-                    collate_fn=self._data_args.data_collator,
+                    num_calibration_samples=self._dataset_args.num_calibration_samples,
+                    do_shuffle=self._dataset_args.shuffle_calibration_samples,
+                    collate_fn=self._dataset_args.data_collator,
                     accelerator=self.trainer.accelerator,
                 )
 

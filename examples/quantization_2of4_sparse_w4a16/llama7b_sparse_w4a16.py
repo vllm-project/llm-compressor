@@ -53,7 +53,7 @@ apply(
     learning_rate=learning_rate,
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
-    preprocessing_num_workers=preprocessing_num_workers,
+    # preprocessing_num_workers=preprocessing_num_workers,
 )
 logger.info(
     "llmcompressor does not currently support running compressed models in the marlin24 format."  # noqa
@@ -61,3 +61,23 @@ logger.info(
 logger.info(
     "The model produced from this example can be run on vLLM with dtype=torch.float16"
 )
+
+"""
+
+Preprocessing (num_proc=8): 100%|███████████████████████████████████████████████████████████████████| 12802/12802 [00:00<00:00, 17608.08 examples/s]
+Tokenizing (num_proc=8): 100%|███████████████████████████████████████████████████████████████████████| 12802/12802 [00:04<00:00, 2696.63 examples/s]
+Adding labels (num_proc=8): 100%|████████████████████████████████████████████████████████████████████| 12802/12802 [00:01<00:00, 6470.91 examples/s]
+Preprocessing (num_proc=8): 100%|█████████████████████████████████████████████████████████████████| 256032/256032 [00:06<00:00, 38182.05 examples/s]
+Tokenizing (num_proc=8):   9%|██████▍                                                               | 23534/256032 [00:07<01:12, 3194.51 examples/s]
+
+Tokenizing: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 12802/12802 [00:34<00:00, 371.12 examples/s]
+Adding labels: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████| 12802/12802 [00:06<00:00, 1890.18 examples/s]
+Tokenizing:   9%|█████████▌                                                                                                     | 22077/256032 [00:59<11:41, 333.39 examples/s
+
+Tokenizing (num_proc=8): 100%|██████████████████████████████████████████████████████████████████████████████████████████████████| 12802/12802 [00:04<00:00, 2703.93 examples/s]
+Adding labels (num_proc=8): 100%|███████████████████████████████████████████████████████████████████████████████████████████████| 12802/12802 [00:02<00:00, 5524.98 examples/s]
+Tokenizing (num_proc=8): 100%|████████████████████████████████████████████████████████████████████████████████████████████████| 256032/256032 [01:27<00:00, 2925.98 examples/s]
+
+
+
+"""

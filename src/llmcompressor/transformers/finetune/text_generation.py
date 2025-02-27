@@ -70,18 +70,18 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
-    main(model_args, data_args, recipe_args, training_args)
+    main(model_args, dataset_args, recipe_args, training_args)
 
 
 def eval(**kwargs):
     """
     CLI entrypoint for running evaluation
     """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_eval = True
-    main(model_args, data_args, recipe_args, training_args)
+    main(model_args, dataset_args, recipe_args, training_args)
 
 
 @deprecated(
@@ -101,13 +101,13 @@ def apply(**kwargs):
     CLI entrypoint for any of training, oneshot
     """
     report_to = kwargs.get("report_to", None)
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
 
     training_args.run_stages = True
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
         training_args.report_to = []
-    main(model_args, data_args, recipe_args, training_args)
+    main(model_args, dataset_args, recipe_args, training_args)
 
 
 def compress(**kwargs):
@@ -119,8 +119,8 @@ def parse_args(**kwargs):
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in
             src/llmcompressor/transformers/utils/arg_parser/model_args.py
-        * data_args in
-            src/llmcompressor/transformers/utils/arg_parser/data_args.py
+        * dataset_args in
+            src/llmcompressor/transformers/utils/arg_parser/dataset_args.py
         * recipe_args in
             src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
         * training_args in
@@ -136,7 +136,7 @@ def parse_args(**kwargs):
     else:
         parsed_args = parser.parse_dict(kwargs)
 
-    model_args, data_args, recipe_args, training_args = parsed_args
+    model_args, dataset_args, recipe_args, training_args = parsed_args
     if recipe_args.recipe_args is not None:
         if not isinstance(recipe_args.recipe_args, dict):
             arg_dict = {}
@@ -146,7 +146,7 @@ def parse_args(**kwargs):
             recipe_args.recipe_args = arg_dict
 
     # raise depreciation warnings
-    if data_args.remove_columns is not None:
+    if dataset_args.remove_columns is not None:
         warnings.warn(
             "`remove_columns` argument is depreciated. When tokenizing datasets, all "
             "columns which are invalid inputs the tokenizer will be removed",
@@ -160,7 +160,7 @@ def parse_args(**kwargs):
         model_args.processor = model_args.tokenizer
     model_args.tokenizer = None
 
-    return model_args, data_args, recipe_args, training_args
+    return model_args, dataset_args, recipe_args, training_args
 
 
 def initialize_model_from_path(
@@ -306,7 +306,7 @@ def initialize_processor_from_path(
 
 def main(
     model_args: ModelArguments,
-    data_args: DatasetArguments,
+    dataset_args: DatasetArguments,
     recipe_args: RecipeArguments,
     training_args: TrainingArguments,
 ):
@@ -328,7 +328,7 @@ def main(
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
-    :param data_args: Arguments pertaining to what data we are going to input our model
+    :param dataset_args: Arguments pertaining to what data we are going to input our model
     for training
     :param training_args: Arguments pertaining to training loop configuration
     """
@@ -391,7 +391,7 @@ def main(
     # Load datasets
     stage_runner = StageRunner(
         model_args=model_args,
-        data_args=data_args,
+        dataset_args=dataset_args,
         training_args=training_args,
         recipe_args=recipe_args,
     )
@@ -407,10 +407,10 @@ def main(
         recipe_args=recipe_args.recipe_args,
         args=training_args,
         model_args=model_args,
-        data_args=data_args,
+        dataset_args=dataset_args,
         train_dataset=train_dataset or calib_dataset,
         processing_class=processor,
-        data_collator=data_args.data_collator,
+        data_collator=dataset_args.data_collator,
     )
 
     # wrap model.save_pretrained

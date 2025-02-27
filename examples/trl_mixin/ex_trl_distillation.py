@@ -19,12 +19,12 @@ tokenizer = AutoTokenizer.from_pretrained(model_path)
 max_seq_length = 512
 
 # Load gsm8k using SparseML dataset tools
-data_args = DatasetArguments(
+dataset_args = DatasetArguments(
     dataset="gsm8k", dataset_config_name="main", max_seq_length=max_seq_length
 )
 dataset_manager = TextGenerationDataset.load_from_registry(
-    data_args.dataset,
-    data_args=data_args,
+    dataset_args.dataset,
+    dataset_args=dataset_args,
     split="train",
     processor=tokenizer,
 )
@@ -69,7 +69,7 @@ trainer = SFTTrainer(
     train_dataset=train_dataset,
     data_collator=data_collator,
     trl_sft_config_args=trl_sft_config_args,
-    data_args=data_args,
+    dataset_args=dataset_args,
     model_args=model_args,
 )
 trainer.train()
