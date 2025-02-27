@@ -6,6 +6,7 @@ from typing import List, Optional
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
+from transformers import PreTrainedModel
 
 from llmcompressor.args import (
     DatasetArguments,
@@ -17,6 +18,7 @@ from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
     get_completed_stages,
     get_session_model,
+    save_checkpoint,
     save_completed_stages,
 )
 from llmcompressor.recipe import Recipe, StageRunType
@@ -26,7 +28,6 @@ from llmcompressor.transformers.finetune.data.data_helpers import (
     make_dataset_splits,
 )
 from llmcompressor.typing import Processor
-from llmcompressor.utils.fsdp.helpers import save_model_and_recipe
 
 
 class StageRunner:
@@ -154,7 +155,9 @@ class StageRunner:
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
 
-    def run_sequential_stages(self, checkpoint: Optional[str] = None):
+    def run_sequential_stages(
+        self, model: PreTrainedModel, checkpoint: Optional[str] = None
+    ):
         """
         Run the recipe stage by stage, allowing for alternating between one-shot and
         finetuning flows. Optionally save the model output at the end of each stage
@@ -181,12 +184,6 @@ class StageRunner:
                     "the stage name."
                 )
 
-            # just load structure if stage has already applied
-            if stage_name in completed_stages:
-                self.trainer.initialize_structure(stage=stage)
-                self.trainer.accelerator.wait_for_everyone()
-                continue
-
             # setup checkpoint dir, TODO: this should be optional
             self._output_dir = os.path.join(
                 self.parent_output_dir, "stage_" + stage_name
@@ -201,7 +198,6 @@ class StageRunner:
             if run_type is StageRunType.ONESHOT:
                 from llmcompressor import Oneshot
 
-                model = get_session_model()
                 self._model_args.model = model
 
                 oneshot = Oneshot.from_args(
@@ -231,14 +227,20 @@ class StageRunner:
 
             checkpoint = None
 
-            if self._training_args.output_dir:
-                save_model_and_recipe(
-                    model=self.trainer.model,
+            # save model between stages
+            if (
+                self._training_args.output_dir
+                != TrainingArguments.__dataclass_fields__["output_dir"].default
+                and self.trainer.accelerator.is_main_process
+            ):
+                save_checkpoint(
                     save_path=self._output_dir,
+                    model=self.trainer.model,
                     processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._model_args.save_compressed,
                 )
+            self.trainer.accelerator.wait_for_everyone()
 
             # save stage to checkpoint dir
             if self.trainer.accelerator.is_main_process:

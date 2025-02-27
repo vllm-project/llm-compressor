@@ -17,21 +17,18 @@ from llmcompressor.core import (
     create_session,
     finalize,
     initialize,
-    pre_initialize_structure,
 )
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
 )
-from llmcompressor.pytorch.model_load.helpers import get_session_model
+from llmcompressor.pytorch.model_load.helpers import get_session_model, save_checkpoint
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
-from llmcompressor.transformers import RECIPE_FILE_NAME
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
 )
 from llmcompressor.utils.fsdp.context import summon_full_params_context
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
 
 if TYPE_CHECKING:
@@ -64,8 +61,8 @@ class SessionManagerMixIn:
     def __init__(
         self,
         recipe: str,
+        data_args: "DatasetArguments",
         model_args: "ModelArguments",
-        dataset_args: Optional["DatasetArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         **kwargs,
@@ -177,26 +174,6 @@ class SessionManagerMixIn:
                 "pass a yaml file or string to the `recipe` argument."
             )
 
-        torch.cuda.empty_cache()
-
-    def initialize_structure(self, stage: Optional[str] = None):
-        """
-        Initialize any recipe structural changes such as quantization on the model,
-        return immediately if session has already been initialized
-
-        :param stage: Optional stage of recipe to run, or None to run all stages
-        """
-        session = active_session()
-        if session.lifecycle.initialized_:
-            return False
-
-        pre_initialize_structure(
-            model=self.model,
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-        )
-        logger.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
         torch.cuda.empty_cache()
 
     def finalize_session(self):
@@ -399,44 +376,19 @@ class SessionManagerMixIn:
 
         # knowledge distillation requires making wrappers transparent during
         if isinstance(self.model, KDModelWrapper):
-            self.model.prepare_for_save()
+            self.model.prepare_for_save()  # TODO: move to finalize
 
-        if not is_fsdp_model(self.model):
-            self.model.save_pretrained(
-                output_dir,
-                save_compressed=self.model_args.save_compressed,
-                safe_serialization=self.args.save_safetensors,
-            )
-        else:  # FSDP model
-            save_pretrained_fsdp(
-                model=self.model,
-                accelerator=self.accelerator,
-                output_dir=output_dir,
-                save_compressed=self.model_args.save_compressed,
-                save_safetensors=self.metadata.get("save_safetensors", False),
-            )
-
+        # save checkpoint
         self.save_state()
-        processor = getattr(self, "processing_class", self.tokenizer)
-        if processor is not None:
-            processor.save_pretrained(output_dir)
-
-        if not self.recipe:
-            return
-
         if self.accelerator.is_main_process:
-            # save recipe, will contain modifiers from the model's original recipe as
-            # well as those added from self.recipe
-            recipe_path = os.path.join(output_dir, RECIPE_FILE_NAME)
-            session = active_session()
-            recipe_yaml_str = session.get_serialized_recipe()
-            with open(recipe_path, "w") as fp:
-                fp.write(recipe_yaml_str)
-
-            logger.info(
-                f"Saved LLM Compressor recipe with model state to {recipe_path}"
+            processor = getattr(self, "processing_class", self.tokenizer)
+            save_checkpoint(
+                output_dir,
+                model=self.model,
+                processor=processor,
+                save_safetensors=self.args.save_safetensors,
+                save_compressed=self.model_args.save_compressed,
             )
-
         self.accelerator.wait_for_everyone()
 
         if isinstance(self.model, KDModelWrapper):

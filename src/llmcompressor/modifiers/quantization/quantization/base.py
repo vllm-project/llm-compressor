@@ -372,5 +372,5 @@ class QuantizationModifier(Modifier):
                     f"received less than {int(threshold * 100)}% "
                     "of calibration batch tokens "
                     f"({token_count}/{total_token_count} tokens). "
-                    "This could result may harm the quantization quality."
+                    "This could harm the quantization quality."
                 )
