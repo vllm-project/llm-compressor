@@ -12,7 +12,6 @@ __all__ = [
     "active_session",
     "reset_session",
     "initialize",
-    "update_state",
     "finalize",
     "callbacks",
     "LifecycleCallbacks",
@@ -120,13 +119,6 @@ def initialize(
         batches_per_step=batches_per_step,
         **kwargs,
     )
-
-
-def update_state(**kwargs) -> ModifiedState:
-    """
-    Update the session state with new values
-    """
-    return active_session().update_state(**kwargs)
 
 
 def finalize(**kwargs) -> ModifiedState:
