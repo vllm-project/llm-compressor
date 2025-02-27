@@ -14,7 +14,13 @@ from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.metadata import RecipeMetaData
 from llmcompressor.recipe.stage import RecipeStage
 
-__all__ = ["Recipe", "RecipeTuple"]
+__all__ = [
+    "Recipe",
+    "RecipeTuple",
+    "RecipeInput",
+    "RecipeStageInput",
+    "RecipeArgsInput",
+]
 
 
 class Recipe(RecipeBase):
@@ -150,7 +156,7 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_recipe(
-        recipe: Union["Recipe", "RecipeTuple"], shift: Optional[int] = None
+        recipe: Union[str, "Recipe", "RecipeTuple"], shift: Optional[int] = None
     ) -> "Recipe":
         """
         Simplify a RecipeTuple by removing stages that are not in the target_stages
@@ -177,6 +183,9 @@ class Recipe(RecipeBase):
             defaults to None (No shift)
         :return: The simplified Recipe instance
         """
+        if isinstance(recipe, str):
+            recipe = Recipe.create_instance(recipe)
+
         if isinstance(recipe, Recipe):
             recipe.evaluate(shift=shift)
             return recipe
@@ -212,7 +221,7 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_combine_recipes(
-        recipes: List[Union["Recipe", "RecipeTuple"]],
+        recipes: List[Union[str, "Recipe", "RecipeTuple"]],
     ) -> "Recipe":
         """
         A method to combine multiple recipes into one recipe
@@ -569,6 +578,11 @@ class Recipe(RecipeBase):
                 yaml_recipe_dict[final_stage_name] = stage_dict
 
         return yaml_recipe_dict
+
+
+RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
+RecipeStageInput = Union[str, List[str], List[List[str]]]
+RecipeArgsInput = Union[Dict[str, Any], List[Dict[str, Any]]]
 
 
 @dataclass
