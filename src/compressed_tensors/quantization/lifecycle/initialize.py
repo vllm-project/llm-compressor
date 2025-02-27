@@ -203,11 +203,10 @@ def _initialize_attn_scales(module: Module) -> None:
         torch.empty(expected_shape, dtype=scale_dtype, device=device),
         requires_grad=False,
     )
-
-    module.register_parameter(KVCacheScaleType.KEY.value, init_scale)
+    register_offload_parameter(module, KVCacheScaleType.KEY.value, init_scale)
 
     init_scale = Parameter(
         torch.empty(expected_shape, dtype=scale_dtype, device=device),
         requires_grad=False,
     )
-    module.register_parameter(KVCacheScaleType.VALUE.value, init_scale)
+    register_offload_parameter(module, KVCacheScaleType.VALUE.value, init_scale)

@@ -21,6 +21,7 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
     initialize_module_for_quantization,
 )
+from compressed_tensors.utils import register_offload_parameter
 from torch import Tensor
 from torch.nn import Parameter
 from torch.nn.functional import linear
@@ -68,7 +69,7 @@ class CompressedLinear(Linear):
             param = Parameter(
                 torch.empty(shape, device=device, dtype=dtype), requires_grad=False
             )
-            module.register_parameter(name, param)
+            register_offload_parameter(module, name, param)
 
         # mark module as compressed
         module.quantization_status = QuantizationStatus.COMPRESSED
