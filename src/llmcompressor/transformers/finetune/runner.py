@@ -23,10 +23,6 @@ from llmcompressor.pytorch.model_load.helpers import (
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    format_calibration_data,
-    make_dataset_splits,
-)
 from llmcompressor.typing import Processor
 
 
@@ -73,6 +69,7 @@ class StageRunner:
         :param processor: processor or tokenizer to use for dataset tokenization
         :param add_labels: if True, add labels column to dataset splits
         """
+
         if self._data_args.dataset is None:
             self.processor = self._model_args.processor
             logger.info(
@@ -119,6 +116,8 @@ class StageRunner:
                 )
                 tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
 
+        from llmcompressor.datasets import make_dataset_splits
+
         self.datasets = make_dataset_splits(
             tokenized_datasets,
             do_train=self._training_args.do_train,
@@ -164,6 +163,7 @@ class StageRunner:
 
         :param checkpoint: optional checkpoint to pick up a stage from
         """
+
         recipe_obj = Recipe.create_instance(self._recipe_args.recipe)
         with self.trainer.accelerator.main_process_first():
             checkpoint_dir = self._model_args.model
@@ -197,6 +197,7 @@ class StageRunner:
             # run stage
             if run_type is StageRunType.ONESHOT:
                 from llmcompressor import Oneshot
+                from llmcompressor.datasets import format_calibration_data
 
                 self._model_args.model = model
 
