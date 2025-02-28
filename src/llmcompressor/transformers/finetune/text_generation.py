@@ -42,6 +42,15 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
+def train(**kwargs):
+    """
+    CLI entrypoint for running training
+    """
+    model_args, dataset_args, training_args, _ = parse_args(**kwargs)
+    training_args.do_train = True
+    main(model_args, dataset_args, training_args)
+
+
 @deprecated(
     message=(
         "`from llmcompressor.transformers import oneshot` is deprecated, "
@@ -52,15 +61,6 @@ def oneshot(**kwargs) -> None:
     from llmcompressor import oneshot
 
     oneshot(**kwargs)
-
-
-def train(**kwargs):
-    """
-    CLI entrypoint for running training
-    """
-    model_args, dataset_args, training_args, _ = parse_args(**kwargs)
-    training_args.do_train = True
-    main(model_args, dataset_args, training_args)
 
 
 def apply(**kwargs):
