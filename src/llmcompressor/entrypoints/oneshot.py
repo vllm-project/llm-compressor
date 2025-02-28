@@ -1,4 +1,3 @@
-from pathlib import PosixPath
 from typing import Optional, Tuple
 
 from loguru import logger
@@ -7,17 +6,11 @@ from transformers import HfArgumentParser, PreTrainedModel
 
 from llmcompressor.args import DatasetArguments, ModelArguments, RecipeArguments
 from llmcompressor.core.session_functions import active_session
+from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.transformers.finetune.data.data_helpers import (
     get_calibration_dataloader,
 )
-from llmcompressor.transformers.finetune.text_generation import (
-    initialize_model_from_path,
-    initialize_processor_from_path,
-)
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    modify_save_pretrained,
-    patch_tied_tensors_bug,
-)
+from llmcompressor.transformers.utils.helpers import resolve_processor_from_model_args
 
 __all__ = ["Oneshot", "oneshot", "parse_oneshot_args"]
 
@@ -149,7 +142,7 @@ class Oneshot:
 
         # only run for the first oneshot call
         if do_preprocess:
-            instance._pre_process()
+            pre_process(model_args)
 
         # Set instance attributes
         instance.model = instance.model_args.model
@@ -170,18 +163,18 @@ class Oneshot:
         """
         # TODO: move back once stage runner is removed
         # Preprocess the model and tokenizer/processor
-        self._pre_process()
+        pre_process(self.model_args)
         self.model = self.model_args.model
         self.recipe = self.recipe_args.recipe
         self.processor = self.model_args.processor
 
         calibration_dataloader = get_calibration_dataloader(
-            self.dataset_args, self.processor
+            self.data_args, self.processor
         )
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
         )
-        self._post_process()
+        post_process(model_args=self.model_args, output_dir=self.output_dir)
 
     def save(self):
         """
@@ -234,24 +227,70 @@ class Oneshot:
         session.initialize(**session_kwargs)
         session.finalize(**session_kwargs)
 
-    def check_tied_embeddings(self):
-        """
-        Logs a warning if the model has tied word embeddings.
-
-        The `tie_word_embeddings` flag may cause issues during saving in the one-shot
-        calibration workflow due to shared tensor addresses.
-        """
-        if self.model_args.tie_word_embeddings:
-            logger.debug(
-                "The tie_word_embeddings flag is by default set to False. "
-                "This guarantees that the one-shot algorithm saves the final "
-                "weights without errors. Detected tie_word_embeddings=True. "
-                "This may cause issues with the one-shot algorithm on save."
-            )
-
 
 def oneshot(**kwargs) -> PreTrainedModel:
     one_shot = Oneshot(**kwargs)
     one_shot()
 
     return one_shot.model
+
+
+def parse_oneshot_args(
+    **kwargs,
+) -> Tuple[ModelArguments, DatasetArguments, RecipeArguments, str]:
+    """
+    Parses kwargs by grouping into model, data or training arg groups:
+        * model_args in
+            src/llmcompressor/transformers/utils/arg_parser/model_args.py
+        * data_args in
+            src/llmcompressor/transformers/utils/arg_parser/data_args.py
+        * recipe_args in
+            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
+        * training_args in
+            src/llmcompressor/transformers/utils/arg_parser/training_args.py
+    """
+    output_dir = kwargs.pop("output_dir", None)
+
+    parser = HfArgumentParser((ModelArguments, DatasetArguments, RecipeArguments))
+
+    if not kwargs:
+
+        def _get_output_dir_from_argv() -> Optional[str]:
+            import sys
+
+            output_dir = None
+            if "--output_dir" in sys.argv:
+                index = sys.argv.index("--output_dir")
+                sys.argv.pop(index)
+                if index < len(sys.argv):  # Check if value exists afer the flag
+                    output_dir = sys.argv.pop(index)
+
+            return output_dir
+
+        output_dir = _get_output_dir_from_argv() or output_dir
+        parsed_args = parser.parse_args_into_dataclasses()
+    else:
+        parsed_args = parser.parse_dict(kwargs)
+
+    model_args, data_args, recipe_args = parsed_args
+
+    if recipe_args.recipe_args is not None:
+        if not isinstance(recipe_args.recipe_args, dict):
+            arg_dict = {}
+            for recipe_arg in recipe_args.recipe_args:
+                key, value = recipe_arg.split("=")
+                arg_dict[key] = value
+            recipe_args.recipe_args = arg_dict
+
+    # raise depreciation warnings
+    if data_args.remove_columns is not None:
+        logger.waning(
+            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "columns which are invalid inputs the tokenizer will be removed",
+            DeprecationWarning,
+        )
+
+    # silently assign tokenizer to processor
+    resolve_processor_from_model_args(model_args)
+
+    return model_args, data_args, recipe_args, output_dir

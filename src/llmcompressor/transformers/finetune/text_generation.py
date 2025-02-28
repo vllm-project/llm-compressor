@@ -17,11 +17,19 @@
 # Adapted from https://github.com/huggingface/transformers
 # vllm-project: no copyright
 
+import warnings
 from pathlib import PosixPath
 
 from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
+from transformers import HfArgumentParser
 
+from llmcompressor.args import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import save_checkpoint
 from llmcompressor.recipe import Recipe, StageRunType
@@ -75,6 +83,54 @@ def apply(**kwargs):
 
 def compress(**kwargs):
     apply(**kwargs)
+
+
+def parse_args(**kwargs):
+    """
+    Parses kwargs by grouping into model, data or training arg groups:
+        * model_args in
+            src/llmcompressor/transformers/utils/arg_parser/model_args.py
+        * data_args in
+            src/llmcompressor/transformers/utils/arg_parser/data_args.py
+        * recipe_args in
+            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
+        * training_args in
+            src/llmcompressor/transformers/utils/arg_parser/training_args.py
+    """
+    parser = HfArgumentParser(
+        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
+    )
+
+    if not kwargs:
+        parsed_args = parser.parse_args_into_dataclasses()
+    else:
+        parsed_args = parser.parse_dict(kwargs)
+
+    model_args, data_args, recipe_args, training_args = parsed_args
+    if recipe_args.recipe_args is not None:
+        if not isinstance(recipe_args.recipe_args, dict):
+            arg_dict = {}
+            for recipe_arg in recipe_args.recipe_args:
+                key, value = recipe_arg.split("=")
+                arg_dict[key] = value
+            recipe_args.recipe_args = arg_dict
+
+    # raise depreciation warnings
+    if data_args.remove_columns is not None:
+        warnings.warn(
+            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
+            "columns which are invalid inputs the tokenizer will be removed",
+            DeprecationWarning,
+        )
+
+    # silently assign tokenizer to processor
+    if model_args.tokenizer:
+        if model_args.processor:
+            raise ValueError("Cannot use both a tokenizer and processor")
+        model_args.processor = model_args.tokenizer
+    model_args.tokenizer = None
+
+    return model_args, data_args, recipe_args, training_args
 
 
 def main(
