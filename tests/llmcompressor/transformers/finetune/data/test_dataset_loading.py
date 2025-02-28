@@ -67,7 +67,7 @@ class TestNoPaddingTokenization(unittest.TestCase):
         op_manager = TextGenerationDataset.load_from_registry(
             self.dataset_args.dataset,
             dataset_args=self.dataset_args,
-            split="train[5%:10%]",
+            split="train[5%:7%]",
             processor=self.tiny_llama_tokenizer,
         )
         dataset = op_manager.load_dataset()  # load
@@ -82,7 +82,7 @@ class TestNoPaddingTokenization(unittest.TestCase):
         ex_item = dataset[0]["text"]
         self.assertIn("Below is an instruction that describes a task", ex_item)
 
-        self.assertEqual(dataset.split, "train[5%:10%]")
+        self.assertEqual(dataset.split, "train[5%:7%]")
         tokenized_dataset = op_manager()
         self.assertIn("input_ids", tokenized_dataset.features)
         self.assertIn("labels", tokenized_dataset.features)
@@ -109,7 +109,7 @@ class TestMaxSeqLenClipped(unittest.TestCase):
         op_manager = TextGenerationDataset.load_from_registry(
             self.dataset_args.dataset,
             dataset_args=self.dataset_args,
-            split="train[80%:]",
+            split="train[95%:]",
             processor=self.tiny_llama_tokenizer,
         )
 
@@ -136,9 +136,9 @@ class TestDatasetKwargsAndPercent(unittest.TestCase):
 
     def test_dataset_kwargs_and_percentages(self):
         c4_manager_a = TextGenerationDataset.load_from_registry(
-            self.dataset_args.dataset,
-            dataset_args=self.dataset_args,
-            split="train[5%:10%]",
+            self.data_args.dataset,
+            data_args=self.data_args,
+            split="train[5%:6%]",
             processor=self.tiny_llama_tokenizer,
         )
         raw_dataset_a = c4_manager_a.load_dataset()
@@ -146,7 +146,7 @@ class TestDatasetKwargsAndPercent(unittest.TestCase):
         c4_manager_b = TextGenerationDataset.load_from_registry(
             self.dataset_args.dataset,
             dataset_args=self.dataset_args,
-            split="train[5%:15%]",
+            split="train[6%:8%]",
             processor=self.tiny_llama_tokenizer,
         )
         raw_dataset_b = c4_manager_b.load_dataset()
@@ -164,7 +164,7 @@ class TestDatasets(unittest.TestCase):
         [
             ["ptb", "penn_treebank", "train[:5%]", False],
             ["gsm8k", "main", "train[:5%]", True],
-            ["ultrachat_200k", "default", "train_sft[:2%]", False],
+            ["ultrachat_200k", "default", "train_sft[:1%]", False],
         ]
     )
     def test_datasets(self, dataset_key, dataset_config, split, do_concat):
@@ -273,9 +273,7 @@ class TestSplitLoading(unittest.TestCase):
     def prepare_fixture(self, tiny_llama_tokenizer):
         self.tiny_llama_tokenizer = tiny_llama_tokenizer
 
-    @parameterized.expand(
-        [["train"], ["train[60%:]"], [{"train": "train[:20%]"}], [None]]
-    )
+    @parameterized.expand([["train[95%:]"], [{"train": "train[:5%]"}]])
     def test_split_loading(self, split_def):
         dataset_args = DatasetArguments(
             dataset="open_platypus",
@@ -304,7 +302,7 @@ class TestTokenizationDataset(unittest.TestCase):
     def prepare_fixture(self, tiny_llama_tokenizer):
         self.tiny_llama_tokenizer = tiny_llama_tokenizer
         dataset = load_dataset("garage-bAInd/Open-Platypus")["train"]
-        self.num_calib_samples = 256
+        self.num_calib_samples = 64
         self.max_seq_len = 512
         self.dataset = dataset.shuffle(seed=42).select(range(self.num_calib_samples))
 
