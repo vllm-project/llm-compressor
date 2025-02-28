@@ -53,7 +53,7 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
             sparsity=sparsities, block_size=128, targets=targets
         )
         testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
-        modifier.initialize(testing_harness.get_state())
+        modifier.initialize(testing_harness.get_state())  # falls back to basic pipeline
 
         model = testing_harness.state.model
         num_hooks = len(modifier._hooks)
