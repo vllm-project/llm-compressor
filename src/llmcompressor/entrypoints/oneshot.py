@@ -284,7 +284,7 @@ def parse_oneshot_args(
 
     # raise depreciation warnings
     if data_args.remove_columns is not None:
-        logger.waning(
+        logger.warning(
             "`remove_columns` argument is depreciated. When tokenizing datasets, all "
             "columns which are invalid inputs the tokenizer will be removed",
             DeprecationWarning,
