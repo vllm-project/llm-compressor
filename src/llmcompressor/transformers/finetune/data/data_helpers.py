@@ -272,7 +272,9 @@ def get_calibration_dataloader(
         splits = {_get_split_name(s): s for s in splits}
 
     # default to custom dataset if dataset provided isn't a string
-    registry_id = dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
+    registry_id = (
+        dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
+    )
     for split_name, split_str in splits.items():
         dataset = dataset_args.dataset
         if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:

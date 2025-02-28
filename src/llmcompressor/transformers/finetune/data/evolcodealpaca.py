@@ -25,7 +25,9 @@ class EvolCodeAlpacaDataset(TextGenerationDataset):
         "\n\n### Response:\n"
     )
 
-    def __init__(self, dataset_args: "DatasetArguments", split: str, processor: Processor):
+    def __init__(
+        self, dataset_args: "DatasetArguments", split: str, processor: Processor
+    ):
         dataset_args = deepcopy(dataset_args)
         dataset_args.dataset = "theblackcat102/evol-codealpaca-v1"
         dataset_args.text_column = "text"

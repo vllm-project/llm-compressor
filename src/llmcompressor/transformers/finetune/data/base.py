@@ -170,13 +170,17 @@ class TextGenerationDataset(RegistryMixin):
                 self.dataset_args.raw_kwargs["storage_options"] = {
                     "url": self.dataset_args.dvc_data_repository
                 }
-                self.dataset_args.raw_kwargs["data_files"] = self.dataset_args.dataset_path
+                self.dataset_args.raw_kwargs["data_files"] = (
+                    self.dataset_args.dataset_path
+                )
             else:
-                self.dataset_args.raw_kwargs["data_files"] = get_custom_datasets_from_path(
-                    self.dataset_args.dataset_path,
-                    self.dataset_args.dataset
-                    if hasattr(self.dataset_args, "dataset")
-                    else self.dataset_args.dataset_name,
+                self.dataset_args.raw_kwargs["data_files"] = (
+                    get_custom_datasets_from_path(
+                        self.dataset_args.dataset_path,
+                        self.dataset_args.dataset
+                        if hasattr(self.dataset_args, "dataset")
+                        else self.dataset_args.dataset_name,
+                    )
                 )
 
         logger.debug(f"Loading dataset {self.dataset_args.dataset}")

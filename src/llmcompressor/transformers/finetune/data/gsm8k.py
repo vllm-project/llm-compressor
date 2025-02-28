@@ -20,7 +20,9 @@ class GSM8KDataset(TextGenerationDataset):
 
     GSM_TEMPLATE = "Question: {question}\nAnswer:"
 
-    def __init__(self, dataset_args: "DatasetArguments", split: str, processor: Processor):
+    def __init__(
+        self, dataset_args: "DatasetArguments", split: str, processor: Processor
+    ):
         dataset_args = deepcopy(dataset_args)
         dataset_args.dataset = "gsm8k"
         dataset_args.text_column = "text"

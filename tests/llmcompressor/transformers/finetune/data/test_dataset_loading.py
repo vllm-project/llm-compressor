@@ -97,7 +97,9 @@ class TestNoPaddingTokenization(unittest.TestCase):
 @pytest.mark.unit
 class TestMaxSeqLenClipped(unittest.TestCase):
     def setUp(self):
-        self.dataset_args = DatasetArguments(dataset="open_platypus", max_seq_length=4096)
+        self.dataset_args = DatasetArguments(
+            dataset="open_platypus", max_seq_length=4096
+        )
 
     @pytest.fixture(autouse=True)
     def prepare_fixture(self, tiny_llama_tokenizer):

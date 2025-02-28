@@ -31,7 +31,9 @@ class Flickr30K(TextGenerationDataset):
         "{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
     )
 
-    def __init__(self, dataset_args: "DatasetArguments", split: str, processor: Processor):
+    def __init__(
+        self, dataset_args: "DatasetArguments", split: str, processor: Processor
+    ):
         dataset_args = deepcopy(dataset_args)
         dataset_args.dataset = "lmms-lab/flickr30k"
 

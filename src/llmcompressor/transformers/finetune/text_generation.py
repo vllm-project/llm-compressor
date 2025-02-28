@@ -326,8 +326,8 @@ def main(
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
-    :param dataset_args: Arguments pertaining to what data we are going to input our model
-    for training
+    :param dataset_args: Arguments pertaining to what data we are going to input
+        our model for training
     :param training_args: Arguments pertaining to training loop configuration
     """
 

@@ -20,7 +20,9 @@ class CNNDailyMailDataset(TextGenerationDataset):
 
     SAMPLE_TEMPLATE = "Article:\n{article}\n\n### Summarization:\n{highlights}\n"
 
-    def __init__(self, dataset_args: "DatasetArguments", split: str, processor: Processor):
+    def __init__(
+        self, dataset_args: "DatasetArguments", split: str, processor: Processor
+    ):
         dataset_args = deepcopy(dataset_args)
         dataset_args.dataset = "cnn_dailymail"
         dataset_args.dataset_config_name = "3.0.0"

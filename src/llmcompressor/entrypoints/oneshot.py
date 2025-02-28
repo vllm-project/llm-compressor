@@ -137,7 +137,12 @@ class Oneshot:
 
     @classmethod
     def from_args(
-        cls, model_args, dataset_args, recipe_args, output_dir, do_preprocess: bool = True
+        cls,
+        model_args,
+        dataset_args,
+        recipe_args,
+        output_dir,
+        do_preprocess: bool = True,
     ):
         """
         Used only for the stage runner to populate the args.
