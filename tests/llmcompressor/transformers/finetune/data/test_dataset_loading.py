@@ -136,8 +136,8 @@ class TestDatasetKwargsAndPercent(unittest.TestCase):
 
     def test_dataset_kwargs_and_percentages(self):
         c4_manager_a = TextGenerationDataset.load_from_registry(
-            self.data_args.dataset,
-            data_args=self.data_args,
+            self.dataset_args.dataset,
+            dataset_args=self.dataset_args,
             split="train[5%:6%]",
             processor=self.tiny_llama_tokenizer,
         )
