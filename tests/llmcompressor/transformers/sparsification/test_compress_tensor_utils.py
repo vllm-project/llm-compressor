@@ -1,4 +1,3 @@
-import logging
 import math
 import shutil
 
@@ -70,18 +69,9 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         clear_sparse_session=False,
     )
 
-    # temporarily set the log level to error, to ignore printing out long missing
-    # and unexpected key error messages (these are EXPECTED for quantized models)
-    transformers_logger = logging.getLogger("transformers.modeling_utils")
-    restore_log_level = transformers_logger.getEffectiveLevel()
-    transformers_logger.setLevel(level=logging.ERROR)
-
     model = AutoModelForCausalLM.from_pretrained(
         tmp_path / "oneshot_out", torch_dtype=dtype
     )
-
-    # restore transformers logging level now that model shell is loaded
-    transformers_logger.setLevel(level=restore_log_level)
 
     # assert that sample layer has the intended sparsity
     assert math.isclose(
