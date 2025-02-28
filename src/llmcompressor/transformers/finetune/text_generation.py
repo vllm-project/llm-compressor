@@ -46,9 +46,14 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, dataset_args, training_args, _ = parse_args(**kwargs)
+    (
+        model_args,
+        dataset_args,
+        recipe_args,
+        training_args,
+    ) = parse_args(**kwargs)
     training_args.do_train = True
-    main(model_args, dataset_args, training_args)
+    main(model_args, dataset_args, recipe_args, training_args)
 
 
 @deprecated(
@@ -220,7 +225,7 @@ def main(
     # Load datasets
     stage_runner = StageRunner(
         model_args=model_args,
-        dataset_args=dataset_args,
+        data_args=dataset_args,
         training_args=training_args,
         recipe_args=recipe_args,
     )
@@ -236,7 +241,7 @@ def main(
         recipe_args=recipe_args.recipe_args,
         args=training_args,
         model_args=model_args,
-        dataset_args=dataset_args,
+        data_args=dataset_args,
         train_dataset=train_dataset or calib_dataset,
         processing_class=processor,
         data_collator=dataset_args.data_collator,
