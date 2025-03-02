@@ -103,3 +103,15 @@ def test_environment_variable_disable_logging(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+
+def test_environment_variable_enable_logging(monkeypatch, capsys):
+    # Test environment variable to enable logging
+    monkeypatch.setenv("LLM_COMPRESSOR_LOG_DISABLED", "false")
+
+    configure_logger(config=LoggerConfig())
+    logger.info("Info message")
+    logger.error("Error message")
+
+    captured = capsys.readouterr()
+    assert captured.out.count("Info message") == 1
+    assert captured.out.count("Error message") == 1
