@@ -214,7 +214,6 @@ class StageRunner:
                     num_calibration_samples=self._data_args.num_calibration_samples,
                     do_shuffle=self._data_args.shuffle_calibration_samples,
                     collate_fn=self._data_args.data_collator,
-                    accelerator=self.trainer.accelerator,
                 )
 
                 if do_preprocess:
