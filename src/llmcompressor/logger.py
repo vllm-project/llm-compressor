@@ -53,9 +53,9 @@ class LoggerConfig:
     metrics_disabled: bool = False
 
 
-def configure_logger(config: Optional[LoggerConfig] = None):
+def configure_logger(config: Optional[LoggerConfig] = None) -> None:
     """
-    Configure the metrics for LLM Compressor.
+    Configure the logger for LLM Compressor.
     This function sets up the console and file logging
     as per the specified or default parameters.
 
@@ -68,9 +68,9 @@ def configure_logger(config: Optional[LoggerConfig] = None):
 
     # env vars get priority
     if (disabled := os.getenv("LLM_COMPRESSOR_LOG_DISABLED")) is not None:
-        logger_config.disabled = disabled.lower()
+        logger_config.disabled = disabled.lower() == "true"
     if (clear_loggers := os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS")) is not None:
-        logger_config.clear_loggers = clear_loggers.lower()
+        logger_config.clear_loggers = clear_loggers.lower() == "true"
     if (console_log_level := os.getenv("LLM_COMPRESSOR_LOG_LEVEL")) is not None:
         logger_config.console_log_level = console_log_level.upper()
     if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
