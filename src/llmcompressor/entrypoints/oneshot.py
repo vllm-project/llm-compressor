@@ -124,7 +124,7 @@ class Oneshot:
         model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
-        self.data_args = dataset_args
+        self.dataset_args = dataset_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
 

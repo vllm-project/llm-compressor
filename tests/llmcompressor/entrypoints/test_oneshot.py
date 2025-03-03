@@ -17,7 +17,7 @@ def test_oneshot_from_args():
 
     output_dir = "bar_output_dir"
 
-    model_args, data_args, recipe_args, _, output_dir = parse_args(
+    model_args, dataset_args, recipe_args, _, output_dir = parse_args(
         model=model,
         dataset=dataset,
         recipe=recipe,
