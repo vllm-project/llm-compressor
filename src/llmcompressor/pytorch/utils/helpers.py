@@ -670,12 +670,13 @@ def pseudo_quantize_tensor(
 ):
     org_w_shape = w.shape
     if group_size > 0:
-        assert org_w_shape[-1] % group_size == 0
+        assert org_w_shape[-1] % group_size == 0, f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({group_size})!"
         w = w.reshape(-1, group_size)
     assert w.dim() == 2
     assert torch.isnan(w).sum() == 0
 
-    if symmetric:
+    # zero point quantization
+    if not symmetric:
         max_val = w.amax(dim=1, keepdim=True)
         min_val = w.amin(dim=1, keepdim=True)
         max_int = 2**bit_width - 1
@@ -685,7 +686,7 @@ def pseudo_quantize_tensor(
         w = (
             torch.clamp(torch.round(w / scales) + zeros, min_int, max_int) - zeros
         ) * scales
-        zeros = zeros.view(org_w_shape[0], -1)
+        zeros = (zeros- 2**(bit_width-1)).view(org_w_shape[0], -1) 
     else:
         max_val = w.abs().amax(dim=1, keepdim=True)
         max_val = max_val.clamp(min=1e-5)

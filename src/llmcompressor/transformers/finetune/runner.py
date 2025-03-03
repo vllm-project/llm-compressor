@@ -3,11 +3,15 @@ import os
 import re
 from typing import List, Optional
 
+import datasets
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
+<<<<<<< HEAD
 from transformers import PreTrainedModel
 import datasets
+=======
+>>>>>>> 386ead2e (updates from debugging)
 
 from llmcompressor.args import (
     DatasetArguments,
@@ -102,7 +106,9 @@ class StageRunner:
         )
         for split_name, split_str in splits.items():
             dataset = self._dataset_args.dataset
-            if isinstance(dataset, datasets.Dataset) or (hasattr(dataset, "column_names") and "input_ids" in dataset.column_names):
+            if isinstance(dataset, datasets.Dataset) or (
+                hasattr(dataset, "column_names") and "input_ids" in dataset.column_names
+            ):
                 # dataset is already tokenized
                 tokenized_datasets[split_name] = dataset
             else:
