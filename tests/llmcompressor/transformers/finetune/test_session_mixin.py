@@ -15,7 +15,7 @@ class MixInTest(SessionManagerMixIn, Trainer):
         recipe: Optional[str],
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         model_args: Optional[Union[Dict[str, Any], str]] = None,
-        data_args: Optional[Union[Dict[str, Any], str]] = None,
+        dataset_args: Optional[Union[Dict[str, Any], str]] = None,
         teacher: Optional[Union[Module, str]] = None,
         **kwargs,
     ):
@@ -24,7 +24,7 @@ class MixInTest(SessionManagerMixIn, Trainer):
             recipe=recipe,
             recipe_args=recipe_args,
             model_args=model_args,
-            data_args=data_args,
+            dataset_args=dataset_args,
             teacher=teacher,
             **kwargs,
         )
