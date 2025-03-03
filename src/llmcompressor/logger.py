@@ -68,9 +68,9 @@ def configure_logger(config: Optional[LoggerConfig] = None) -> None:
 
     # env vars get priority
     if (disabled := os.getenv("LLM_COMPRESSOR_LOG_DISABLED")) is not None:
-        logger_config.disabled = (disabled.lower() == "true")
+        logger_config.disabled = disabled.lower() == "true"
     if (clear_loggers := os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS")) is not None:
-        logger_config.clear_loggers = (clear_loggers.lower() == "true")
+        logger_config.clear_loggers = clear_loggers.lower() == "true"
     if (console_log_level := os.getenv("LLM_COMPRESSOR_LOG_LEVEL")) is not None:
         logger_config.console_log_level = console_log_level.upper()
     if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
