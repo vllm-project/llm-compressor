@@ -11,10 +11,8 @@ from llmcompressor.args import (
     RecipeArguments,
     TrainingArguments,
 )
+from llmcompressor.datasets import format_calibration_data
 from llmcompressor.transformers import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    format_calibration_data,
-)
 from llmcompressor.transformers.finetune.runner import StageRunner
 
 

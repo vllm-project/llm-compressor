@@ -7,9 +7,7 @@ from transformers import PreTrainedModel
 
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    get_calibration_dataloader,
-)
+from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.transformers.finetune.text_generation import (
     initialize_model_from_path,
     initialize_processor_from_path,
