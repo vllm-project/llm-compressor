@@ -54,6 +54,7 @@ v_scheme_down_proj = TransformationScheme(
     transform_creation_args={"size": 5632},
 )
 
+# We could combine multiple args to the same scheme but then would make it more difficult to consolidate order of transforms
 u_scheme_q_o_down_proj = TransformationScheme(
     transform_type="random-hadamard",
     groups=[u_q_o_down_proj],
