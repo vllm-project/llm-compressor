@@ -365,7 +365,7 @@ def parse_oneshot_args(
             recipe_args.recipe_args = arg_dict
 
     # raise depreciation warnings
-    if data_args.remove_columns is not None:
+    if dataset_args.remove_columns is not None:
         logger.warning(
             "`remove_columns` argument is depreciated. When tokenizing datasets, all "
             "columns which are invalid inputs the tokenizer will be removed",
