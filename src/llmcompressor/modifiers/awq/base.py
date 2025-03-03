@@ -49,6 +49,8 @@ DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
         "re:.*input_layernorm",
         ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
     ),
+    # TODO this generally results in higher perplexity for llama 2 7B on wikitext
+    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
     AWQMapping(
         "re:.*post_attention_layernorm",
         ["re:.*gate_proj", "re:.*up_proj"],
@@ -57,8 +59,6 @@ DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
         "re:.*up_proj",
         ["re:.*down_proj"],
     ),
-    # TODO this generally results in higher perplexity for llama 2 7B on wikitext
-    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
 ]
 
 
@@ -148,7 +148,7 @@ class AWQModifier(Modifier):
     group_size: int = 128
     max_chunk_memory: int = 1024 * 1024 * 1024
     bits: int = 4
-    symmetric: bool = True
+    symmetric: bool = False
     duo_scaling: bool = True
     apply_clip: bool = True
 
@@ -487,6 +487,9 @@ class AWQModifier(Modifier):
             int_w_output = self._forward_input_with_kwargs(
                 module=module2inspect, inputs=x, input_kwargs=self.module_kwargs_
             )
+            int_w_output = int_w_output.clip(
+                torch.finfo(int_w_output.dtype).min, torch.finfo(int_w_output.dtype).max
+            )
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_output, int_w_output, device)
@@ -597,8 +600,6 @@ class AWQModifier(Modifier):
 
         del samples
         inps = inps[0]
-
-        torch.cuda.empty_cache()
 
         if layer_kwargs.get("attention_mask") is not None:
             layer_kwargs["attention_mask"] = layer_kwargs["attention_mask"].to(
