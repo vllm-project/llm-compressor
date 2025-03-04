@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors.quantization.utils import is_module_quantized
 from packaging import version
+from torch import Tensor
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 
@@ -60,6 +61,9 @@ __all__ = [
     "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
+    "get_layers_in_module",
+    "get_parent_by_name",
+    "apply_clip_list",
 ]
 
 
@@ -338,3 +342,55 @@ def get_no_split_params(module: Module) -> Union[str, List[str]]:
     if hasattr(model, "_no_split_modules"):
         return model._no_split_modules
     return ALL_TARGET
+
+
+def get_layers_in_module(module: Module) -> Dict[str, Module]:
+    """
+    Searches for layers in the given module that follow the pattern
+    `re:.*layers.\\d+$` and returns a dictionary containing the layer name
+
+    :param module: module to search for layers in
+    :return: dictionary containing the layer name and the layer itself
+    """
+    layer_target = r"re:.*layers.\d+$"
+    layer_dict = get_layers(targets=layer_target, module=module)
+    return layer_dict
+
+
+def get_parent_by_name(layer_name: str, module: Module) -> Tuple[str, Module]:
+    """
+    Get the parent layer of a layer by name.
+
+    :param layer_name: Name of the layer to find the parent of.
+    :param model: Model to search for the parent layer.
+    :return: Tuple containing the name of the parent layer
+        and the parent layer itself.
+    """
+    if not any(layer_name == name for name, _ in module.named_modules()):
+        raise ValueError(f"Layer '{layer_name}' not found in model")
+
+    parent_name_parts = layer_name.split(".")[:-1]
+    if not parent_name_parts:
+        return "", module
+
+    parent_name = ".".join(parent_name_parts)
+    return get_layer(parent_name, module)
+
+
+def apply_clip_list(module: Module, clip_list: Tuple[str, Tensor]):
+    """
+    Apply clipping to the weights of the given module
+
+    :post-condition: the weights of the module are clipped to the given maximum values
+    :param module: module to apply clipping to
+    :param clip_list: list of tuples containing the name of the layer and the maximum
+        value to clip the weights to
+    """
+    for name, max_val in clip_list:
+        _, layer = get_layer(target=name, module=module)
+        assert isinstance(layer, torch.nn.Linear)
+        max_val = max_val.to(layer.weight.device)
+        org_shape = layer.weight.shape
+        layer.weight.data = layer.weight.data.reshape(*max_val.shape[:2], -1)
+        layer.weight.data = torch.clamp(layer.weight.data, -max_val, max_val)
+        layer.weight.data = layer.weight.data.reshape(org_shape)
