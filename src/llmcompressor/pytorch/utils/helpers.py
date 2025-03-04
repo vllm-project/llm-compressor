@@ -686,7 +686,7 @@ def pseudo_quantize_tensor(
         w = (
             torch.clamp(torch.round(w / scales) + zeros, min_int, max_int) - zeros
         ) * scales
-        zeros = (zeros- 2**(bit_width-1)).view(org_w_shape[0], -1) 
+        zeros = (zeros - 2**(bit_width-1)).view(org_w_shape[0], -1) 
     else:
         max_val = w.abs().amax(dim=1, keepdim=True)
         max_val = max_val.clamp(min=1e-5)
