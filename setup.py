@@ -60,9 +60,12 @@ setup(
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
-        "compressed-tensors"
-        if version_info.build_type == "release"
-        else "compressed-tensors-nightly",
+        "pillow",
+        (
+            "compressed-tensors"
+            if version_info.build_type == "release"
+            else "compressed-tensors-nightly"
+        ),
     ],
     extras_require={
         "dev": [
