@@ -10,7 +10,6 @@ lmeval:
     convert_img_format: True
   task: mmmu_val_economics
   num_fewshot: 0
-  limit: 1000
   batch_size: 8
   metrics:
-    acc,none: 0.333
+    acc,none: 0.266
