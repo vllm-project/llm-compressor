@@ -210,9 +210,9 @@ class StageRunner:
 
                 calib_data = format_calibration_data(
                     tokenized_dataset=self.get_dataset_split("calibration"),
-                    num_calibration_samples=self._data_args.num_calibration_samples,
-                    do_shuffle=self._data_args.shuffle_calibration_samples,
-                    collate_fn=self._data_args.data_collator,
+                    num_calibration_samples=self._dataset_args.num_calibration_samples,
+                    do_shuffle=self._dataset_args.shuffle_calibration_samples,
+                    collate_fn=self._dataset_args.data_collator,
                 )
 
                 if do_preprocess:
