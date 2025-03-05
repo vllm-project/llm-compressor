@@ -42,7 +42,7 @@ class RoundToNearestObserver(Observer):
             observed,
             symmetric=self.quantization_args.symmetric,
             bit_width=self.quantization_args.num_bits,
-            group_size=-1, #self.quantization_args.group_size,
+            group_size=self.quantization_args.group_size or -1,
         )
         return (scales, zp)
 
