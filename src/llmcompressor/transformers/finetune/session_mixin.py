@@ -54,14 +54,14 @@ class SessionManagerMixIn:
 
     :param recipe: path to recipe file to apply during training
     :param recipe_args: additional kwargs to use for evaluating recipe
-    :param data_args: kwargs for configuring dataset loading
+    :param dataset_args: kwargs for configuring dataset loading
     :param teacher: optional teacher model to use for distillation
     """
 
     def __init__(
         self,
         recipe: str,
-        data_args: "DatasetArguments",
+        dataset_args: "DatasetArguments",
         model_args: "ModelArguments",
         teacher: Optional[Union[Module, str]] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
@@ -77,7 +77,7 @@ class SessionManagerMixIn:
 
         self.metadata = None
         if training_args is not None:
-            # trl_sft_trainer pathway. Both training_args and data_args
+            # trl_sft_trainer pathway. Both training_args and dataset_args
             # have `max_seq_length` which causes collision error. This is the
             # only shared parameter, where training arg is `TRLSFTConfig` that
             # inherits HuggingFace's `TrainingArguments`
@@ -87,7 +87,7 @@ class SessionManagerMixIn:
                     training_args_dict.pop("max_seq_length")
                 )
                 logger.warning(
-                    "Detected `max_seq_length` in both data_args ",
+                    "Detected `max_seq_length` in both dataset_args ",
                     "and training_args. This is expected for TRL in distillation. ",
                     "Updating metadata to `training_args_max_seq_length`",
                 )
@@ -95,7 +95,7 @@ class SessionManagerMixIn:
             self.metadata = self._extract_metadata(
                 metadata_args=METADATA_ARGS,
                 training_args_dict=training_args_dict,
-                data_args_dict=asdict(data_args) if data_args else {},
+                dataset_args_dict=asdict(dataset_args) if dataset_args else {},
             )
 
         # setup metrics and session
@@ -125,8 +125,8 @@ class SessionManagerMixIn:
         if self.is_fsdp_enabled:
             self._prepare_model_for_fsdp()
 
-        if data_args is not None:
-            self.min_tokens_per_module = data_args.min_tokens_per_module
+        if dataset_args is not None:
+            self.min_tokens_per_module = dataset_args.min_tokens_per_module
 
     def initialize_session(
         self,
@@ -459,16 +459,16 @@ class SessionManagerMixIn:
         self,
         metadata_args: List[str],
         training_args_dict: Dict[str, Any],
-        data_args_dict: Dict[str, Any],
+        dataset_args_dict: Dict[str, Any],
     ) -> Dict[str, Any]:
         metadata = {}
-        if not training_args_dict.keys().isdisjoint(data_args_dict.keys()):
+        if not training_args_dict.keys().isdisjoint(dataset_args_dict.keys()):
             raise ValueError(
                 "Found common keys in `training_args` and `data args`. "
                 "This is prohibitive and may lead to undesired behavior."
             )
 
-        args_dict = {**training_args_dict, **data_args_dict}
+        args_dict = {**training_args_dict, **dataset_args_dict}
 
         for arg in metadata_args:
             if arg not in args_dict.keys():
