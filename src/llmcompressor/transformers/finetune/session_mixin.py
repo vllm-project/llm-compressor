@@ -39,7 +39,7 @@ __all__ = [
 ]
 
 TRAINER_STATE_NAME = "trainer_state.json"
-METAdataset_args = [
+METADATA_ARGS = [
     "per_device_train_batch_size",
     "max_seq_length",
     "save_safetensors",
@@ -93,7 +93,7 @@ class SessionManagerMixIn:
                 )
 
             self.metadata = self._extract_metadata(
-                metadataset_args=METAdataset_args,
+                metadata_args=METADATA_ARGS,
                 training_args_dict=training_args_dict,
                 dataset_args_dict=asdict(dataset_args) if dataset_args else {},
             )
@@ -457,7 +457,7 @@ class SessionManagerMixIn:
 
     def _extract_metadata(
         self,
-        metadataset_args: List[str],
+        metadata_args: List[str],
         training_args_dict: Dict[str, Any],
         dataset_args_dict: Dict[str, Any],
     ) -> Dict[str, Any]:
@@ -470,7 +470,7 @@ class SessionManagerMixIn:
 
         args_dict = {**training_args_dict, **dataset_args_dict}
 
-        for arg in metadataset_args:
+        for arg in metadata_args:
             if arg not in args_dict.keys():
                 logger.warning(
                     f"Required metadata argument {arg} was not found "
