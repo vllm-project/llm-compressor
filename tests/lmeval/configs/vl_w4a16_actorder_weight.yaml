@@ -14,5 +14,5 @@ lmeval:
   task: mmmu_val_economics
   num_fewshot: 0
   metrics:
-    acc,none: 0.433
+    acc,none: 0.366
   batch_size: 4

@@ -1,9 +1,11 @@
 import os
+import random
 import shutil
 from pathlib import Path
 
 import numpy
 import pytest
+import torch
 import yaml
 from loguru import logger
 from pydantic import BaseModel
@@ -57,6 +59,10 @@ class TestLMEval:
     """  # noqa: E501
 
     def set_up(self):
+        random.seed(42)
+        numpy.random.seed(42)
+        torch.manual_seed(42)
+
         eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
 
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
