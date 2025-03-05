@@ -1,18 +1,12 @@
+from typing import Optional
 
-from typing import Optional, Tuple
-
-from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel
 
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
+from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    get_calibration_dataloader,
-)
-from llmcompressor.transformers.utils.helpers import resolve_processor_from_model_args
-
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -68,7 +62,7 @@ class Oneshot:
             Initializes the `Oneshot` object by parsing input arguments, performing
             preprocessing, and setting instance attributes.
 
-        run(**kwargs):
+        __call__(**kwargs):
             Performs the one-shot calibration process by preparing a calibration
             dataloader, applying recipe modifiers to the model, and executing
             postprocessing steps.
@@ -83,17 +77,6 @@ class Oneshot:
             defined in the recipe. Each action is executed via the global
             `CompressionSession`.
 
-        _pre_process():
-            Handles preprocessing steps, including model initialization,
-            tokenizer/processor setup, and resolving tied embedding issues.
-
-        check_tied_embeddings():
-            Logs a warning if `tie_word_embeddings=True`, which may interfere with
-            saving in the one-shot workflow.
-
-        _post_process():
-            Executes postprocessing steps such as saving the model and resetting
-            lifecycle actions, especially when a custom `output_dir` is specified.
     """
 
     def __init__(
@@ -181,23 +164,6 @@ class Oneshot:
             calibration_dataloader=calibration_dataloader,
         )
         post_process(model_args=self.model_args, output_dir=self.output_dir)
-
-    def save(self):
-        """
-        Saves the model and tokenizer/processor to the output directory.
-
-        The model is saved in a compressed format if specified in `model_args`.
-        The tokenizer or processor, if available, is also saved.
-
-        Raises:
-            ValueError: If saving fails due to an invalid `output_dir` or other issues.
-        """
-        self.model.save_pretrained(
-            self.output_dir,
-            save_compressed=self.model_args.save_compressed,
-        )
-        if self.processor is not None:
-            self.processor.save_pretrained(self.output_dir)
 
     def apply_recipe_modifiers(
         self,

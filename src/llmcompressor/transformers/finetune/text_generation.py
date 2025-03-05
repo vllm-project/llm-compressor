@@ -46,10 +46,9 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, dataset_args, recipe_args, training_args, _ = parse_args(**kwargs)
+    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
     main(model_args, dataset_args, recipe_args, training_args)
-
 
 
 @deprecated(
@@ -69,10 +68,11 @@ def apply(**kwargs):
     CLI entrypoint for any of training, oneshot
     """
     from llmcompressor.args import parse_args
+
     model_args, dataset_args, recipe_args, training_args, _ = parse_args(
         include_training_args=True, **kwargs
     )
-    
+
     training_args.run_stages = True
     report_to = kwargs.get("report_to", None)
     if report_to is None:  # user didn't specify any reporters
