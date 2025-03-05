@@ -12,4 +12,4 @@ lmeval:
   num_fewshot: 0
   batch_size: 8
   metrics:
-    acc,none: 0.266
+    acc,none: 0.333
