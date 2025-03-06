@@ -120,7 +120,30 @@ def update_weight_zp_scale(module: Module):
 
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
+
+        transform_data = getattr(module, "transform_data", None)
+        if transform_data is not None:
+            # order that the transforms were added to match the order they should be applied
+            untransformed_weight = module.weight.data.clone()
+            for transform_name, transform_values in transform_data.data.items():
+                transform = getattr(module, transform_name)
+                apply = transform_values.get("apply")
+                call_args = transform_values.get("call_args")
+                if call_args:
+                    transformed_weight = apply(
+                        input_tensor=module.weight, transform=transform, **call_args
+                    )
+                else:
+                    transformed_weight = apply(
+                        input_tensor=module.weight, transform=transform
+                    )
+                module.weight.data.copy_(transformed_weight)
+
         call_observer(module=module, base_name="weight")
+
+        # TODO: what do we do here?
+        if transform_data is not None:
+            module.weight.data.copy_(untransformed_weight)
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
