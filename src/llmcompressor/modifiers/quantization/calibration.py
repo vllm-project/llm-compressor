@@ -4,6 +4,7 @@ import torch
 from compressed_tensors.quantization import QuantizationStatus, is_attention_module
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
+from compressed_tensors.transforms.apply import apply_transforms_to_parameter
 from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from loguru import logger
 from torch.nn import Module
@@ -123,25 +124,15 @@ def update_weight_zp_scale(module: Module):
 
         transform_data = getattr(module, "transform_data", None)
         if transform_data is not None:
-            # order that the transforms were added to match the order they should be applied
             untransformed_weight = module.weight.data.clone()
-            for transform_name, transform_values in transform_data.data.items():
-                transform = getattr(module, transform_name)
-                apply = transform_values.get("apply")
-                call_args = transform_values.get("call_args")
-                if call_args:
-                    transformed_weight = apply(
-                        input_tensor=module.weight, transform=transform, **call_args
-                    )
-                else:
-                    transformed_weight = apply(
-                        input_tensor=module.weight, transform=transform
-                    )
-                module.weight.data.copy_(transformed_weight)
+            apply_transforms_to_parameter(
+                module=module,
+                module_parameter=module.weight,
+                transform_data=transform_data,
+            )
 
         call_observer(module=module, base_name="weight")
 
-        # TODO: what do we do here?
         if transform_data is not None:
             module.weight.data.copy_(untransformed_weight)
 
