@@ -17,6 +17,7 @@
 # Adapted from https://github.com/huggingface/transformers
 # vllm-project: no copyright
 
+
 from pathlib import PosixPath
 
 from compressed_tensors.utils.helpers import deprecated
@@ -32,7 +33,6 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
 )
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
-
 
 
 @deprecated(
@@ -65,12 +65,12 @@ def apply(**kwargs):
     """
     from llmcompressor.args import parse_args
 
-    report_to = kwargs.get("report_to", None)
     model_args, dataset_args, recipe_args, training_args, _ = parse_args(
         include_training_args=True, **kwargs
     )
 
     training_args.run_stages = True
+    report_to = kwargs.get("report_to", None)
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
         training_args.report_to = []
@@ -105,8 +105,8 @@ def main(
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
-    :param dataset_args: Arguments pertaining to what data we are going to input
-        our model for training
+    :param dataset_args: Arguments pertaining to what data we are
+        going to input our model for training
     :param training_args: Arguments pertaining to training loop configuration
     """
     from llmcompressor.args import TrainingArguments
