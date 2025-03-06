@@ -1,5 +1,4 @@
 import os
-import random
 import shutil
 from pathlib import Path
 
@@ -59,8 +58,6 @@ class TestLMEval:
     """  # noqa: E501
 
     def set_up(self):
-        random.seed(42)
-        numpy.random.seed(42)
         torch.manual_seed(42)
 
         eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
