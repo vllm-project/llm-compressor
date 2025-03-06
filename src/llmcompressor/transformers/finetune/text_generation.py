@@ -49,7 +49,7 @@ def oneshot(**kwargs) -> None:
 
 @deprecated(
     message=(
-        "`from llmcompressor.transformers import train` is deprecated, "
+        "`from llmcompressor import train` is deprecated, "
         "please use `from llmcompressor import train`."
     )
 )

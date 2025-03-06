@@ -11,7 +11,7 @@ from torch.utils.data import IterableDataset
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
 
-from llmcompressor.core import active_session, callbacks, create_session, finalize
+from llmcompressor.core import active_session, callbacks, create_session
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
@@ -182,7 +182,7 @@ class SessionManagerMixIn:
 
         with summon_full_params_context(self.model, offload_to_cpu=True):
             # in order to update each layer we need to gathers all its parameters
-            finalize()
+            active_session().finalize()
         logger.info("Finalized LLM Compressor session")
         model = get_session_model()
         self.model = model
