@@ -263,6 +263,15 @@ def main(
         # exit immediately
         return
 
+    # Training
+    if training_args.do_train:
+        checkpoint = None
+        if training_args.resume_from_checkpoint is not None:
+            checkpoint = training_args.resume_from_checkpoint
+        elif last_checkpoint is not None:
+            checkpoint = last_checkpoint
+        stage_runner.train(checkpoint)
+
     # save if model was provided as a string or custom output_dir was set
     if isinstance(model_args.model, str) or (
         training_args.output_dir
