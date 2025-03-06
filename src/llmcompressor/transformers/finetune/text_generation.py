@@ -134,10 +134,10 @@ def parse_args(**kwargs):
 
 
 def main(
-    model_args,
-    dataset_args,
-    recipe_args,
-    training_args,
+    model_args: ModelArguments,
+    dataset_args: DatasetArguments,
+    recipe_args: RecipeArguments,
+    training_args: TrainingArguments,
 ):
     """
     Main entrypoint for finetuning text generation models. A model can be loaded from
