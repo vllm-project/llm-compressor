@@ -46,7 +46,7 @@ Sparsification reduces model complexity by pruning selected weight values to zer
 
 ##### [2:4-Sparsity with FP8 Weight, FP8 Input Activation](./examples/sparse_2of4_quantization_fp8/README.md)
 - Uses (1) semi-structured sparsity (SparseGPT), where, for every four contiguous weights in a tensor, two are set to zero. (2) Uses channel-wise quantization to compress weights to 8 bits and dynamic per-token quantization to compress activations to 8 bits.
-- Useful for better inference than W8A8-fp8, with almost no drop in accuracy (blog)[https://neuralmagic.com/blog/24-sparse-llama-fp8-sota-performance-for-nvidia-hopper-gpus/]. Note: Small models may experience accuracy drops when the remaining non-zero weights are insufficient to encapsulate the original distribution.
+- Useful for better inference than W8A8-fp8, with almost no drop in its evaluation score [blog](https://neuralmagic.com/blog/24-sparse-llama-fp8-sota-performance-for-nvidia-hopper-gpus/). Note: Small models may experience accuracy drops when the remaining non-zero weights are insufficient to recapitulate the original distribution.
 - Recommended for compute capability >8.9 (Hopper and Ada Lovelace).
 
 
