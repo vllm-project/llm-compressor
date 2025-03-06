@@ -4,8 +4,8 @@ from datasets import load_dataset
 from PIL import Image
 from transformers import AutoProcessor
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.tracing import TraceableIdefics3ForConditionalGeneration
 
 # Load model.
@@ -49,15 +49,19 @@ def preprocess(example):
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "What does the image show?"},
+                {"type": "text", "text": "What does this image show?"},
                 {"type": "image"},
             ],
-        }
+        },
+        {
+            "role": "assistant",
+            "content": " ".join(example["caption"]),
+        },
     ]
     return {
         "text": processor.apply_chat_template(
             messages,
-            add_generation_prompt=True,
+            add_generation_prompt=False,
         ),
         "images": example["image"],
     }

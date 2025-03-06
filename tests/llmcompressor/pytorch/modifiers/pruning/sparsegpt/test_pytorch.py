@@ -32,7 +32,7 @@ class TestInvalidLayerwiseRecipesRaiseExceptions(unittest.TestCase):
         modifier = SparseGPTModifier(
             sparsity=sparsity,
             block_size=128,
-            sequential_targets=targets,
+            targets=targets,
         )
         testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
 
@@ -48,9 +48,9 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
 
     def test_successful_layerwise_recipe(self):
         sparsities = [0.5, 0.2]
-        sequential_targets = ["seq.fc1", "seq.fc2"]
+        targets = ["seq.fc1", "seq.fc2"]
         modifier = SparseGPTModifier(
-            sparsity=sparsities, block_size=128, sequential_targets=sequential_targets
+            sparsity=sparsities, block_size=128, targets=targets
         )
         testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
         modifier.initialize(testing_harness.get_state())
@@ -71,7 +71,7 @@ class TestCreateDefaultQuantModifier(unittest.TestCase):
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier.on_initialize_structure(testing_harness.get_state())
+        modifier._check_build_quant_modifier(testing_harness.get_state().model)
         assert modifier.quantize
         assert isinstance(modifier._quantization_modifier, QuantizationModifier)
         modifier._quantization_modifier.create_init_config()
@@ -105,10 +105,6 @@ class TestSetQuantIfModifierAlreadyExists(unittest.TestCase):
 
         modifier = GPTQModifier(block_size=128)
         assert not modifier._quantization_modifier
-
-        modifier.on_initialize_structure(testing_harness.get_state())
-        # since quantization modifier is already applied, quantization must be set in
-        # GPTQ
         assert modifier.quantize
 
 
@@ -142,7 +138,7 @@ class TestSetQuantInGPTQ(unittest.TestCase):
         assert modifier._quantization_modifier is None
 
         testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier.on_initialize_structure(testing_harness.get_state())
+        modifier._check_build_quant_modifier(testing_harness.get_state().model)
         assert modifier.quantize
         self.assertIsInstance(modifier._quantization_modifier, QuantizationModifier)
 

@@ -5,7 +5,7 @@ from transformers import DefaultDataCollator
 
 
 @dataclass
-class DVCDatasetTrainingArguments:
+class DVCDatasetArguments:
     """
     Arguments for training using DVC
     """
@@ -17,7 +17,7 @@ class DVCDatasetTrainingArguments:
 
 
 @dataclass
-class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
+class CustomDatasetArguments(DVCDatasetArguments):
     """
     Arguments for training using custom datasets
     """
@@ -67,10 +67,10 @@ class CustomDataTrainingArguments(DVCDatasetTrainingArguments):
 
 
 @dataclass
-class DataTrainingArguments(CustomDataTrainingArguments):
+class DatasetArguments(CustomDatasetArguments):
     """
     Arguments pertaining to what data we are going to input our model for
-    training and eval
+    calibration, training
 
     Using `HfArgumentParser` we can turn this class into argparse
     arguments to be able to specify them on the command line
@@ -148,22 +148,6 @@ class DataTrainingArguments(CustomDataTrainingArguments):
         metadata={
             "help": "For debugging purposes or quicker training, truncate the number "
             "of training examples to this value if set."
-        },
-    )
-    max_eval_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": "For debugging purposes or quicker training, truncate the number "
-            "of evaluation examples to this value if set."
-        },
-    )
-    max_predict_samples: Optional[int] = field(
-        default=None,
-        metadata={
-            "help": (
-                "For debugging purposes or quicker training, truncate the number of "
-                "prediction examples to this value if set."
-            ),
         },
     )
     min_tokens_per_module: Optional[float] = field(

@@ -19,9 +19,9 @@ from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
@@ -167,8 +167,6 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     ],
 )
 def test_quant_model_reload(format, dtype, tmp_path):
-    from llmcompressor.pytorch.model_load.helpers import get_session_model
-
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
@@ -182,7 +180,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     splits = {"calibration": "train[:10%]"}
 
     # create a quantized model
-    oneshot(
+    model = oneshot(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -195,7 +193,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
     )
 
     # Fetch the oneshot model
-    model = get_session_model()
     og_state_dict = model.state_dict()
     save_path_compressed = tmp_path / "compressed"
 
@@ -672,7 +669,9 @@ def test_correct_compressor_inferred(
     if is_24:
         weights = _make_24_sparse(weights)
     else:
-        weights[0, :] = torch.ones(4, )  # guarantee not 24 sparse
+        weights[0, :] = torch.ones(
+            4,
+        )  # guarantee not 24 sparse
 
     quantization_config = _quantization_config_from_string(quant_style, quant_type)
     quantization_args = quantization_config.config_groups["group_0"].weights

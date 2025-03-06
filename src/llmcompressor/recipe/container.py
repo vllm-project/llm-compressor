@@ -1,8 +1,14 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import List, Optional
 
 from llmcompressor.modifiers import Modifier
-from llmcompressor.recipe.recipe import Recipe, RecipeTuple
+from llmcompressor.recipe.recipe import (
+    Recipe,
+    RecipeArgsInput,
+    RecipeInput,
+    RecipeStageInput,
+    RecipeTuple,
+)
 
 __all__ = ["RecipeContainer"]
 
@@ -22,52 +28,42 @@ class RecipeContainer:
     recipes: List[RecipeTuple] = field(default_factory=list)
     applied_stages: List[str] = field(default_factory=list)
 
-    def update(
+    def prepend(
         self,
-        recipe: Union[
-            str, List[str], Recipe, List[Recipe], Modifier, List[Modifier], None
-        ] = None,
-        recipe_stage: Union[str, List[str], List[List[str]], None] = None,
-        recipe_args: Union[Dict[str, Any], List[Dict[str, Any]], None] = None,
-        **kwargs,
-    ) -> Dict:
-        """
-        Update the recipes in the container. If a recipe is provided, it will
-        reset any existing compiled_recipe in the container. Must call
-        `check_compile_recipe` to re-compile the recipes into a single compiled_recipe.
-        If no recipe is provided, does nothing and returns the kwargs.
+        recipe: Optional[RecipeInput] = None,
+        recipe_stage: Optional[RecipeStageInput] = None,
+        recipe_args: Optional[RecipeArgsInput] = None,
+    ):
+        recipe_tuples = self._prepare_tuples(recipe, recipe_stage, recipe_args)
+        self.recipes = recipe_tuples + self.recipes
+        self._check_compile_recipe()
 
-        Can provide multiple recipes to update the container with:
-        >>> container = RecipeContainer()
-        >>> recipe_str_1 = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 0.0
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe_str_2 = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 3.0
-        ...             end: 4.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> result = container.update(recipe=[recipe_str_1, recipe_str_2])
+    def append(
+        self,
+        recipe: Optional[RecipeInput] = None,
+        recipe_stage: Optional[RecipeStageInput] = None,
+        recipe_args: Optional[RecipeArgsInput] = None,
+    ):
+        recipe_tuples = self._prepare_tuples(recipe, recipe_stage, recipe_args)
+        self.recipes = self.recipes + recipe_tuples
+        self._check_compile_recipe()
 
-        :param recipe: the recipe to update the container with
-        :param recipe_stage: the recipe stage to update the container with
-        :param recipe_args: the recipe args to update the recipe with
-        :param kwargs: additional kwargs to return
-        :return: the passed in kwargs
-        """
-        if recipe is None or isinstance(recipe, list) and len(recipe) == 0:
-            return kwargs
+    def get_modifiers(self) -> List[Modifier]:
+        if self.compiled_recipe is None:
+            return []
 
-        self.compiled_recipe = None
+        return self.compiled_recipe.create_modifier()
 
+    def _prepare_tuples(
+        self,
+        recipe: Optional[RecipeInput] = None,
+        recipe_stage: Optional[RecipeStageInput] = None,
+        recipe_args: Optional[RecipeArgsInput] = None,
+    ) -> List[RecipeTuple]:
+        if recipe is None or (isinstance(recipe, list) and len(recipe) == 0):
+            return []
+
+        # prepare recipe
         if isinstance(recipe, Modifier) or (
             isinstance(recipe, list)
             and all(isinstance(mod, Modifier) for mod in recipe)
@@ -77,6 +73,12 @@ class RecipeContainer:
         if not isinstance(recipe, list):
             recipe = [recipe]
 
+        recipe = [
+            Recipe.create_instance(rec) if isinstance(rec, str) else rec
+            for rec in recipe
+        ]
+
+        # prepare stage
         if recipe_stage is None:
             recipe_stage = [None] * len(recipe)
         else:
@@ -85,22 +87,23 @@ class RecipeContainer:
             if not isinstance(recipe_stage[0], list):
                 recipe_stage = [recipe_stage] * len(recipe)
 
+        # prepare args
         if recipe_args is None:
             recipe_args = [{}] * len(recipe)
         elif not isinstance(recipe_args, list):
             recipe_args = [recipe_args] * len(recipe)
 
+        # validation
         if len(recipe) != len(recipe_stage) or len(recipe) != len(recipe_args):
             raise ValueError(
                 "recipe, recipe_stage, and recipe_args must be the same length"
             )
 
-        for rec, stage, args in zip(recipe, recipe_stage, recipe_args):
-            if isinstance(rec, str):
-                rec = Recipe.create_instance(rec)
-            self.recipes.append(RecipeTuple(rec, stage, args))
-
-        return kwargs
+        # create tuples
+        return [
+            RecipeTuple(rec, stage, args)
+            for rec, stage, args in zip(recipe, recipe_stage, recipe_args)
+        ]
 
     def update_applied_stages(self, new_stages: List[str]):
         """
@@ -113,7 +116,7 @@ class RecipeContainer:
             if stage not in self.applied_stages:
                 self.applied_stages.append(stage)
 
-    def check_compile_recipe(self) -> bool:
+    def _check_compile_recipe(self):
         """
         Check if the recipes need to be compiled into a single recipe and
         compile them if they do.
@@ -122,9 +125,6 @@ class RecipeContainer:
         """
         if self.compiled_recipe is None and self.recipes:
             self.compiled_recipe = Recipe.simplify_combine_recipes(self.recipes)
-            return True
-
-        return False
 
     def check_any_recipe_exists(self) -> bool:
         """

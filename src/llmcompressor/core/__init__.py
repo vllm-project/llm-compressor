@@ -11,12 +11,10 @@ from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.session_functions import (
     LifecycleCallbacks,
     active_session,
-    apply,
     callbacks,
     create_session,
     finalize,
     initialize,
-    pre_initialize_structure,
     reset_session,
 )
 from llmcompressor.core.state import Data, Hardware, ModifiedState, State
@@ -37,7 +35,6 @@ __all__ = [
     "create_session",
     "active_session",
     "reset_session",
-    "pre_initialize_structure",
     "initialize",
     "finalize",
     "apply",
