@@ -26,14 +26,14 @@ class TestOBCQCompletion(unittest.TestCase):
         from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        data_args = DatasetArguments(
+        dataset_args = DatasetArguments(
             dataset=dataset_name,
             max_seq_length=512,
             pad_to_max_length=False,
         )
         dataset_manager = TextGenerationDataset.load_from_registry(
-            data_args.dataset,
-            data_args=data_args,
+            dataset_args.dataset,
+            dataset_args=dataset_args,
             split="train",
             processor=tokenizer,
         )
@@ -47,9 +47,9 @@ class TestOBCQCompletion(unittest.TestCase):
     def _test_oneshot_completion(self, model_name: str = None):
         import torch
 
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils import tensors_to_device
-        from llmcompressor.transformers import oneshot
 
         oneshot(
             model=self.model,
@@ -62,7 +62,6 @@ class TestOBCQCompletion(unittest.TestCase):
             output_dir=self.output,
             clear_sparse_session=False,
             precision="bfloat16",
-            bf16=True,
         )
 
         first_tiny_model = get_session_model()

@@ -6,10 +6,22 @@ import numpy
 import pytest
 import yaml
 from loguru import logger
+from pydantic import BaseModel
 
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
+
+
+class LmEvalConfig(BaseModel):
+    model: str = "hf"
+    model_args: dict = {"add_bos_token": True, "dtype": "bfloat16"}
+    task: str = "gsm8k"
+    num_fewshot: int = 5
+    limit: int = 1000
+    metrics: dict
+    batch_size: int = 100
+
 
 try:
     import lm_eval
@@ -51,6 +63,8 @@ class TestLMEval:
             pytest.skip("Skipping test; cadence mismatch")
 
         self.model = eval_config["model"]
+        self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
+        self.lmeval = LmEvalConfig(**eval_config.get("lmeval", {}))
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
@@ -58,11 +72,6 @@ class TestLMEval:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
-        self.task = eval_config.get("task")
-        self.num_fewshot = eval_config.get("num_fewshot")
-        self.limit = eval_config.get("limit")
-        self.exact_flex = eval_config.get("exact_match,flexible-extract")
-        self.exact_strict = eval_config.get("exact_match,strict-match")
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
@@ -76,8 +85,9 @@ class TestLMEval:
         self.set_up()
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
-        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+        oneshot_model, processor = run_oneshot_for_e2e_testing(
             model=self.model,
+            model_class=self.model_class,
             device=self.device,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,
@@ -91,7 +101,7 @@ class TestLMEval:
 
         logger.info("================= SAVING TO DISK ======================")
         oneshot_model.save_pretrained(self.save_dir)
-        tokenizer.save_pretrained(self.save_dir)
+        processor.save_pretrained(self.save_dir)
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
         # Use the session to fetch the recipe;
@@ -104,26 +114,26 @@ class TestLMEval:
 
         logger.info("================= Running LM Eval ======================")
 
-        model_args = f"pretrained={self.save_dir},add_bos_token=True"
+        model_args = {"pretrained": self.save_dir}
+        model_args.update(self.lmeval.model_args)
         results = lm_eval.simple_evaluate(
-            model="hf",
+            model=self.lmeval.model,
             model_args=model_args,
-            tasks=[self.task],
-            num_fewshot=self.num_fewshot,
-            limit=self.limit,
+            tasks=[self.lmeval.task],
+            num_fewshot=self.lmeval.num_fewshot,
+            limit=self.lmeval.limit,
             device="cuda:0",
-            batch_size=100,
+            batch_size=self.lmeval.batch_size,
         )
 
-        metrics = results["results"][self.task]
-        exact_match_strict = metrics.get("exact_match,strict-match")
-        exact_match_flex = metrics.get("exact_match,flexible-extract")
-        logger.info("Exact Match, Strict")
-        logger.info(exact_match_strict)
-        logger.info("Exact Match, Flex")
-        logger.info(exact_match_flex)
-        assert numpy.isclose(exact_match_strict, self.exact_strict, rtol=0.05)
-        assert numpy.isclose(exact_match_flex, self.exact_flex, rtol=0.05)
+        metrics = results["results"][self.lmeval.task]
+        for metric, expected_val in self.lmeval.metrics.items():
+            actual_val = metrics.get(metric)
+            logger.info(
+                f"Comparing {metric}: Expected {expected_val}, Got {actual_val}"
+            )
+            assert numpy.isclose(expected_val, actual_val, rtol=0.05)
+
         self.tear_down()
 
     def tear_down(self):
