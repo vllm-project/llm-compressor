@@ -23,6 +23,12 @@ from pathlib import PosixPath
 from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
 
+from llmcompressor.args import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import save_checkpoint
 from llmcompressor.recipe import Recipe, StageRunType
@@ -82,10 +88,10 @@ def compress(**kwargs):
 
 
 def main(
-    model_args,
-    dataset_args,
-    recipe_args,
-    training_args,
+    model_args: ModelArguments,
+    dataset_args: DatasetArguments,
+    recipe_args: RecipeArguments,
+    training_args: TrainingArguments,
 ):
     """
     Main entrypoint for finetuning text generation models. A model can be loaded from
