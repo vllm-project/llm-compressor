@@ -31,7 +31,7 @@ class TextGenerationDataset(RegistryMixin):
     3. Tokenize dataset using model tokenizer/processor
     4. Apply post processing such as grouping text and/or adding labels for finetuning
 
-    :param data_args: configuration settings for dataset loading
+    :param dataset_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
     :param processor: processor or tokenizer to use on dataset
     """
@@ -41,11 +41,11 @@ class TextGenerationDataset(RegistryMixin):
 
     def __init__(
         self,
-        data_args: DatasetArguments,
+        dataset_args: DatasetArguments,
         split: str,
         processor: Processor,
     ):
-        self.data_args = data_args
+        self.dataset_args = dataset_args
         self.split = split
         self.processor = processor
 
@@ -58,23 +58,23 @@ class TextGenerationDataset(RegistryMixin):
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
             # configure sequence length
-            max_seq_length = data_args.max_seq_length
-            if data_args.max_seq_length > self.tokenizer.model_max_length:
+            max_seq_length = dataset_args.max_seq_length
+            if dataset_args.max_seq_length > self.tokenizer.model_max_length:
                 logger.warning(
                     f"The max_seq_length passed ({max_seq_length}) is larger than "
                     f"maximum length for model ({self.tokenizer.model_max_length}). "
                     f"Using max_seq_length={self.tokenizer.model_max_length}."
                 )
             self.max_seq_length = min(
-                data_args.max_seq_length, self.tokenizer.model_max_length
+                dataset_args.max_seq_length, self.tokenizer.model_max_length
             )
 
             # configure padding
             self.padding = (
                 False
-                if self.data_args.concatenate_data
+                if self.dataset_args.concatenate_data
                 else "max_length"
-                if self.data_args.pad_to_max_length
+                if self.dataset_args.pad_to_max_length
                 else False
             )
 
@@ -83,7 +83,7 @@ class TextGenerationDataset(RegistryMixin):
             self.padding = False
 
     def __call__(self, add_labels: bool = True) -> DatasetType:
-        dataset = self.data_args.dataset
+        dataset = self.dataset_args.dataset
 
         if isinstance(dataset, str):
             # load dataset: load from huggingface or disk
@@ -96,8 +96,8 @@ class TextGenerationDataset(RegistryMixin):
                 dataset,
                 self.preprocess,
                 batched=False,
-                num_proc=self.data_args.preprocessing_num_workers,
-                load_from_cache_file=not self.data_args.overwrite_cache,
+                num_proc=self.dataset_args.preprocessing_num_workers,
+                load_from_cache_file=not self.dataset_args.overwrite_cache,
                 desc="Preprocessing",
             )
             logger.debug(f"Dataset after preprocessing: {get_columns(dataset)}")
@@ -121,20 +121,20 @@ class TextGenerationDataset(RegistryMixin):
                 # regardless of `batched` argument
                 remove_columns=get_columns(dataset),  # assumes that input names
                 # and output names are disjoint
-                num_proc=self.data_args.preprocessing_num_workers,
-                load_from_cache_file=not self.data_args.overwrite_cache,
+                num_proc=self.dataset_args.preprocessing_num_workers,
+                load_from_cache_file=not self.dataset_args.overwrite_cache,
                 desc="Tokenizing",
             )
             logger.debug(f"Model kwargs after tokenizing: {get_columns(dataset)}")
 
-        if self.data_args.concatenate_data:
+        if self.dataset_args.concatenate_data:
             # postprocess: group text
             dataset = self.map(
                 dataset,
                 self.group_text,
                 batched=True,
-                num_proc=self.data_args.preprocessing_num_workers,
-                load_from_cache_file=not self.data_args.overwrite_cache,
+                num_proc=self.dataset_args.preprocessing_num_workers,
+                load_from_cache_file=not self.dataset_args.overwrite_cache,
                 desc="Concatenating data",
             )
             logger.debug(f"Model kwargs after concatenating: {get_columns(dataset)}")
@@ -145,8 +145,8 @@ class TextGenerationDataset(RegistryMixin):
                 dataset,
                 self.add_labels,
                 batched=False,  # not compatible with batching, need row lengths
-                num_proc=self.data_args.preprocessing_num_workers,
-                load_from_cache_file=not self.data_args.overwrite_cache,
+                num_proc=self.dataset_args.preprocessing_num_workers,
+                load_from_cache_file=not self.dataset_args.overwrite_cache,
                 desc="Adding labels",
             )
             logger.debug(f"Model kwargs after adding labels: {get_columns(dataset)}")
@@ -165,27 +165,31 @@ class TextGenerationDataset(RegistryMixin):
         :param cache_dir: disk location to search for cached dataset
         :return: the requested dataset
         """
-        if self.data_args.dataset_path is not None:
-            if self.data_args.dvc_data_repository is not None:
-                self.data_args.raw_kwargs["storage_options"] = {
-                    "url": self.data_args.dvc_data_repository
+        if self.dataset_args.dataset_path is not None:
+            if self.dataset_args.dvc_data_repository is not None:
+                self.dataset_args.raw_kwargs["storage_options"] = {
+                    "url": self.dataset_args.dvc_data_repository
                 }
-                self.data_args.raw_kwargs["data_files"] = self.data_args.dataset_path
+                self.dataset_args.raw_kwargs["data_files"] = (
+                    self.dataset_args.dataset_path
+                )
             else:
-                self.data_args.raw_kwargs["data_files"] = get_custom_datasets_from_path(
-                    self.data_args.dataset_path,
-                    self.data_args.dataset
-                    if hasattr(self.data_args, "dataset")
-                    else self.data_args.dataset_name,
+                self.dataset_args.raw_kwargs["data_files"] = (
+                    get_custom_datasets_from_path(
+                        self.dataset_args.dataset_path,
+                        self.dataset_args.dataset
+                        if hasattr(self.dataset_args, "dataset")
+                        else self.dataset_args.dataset_name,
+                    )
                 )
 
-        logger.debug(f"Loading dataset {self.data_args.dataset}")
+        logger.debug(f"Loading dataset {self.dataset_args.dataset}")
         return get_raw_dataset(
-            self.data_args,
+            self.dataset_args,
             None,
             split=self.split,
-            streaming=self.data_args.streaming,
-            **self.data_args.raw_kwargs,
+            streaming=self.dataset_args.streaming,
+            **self.dataset_args.raw_kwargs,
         )
 
     @cached_property
@@ -194,7 +198,7 @@ class TextGenerationDataset(RegistryMixin):
         The function must return keys which correspond to processor/tokenizer kwargs,
         optionally including PROMPT_KEY
         """
-        preprocessing_func = self.data_args.preprocessing_func
+        preprocessing_func = self.dataset_args.preprocessing_func
 
         if callable(preprocessing_func):
             return preprocessing_func
@@ -218,9 +222,9 @@ class TextGenerationDataset(RegistryMixin):
     def rename_columns(self, dataset: DatasetType) -> DatasetType:
         # rename columns to match processor/tokenizer kwargs
         column_names = get_columns(dataset)
-        if self.data_args.text_column in column_names and "text" not in column_names:
-            logger.debug(f"Renaming column `{self.data_args.text_column}` to `text`")
-            dataset = dataset.rename_column(self.data_args.text_column, "text")
+        if self.dataset_args.text_column in column_names and "text" not in column_names:
+            logger.debug(f"Renaming column `{self.dataset_args.text_column}` to `text`")
+            dataset = dataset.rename_column(self.dataset_args.text_column, "text")
 
         return dataset
 
