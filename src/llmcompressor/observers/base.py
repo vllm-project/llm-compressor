@@ -128,7 +128,7 @@ class Observer(Module, RegistryMixin):
                     self._zero_point[:, group_index] = zero_point.squeeze(1)
 
             elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
-                if base_name == "output":
+                if base_name in ("output", "kv_cache"):
                     # the last dimension is the hidden dimension
                     # shape of [1,1, num_key_value_heads * head_dim]
                     scale, zero_point = self.get_qparams_along_dim(
