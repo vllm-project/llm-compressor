@@ -90,6 +90,7 @@ class QuantizedKVParameterCache(DynamicCache):
             self.k_observers.append(k_observer)
             self.v_observers.append(v_observer)
 
+        # batch x heads x seq_len x head_dim
         q_key_states = self._quantize(
             key_states.contiguous(), KVCacheScaleType.KEY, layer_idx
         )
@@ -150,7 +151,15 @@ class QuantizedKVParameterCache(DynamicCache):
             scales = self.v_scales
             zps = self.v_zps
 
-        scale, zp = observer(tensor)
+        # note: key, value states are in the shape:
+        # [batch, num_key_value_heads, seq_len, head_dim]
+
+        base_name = None  # tensor-wise quantization, shape of [1]
+        if self.quantization_args.strategy == "channel":
+            # target last dim to quantize, shape of [head_dim]
+            base_name = "kv_cache"
+
+        scale, zp = observer(tensor, base_name=base_name)
         if len(scales) <= layer_idx:
             scales.append(scale)
             zps.append(zp)
