@@ -3,22 +3,10 @@ Helper functions for retrieving information related to model sparsification
 """
 
 import json
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generator,
-    Iterable,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
-    Union,
-)
+from typing import Dict, Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
-from loguru import logger
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -26,7 +14,6 @@ from llmcompressor.pytorch.utils.helpers import get_quantized_layers, tensor_spa
 
 __all__ = [
     "ModuleSparsificationInfo",
-    "GradSampler",
 ]
 
 
@@ -120,90 +107,3 @@ class ModuleSparsificationInfo:
         :return: percentage of parameters that have been quantized
         """
         return self.params_quantized / float(self.params_total) * 100
-
-
-class GradSampler:
-    """
-    Class for computing gradient samples for a Model given a sample data loader and
-    loss function.
-
-    :param data_loader: iterator of data samples to use as model inputs and their loss
-        targets. items must be tuples of
-        (forward_args: List, forward_kwargs: Dict, loss_targets: Any)
-        where the forward pass will be outputs = model(*forward_args, **forward_kwargs)
-        and loss will be loss = loss_fn(outputs, loss_targets)
-    :param loss_fn: function to be called on model outputs to compute the loss at
-        each step
-    """
-
-    def __init__(
-        self,
-        data_loader: Union[Iterator[Tuple[List[Any], Dict[str, Any], Any]], Callable],
-        loss_fn: Callable[[Any, Any], Any],
-    ):
-        if not isinstance(data_loader, Iterable) and not callable(data_loader):
-            raise ValueError(
-                "data_loader for GradSampler must be Iterable or Callable, received "
-                f"object of type {type(data_loader)}"
-            )
-        if not callable(loss_fn):
-            raise ValueError(
-                "loss_fn for GradSampler must be callable, given input "
-                f"with type {type(loss_fn)}"
-            )
-
-        self._data_loader = data_loader
-        self._loss_fn = loss_fn
-
-    def iter_module_backwards(
-        self,
-        module: Module,
-        num_grads: int,
-        progress_bar: bool = True,
-    ) -> Generator[int, None, None]:
-        """
-        :param module: module to compute gradients for
-        :param num_grads: number of gradient samples to compute
-        :return: generator that yields after every gradient is computed with the index
-            of the gradient sample number
-        """
-        computed_grads = 0
-        pbar = tqdm(
-            total=num_grads, desc="Collecting gradients", disable=not progress_bar
-        )
-
-        with pbar:
-            while computed_grads < num_grads:
-                data_loader = (
-                    self._data_loader()
-                    if callable(self._data_loader)
-                    else self._data_loader
-                )
-                for forward_args, forward_kwargs, loss_target in data_loader:
-                    module.zero_grad()
-                    # run sample forward and backwards pass
-                    model_outputs = module(*forward_args, **forward_kwargs)
-                    # Image classification models have been overridden to compute both
-                    # the logit values and the probabilities, returning a tuple.
-                    #  No other models do this.
-                    if model_outputs.__class__ == tuple:
-                        model_outputs = model_outputs[0]
-                    loss = self._loss_fn(model_outputs, loss_target)
-                    loss.backward()
-
-                    # yield so gradients can be collected
-                    computed_grads += 1
-                    yield computed_grads
-                    if progress_bar:
-                        pbar.update(1)
-                    if computed_grads >= num_grads:
-                        break
-                if computed_grads < num_grads:
-                    logger.warning(
-                        f"The requested num_grads:{num_grads} "
-                        f"is greater than allowed by the dataset. \
-                        Proceeding with less than requested. \
-                        Please reduce num_grads to suppress the warning."
-                    )
-                    break
-        module.zero_grad()
