@@ -170,6 +170,7 @@ class StageRunner:
 
         self.trainer.accelerator.wait_for_everyone()
         do_preprocess = True
+        model = self._model_args.model
 
         for stage in recipe_obj.stages:
             # validate stage
@@ -221,8 +222,11 @@ class StageRunner:
                     calibration_dataloader=calib_data,
                     recipe_stage=stage_name,
                 )
+                model = self._model_args.model
+
             elif run_type is StageRunType.TRAIN:
                 self.train(checkpoint=checkpoint, stage=stage_name)
+                model = self.trainer.model
 
             checkpoint = None
 
@@ -234,7 +238,7 @@ class StageRunner:
             ):
                 save_checkpoint(
                     save_path=self._output_dir,
-                    model=self.trainer.model,
+                    model=model,
                     processor=self.processor,
                     save_safetensors=self._training_args.save_safetensors,
                     save_compressed=self._model_args.save_compressed,
