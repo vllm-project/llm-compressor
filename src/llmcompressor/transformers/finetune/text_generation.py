@@ -17,12 +17,11 @@
 # Adapted from https://github.com/huggingface/transformers
 # vllm-project: no copyright
 
-import warnings
+
 from pathlib import PosixPath
 
 from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
-from transformers import HfArgumentParser
 
 from llmcompressor.args import (
     DatasetArguments,
@@ -42,15 +41,6 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
-def train(**kwargs):
-    """
-    CLI entrypoint for running training
-    """
-    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_train = True
-    main(model_args, dataset_args, recipe_args, training_args)
-
-
 @deprecated(
     message=(
         "`from llmcompressor.transformers import oneshot` is deprecated, "
@@ -61,6 +51,18 @@ def oneshot(**kwargs) -> None:
     from llmcompressor import oneshot
 
     oneshot(**kwargs)
+
+
+@deprecated(
+    message=(
+        "`from llmcompressor import train` is deprecated, "
+        "please use `from llmcompressor import train`."
+    )
+)
+def train(**kwargs):
+    from llmcompressor import train
+
+    train(**kwargs)
 
 
 def apply(**kwargs):
@@ -83,54 +85,6 @@ def apply(**kwargs):
 
 def compress(**kwargs):
     apply(**kwargs)
-
-
-def parse_args(**kwargs):
-    """
-    Parses kwargs by grouping into model, data or training arg groups:
-        * model_args in
-            src/llmcompressor/transformers/utils/arg_parser/model_args.py
-        * dataset_args in
-            src/llmcompressor/transformers/utils/arg_parser/dataset_args.py
-        * recipe_args in
-            src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
-        * training_args in
-            src/llmcompressor/transformers/utils/arg_parser/training_args.py
-    """
-    parser = HfArgumentParser(
-        (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
-    )
-
-    if not kwargs:
-        parsed_args = parser.parse_args_into_dataclasses()
-    else:
-        parsed_args = parser.parse_dict(kwargs)
-
-    model_args, dataset_args, recipe_args, training_args = parsed_args
-    if recipe_args.recipe_args is not None:
-        if not isinstance(recipe_args.recipe_args, dict):
-            arg_dict = {}
-            for recipe_arg in recipe_args.recipe_args:
-                key, value = recipe_arg.split("=")
-                arg_dict[key] = value
-            recipe_args.recipe_args = arg_dict
-
-    # raise depreciation warnings
-    if dataset_args.remove_columns is not None:
-        warnings.warn(
-            "`remove_columns` argument is depreciated. When tokenizing datasets, all "
-            "columns which are invalid inputs the tokenizer will be removed",
-            DeprecationWarning,
-        )
-
-    # silently assign tokenizer to processor
-    if model_args.tokenizer:
-        if model_args.processor:
-            raise ValueError("Cannot use both a tokenizer and processor")
-        model_args.processor = model_args.tokenizer
-    model_args.tokenizer = None
-
-    return model_args, dataset_args, recipe_args, training_args
 
 
 def main(
@@ -262,15 +216,6 @@ def main(
 
         # exit immediately
         return
-
-    # Training
-    if training_args.do_train:
-        checkpoint = None
-        if training_args.resume_from_checkpoint is not None:
-            checkpoint = training_args.resume_from_checkpoint
-        elif last_checkpoint is not None:
-            checkpoint = last_checkpoint
-        stage_runner.train(checkpoint)
 
     # save if model was provided as a string or custom output_dir was set
     if isinstance(model_args.model, str) or (
