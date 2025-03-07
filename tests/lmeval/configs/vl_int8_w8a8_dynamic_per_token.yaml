@@ -5,6 +5,7 @@ scheme: INT8_dyn_per_token
 recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
 dataset_id: lmms-lab/flickr30k
 dataset_split: "test[:512]"
+seed: 42 #compressed model is sensitive to random seed
 lmeval:
   model: "hf-multimodal"
   model_args:
@@ -13,7 +14,6 @@ lmeval:
     convert_img_format: True
   task: mmmu_val_economics
   num_fewshot: 0
-  limit: 1000
   metrics:
     acc,none: 0.233
   batch_size: 8
