@@ -1,4 +1,5 @@
 import os
+import random
 import shutil
 from pathlib import Path
 
@@ -58,8 +59,6 @@ class TestLMEval:
     """  # noqa: E501
 
     def set_up(self):
-        torch.manual_seed(42)
-
         eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
 
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
@@ -75,6 +74,12 @@ class TestLMEval:
         self.recipe = eval_config.get("recipe")
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
+
+        seed = eval_config.get("seed", None)
+        if seed is not None:
+            random.seed(seed)
+            numpy.random.seed(seed)
+            torch.manual_seed(seed)
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
