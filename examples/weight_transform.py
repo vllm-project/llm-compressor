@@ -18,7 +18,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # U(W)V.T
 
-ignore = ["re:.*.mlp.down_proj$"]
+ignore = ["re:.*.mlp.down_proj$", "lm_head"]
 module_targets = [ModuleTarget.WEIGHT.value]
 
 # Start with a processed
@@ -140,6 +140,7 @@ print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-Transforms"
+
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
 
