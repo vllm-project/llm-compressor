@@ -142,7 +142,8 @@ class Observer(Module, RegistryMixin):
                     )  # shape of [num_key_value_heads * head_dim]
                 else:
                     # weight or input
-                    # assume observed is transposed, because its the output, hence use dim 0
+                    # assume observed is transposed,
+                    # because its the output, hence use dim 0
                     self._scale, self._zero_point = self.get_qparams_along_dim(
                         observed, 0
                     )
