@@ -81,7 +81,9 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         raise ValueError("Must provide a value to observe if not using weight observer")
 
     observer = getattr(module, f"{base_name}_observer")
-    updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+    updated_scale, updated_zero_point = observer(
+        value, g_idx=g_idx, base_name=base_name
+    )
 
     # update scale and zero point
     update_parameter_data(module, updated_scale, f"{base_name}_scale")

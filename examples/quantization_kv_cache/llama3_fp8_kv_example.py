@@ -58,33 +58,35 @@ quant_stage:
                         strategy: channel
                         dynamic: false
                         symmetric: true
-                    targets: ['re:.*q_proj', 're:.*k_proj', 're:.*v_proj']
+                    # targets: ['re:.*q_proj', 're:.*k_proj', 're:.*v_proj']
+                    targets: ['re:.*q_proj',]
+                    
 """
-recipe = """
-quant_stage:
-    quant_modifiers:
-        QuantizationModifier:
-            config_groups:
-                fp8_attention_q_proj:
-                    output_activations:
-                        num_bits: 8
-                        type: float
-                        strategy: group
-                        group_size: 512
-                        dynamic: false
-                        symmetric: true
-                    targets: ['re:.*q_proj']
-                fp8_attention_kv_proj:
-                    output_activations:
-                        num_bits: 8
-                        type: float
-                        strategy: group
-                        group_size: 128
-                        dynamic: false
-                        symmetric: true
-                    targets: ['re:.*k_proj', 're:.*v_proj']
+# recipe = """
+# quant_stage:
+#     quant_modifiers:
+#         QuantizationModifier:
+#             config_groups:
+#                 fp8_attention_q_proj:
+#                     output_activations:
+#                         num_bits: 8
+#                         type: float
+#                         strategy: channel
+#                         # group_size: 512
+#                         dynamic: false
+#                         symmetric: true
+#                     targets: ['re:.*q_proj']
+#                 # fp8_attention_kv_proj:
+#                 #     output_activations:
+#                 #         num_bits: 8
+#                 #         type: float
+#                 #         strategy: group
+#                 #         group_size: 128
+#                 #         dynamic: false
+#                 #         symmetric: true
+#                 #     targets: ['re:.*k_proj', 're:.*v_proj']
 
-"""
+# """
 
 # Apply algorithms.
 oneshot(
