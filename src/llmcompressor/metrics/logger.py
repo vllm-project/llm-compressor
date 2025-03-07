@@ -829,8 +829,8 @@ class LoggerManager(ABC):
             or SparsificationGroupLogger(
                 python=log_python,
                 name=name,
-                tensorboard=True,
-                wandb_=True,
+                tensorboard=False,
+                wandb_=False,
             ).loggers
         )
 
