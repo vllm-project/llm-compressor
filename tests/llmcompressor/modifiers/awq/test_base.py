@@ -24,5 +24,5 @@ class TestAWQIsRegistered(unittest.TestCase):
         self.assertIsInstance(
             modifier,
             AWQModifier,
-            "PyTorch AWQModifier not registered",
+            "AWQModifier not registered",
         )
