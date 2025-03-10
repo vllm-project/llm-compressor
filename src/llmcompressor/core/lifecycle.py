@@ -18,7 +18,12 @@ from llmcompressor.core.events import (
 )
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import StageModifiers
-from llmcompressor.recipe import RecipeContainer
+from llmcompressor.recipe import (
+    RecipeArgsInput,
+    RecipeContainer,
+    RecipeInput,
+    RecipeStageInput,
+)
 
 __all__ = ["CompressionLifecycle"]
 
@@ -38,7 +43,7 @@ class CompressionLifecycle:
     :type event_lifecycle: Optional[EventLifecycle]
     """
 
-    state: Optional[State] = None
+    state: State = field(default_factory=State)
     recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
     modifiers: List[StageModifiers] = field(default_factory=list)
     event_lifecycle: Optional[EventLifecycle] = None
@@ -62,46 +67,16 @@ class CompressionLifecycle:
             except Exception as e:
                 logger.warning(f"Exception during finalizing modifier: {e}")
 
-        self.state = None
-        self.recipe_container = RecipeContainer()
-        self.modifiers = []
-        self.event_lifecycle = None
-
-        self.initialized_ = False
-        self.finalized = False
+        self.__init__()
         logger.info("Compression lifecycle reset")
 
-    def pre_initialize_structure(self, **kwargs) -> List[Any]:
-        """
-        Pre-initialize the structure of the compression lifecycle.
-
-        :param kwargs: Additional arguments to update the state with
-        :return: List of data returned from pre-initialization of modifiers
-        :rtype: List[Any]
-        """
-        logger.debug("Pre-initializing structure")
-        self._check_create_state()
-        extras = self.state.update(**kwargs)
-        extras = self.recipe_container.update(**extras)
-
-        self._check_compile_recipe()
-        mod_data = []
-        for mod in self.modifiers:
-            data = mod.pre_initialize_structure(state=self.state, **extras)
-            logger.debug("Pre-initialized modifier: {}", mod)
-            if data is not None:
-                mod_data.append(data)
-
-        applied_stage_names = [mod.unique_id for mod in self.modifiers if mod.applied]
-        self.recipe_container.update_applied_stages(applied_stage_names)
-        logger.info(
-            "Compression lifecycle structure pre-initialized for {} modifiers",
-            len(self.modifiers),
-        )
-
-        return mod_data
-
-    def initialize(self, **kwargs) -> List[Any]:
+    def initialize(
+        self,
+        recipe: Optional[RecipeInput] = None,
+        recipe_stage: Optional[RecipeStageInput] = None,
+        recipe_args: Optional[RecipeArgsInput] = None,
+        **kwargs,
+    ) -> List[Any]:
         """
         Initialize the compression lifecycle.
 
@@ -109,16 +84,18 @@ class CompressionLifecycle:
         :return: List of data returned from initialization of modifiers
         :rtype: List[Any]
         """
-        logger.debug("Initializing compression lifecycle")
-        self._check_create_state()
-        extras = self.state.update(**kwargs)
-        extras = self.recipe_container.update(**extras)
+        self.state.update(**kwargs)
+        if self.initialized_:  # TODO: do not initialize twice
+            return
 
-        self._check_compile_recipe()
+        logger.debug("Initializing compression lifecycle")
+        self.recipe_container.append(recipe, recipe_stage, recipe_args)
+        self.modifiers = self.recipe_container.get_modifiers()
         self._set_model_layer_prefix()
+
         mod_data = []
         for mod in self.modifiers:
-            data = mod.initialize(state=self.state, **extras)
+            data = mod.initialize(state=self.state, **kwargs)
             logger.debug("Initialized modifier: {}", mod)
             if data is not None:
                 mod_data.append(data)
@@ -185,7 +162,7 @@ class CompressionLifecycle:
             logger.error("Cannot invoke event after finalizing")
             raise ValueError("Cannot invoke event after finalizing")
 
-        if event_type in [EventType.PRE_INIT, EventType.INITIALIZE, EventType.FINALIZE]:
+        if event_type in [EventType.INITIALIZE, EventType.FINALIZE]:
             logger.error(
                 "Cannot invoke {} event. Use the corresponding method instead.",
                 event_type,
@@ -222,30 +199,6 @@ class CompressionLifecycle:
         self.state.last_event = event
 
         return mod_data
-
-    def _check_create_state(self):
-        if self.state is not None:
-            return
-
-        logger.debug("Creating new State instance for compression lifecycle")
-        self.state = State()
-        logger.info("State created for compression lifecycle")
-
-    def _check_compile_recipe(self):
-        if not self.recipe_container.check_compile_recipe():
-            return
-
-        logger.debug(
-            "Compiling recipe and creating modifiers for compression lifecycle"
-        )
-        self.modifiers = self.recipe_container.compiled_recipe.create_modifier()
-        for mod in self.modifiers:
-            if mod.unique_id in self.recipe_container.applied_stages:
-                mod.applied = True
-        logger.info(
-            "Recipe compiled and {} modifiers created",
-            len(self.modifiers),
-        )
 
     def _check_setup_event_lifecycle(self, event_type: EventType):
         if self.event_lifecycle is not None:
