@@ -46,7 +46,7 @@ class TestConsecutiveRuns(unittest.TestCase):
             self.output_first,
             device_map="auto",
             quantization_config=self.quantization_config,
-            use_safetensors=False,
+            use_safetensors=("stories" not in str(self.output_first)),
         )
 
         layer_0_sparse = tensor_sparsity(
@@ -75,7 +75,7 @@ class TestConsecutiveRuns(unittest.TestCase):
             self.output_second,
             device_map="auto",
             quantization_config=self.quantization_config,
-            use_safetensors=False,
+            use_safetensors=("stories" not in str(self.output_second)),
         )
 
         layer_0_sparse = tensor_sparsity(
@@ -156,7 +156,7 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model,
             device_map=self.device,
-            use_safetensors=False,
+            use_safetensors=("stories" not in self.model),
         )
 
         self.output = "./oneshot_output"

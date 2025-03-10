@@ -37,7 +37,7 @@ class TestQuantizationMatches(unittest.TestCase):
         cls.test_dir = tempfile.mkdtemp()
 
         cls.model = AutoModelForCausalLM.from_pretrained(
-            cls.model_stub, torch_dtype=cls.weight_dtype, device_map="cuda:0", use_safetensors=("stories" in cls.model_stub)
+            cls.model_stub, torch_dtype=cls.weight_dtype, device_map="cuda:0", use_safetensors=("stories" not in cls.model_stub)
         )
         model = cls._run_oneshot(
             cls.model,
@@ -100,7 +100,7 @@ class TestQuantizationMatches(unittest.TestCase):
             os.path.join(self.test_dir, self.output),
             torch_dtype="auto",
             device_map="cuda:0",
-            use_safetensors=("stories" in os.path.join(self.test_dir, self.output)),
+            use_safetensors=("stories" not in os.path.join(self.test_dir, self.output)),
         )
 
         og_weights, og_inputs = self._get_quant_info(self.model)

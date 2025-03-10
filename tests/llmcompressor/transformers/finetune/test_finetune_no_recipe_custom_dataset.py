@@ -147,7 +147,7 @@ class TestOneshotCustomDatasetGPU(TestFinetuneNoRecipeCustomDataset):
         self.output = "./oneshot_output"
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.model, device_map=self.device, torch_dtype=torch.bfloat16, use_safetensors=False
+            self.model, device_map=self.device, torch_dtype=torch.bfloat16, use_safetensors=("stories" not in self.model)
         )
 
     def test_oneshot_then_finetune_gpu(self):

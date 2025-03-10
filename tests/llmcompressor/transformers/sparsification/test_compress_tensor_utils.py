@@ -77,7 +77,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     transformers_logger.setLevel(level=logging.ERROR)
 
     model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype, use_safetensors=("stories" in str(tmp_path / "oneshot_out"))
+        tmp_path / "oneshot_out", torch_dtype=dtype, use_safetensors=("stories" not in str(tmp_path / "oneshot_out"))
     )
 
     # restore transformers logging level now that model shell is loaded
@@ -113,7 +113,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     assert sparsity_config["sparsity_structure"] == inferred_structure
 
     dense_model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "compress_out", torch_dtype="auto", use_safetensors=("stories" in str(tmp_path / "compress_out"))
+        tmp_path / "compress_out", torch_dtype="auto", use_safetensors=("stories" not in str(tmp_path / "compress_out"))
     )
 
     og_state_dict = model.state_dict()
@@ -136,7 +136,7 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     reset_session()
 
     model_path = "Xenova/llama2.c-stories15M"
-    model = AutoModelForCausalLM.from_pretrained(model_path, use_safetensors=("stories" in model_path))
+    model = AutoModelForCausalLM.from_pretrained(model_path, use_safetensors=("stories" not in model_path))
 
     inferred_global_sparsity = SparsityConfigMetadata.infer_global_sparsity(model)
     assert math.isclose(inferred_global_sparsity, 0.0, rel_tol=1e-3)
@@ -218,7 +218,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         save_path_compressed,
         torch_dtype=dtype,
         quantization_config=CompressedTensorsConfig(run_compressed=False),
-        use_safetensors=False,
+        use_safetensors=("stories" not in str(save_path_compressed)),
     )
 
     reconstructed_state_dict = decompressed_model.state_dict()
@@ -262,7 +262,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         tie_word_embeddings=tie_word_embeddings,
         torch_dtype=torch_dtype,
         device_map=device_map,
-        use_safetensors=False,
+        use_safetensors=("stories" not in model_path),
     )
     if offload:
         model = cpu_offload(model)
@@ -272,7 +272,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
     model.save_pretrained(save_path, safe_serialization=True)
 
     reloaded = AutoModelForCausalLM.from_pretrained(
-        save_path, torch_dtype="auto", device_map="cpu", use_safetensors=False
+        save_path, torch_dtype="auto", device_map="cpu", use_safetensors=("stories" not in str(save_path))
     )
 
     model_dict = get_state_dict_offloaded_model(model)
@@ -319,7 +319,7 @@ def test_model_shared_tensors(
         torch_dtype=torch_dtype,
         tie_word_embeddings=tie_word_embeddings,
         device_map=device_map,
-        use_safetensors=False,
+        use_safetensors=("stories" not in "Xenova/llama2.c-stories15M"),
     )
     patch_tied_tensors_bug(model)
 
@@ -385,7 +385,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     concatenate_data = False
     num_calibration_samples = 64
     splits = {"calibration": "train[:10%]"}
-    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto", use_safetensors=False)
+    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto", use_safetensors=("stories" not in model_stub))
 
     oneshot(
         model=model_stub,
@@ -470,7 +470,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     concatenate_data = False
     num_calibration_samples = 64
     splits = {"calibration": "train[:10%]"}
-    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto", use_safetensors=False)
+    empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto", use_safetensors=("stories" not in model_stub))
 
     oneshot(
         model=model_stub,
@@ -525,7 +525,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
 def test_disable_sparse_compression_flag(tmp_path):
     two_four_sparse_model_id = "nm-testing/llama2.c-stories42M-pruned2.4"
     two_four_sparse_model = AutoModelForCausalLM.from_pretrained(
-        two_four_sparse_model_id, torch_dtype="auto", use_safetensors=False
+        two_four_sparse_model_id, torch_dtype="auto", use_safetensors=("stories" not in two_four_sparse_model_id)
     )
     modify_save_pretrained(two_four_sparse_model)
 
