@@ -36,7 +36,12 @@ __all__ = ["modify_save_pretrained"]
 def modify_save_pretrained(model: PreTrainedModel):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
-    supports compression
+    supports compression. The new save_pretrained function performs the following saving
+    operations:
+
+    1. Saves the model state, potentially in a compressed format
+    2. Saves the recipe, appending any current recipes to existing recipe files
+    3. Copies any necessary python files from the model cache
     """
 
     def save_pretrained_compressed(save_pretrained_method):
@@ -254,9 +259,16 @@ def get_model_compressor(
     )
 
 
-def update_and_save_recipe(model_path: str, save_directory: str):
+def update_and_save_recipe(model_stub: str, save_directory: str):
+    """
+    Save a recipe ontop of any existing recipe files located at model_stub
+
+    :param model_stub: path to existing model or model stub which may contain an
+        existing recipe
+    :param save_directory: path to save combined existing recipe and current recipe
+    """
     recipes_to_save = []
-    existing_recipe = infer_recipe_from_model_path(model_path)
+    existing_recipe = infer_recipe_from_model_path(model_stub)
     if existing_recipe is not None:
         recipes_to_save.append(existing_recipe)
 
