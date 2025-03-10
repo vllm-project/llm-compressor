@@ -18,7 +18,7 @@ def test_infer_owl_layer_sparsity():
     modifier = SparseGPTModifier(
         sparsity=0.7, sparsity_profile="owl", owl_m=5, owl_lmbda=0.05
     )
-    model = AutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
+    model = AutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M", use_safetensors=False)
 
     dataset = Dataset.from_dict(
         {"input_ids": torch.randint(0, vocab_size, (ds_size, seq_len))}

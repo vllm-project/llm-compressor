@@ -69,6 +69,7 @@ def test_kv_cache_quantization(config):
     model = AutoModelForCausalLM.from_pretrained(
         "HuggingFaceM4/tiny-random-LlamaForCausalLM",
         torch_dtype="auto",
+        use_safetensors=False,
     )
     model.eval()
 

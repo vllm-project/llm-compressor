@@ -35,7 +35,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             self.model,
         )
         model_loaded = AutoModelForCausalLM.from_pretrained(
-            self.model, device_map="auto"
+            self.model, device_map="auto", use_safetensors=False
         )
 
         dataset_loaded = load_dataset(

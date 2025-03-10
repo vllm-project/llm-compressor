@@ -37,7 +37,7 @@ def _prep_for_input_quant_calibration(module: torch.nn.Module):
 
 
 def test_get_observer_token_count():
-    model = AutoModelForCausalLM.from_pretrained("Isotonic/TinyMixtral-4x248M-MoE")
+    model = AutoModelForCausalLM.from_pretrained("Isotonic/TinyMixtral-4x248M-MoE", use_safetensors=False)
     tokenizer = AutoTokenizer.from_pretrained("Isotonic/TinyMixtral-4x248M-MoE")
     model.eval()
     config = QuantizationConfig(

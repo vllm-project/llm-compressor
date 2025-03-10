@@ -80,7 +80,7 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
             num_calibration_samples=9,
         )
         model_loaded = AutoModelForCausalLM.from_pretrained(
-            self.output, device_map=self.device
+            self.output, device_map=self.device, use_safetensors=False
         )
 
         # Check that the model is quantized

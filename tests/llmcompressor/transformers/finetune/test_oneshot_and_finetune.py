@@ -96,7 +96,7 @@ class TestOneshotAndFinetuneGPU(TestOneshotAndFinetune):
         self.output = "./finetune_output"
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.model, device_map=self.device, torch_dtype=torch.bfloat16
+            self.model, device_map=self.device, torch_dtype=torch.bfloat16, use_safetensors=False
         )
 
     def test_oneshot_then_finetune_gpu(self):

@@ -50,6 +50,7 @@ class TestDecompression(unittest.TestCase):
             torch_dtype="auto",
             device_map="auto",
             quantization_config=CompressedTensorsConfig(run_compressed=False),
+            use_safetensors=False,
         )
 
         # Manually decompress this model
@@ -57,6 +58,7 @@ class TestDecompression(unittest.TestCase):
             self.skeleton_model_stub,
             torch_dtype=self.decompressed_model_hf_quantizer.dtype,
             device_map=self.decompressed_model_hf_quantizer.device,
+            use_safetensors=False,
         )
 
         # decompression from HFQuantizer should populate weight_scale

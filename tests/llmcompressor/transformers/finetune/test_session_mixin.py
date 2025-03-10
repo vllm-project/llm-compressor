@@ -33,7 +33,7 @@ class MixInTest(SessionManagerMixIn, Trainer):
 @pytest.mark.unit
 def test_mixin_init():
     model_state_path = "Xenova/llama2.c-stories15M"
-    model = AutoModelForCausalLM.from_pretrained(model_state_path)
+    model = AutoModelForCausalLM.from_pretrained(model_state_path, use_safetensors=False)
     recipe = "tests/llmcompressor/transformers/finetune/test_quantization.yaml"
 
     session_mixin = MixInTest(model=model, recipe=recipe)
@@ -46,7 +46,7 @@ def test_mixin_init():
 @pytest.fixture
 def mixin_trainer():
     model_state_path = "Xenova/llama2.c-stories15M"
-    model = AutoModelForCausalLM.from_pretrained(model_state_path)
+    model = AutoModelForCausalLM.from_pretrained(model_state_path, use_safetensors=False)
     recipe = "tests/llmcompressor/transformers/finetune/test_quantization.yaml"
     train_dataset = "open-platypus"
 

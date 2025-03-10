@@ -27,7 +27,7 @@ class TestOneShotInputs(unittest.TestCase):
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model)
-        self.model = AutoModelForCausalLM.from_pretrained(self.model)
+        self.model = AutoModelForCausalLM.from_pretrained(self.model, use_safetensors=False)
         self.output = "./oneshot_output"
         self.kwargs = {"dataset_config_name": self.dataset_config_name}
 
