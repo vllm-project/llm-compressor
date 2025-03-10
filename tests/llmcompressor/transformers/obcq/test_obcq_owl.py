@@ -3,10 +3,8 @@ import torch
 from datasets import Dataset
 from transformers import AutoModelForCausalLM
 
+from llmcompressor.datasets import format_calibration_data
 from llmcompressor.modifiers.obcq import SparseGPTModifier
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    format_calibration_data,
-)
 from llmcompressor.utils.pytorch.module import get_layers
 
 
@@ -20,7 +18,7 @@ def test_infer_owl_layer_sparsity():
     modifier = SparseGPTModifier(
         sparsity=0.7, sparsity_profile="owl", owl_m=5, owl_lmbda=0.05
     )
-    model = AutoModelForCausalLM.from_pretrained("Xenova/llama2.c-stories15M")
+    model = AutoModelForCausalLM.from_pretrained("nm-testing/llama2.c-stories15M")
 
     dataset = Dataset.from_dict(
         {"input_ids": torch.randint(0, vocab_size, (ds_size, seq_len))}
