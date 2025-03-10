@@ -21,7 +21,9 @@ class TestOneshotThenFinetune(unittest.TestCase):
     def test_oneshot_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto", use_safetensors=("stories" not in "Xenova/llama2.c-stories15M")
+            "Xenova/llama2.c-stories15M",
+            device_map="auto",
+            use_safetensors=("stories" not in "Xenova/llama2.c-stories15M"),
         )
         dataset = "open_platypus"
         concatenate_data = False
@@ -52,7 +54,9 @@ class TestOneshotThenFinetune(unittest.TestCase):
             use_safetensors=("stories" not in str(self.output / "oneshot_out")),
         )
         distill_teacher = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto", use_safetensors=("stories" not in "Xenova/llama2.c-stories15M")
+            "Xenova/llama2.c-stories15M",
+            device_map="auto",
+            use_safetensors=("stories" not in "Xenova/llama2.c-stories15M"),
         )
         dataset = "open_platypus"
         concatenate_data = False
@@ -76,7 +80,10 @@ class TestOneshotThenFinetune(unittest.TestCase):
         # with the saved model
         # Explictly decompress the model for training using quantization_config
         model = AutoModelForCausalLM.from_pretrained(
-            output_dir, device_map="auto", quantization_config=self.quantization_config, use_safetensors=("stories" not in str(output_dir))
+            output_dir,
+            device_map="auto",
+            quantization_config=self.quantization_config,
+            use_safetensors=("stories" not in str(output_dir)),
         )
         with create_session():
             train(
@@ -145,7 +152,10 @@ class TestOneshotThenFinetune(unittest.TestCase):
 
         # test reloading checkpoint and final model
         model = AutoModelForCausalLM.from_pretrained(
-            output_dir, device_map="auto", quantization_config=quantization_config, use_safetensors=("stories" not in str(output_dir))
+            output_dir,
+            device_map="auto",
+            quantization_config=quantization_config,
+            use_safetensors=("stories" not in str(output_dir)),
         )
         with create_session():
             train(

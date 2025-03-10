@@ -155,7 +155,9 @@ def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
     model, used_args = next(oneshot_fixture(tmp_path))
     output_dir = used_args["output_dir"]
     with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(str(output_dir), use_safetensors=("stories" not in str(output_dir)))
+        model = AutoModelForCausalLM.from_pretrained(
+            str(output_dir), use_safetensors=("stories" not in str(output_dir))
+        )
 
     counts = 0
     for name, submodule in iter_named_quantizable_modules(
@@ -196,7 +198,9 @@ def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
     assert kv_cache_scheme["symmetric"] == used_args["symmetric"]
 
     with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(output_dir, use_safetensors=("stories" not in output_dir))
+        model = AutoModelForCausalLM.from_pretrained(
+            output_dir, use_safetensors=("stories" not in output_dir)
+        )
 
     counts = 0
     for name, submodule in iter_named_quantizable_modules(
@@ -238,7 +242,9 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
     output_dir, _ = next(kv_cache_fixture(recipe, tmp_path))
 
     with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(output_dir, use_safetensors=("stories" not in output_dir))
+        model = AutoModelForCausalLM.from_pretrained(
+            output_dir, use_safetensors=("stories" not in output_dir)
+        )
 
     counts = 0
     for name, submodule in iter_named_quantizable_modules(
