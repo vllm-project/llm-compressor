@@ -16,9 +16,11 @@ from llmcompressor.pytorch.utils import (
     get_optim_learning_rate,
     mask_difference,
     memory_aware_threshold,
+    sanitize_kwargs_for_module,
     set_optim_learning_rate,
     tensor_density,
     tensor_export,
+    tensor_forward_with_input_args,
     tensor_sample,
     tensor_sparsity,
     tensors_batch_size,
@@ -855,3 +857,43 @@ def test_memory_aware_threshold(tensor, idx):
 
     if prior_state is not None:
         os.environ[MEMORY_BOUNDED] = prior_state
+
+
+class TestSanitizeKwargsForModule:
+    @pytest.fixture
+    def module(self):
+        return Linear(10, 20)
+
+    def test_sanitize_kwargs_for_module_not_dict(self, module):
+        # Test with kwargs that are not a dictionary
+        with pytest.raises(TypeError):
+            sanitize_kwargs_for_module("not a dictionary", module)
+
+    def test_sanitize_kwargs_for_module_not_in_signature(self, module):
+        # Test with kwargs that are not in the signature of the forward method
+        kwargs = {"not_in_signature": 123}
+        sanitized_kwargs = sanitize_kwargs_for_module(kwargs, module)
+        assert sanitized_kwargs == {}
+
+    def test_sanitize_kwargs_for_module_in_signature(self, module):
+        # Test with kwargs that are in the signature of the forward method
+        kwargs = {"input": torch.randn(1, 10)}
+        sanitized_kwargs = sanitize_kwargs_for_module(kwargs, module)
+        assert sanitized_kwargs == kwargs
+
+
+class TestTensorForwardWithInputArgs:
+    @pytest.fixture
+    def module(self):
+        return Linear(10, 20)
+
+    def test_tensor_forward_with_input_args(self, module):
+        # Test with valid inputs and input_kwargs
+        inputs = torch.randn(1, 10)
+        input_kwargs = {}
+        output = tensor_forward_with_input_args(module, inputs, input_kwargs)
+        assert output.shape == (1, 20)
+
+        # Test with input_kwargs that are not in the signature of the forward method
+        input_kwargs = {"not_in_signature": 123}
+        tensor_forward_with_input_args(module, inputs, input_kwargs)
