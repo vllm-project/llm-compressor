@@ -15,7 +15,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-
 # U(W)V.T
 
 ignore = ["re:.*.mlp.down_proj$", "lm_head"]
@@ -64,32 +63,32 @@ u_k_v_proj = TransformationArgs(
 # It will then apply the second set of args
 # any overalp will be applied in order
 v_scheme = TransformationScheme(
-    transform_type="random-hadamard",
+    transform_type="hadamard",
     groups=[v_linear_args],
     transform_creation_args={"size": 2048},
 )
 
 v_scheme_down_proj = TransformationScheme(
-    transform_type="random-hadamard",
+    transform_type="hadamard",
     groups=[v_down_proj],
     transform_creation_args={"size": 8192},
 )
 
 # We could combine multiple args to the same scheme but then would make it more difficult to consolidate order of transforms
 u_scheme_q_o_down_proj = TransformationScheme(
-    transform_type="random-hadamard",
+    transform_type="hadamard",
     groups=[u_q_o_down_proj],
     transform_creation_args={"size": 2048},
 )
 
 u_scheme_gate_up_proj = TransformationScheme(
-    transform_type="random-hadamard",
+    transform_type="hadamard",
     groups=[u_gate_up_proj],
     transform_creation_args={"size": 8192},
 )
 
 u_scheme_k_v_proj = TransformationScheme(
-    transform_type="random-hadamard",
+    transform_type="hadamard",
     groups=[u_k_v_proj],
     transform_creation_args={"size": 512},
 )
@@ -116,13 +115,14 @@ recipe = QuantizationModifier(
                 symmetric=True,
                 strategy=QuantizationStrategy.GROUP,
                 group_size=128,
+                observer="mse"
             ),
         )
     },
     transforms_config=config,
 )
 
-MODEL_ID = "meta-llama/Llama-3.2-1B"
+MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype="auto"
@@ -139,9 +139,9 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-Transforms"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-uncompressed-hadamard-random"
 
-model.save_pretrained(SAVE_DIR)
+model.save_pretrained(SAVE_DIR, save_compressed=False)
 tokenizer.save_pretrained(SAVE_DIR)
 
 """
