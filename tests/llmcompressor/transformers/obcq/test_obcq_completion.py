@@ -26,14 +26,14 @@ class TestOBCQCompletion(unittest.TestCase):
         from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        data_args = DatasetArguments(
+        dataset_args = DatasetArguments(
             dataset=dataset_name,
             max_seq_length=512,
             pad_to_max_length=False,
         )
         dataset_manager = TextGenerationDataset.load_from_registry(
-            data_args.dataset,
-            data_args=data_args,
+            dataset_args.dataset,
+            dataset_args=dataset_args,
             split="train",
             processor=tokenizer,
         )

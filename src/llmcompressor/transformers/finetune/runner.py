@@ -6,6 +6,7 @@ from typing import List, Optional
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
+from transformers import PreTrainedModel
 
 from llmcompressor.args import (
     DatasetArguments,
@@ -22,10 +23,6 @@ from llmcompressor.pytorch.model_load.helpers import (
 )
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.transformers.finetune.data.data_helpers import (
-    format_calibration_data,
-    make_dataset_splits,
-)
 from llmcompressor.typing import Processor
 
 
@@ -41,19 +38,19 @@ class StageRunner:
         - train()
 
     :param model_args: Arguments pertaining to model/config/processor
-    :param data_args: Arguments pertaining to what data to use for different flows
+    :param dataset_args: Arguments pertaining to what data to use for different flows
     :param training_args: Arguments pertaining to training loop configuration
     :model: unwrapped model to run flows on
     """
 
     def __init__(
         self,
-        data_args: "DatasetArguments",
+        dataset_args: "DatasetArguments",
         model_args: "ModelArguments",
         training_args: "TrainingArguments",
         recipe_args: "RecipeArguments",
     ):
-        self._data_args = data_args
+        self._dataset_args = dataset_args
         self._model_args = model_args
         self._training_args = training_args
         self._recipe_args = recipe_args
@@ -66,13 +63,13 @@ class StageRunner:
 
     def populate_datasets(self, processor: Processor, add_labels: bool = True):
         """
-        Loads datasets for each flow based on data_args, stores a Dataset for each
+        Loads datasets for each flow based on dataset_args, stores a Dataset for each
         enabled flow in self.datasets
 
         :param processor: processor or tokenizer to use for dataset tokenization
         :param add_labels: if True, add labels column to dataset splits
         """
-        if self._data_args.dataset is None:
+        if self._dataset_args.dataset is None:
             self.processor = self._model_args.processor
             logger.info(
                 "Running oneshot without calibration data. This is expected for "
@@ -80,7 +77,7 @@ class StageRunner:
             )
             return
 
-        splits = self._data_args.splits
+        splits = self._dataset_args.splits
         tokenized_datasets = {}
 
         def _get_split_name(inp_str):
@@ -99,12 +96,12 @@ class StageRunner:
 
         # default to custom dataset if dataset provided isn't a string
         registry_id = (
-            self._data_args.dataset
-            if isinstance(self._data_args.dataset, str)
+            self._dataset_args.dataset
+            if isinstance(self._dataset_args.dataset, str)
             else "custom"
         )
         for split_name, split_str in splits.items():
-            dataset = self._data_args.dataset
+            dataset = self._dataset_args.dataset
             if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
                 # dataset is already tokenized
                 tokenized_datasets[split_name] = dataset
@@ -112,11 +109,13 @@ class StageRunner:
                 # dataset needs to be tokenized
                 dataset_manager = TextGenerationDataset.load_from_registry(
                     registry_id,
-                    data_args=self._data_args,
+                    dataset_args=self._dataset_args,
                     split=split_str,
                     processor=processor,
                 )
                 tokenized_datasets[split_name] = dataset_manager(add_labels=add_labels)
+
+        from llmcompressor.datasets import make_dataset_splits
 
         self.datasets = make_dataset_splits(
             tokenized_datasets,
@@ -154,13 +153,16 @@ class StageRunner:
         # this includes saving the state, optimizer and scheduler
         self.trainer.save_model(output_dir=self._output_dir)
 
-    def run_sequential_stages(self, checkpoint: Optional[str] = None):
+    def run_sequential_stages(
+        self, model: PreTrainedModel, checkpoint: Optional[str] = None
+    ):
         """
         Run the recipe stage by stage, allowing for alternating between one-shot and
         finetuning flows. Optionally save the model output at the end of each stage
 
         :param checkpoint: optional checkpoint to pick up a stage from
         """
+
         recipe_obj = Recipe.create_instance(self._recipe_args.recipe)
         with self.trainer.accelerator.main_process_first():
             checkpoint_dir = self._model_args.model
@@ -181,12 +183,6 @@ class StageRunner:
                     "the stage name."
                 )
 
-            # just load structure if stage has already applied
-            if stage_name in completed_stages:
-                self.trainer.initialize_structure(stage=stage)
-                self.trainer.accelerator.wait_for_everyone()
-                continue
-
             # setup checkpoint dir, TODO: this should be optional
             self._output_dir = os.path.join(
                 self.parent_output_dir, "stage_" + stage_name
@@ -200,13 +196,13 @@ class StageRunner:
             # run stage
             if run_type is StageRunType.ONESHOT:
                 from llmcompressor import Oneshot
+                from llmcompressor.datasets import format_calibration_data
 
-                model = get_session_model()
                 self._model_args.model = model
 
                 oneshot = Oneshot.from_args(
                     model_args=self._model_args,
-                    data_args=self._data_args,
+                    dataset_args=self._dataset_args,
                     recipe_args=self._recipe_args,
                     output_dir=self._training_args.output_dir,
                     do_preprocess=do_preprocess,
@@ -214,10 +210,9 @@ class StageRunner:
 
                 calib_data = format_calibration_data(
                     tokenized_dataset=self.get_dataset_split("calibration"),
-                    num_calibration_samples=self._data_args.num_calibration_samples,
-                    do_shuffle=self._data_args.shuffle_calibration_samples,
-                    collate_fn=self._data_args.data_collator,
-                    accelerator=self.trainer.accelerator,
+                    num_calibration_samples=self._dataset_args.num_calibration_samples,
+                    do_shuffle=self._dataset_args.shuffle_calibration_samples,
+                    collate_fn=self._dataset_args.data_collator,
                 )
 
                 if do_preprocess:
