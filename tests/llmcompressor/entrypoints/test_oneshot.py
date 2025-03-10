@@ -7,7 +7,7 @@ from llmcompressor.args import parse_args
 def test_oneshot_from_args():
     # Select model and load it.
     stub = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    model = AutoModelForCausalLM.from_pretrained(stub, use_safetensors=False)
+    model = AutoModelForCausalLM.from_pretrained(stub, use_safetensors=("stories" in stub))
     dataset = "HuggingFaceH4/ultrachat_200k"
 
     NUM_CALIBRATION_SAMPLES = 512

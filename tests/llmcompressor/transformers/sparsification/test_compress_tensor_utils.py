@@ -77,7 +77,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     transformers_logger.setLevel(level=logging.ERROR)
 
     model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "oneshot_out", torch_dtype=dtype, use_safetensors=False
+        tmp_path / "oneshot_out", torch_dtype=dtype, use_safetensors=("stories" in str(tmp_path / "oneshot_out"))
     )
 
     # restore transformers logging level now that model shell is loaded
@@ -113,7 +113,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     assert sparsity_config["sparsity_structure"] == inferred_structure
 
     dense_model = AutoModelForCausalLM.from_pretrained(
-        tmp_path / "compress_out", torch_dtype="auto", use_safetensors=False
+        tmp_path / "compress_out", torch_dtype="auto", use_safetensors=("stories" in str(tmp_path / "compress_out"))
     )
 
     og_state_dict = model.state_dict()
@@ -136,7 +136,7 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     reset_session()
 
     model_path = "Xenova/llama2.c-stories15M"
-    model = AutoModelForCausalLM.from_pretrained(model_path, use_safetensors=False)
+    model = AutoModelForCausalLM.from_pretrained(model_path, use_safetensors=("stories" in model_path))
 
     inferred_global_sparsity = SparsityConfigMetadata.infer_global_sparsity(model)
     assert math.isclose(inferred_global_sparsity, 0.0, rel_tol=1e-3)
