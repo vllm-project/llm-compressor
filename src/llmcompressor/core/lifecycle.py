@@ -84,10 +84,13 @@ class CompressionLifecycle:
         :return: List of data returned from initialization of modifiers
         :rtype: List[Any]
         """
-        self.state.update(**kwargs)
-        if self.initialized_:  # TODO: do not initialize twice
-            return
+        if self.initialized_:
+            raise ValueError(
+                "Initialize was called twice. To update state values after "
+                "initialization, please use `active_session().state.update()`"
+            )
 
+        self.state.update(**kwargs)
         logger.debug("Initializing compression lifecycle")
         self.recipe_container.append(recipe, recipe_stage, recipe_args)
         self.modifiers = self.recipe_container.get_modifiers()
