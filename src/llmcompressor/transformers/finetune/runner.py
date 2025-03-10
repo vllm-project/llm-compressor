@@ -182,6 +182,10 @@ class StageRunner:
                     "the stage name."
                 )
 
+            # skip stages which have already been applied
+            if stage_name in completed_stages:
+                continue
+
             # setup checkpoint dir, TODO: this should be optional
             self._output_dir = os.path.join(
                 self.parent_output_dir, "stage_" + stage_name
