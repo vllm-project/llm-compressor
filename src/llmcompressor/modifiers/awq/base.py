@@ -1,11 +1,11 @@
 import inspect
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from compressed_tensors.utils import align_module_device, update_offload_parameter
 from loguru import logger
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -16,7 +16,6 @@ from llmcompressor.pytorch.utils import tensor_forward_with_input_args
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
-    get_layer,
     get_layers,
     get_matching_layer,
     get_parent_by_name,
@@ -146,7 +145,7 @@ class AWQModifier(Modifier):
     duo_scaling: bool = True
 
     _resolved_mappings: List[ResolvedMapping] = []
-    _scales: Dict[str, torch.Tensor | List[torch.Tensor]] = {}
+    _scales: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = {}
     _module_kwargs: Dict = {}
 
     def on_initialize(self, state: State, **kwargs) -> bool:
