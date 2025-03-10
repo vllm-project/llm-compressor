@@ -12,9 +12,7 @@ from tqdm import tqdm
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
-from llmcompressor.pytorch.utils import (
-    tensor_forward_with_input_args,
-)
+from llmcompressor.pytorch.utils import tensor_forward_with_input_args
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
@@ -189,7 +187,7 @@ class AWQModifier(Modifier):
     def _set_resolved_mappings(self, model: Module) -> None:
         """
         Transforms the list of activations to smooth and their corresponding weights
-        into ResolvedMapping objects, resolving regular expressions. 
+        into ResolvedMapping objects, resolving regular expressions.
         Result is stored in _resolved_mappings.
 
         For each activation in the mapping list, we find the corresponding weight to
@@ -386,12 +384,15 @@ class AWQModifier(Modifier):
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
                             module.weight.div_(scales.to(module.weight.device))
+                            update_offload_parameter(module, "weight")
                         else:
                             module.weight.div_(
                                 scales.view(-1, 1).to(module.weight.device)
                             )
+                            update_offload_parameter(module, "weight")
                         if hasattr(module, "bias") and module.bias is not None:
                             module.bias.div_(scales.to(module.bias.device))
+                            update_offload_parameter(module, "bias")
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -636,13 +637,14 @@ class AWQModifier(Modifier):
         return sanitized_kwargs
 
 
-
 def _pseudo_quantize_tensor(
     w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
 ):
     org_w_shape = w.shape
     if group_size > 0:
-        assert org_w_shape[-1] % group_size == 0, f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({group_size})!"
+        assert (
+            org_w_shape[-1] % group_size == 0
+        ), f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({group_size})!"
         w = w.reshape(-1, group_size)
     assert w.dim() == 2
     assert torch.isnan(w).sum() == 0
@@ -658,7 +660,7 @@ def _pseudo_quantize_tensor(
         w = (
             torch.clamp(torch.round(w / scales) + zeros, min_int, max_int) - zeros
         ) * scales
-        zeros = (zeros - 2**(bit_width-1)).view(org_w_shape[0], -1) 
+        zeros = (zeros - 2 ** (bit_width - 1)).view(org_w_shape[0], -1)
     else:
         max_val = w.abs().amax(dim=1, keepdim=True)
         max_val = max_val.clamp(min=1e-5)
