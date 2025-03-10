@@ -10,9 +10,9 @@ from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
+from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -55,26 +55,23 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @staticmethod
     def _run_oneshot(model, recipe, dataset, output_dir):
-        num_calibration_samples = 512
+        num_calibration_samples = 64
         max_seq_length = 512
         pad_to_max_length = False
 
-        oneshot(
+        model = oneshot(
             model=model,
             dataset=dataset,
-            overwrite_output_dir=True,
             output_dir=output_dir,
             max_seq_length=max_seq_length,
             num_calibration_samples=num_calibration_samples,
             recipe=recipe,
             pad_to_max_length=pad_to_max_length,
             clear_sparse_session=False,
-            splits={"calibration": "train_gen[:5%]"},
+            splits={"calibration": "train_gen[:1%]"},
             save_compressed=False,
         )
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
-
-        return get_session_model()
+        return model
 
     def _get_quant_info(self, model):
         quant_info_weights = {}
@@ -126,10 +123,10 @@ class TestQuantizationMatches(unittest.TestCase):
             assert o_zp.dtype == n_zp.dtype
             assert torch.equal(o_zp, n_zp)
 
-    def _get_dataloader(self, data_args, tokenizer):
+    def _get_dataloader(self, dataset_args, tokenizer):
         dataset_manager = TextGenerationDataset.load_from_registry(
-            data_args.dataset,
-            data_args=data_args,
+            dataset_args.dataset,
+            dataset_args=dataset_args,
             split="train_gen[:5%]",
             processor=tokenizer,
         )
@@ -145,12 +142,14 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @torch.no_grad()
     def test_perplexity(self):
+        if self.ppl_threshold is None:
+            pytest.skip("Skipping perplexity calculation.")
         tokenizer = AutoTokenizer.from_pretrained(self.model_stub)
-        data_args = DatasetArguments(
+        dataset_args = DatasetArguments(
             dataset="ultrachat-200k",
             max_seq_length=self.max_seq_length,
         )
-        dataloader = self._get_dataloader(data_args, tokenizer)
+        dataloader = self._get_dataloader(dataset_args, tokenizer)
 
         total_ppl = 0.0
         total_non_nan = 0

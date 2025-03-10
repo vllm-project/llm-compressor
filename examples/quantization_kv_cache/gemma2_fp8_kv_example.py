@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 
 # Select model and load it.
 MODEL_ID = "google/gemma-2-9b-it"
@@ -86,6 +86,10 @@ print(
     "Please use vLLM for inference with the quantized kv_cache.",
 )
 # Confirm generations of the quantized model look sane.
+
+# NOTE: transformers 4.49.0 results in a generation error with gemma2.
+# Consider either downgrading your transformers version to a previous version
+# or use vLLM for sample generation.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")

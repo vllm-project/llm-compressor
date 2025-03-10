@@ -47,9 +47,9 @@ class TestMaskStructurePreserved(unittest.TestCase):
 
         import torch
 
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
 
         tolerance = 1e-3

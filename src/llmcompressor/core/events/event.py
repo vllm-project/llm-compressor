@@ -27,7 +27,6 @@ class EventType(Enum):
     The purpose of each EventType is to trigger the corresponding
     modifier callback during training or post training pipelines.
 
-    :param PRE_INIT: Event type for pre-initialization.
     :param INITIALIZE: Event type for initialization.
     :param FINALIZE: Event type for finalization.
     :param BATCH_START: Event type for the start of a batch.
@@ -38,7 +37,6 @@ class EventType(Enum):
     """
 
     # training lifecycle
-    PRE_INIT = "pre_init"
     INITIALIZE = "initialize"
     FINALIZE = "finalize"
 
@@ -50,35 +48,6 @@ class EventType(Enum):
     # step lifecycle
     OPTIM_PRE_STEP = "optim_pre_step"
     OPTIM_POST_STEP = "optim_post_step"
-
-    def order(self) -> int:
-        """
-        Returns the priority order of the current EventType.
-        Lower values have higher priority.
-
-        :raises ValueError: if the event type is invalid.
-        :return: The order of the event type, lower has higher priority.
-        :rtype: int
-        """
-        if self == EventType.PRE_INIT:
-            return 0
-        elif self == EventType.INITIALIZE:
-            return 10
-        elif self == EventType.FINALIZE:
-            return 20
-        elif self == EventType.BATCH_START:
-            return 100
-        elif self == EventType.LOSS_CALCULATED:
-            return 110
-        elif self == EventType.OPTIM_PRE_STEP:
-            return 120
-        elif self == EventType.OPTIM_POST_STEP:
-            return 130
-        elif self == EventType.BATCH_END:
-            return 140
-        else:
-            logger.error("Invalid event type: {}", self)
-            raise ValueError(f"Invalid event type {self}")
 
 
 @dataclass
