@@ -109,8 +109,8 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    resolved_mappings_: Optional[List[SmoothQuantMapping]] = None
-    scales_: Optional[Dict] = None
+    _resolved_mappings: Optional[List[SmoothQuantMapping]] = None
+    _scales: Optional[Dict] = None
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -132,8 +132,8 @@ class SmoothQuantModifier(Modifier):
 
         self.ignore = [] if not self.ignore else self.ignore
         self.mappings = self._infer_mappings_from_model(state.model)
-        self.resolved_mappings_ = self._resolve_mappings(state.model)
-        self.scales_ = {}
+        self._resolved_mappings = self._resolve_mappings(state.model)
+        self._scales = {}
 
         calibration_dataloader = state.data.calib
 
@@ -150,10 +150,10 @@ class SmoothQuantModifier(Modifier):
         :param state: unused
         :return: True
         """
-        if self.scales_ is not None:
-            self.scales_.clear()
-        if self.resolved_mappings_ is not None:
-            self.resolved_mappings_.clear()
+        if self._scales is not None:
+            self._scales.clear()
+        if self._resolved_mappings is not None:
+            self._resolved_mappings.clear()
 
         return True
 
@@ -219,21 +219,21 @@ class SmoothQuantModifier(Modifier):
                 latest_mins = torch.min(out, dim=0)[0]
                 latest_maxes = torch.max(out, dim=0)[0]
 
-                if layer_name in self.scales_:
-                    self.scales_[layer_name].min_channel_vals = torch.minimum(
-                        self.scales_[layer_name].min_channel_vals, latest_mins
+                if layer_name in self._scales:
+                    self._scales[layer_name].min_channel_vals = torch.minimum(
+                        self._scales[layer_name].min_channel_vals, latest_mins
                     )
-                    self.scales_[layer_name].max_channel_vals = torch.maximum(
-                        self.scales_[layer_name].max_channel_vals, latest_maxes
+                    self._scales[layer_name].max_channel_vals = torch.maximum(
+                        self._scales[layer_name].max_channel_vals, latest_maxes
                     )
                 else:
-                    self.scales_[layer_name] = SmoothQuantScale(
+                    self._scales[layer_name] = SmoothQuantScale(
                         min_channel_vals=latest_mins, max_channel_vals=latest_maxes
                     )
 
             return hook_fn
 
-        for mapping in self.resolved_mappings_:
+        for mapping in self._resolved_mappings:
             name = mapping.smooth_name
             layer = mapping.smooth_layer
             self.register_hook(layer, create_hook_fn(name), "forward")
@@ -278,10 +278,10 @@ class SmoothQuantModifier(Modifier):
         This modifies the weights of the model in-place.
         """
         logger.info("Smoothing activation scales...")
-        for mapping in self.resolved_mappings_:
+        for mapping in self._resolved_mappings:
             activation_scales = (  # get dynamic range for each activation channel
-                self.scales_[mapping.smooth_name].max_channel_vals
-                - self.scales_[mapping.smooth_name].min_channel_vals
+                self._scales[mapping.smooth_name].max_channel_vals
+                - self._scales[mapping.smooth_name].min_channel_vals
             )
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
