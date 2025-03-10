@@ -45,7 +45,8 @@ DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
         "re:.*input_layernorm",
         ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
     ),
-    # TODO this should only be added if v_proj/o_proj shapes match up, should we check during validation and skip if this is not the case?
+    # TODO this should only be added if v_proj/o_proj shapes match up
+    #  should we check during validation and skip if this is not the case?
     AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
     AWQMapping(
         "re:.*post_attention_layernorm",
@@ -641,9 +642,10 @@ def _pseudo_quantize_tensor(
 ):
     org_w_shape = w.shape
     if group_size > 0:
-        assert (
-            org_w_shape[-1] % group_size == 0
-        ), f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({group_size})!"
+        assert org_w_shape[-1] % group_size == 0, (
+            f"org_w_shape ({org_w_shape[-1]}) must be a multiple "
+            + f"of group_size ({group_size})!"
+        )
         w = w.reshape(-1, group_size)
     assert w.dim() == 2
     assert torch.isnan(w).sum() == 0
