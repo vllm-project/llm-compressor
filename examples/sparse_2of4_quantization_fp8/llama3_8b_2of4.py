@@ -3,10 +3,10 @@ import argparse
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.obcq import SparseGPTModifier
 from llmcompressor.modifiers.pruning import ConstantPruningModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 # Configuration
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -116,7 +116,5 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n")
 
 # Save compressed model and tokenizer
-model.save_pretrained(
-    save_dir, save_compressed=args.fp8, disable_sparse_compression=True
-)
+model.save_pretrained(save_dir)
 tokenizer.save_pretrained(save_dir)
