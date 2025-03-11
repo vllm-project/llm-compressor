@@ -1,4 +1,4 @@
 cadence: "nightly"
 test_type: "regression"
-model: "Xenova/llama2.c-stories15M"
+model: "nm-testing/llama2.c-stories15M"
 dataset: open_platypus
