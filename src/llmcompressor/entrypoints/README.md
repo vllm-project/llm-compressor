@@ -91,7 +91,7 @@ The oneshot calibration lifecycle consists of three steps:
 This will automatically save the model weights to a compressed SafeTensors format. The tokenizer/processor, recipe, and the configuration file will also be saved.
 
 ## Train / Finetune
-Compressed models can be trained to improve accuracy. Training is carried out using HuggingFace's [Trainer](https://huggingface.co/docs/transformers/en/main_classes/trainer).
+Compressed models can be trained to improve accuracy. Training is carried out using HuggingFace's Trainer.
 
 ### Finetuning a Compressed Model
 LLM-Compressor supports fine-tuning of quantized, sparsified, and sparse-quantized models. It offers both standard fine-tuning, knowledge distillation and SFT Trainer.
