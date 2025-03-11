@@ -383,16 +383,25 @@ class AWQModifier(Modifier):
                         module.weight.mul_(scales.view(1, -1).to(module.weight.device))
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
-                            module.weight.div_(scales.to(module.weight.device))
-                            update_offload_parameter(module, "weight")
-                        else:
-                            module.weight.div_(
-                                scales.view(-1, 1).to(module.weight.device)
+                            update_offload_parameter(
+                                module,
+                                "weight",
+                                module.weight.div(scales.to(module.weight.device)),
                             )
-                            update_offload_parameter(module, "weight")
+                        else:
+                            update_offload_parameter(
+                                module,
+                                "weight",
+                                module.weight.div(
+                                    scales.view(-1, 1).to(module.weight.device)
+                                ),
+                            )
                         if hasattr(module, "bias") and module.bias is not None:
-                            module.bias.div_(scales.to(module.bias.device))
-                            update_offload_parameter(module, "bias")
+                            update_offload_parameter(
+                                module,
+                                "bias",
+                                module.bias.div(scales.to(module.bias.device)),
+                            )
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
