@@ -1,0 +1,19 @@
+cadence: "weekly"
+model: Qwen/Qwen2-VL-2B-Instruct
+model_class: TraceableQwen2VLForConditionalGeneration
+recipe: tests/e2e/vLLM/recipes/actorder/recipe_w4a16_actorder_weight.yaml
+dataset_id: lmms-lab/flickr30k
+dataset_split: "test[:512]"
+scheme: W4A16_actorder_group
+seed: 42 #compressed model is sensitive to random seed
+lmeval:
+  model: "hf-multimodal"
+  model_args:
+    dtype: bfloat16
+    add_bos_token: True
+    convert_img_format: True
+  task: mmmu_val_economics
+  num_fewshot: 0
+  metrics:
+    acc,none: 0.366
+  batch_size: 4

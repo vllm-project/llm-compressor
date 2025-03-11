@@ -21,7 +21,9 @@ class TestSparse2of4QuantizationFP8:
     """
 
     @pytest.mark.parametrize(("flags"), [[], ["--fp8"]])
-    def test_blah(self, example_dir: str, tmp_path: Path, flags: list[str]):
+    def test_2of4_example_script(
+        self, example_dir: str, tmp_path: Path, flags: list[str]
+    ):
         """
         Tests for the "llama3_8b_2of4.py" example script.
         """

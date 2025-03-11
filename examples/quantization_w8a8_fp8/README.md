@@ -54,7 +54,7 @@ We recommend targeting all `Linear` layers using the `FP8_DYNAMIC` scheme, which
 Since simple PTQ does not require data for weight quantization and the activations are quantized dynamically, we do not need any calibration data for this quantization flow.
 
 ```python
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Configure the simple PTQ quantization
