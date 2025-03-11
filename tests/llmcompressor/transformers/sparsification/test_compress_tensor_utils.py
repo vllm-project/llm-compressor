@@ -18,9 +18,9 @@ from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
@@ -44,7 +44,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
     expected_sparsity = 0.5
-    model_path = "Xenova/llama2.c-stories15M"
+    model_path = "nm-testing/llama2.c-stories15M"
     device = "cuda:0"
     if not torch.cuda.is_available():
         device = "cpu"
@@ -125,7 +125,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
 def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     reset_session()
 
-    model_path = "Xenova/llama2.c-stories15M"
+    model_path = "nm-testing/llama2.c-stories15M"
     model = AutoModelForCausalLM.from_pretrained(model_path)
 
     inferred_global_sparsity = SparsityConfigMetadata.infer_global_sparsity(model)
@@ -157,12 +157,10 @@ def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     ],
 )
 def test_quant_model_reload(format, dtype, tmp_path):
-    from llmcompressor.pytorch.model_load.helpers import get_session_model
-
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
-    model_path = "Xenova/llama2.c-stories15M"
+    model_path = "nm-testing/llama2.c-stories15M"
     device = "cuda:0"
     if not torch.cuda.is_available():
         device = "cpu"
@@ -172,7 +170,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     splits = {"calibration": "train[:10%]"}
 
     # create a quantized model
-    oneshot(
+    model = oneshot(
         model=model_path,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -185,7 +183,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
     )
 
     # Fetch the oneshot model
-    model = get_session_model()
     og_state_dict = model.state_dict()
     save_path_compressed = tmp_path / "compressed"
 
@@ -246,7 +243,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
-    model_path = "Xenova/llama2.c-stories15M"
+    model_path = "nm-testing/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -306,7 +303,7 @@ def test_model_shared_tensors(
 ):
     # load model
     model = AutoModelForCausalLM.from_pretrained(
-        "Xenova/llama2.c-stories15M",
+        "nm-testing/llama2.c-stories15M",
         torch_dtype=torch_dtype,
         tie_word_embeddings=tie_word_embeddings,
         device_map=device_map,
@@ -358,7 +355,7 @@ def test_model_shared_tensors_gpu(
     "model_stub, recipe, sparse_format, quant_format",
     [
         (
-            "Xenova/llama2.c-stories15M",
+            "nm-testing/llama2.c-stories15M",
             "tests/llmcompressor/transformers/compression/recipes/sparse_24_fp8.yaml",
             CompressionFormat.sparse_24_bitmask.value,
             CompressionFormat.float_quantized.value,
@@ -444,7 +441,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     "model_stub, recipe, sparse_format",
     [
         (
-            "Xenova/llama2.c-stories15M",
+            "nm-testing/llama2.c-stories15M",
             "tests/llmcompressor/transformers/compression/recipes/sparse_24.yaml",
             CompressionFormat.sparse_24_bitmask.value,
         ),

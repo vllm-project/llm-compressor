@@ -1,8 +1,8 @@
 from datasets import load_dataset
 from transformers import AutoProcessor, WhisperForConditionalGeneration
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 
 MODEL_ID = "openai/whisper-large-v2"
 
@@ -35,8 +35,8 @@ input_features = processor(
     sample["array"], sampling_rate=sample["sampling_rate"], return_tensors="pt"
 ).input_features
 input_features = input_features.to(model.device)
-predicted_ids = model.generate(input_features, language="en", forced_decoder_ids=None)
-print(processor.batch_decode(predicted_ids, skip_special_tokens=False)[0])
+output_ids = model.generate(input_features, language="en", forced_decoder_ids=None)
+print(processor.batch_decode(output_ids, skip_special_tokens=False)[0])
 # Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel
 print("==========================================")
 
