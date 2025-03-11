@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from typing import Dict, Tuple
 
 import torch
@@ -33,14 +34,15 @@ class CompressedLinear(Linear):
     Wrapper module for running a compressed forward pass of a quantized Linear module.
     The wrapped layer will decompressed on each forward call.
 
-    :param module: dense linear module to replace
-    :param quantization_scheme: quantization config for the module to wrap
-    :param quantization_format: compression format module is stored as
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._is_compressed = True
+        warnings.warn(
+            "CompressedLinear should not be initialized directly. "
+            "Use the from_linear method instead.",
+            UserWarning,
+        )
 
     @classmethod
     @torch.no_grad()
@@ -50,6 +52,12 @@ class CompressedLinear(Linear):
         quantization_scheme: QuantizationScheme,
         quantization_format: str,
     ):
+        """
+        :param module: dense linear module to replace
+        :param quantization_scheme: quantization config for the module to wrap
+        :param quantization_format: compression format module is stored as
+        :return: CompressedLinear module wrapping the input module
+        """
         module.__class__ = CompressedLinear
         module.compressor = BaseCompressor.load_from_registry(quantization_format)
         device = next(module.parameters()).device
@@ -90,8 +98,9 @@ class CompressedLinear(Linear):
         """
         Decompresses the weight, then runs the wrapped forward pass
         """
-        if self._is_compressed:
-            self.weight = self.compressor.decompress_module(self)
-            self._is_compressed = False
+        if self.quantization_status == QuantizationStatus.COMPRESSED:
+            decompressed_weight = self.compressor.decompress_module(self)
+            self.weight.data = decompressed_weight
+            self.quantization_status = QuantizationStatus.FROZEN
 
         return linear(input, self.weight, self.bias)
