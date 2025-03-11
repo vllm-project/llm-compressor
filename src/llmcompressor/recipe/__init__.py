@@ -9,7 +9,7 @@ from .metadata import (
     RecipeMetaData,
 )
 from .modifier import RecipeModifier
-from .recipe import Recipe, RecipeTuple
+from .recipe import Recipe, RecipeArgsInput, RecipeInput, RecipeStageInput, RecipeTuple
 from .stage import RecipeStage, StageRunType
 
 __all__ = [
@@ -26,4 +26,7 @@ __all__ = [
     "Recipe",
     "RecipeTuple",
     "StageRunType",
+    "RecipeInput",
+    "RecipeStageInput",
+    "RecipeArgsInput",
 ]

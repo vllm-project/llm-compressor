@@ -17,21 +17,12 @@
 # Adapted from https://github.com/huggingface/transformers
 # vllm-project: no copyright
 
-import os
 import warnings
 from pathlib import PosixPath
-from typing import Optional
 
+from compressed_tensors.utils.helpers import deprecated
 from loguru import logger
-from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
-    AutoProcessor,
-    HfArgumentParser,
-    PreTrainedModel,
-    set_seed,
-)
-from transformers.utils.quantization_config import CompressedTensorsConfig
+from transformers import HfArgumentParser
 
 from llmcompressor.args import (
     DatasetArguments,
@@ -39,29 +30,15 @@ from llmcompressor.args import (
     RecipeArguments,
     TrainingArguments,
 )
-from llmcompressor.core import pre_initialize_structure, reset_session
-from llmcompressor.pytorch.model_load.helpers import (
-    fallback_to_cpu,
-    get_session_model,
-    initialize_recipe,
-    parse_dtype,
-)
+from llmcompressor.core import reset_session
+from llmcompressor.pytorch.model_load.helpers import save_checkpoint
 from llmcompressor.recipe import Recipe, StageRunType
 from llmcompressor.transformers.finetune.runner import StageRunner
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    modify_fsdp_model_save_pretrained,
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
-from llmcompressor.transformers.sparsification.sparse_model import (
-    get_processor_name_from_model,
-)
-from llmcompressor.transformers.utils.helpers import (
-    detect_last_checkpoint,
-    is_model_ct_quantized_from_path,
-)
-from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
@@ -69,47 +46,39 @@ def train(**kwargs):
     """
     CLI entrypoint for running training
     """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
     training_args.do_train = True
-    main(model_args, data_args, recipe_args, training_args)
+    main(model_args, dataset_args, recipe_args, training_args)
 
 
-def eval(**kwargs):
-    """
-    CLI entrypoint for running evaluation
-    """
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_eval = True
-    main(model_args, data_args, recipe_args, training_args)
+@deprecated(
+    message=(
+        "`from llmcompressor.transformers import oneshot` is deprecated, "
+        "please use `from llmcompressor import oneshot`."
+    )
+)
+def oneshot(**kwargs) -> None:
+    from llmcompressor import oneshot
 
-
-def oneshot(**kwargs):
-    """
-    CLI entrypoint for running oneshot calibration
-    """
-    # TODO: Get rid of training args when Oneshot refactor comes in
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_oneshot = True
-
-    main(model_args, data_args, recipe_args, training_args)
-
-
-# alias
-one_shot = oneshot
+    oneshot(**kwargs)
 
 
 def apply(**kwargs):
     """
-    CLI entrypoint for any of training, eval, predict or oneshot
+    CLI entrypoint for any of training, oneshot
     """
-    report_to = kwargs.get("report_to", None)
-    model_args, data_args, recipe_args, training_args = parse_args(**kwargs)
+    from llmcompressor.args import parse_args
+
+    model_args, dataset_args, recipe_args, training_args, _ = parse_args(
+        include_training_args=True, **kwargs
+    )
 
     training_args.run_stages = True
+    report_to = kwargs.get("report_to", None)
     if report_to is None:  # user didn't specify any reporters
         # get rid of the reporters inferred from hugging face
         training_args.report_to = []
-    main(model_args, data_args, recipe_args, training_args)
+    main(model_args, dataset_args, recipe_args, training_args)
 
 
 def compress(**kwargs):
@@ -121,13 +90,12 @@ def parse_args(**kwargs):
     Parses kwargs by grouping into model, data or training arg groups:
         * model_args in
             src/llmcompressor/transformers/utils/arg_parser/model_args.py
-        * data_args in
-            src/llmcompressor/transformers/utils/arg_parser/data_args.py
+        * dataset_args in
+            src/llmcompressor/transformers/utils/arg_parser/dataset_args.py
         * recipe_args in
             src/llmcompressor/transformers/utils/arg_parser/recipe_args.py
         * training_args in
             src/llmcompressor/transformers/utils/arg_parser/training_args.py
-
     """
     parser = HfArgumentParser(
         (ModelArguments, DatasetArguments, RecipeArguments, TrainingArguments)
@@ -138,7 +106,7 @@ def parse_args(**kwargs):
     else:
         parsed_args = parser.parse_dict(kwargs)
 
-    model_args, data_args, recipe_args, training_args = parsed_args
+    model_args, dataset_args, recipe_args, training_args = parsed_args
     if recipe_args.recipe_args is not None:
         if not isinstance(recipe_args.recipe_args, dict):
             arg_dict = {}
@@ -148,7 +116,7 @@ def parse_args(**kwargs):
             recipe_args.recipe_args = arg_dict
 
     # raise depreciation warnings
-    if data_args.remove_columns is not None:
+    if dataset_args.remove_columns is not None:
         warnings.warn(
             "`remove_columns` argument is depreciated. When tokenizing datasets, all "
             "columns which are invalid inputs the tokenizer will be removed",
@@ -162,161 +130,12 @@ def parse_args(**kwargs):
         model_args.processor = model_args.tokenizer
     model_args.tokenizer = None
 
-    return model_args, data_args, recipe_args, training_args
-
-
-def initialize_model_from_path(
-    model_args: ModelArguments,
-    training_args: Optional[TrainingArguments] = None,
-):
-    # Load pretrained model
-    # The .from_pretrained methods guarantee that only one local process can
-    # concurrently download model & vocab.
-    model_path = model_args.model
-    config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-        tie_word_embeddings=model_args.tie_word_embeddings,
-        trust_remote_code=model_args.trust_remote_code_model,
-    )
-
-    last_checkpoint = None
-    teacher = None
-
-    if training_args is not None:
-        # Load teacher configuration if applicable
-        teacher_config = (
-            AutoConfig.from_pretrained(
-                model_args.distill_teacher,
-                use_auth_token=True if model_args.use_auth_token else None,
-                tie_word_embeddings=model_args.tie_word_embeddings,
-                trust_remote_code=model_args.trust_remote_code_model,
-            )
-            if model_args.distill_teacher
-            else None
-        )
-
-        # Detect last checkpoint
-        last_checkpoint = detect_last_checkpoint(training_args, model_args=model_args)
-
-        # Set seed before initializing model
-        set_seed(training_args.seed)
-
-        # Initialize teacher model if teacher path is provided
-        if model_args.distill_teacher is not None:
-            teacher_device_map = (
-                None
-                if os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-                else "auto"
-            )
-            teacher_kwargs = {
-                "config": teacher_config,
-                "cache_dir": model_args.cache_dir,
-                "use_auth_token": True if model_args.use_auth_token else None,
-                "torch_dtype": parse_dtype(model_args.precision),
-                "device_map": teacher_device_map,
-                "trust_remote_code": model_args.trust_remote_code_model,
-            }
-
-            teacher = AutoModelForCausalLM.from_pretrained(
-                model_args.distill_teacher,
-                **teacher_kwargs,
-            )
-            if "sequence_length" in teacher_kwargs:
-                teacher.seqlen = teacher_kwargs["sequence_length"]
-
-    model_path = (
-        last_checkpoint or model_args.model
-        if hasattr(model_args, "model")
-        else model_args.model_name_or_path
-    )
-
-    # Fallback to CPU if GPU requested and not available
-    model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
-
-    # Trainer handles device assignment for FSDP and training, don't do mapping here
-    # if running oneshot outside of FSDP, apply user device settings
-
-    fsdp_enabled = os.environ.get("ACCELERATE_USE_FSDP", "false") == "true"
-
-    device_map = model_args.oneshot_device
-    if not fsdp_enabled and training_args is not None and training_args.do_train:
-        device_map = "auto"
-
-    model_kwargs = {
-        "config": config,
-        "cache_dir": model_args.cache_dir,
-        "revision": model_args.model_revision,
-        "use_auth_token": True if model_args.use_auth_token else None,
-        "torch_dtype": parse_dtype(model_args.precision),
-        "device_map": device_map,
-        "trust_remote_code": model_args.trust_remote_code_model,
-    }
-
-    # this calls from_pretrained under the hood so should be FSDP safe
-
-    # optimized models must be decompressed to carry out oneshot/train/etc
-    if is_model_ct_quantized_from_path(model_path):
-        model_kwargs["quantization_config"] = CompressedTensorsConfig(
-            run_compressed=False
-        )
-
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        **model_kwargs,
-    )
-    if "sequence_length" in model_kwargs:
-        model.seqlen = model_kwargs["sequence_length"]
-
-    return model, teacher
-
-
-def initialize_processor_from_path(
-    model_args: ModelArguments,
-    model: PreTrainedModel,
-    teacher: Optional[PreTrainedModel] = None,
-) -> Processor:
-    processor_src = model_args.processor or get_processor_name_from_model(
-        model, teacher
-    )
-    # The use_fast=True option is not currently supported safely in Transformers
-    # See: https://github.com/huggingface/transformers/pull/34836#issuecomment-2491809727  # noqa: E501
-    try:
-        processor = AutoProcessor.from_pretrained(
-            processor_src,
-            cache_dir=model_args.cache_dir,
-            use_fast=True,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-            trust_remote_code=model_args.trust_remote_code_model,
-        )
-    except ValueError as exception:
-        if "trust_remote_code=True" in exception.value:
-            raise ValueError(
-                f"The repository for {processor_src} contains custom code which must "
-                "be executed to correctly load the tokenizer/processor. You can "
-                f"inspect the repository content at https://hf.co/{processor_src}.\n"
-                "Please pass the argument `trust_remote_code_model=True`."
-            )
-
-        logger.debug("Could not load fast processor, loading slow processor instead")
-        processor = AutoProcessor.from_pretrained(
-            processor_src,
-            cache_dir=model_args.cache_dir,
-            use_fast=False,
-            revision=model_args.model_revision,
-            use_auth_token=True if model_args.use_auth_token else None,
-            trust_remote_code=model_args.trust_remote_code_model,
-        )
-
-    return processor
+    return model_args, dataset_args, recipe_args, training_args
 
 
 def main(
     model_args: ModelArguments,
-    data_args: DatasetArguments,
+    dataset_args: DatasetArguments,
     recipe_args: RecipeArguments,
     training_args: TrainingArguments,
 ):
@@ -333,14 +152,20 @@ def main(
         - Trainer()
             - SessionMixIn()
             - HFTransformersTrainer()
-        - StageRunner.train() and/or evaluate() and/or predict() and/or oneshot()
+        - StageRunner.train() and/or  oneshot()
+
 
     :param model_args: Arguments pertaining to which model/config/tokenizer we are
     going to fine-tune from
-    :param data_args: Arguments pertaining to what data we are going to input our model
-    for training and eval
+    :param dataset_args: Arguments pertaining to what data we are
+        going to input our model for training
     :param training_args: Arguments pertaining to training loop configuration
     """
+    from llmcompressor.args import TrainingArguments
+    from llmcompressor.entrypoints.utils import (
+        initialize_model_from_path,
+        initialize_processor_from_path,
+    )
 
     # Temporary warning, to be removed
     if model_args.tie_word_embeddings is True:
@@ -368,7 +193,7 @@ def main(
         f"distributed training: {bool(training_args.local_rank != -1)}, "
         f"16-bits training: {training_args.fp16}"
     )
-    logger.info(f"Training/evaluation parameters {training_args}")
+    logger.info(f"Training parameters {training_args}")
 
     # Detecting last checkpoint.
     last_checkpoint = None
@@ -392,41 +217,37 @@ def main(
     if isinstance(processor, str) or processor is None:
         processor = initialize_processor_from_path(model_args, model, teacher)
 
-    pre_initialize_structure(model=model)
-
-    # initialize session manager
-    initialize_recipe(model, None)
-
     # Load datasets
     stage_runner = StageRunner(
         model_args=model_args,
-        data_args=data_args,
+        dataset_args=dataset_args,
         training_args=training_args,
         recipe_args=recipe_args,
     )
     add_labels = training_args.do_train or training_args.run_stages
     stage_runner.populate_datasets(processor=processor, add_labels=add_labels)
     train_dataset = stage_runner.get_dataset_split("train")
-    eval_dataset = stage_runner.get_dataset_split("validation")
     calib_dataset = stage_runner.get_dataset_split("calibration")
 
     trainer = Trainer(
-        model_init=get_session_model,
+        model_init=lambda: model,
         teacher=teacher,
         recipe=recipe_args.recipe,
         recipe_args=recipe_args.recipe_args,
         args=training_args,
         model_args=model_args,
-        data_args=data_args,
+        dataset_args=dataset_args,
         train_dataset=train_dataset or calib_dataset,
-        eval_dataset=eval_dataset,
         processing_class=processor,
-        data_collator=data_args.data_collator,
+        data_collator=dataset_args.data_collator,
     )
 
     # wrap model.save_pretrained
     if is_fsdp_model(model):
-        modify_fsdp_model_save_pretrained(trainer, processor)
+        raise NotImplementedError(
+            "FSDP models are not supported in the current release but will be "
+            "suported in future releases of LLM Compressor"
+        )
     else:
         modify_save_pretrained(model)
 
@@ -437,10 +258,11 @@ def main(
         checkpoint = None
         if last_checkpoint is not None:
             checkpoint = last_checkpoint
-        stage_runner.run_sequential_stages(checkpoint)
+        stage_runner.run_sequential_stages(model, checkpoint)
 
         # exit immediately
         return
+
     # Training
     if training_args.do_train:
         checkpoint = None
@@ -450,29 +272,20 @@ def main(
             checkpoint = last_checkpoint
         stage_runner.train(checkpoint)
 
-    # One Shot
-    if training_args.do_oneshot:
-        stage_runner.one_shot()
-
-    # Evaluation
-    if training_args.do_eval:
-        stage_runner.evaluate()
-
-    # Prediction
-    if training_args.do_predict:
-        stage_runner.predict()
-
     # save if model was provided as a string or custom output_dir was set
-
     if isinstance(model_args.model, str) or (
         training_args.output_dir
         != TrainingArguments.__dataclass_fields__["output_dir"].default
+        and trainer.accelerator.is_main_process
     ):
-        model.save_pretrained(
-            training_args.output_dir, save_compressed=model_args.save_compressed
+        save_checkpoint(
+            save_path=training_args.output_dir,
+            model=model,
+            processor=processor,
+            save_safetensors=True,
+            save_compressed=model_args.save_compressed,
         )
-        if processor is not None:
-            processor.save_pretrained(training_args.output_dir)
+    trainer.accelerator.wait_for_everyone()
 
     # Clean up the CompressionSession before exit if requested
     if recipe_args.clear_sparse_session:
