@@ -170,7 +170,6 @@ class SparsityModifierMixin(HooksMixin):
                 state.data.calib,
                 self.sequential_targets,
                 self.ignore,
-                self,
             )
             return True
 
@@ -186,7 +185,6 @@ class SparsityModifierMixin(HooksMixin):
                     state.model,
                     state.data.calib,
                     self.sequential_targets,
-                    self,
                 )
                 return True
 
