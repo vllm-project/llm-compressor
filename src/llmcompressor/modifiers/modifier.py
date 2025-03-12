@@ -162,7 +162,8 @@ class Modifier(ModifierInterface, HooksMixin):
             self.on_start(state, event, **kwargs)
             self.started_ = True
 
-        self.on_event(state, event, **kwargs)
+        if self.started_ and not self.ended_:
+            self.on_event(state, event, **kwargs)
 
         # handle ending the modifier if needed
         if (
