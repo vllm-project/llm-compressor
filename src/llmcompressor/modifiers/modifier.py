@@ -148,10 +148,10 @@ class Modifier(ModifierInterface, HooksMixin):
         :param kwargs: Additional arguments for updating the modifier
         """
         if not self.initialized_:
-            raise RuntimeError("Please call `initialize()` before triggering events")
+            return
 
         if self.finalized_:
-            raise RuntimeError("Cannot trigger events after `finalize()`")
+            raise RuntimeError("cannot update a finalized modifier")
 
         # handle starting the modifier if needed
         if (
