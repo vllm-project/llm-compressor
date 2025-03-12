@@ -1,7 +1,7 @@
 cadence: "commit"
 test_type: "smoke"
 tokenize: False
-model: "Xenova/llama2.c-stories15M"
+model: "nm-testing/llama2.c-stories15M"
 dataset: open_platypus
 recipe: |
   test_stage:

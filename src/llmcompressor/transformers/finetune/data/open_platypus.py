@@ -13,7 +13,7 @@ class OpenPlatypusDataset(TextGenerationDataset):
     """
     Child text generation class for the Open Platypus dataset
 
-    :param data_args: configuration settings for dataset loading
+    :param dataset_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
     :param processor: processor or tokenizer to use on dataset
     """
@@ -28,11 +28,13 @@ class OpenPlatypusDataset(TextGenerationDataset):
         "instruction}\n\n### Response:\n",
     }
 
-    def __init__(self, data_args: "DatasetArguments", split: str, processor: Processor):
-        data_args = deepcopy(data_args)
-        data_args.dataset = "garage-bAInd/Open-Platypus"
-        data_args.text_column = "text"
-        super().__init__(data_args=data_args, split=split, processor=processor)
+    def __init__(
+        self, dataset_args: "DatasetArguments", split: str, processor: Processor
+    ):
+        dataset_args = deepcopy(dataset_args)
+        dataset_args.dataset = "garage-bAInd/Open-Platypus"
+        dataset_args.text_column = "text"
+        super().__init__(dataset_args=dataset_args, split=split, processor=processor)
 
     def dataset_template(self, sample):
         if "input" in sample and sample["input"] != "":
