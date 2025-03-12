@@ -15,8 +15,6 @@ def test_state_initialization():
     assert state.batch_data is None
     assert state.data == Data()
     assert state.hardware == Hardware()
-    assert state.start_event is None
-    assert state.last_event is None
     assert state.loggers is None
     assert state.model_log_cadence is None
     assert state._last_log_step is None
@@ -62,8 +60,6 @@ def test_state_update():
     assert state.data.test == "new_test_data"
     assert state.data.calib == "new_calib_data"
     assert state.hardware.device == "cpu"
-    assert state.start_event.current_index == 1.0
-    assert state.start_event.batches_per_step == 10
     assert state.model_log_cadence == 2
 
 

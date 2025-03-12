@@ -1,10 +1,4 @@
-from llmcompressor.core.events import (
-    CallbacksEventLifecycle,
-    Event,
-    EventLifecycle,
-    EventType,
-    OptimizerEventLifecycle,
-)
+from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.core.model_layer import ModelParameterizedLayer
 from llmcompressor.core.session import CompressionSession
@@ -22,9 +16,6 @@ from llmcompressor.core.state import Data, Hardware, ModifiedState, State
 __all__ = [
     "Event",
     "EventType",
-    "EventLifecycle",
-    "CallbacksEventLifecycle",
-    "OptimizerEventLifecycle",
     "State",
     "Data",
     "Hardware",
