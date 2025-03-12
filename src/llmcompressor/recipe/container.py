@@ -123,7 +123,7 @@ class RecipeContainer:
 
         :return: True if the recipes were compiled, False otherwise
         """
-        if self.compiled_recipe is None and self.recipes:
+        if self.recipes:
             self.compiled_recipe = Recipe.simplify_combine_recipes(self.recipes)
 
     def check_any_recipe_exists(self) -> bool:
