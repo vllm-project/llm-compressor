@@ -21,7 +21,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
     def test_oneshot_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto"
+            "nm-testing/llama2.c-stories15M", device_map="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
@@ -51,7 +51,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
             quantization_config=self.quantization_config,
         )
         distill_teacher = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto"
+            "nm-testing/llama2.c-stories15M", device_map="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
