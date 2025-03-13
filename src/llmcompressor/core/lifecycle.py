@@ -86,7 +86,7 @@ class CompressionLifecycle:
         """
         if self.initialized_:
             raise ValueError(
-                "Initialize was called twice. To update state values after "
+                "Initialize was called twice. To update state values prior to "
                 "initialization, please use `active_session().state.update()`"
             )
 
