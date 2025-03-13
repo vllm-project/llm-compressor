@@ -2,23 +2,68 @@ import math
 
 from loguru import logger
 
+from llmcompressor.args import parse_args
 from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
 
-from .utils import parse_args, post_process, preprocess
+from .utils import post_process, pre_process
 
 
 def train(**kwargs):
-    model_args, dataset_args, recipe_args, training_args = parse_args(**kwargs)
-    training_args.do_train = True
+    """
+    Fine-tuning entrypoint that supports vanilla fine-tuning and
+    knowledge distillation for compressed model using `oneshot`.
 
-    preprocess(model_args)
+
+    This entrypoint is responsible the entire fine-tuning lifecycle, including
+    preprocessing (model and tokenizer/processor initialization), fine-tuning,
+    and postprocessing (saving outputs). The intructions for fine-tuning compressed
+    model can be specified by using a recipe.
+
+    - **Input Keyword Arguments:**
+        `kwargs` are parsed into:
+        - `model_args`: Arguments for loading and configuring a pretrained model
+          (e.g., `AutoModelForCausalLM`).
+        - `dataset_args`: Arguments for dataset-related configurations, such as
+          calibration dataloaders.
+        - `recipe_args`: Arguments for defining and configuring recipes that specify
+          optimization actions.
+        - `training_args`: rguments for defining and configuring training parameters
+
+        Parsers are defined in `src/llmcompressor/args/`.
+
+    - **Lifecycle Overview:**
+        The fine-tuning lifecycle consists of three steps:
+        1. **Preprocessing**:
+            - Instantiates a pretrained model and tokenizer/processor.
+            - Ensures input and output embedding layers are untied if they share
+              tensors.
+            - Patches the model to include additional functionality for saving with
+              quantization configurations.
+        2. **Training**:
+            - Finetunes the model using a global `CompressionSession` and applies
+              recipe-defined modifiers (e.g., `ConstantPruningModifier`,
+                `OutputDistillationModifier`)
+        3. **Postprocessing**:
+            - Saves the model, tokenizer/processor, and configuration to the specified
+              `output_dir`.
+
+    - **Usage:**
+        ```python
+        train(model=model, recipe=recipe, dataset=dataset)
+
+        ```
+
+    """
+    model_args, dataset_args, recipe_args, training_args, _ = parse_args(
+        include_training_args=True, **kwargs
+    )
+
+    pre_process(model_args)
 
     processed_dataset = get_processed_dataset(
-        data_args=dataset_args,
-        training_args=training_args,
+        dataset_args=dataset_args,
         processor=model_args.processor,
-        add_labels=True,
     )
     training_dataset = processed_dataset.get("train")
 
@@ -29,7 +74,7 @@ def train(**kwargs):
         recipe_args=recipe_args.recipe_args,
         args=training_args,
         model_args=model_args,
-        data_args=dataset_args,
+        dataset_args=dataset_args,
         train_dataset=training_dataset,
         processing_class=model_args.processor,
         data_collator=dataset_args.data_collator,

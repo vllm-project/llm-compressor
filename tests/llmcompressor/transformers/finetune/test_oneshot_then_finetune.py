@@ -6,11 +6,9 @@ import pytest
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor import oneshot
+from llmcompressor import oneshot, train
 from llmcompressor.core import create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor import train
-
 
 @pytest.mark.unit
 class TestOneshotThenFinetune(unittest.TestCase):
@@ -20,8 +18,9 @@ class TestOneshotThenFinetune(unittest.TestCase):
 
     def test_oneshot_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
-        model = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto"
+        model = AutoModelForCausalLM.from_pre
+        ed(
+            "nm-testing/llama2.c-stories15M", device_map="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
@@ -51,7 +50,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
             quantization_config=self.quantization_config,
         )
         distill_teacher = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto"
+            "nm-testing/llama2.c-stories15M", device_map="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False

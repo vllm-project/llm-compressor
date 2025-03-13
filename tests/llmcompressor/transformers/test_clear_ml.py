@@ -10,13 +10,13 @@ try:
 except Exception:
     is_clearml = False
 
-from llmcompressor.transformers import train
+from llmcompressor import train
 
 
 @pytest.mark.skipif(not is_clearml, reason="clearML not installed")
 def test_finetune_wout_recipe(tmp_path: Path):
     recipe_str = None
-    model = "Xenova/llama2.c-stories15M"
+    model = "nm-testing/llama2.c-stories15M"
     device = "cuda:0"
     if not torch.cuda.is_available():
         device = "cpu"

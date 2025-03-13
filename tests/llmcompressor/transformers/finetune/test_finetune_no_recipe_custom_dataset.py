@@ -18,7 +18,7 @@ GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_cust
 
 class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
     def _test_finetune_wout_recipe_custom_dataset(self):
-        from llmcompressor.transformers import train
+        from llmcompressor import train
 
         dataset_path = Path(tempfile.mkdtemp())
 
@@ -113,7 +113,7 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
 @pytest.mark.integration
 @parameterized_class(parse_params(CONFIGS_DIRECTORY))
 class TestOneshotCustomDatasetSmall(TestFinetuneNoRecipeCustomDataset):
-    model = None  # "Xenova/llama2.c-stories15M"
+    model = None  # "nm-testing/llama2.c-stories15M"
     file_extension = None  # ["json", "csv"]
     num_train_epochs = None
 
