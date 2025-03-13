@@ -8,12 +8,7 @@ from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.modifier import RecipeModifier
 
-__all__ = ["RecipeStage", "StageRunType"]
-
-
-class StageRunType(Enum):
-    TRAIN = "train"
-    ONESHOT = "oneshot"
+__all__ = ["RecipeStage"]
 
 
 class RecipeStage(RecipeBase):
@@ -33,27 +28,11 @@ class RecipeStage(RecipeBase):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     group: Optional[str] = None
-    run_type: Optional[StageRunType] = None
     args: Optional[RecipeArgs] = None
     enabled: bool = True
     modifiers: List[RecipeModifier] = Field(default_factory=list)
     exclude_default: bool = False
     args_evaluated: Optional[RecipeArgs] = None
-
-    def infer_run_type(self) -> Optional[StageRunType]:
-        """
-        Infers the stage type from the type attribute or stage name, falls back to None
-
-        :return: string representing stage type, either train or oneshot, or None if
-        stage cannot be inferred
-        """
-        if self.run_type == StageRunType.TRAIN or self.run_type == StageRunType.ONESHOT:
-            return self.run_type
-        if StageRunType.TRAIN.value in self.group:
-            return StageRunType.TRAIN
-        if StageRunType.ONESHOT.value in self.group:
-            return StageRunType.ONESHOT
-        return None
 
     def calculate_start(self) -> int:
         """
