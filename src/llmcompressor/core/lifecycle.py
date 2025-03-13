@@ -218,12 +218,6 @@ class CompressionLifecycle:
                 "Cannot invoke event before recipe, model, and start are set"
             )
 
-        if not self.state.compression_ready:
-            logger.error("Cannot invoke event before recipe, model, and start are set")
-            raise ValueError(
-                "Cannot invoke event before recipe, model, and start are set"
-            )
-
         logger.debug("Setting up event lifecycle for event type: {}", event_type)
 
         for mod in self.modifiers:

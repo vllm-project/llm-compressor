@@ -119,18 +119,6 @@ class State:
     model_log_cadence: Optional[float] = None
     _last_log_step: Union[float, int, None] = None
 
-    @property
-    def compression_ready(self) -> bool:
-        """
-        Check if the model and optimizer are set for compression.
-
-        :return: True if model and optimizer are set, False otherwise
-        :rtype: bool
-        """
-        ready = self.model is not None and self.optimizer is not None
-        logger.debug("Compression ready: {}", ready)
-        return ready
-
     def update(
         self,
         model: Any = None,

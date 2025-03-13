@@ -149,6 +149,25 @@ class SessionManagerMixIn:
 
         train_data = self.get_train_dataloader()
 
+        # calculate total_steps_per_epoch
+        # n_gpu handled internally by dataloader
+        total_batch_size = (
+            self.args.per_device_train_batch_size
+            * self.args.gradient_accumulation_steps
+        )
+        if isinstance(self.train_dataset, IterableDataset):
+            logger.warning(
+                "Training is being run with a streamed dataset, "
+                "steps_per_epoch cannot be determined and will default to "
+                "1. LLM Compressor modifiers utilizing this statistic may not "
+                "behave as expected. "
+            )
+            self.total_steps_per_epoch = 1
+        else:
+            self.total_steps_per_epoch = math.ceil(
+                len(self.train_dataset) / total_batch_size
+            )
+
         self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
             initialize(
@@ -161,6 +180,7 @@ class SessionManagerMixIn:
                 start=epoch,
                 copy_data=False,
                 fsdp_active=self.is_fsdp_enabled,
+                steps_per_epoch=self.total_steps_per_epoch,
                 metadata=self.metadata,
             )
         self.accelerator.wait_for_everyone()
@@ -202,29 +222,6 @@ class SessionManagerMixIn:
 
         self._check_super_defined("create_optimizer")
         super().create_optimizer()
-
-        # n_gpu handled internally by dataloader
-        total_batch_size = (
-            self.args.per_device_train_batch_size
-            * self.args.gradient_accumulation_steps
-        )
-
-        if isinstance(self.train_dataset, IterableDataset):
-            logger.warning(
-                "Training is being run with a streamed dataset, "
-                "steps_per_epoch cannot be determined and will default to "
-                "1. LLM Compressor modifiers utilizing this statistic may not "
-                "behave as expected. "
-            )
-            self.total_steps_per_epoch = 1
-        else:
-            self.total_steps_per_epoch = math.ceil(
-                len(self.train_dataset) / total_batch_size
-            )
-
-        active_session().state.update(
-            optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch
-        )
 
         return self.optimizer
 
