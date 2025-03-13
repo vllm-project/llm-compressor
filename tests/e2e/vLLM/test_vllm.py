@@ -71,6 +71,7 @@ class TestvLLM:
             pytest.skip("Skipping test; cadence mismatch")
 
         self.model = eval_config["model"]
+        self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
@@ -104,6 +105,7 @@ class TestvLLM:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
+            model_class=self.model_class,
             device=self.device,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,

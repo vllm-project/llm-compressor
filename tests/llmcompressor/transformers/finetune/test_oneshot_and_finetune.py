@@ -19,9 +19,9 @@ class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
         from llmcompressor.transformers import apply
 
-        splits = {"train": "train[:30%]", "calibration": "train[30%:40%]"}
+        splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
         if self.dataset == "ultrachat-200k":
-            splits = {"train": "train_gen[:30%]", "calibration": "train_gen[30%:40%]"}
+            splits = {"train": "train_gen[:5%]", "calibration": "train_gen[5%:10%]"}
 
         apply(
             model=self.model,
@@ -30,6 +30,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
             output_dir=self.output,
             recipe=self.recipe,
             num_train_epochs=self.num_train_epochs,
+            num_calibration_samples=64,
             concatenate_data=self.concat_txt,
             splits=splits,
             oneshot_device=self.device,
