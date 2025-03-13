@@ -9,7 +9,7 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 from llmcompressor import oneshot
 from llmcompressor.core import create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import train
+from llmcompressor import train
 
 
 @pytest.mark.unit
