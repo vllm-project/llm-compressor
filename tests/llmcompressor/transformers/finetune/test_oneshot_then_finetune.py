@@ -10,6 +10,7 @@ from llmcompressor import oneshot, train
 from llmcompressor.core import create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
+
 @pytest.mark.unit
 class TestOneshotThenFinetune(unittest.TestCase):
     def setUp(self):
@@ -18,8 +19,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
 
     def test_oneshot_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
-        model = AutoModelForCausalLM.from_pre
-        ed(
+        model = AutoModelForCausalLM.from_pretrained(
             "nm-testing/llama2.c-stories15M", device_map="auto"
         )
         dataset = "open_platypus"
