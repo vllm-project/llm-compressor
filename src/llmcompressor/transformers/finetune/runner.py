@@ -17,7 +17,6 @@ from llmcompressor.args import (
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import (
     get_completed_stages,
-    get_session_model,
     save_checkpoint,
     save_completed_stages,
 )
@@ -183,6 +182,10 @@ class StageRunner:
                     "the stage name."
                 )
 
+            # skip stages which have already been applied
+            if stage_name in completed_stages:
+                continue
+
             # setup checkpoint dir, TODO: this should be optional
             self._output_dir = os.path.join(
                 self.parent_output_dir, "stage_" + stage_name
@@ -222,6 +225,7 @@ class StageRunner:
                     recipe_stage=stage_name,
                 )
             elif run_type is StageRunType.TRAIN:
+                self.trainer.model = model
                 self.train(checkpoint=checkpoint, stage=stage_name)
 
             checkpoint = None
@@ -248,11 +252,10 @@ class StageRunner:
 
             # setup for next stage
             session = active_session()
-            session.reset_stage()
+            session.reset()
 
             # synchronize and clean up memory
             self.trainer.accelerator.wait_for_everyone()
-            self.trainer.model = get_session_model()
             torch.cuda.empty_cache()
             self.trainer.accelerator.free_memory()
             self.trainer.accelerator.wait_for_everyone()
