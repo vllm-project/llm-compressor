@@ -8,6 +8,7 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
+from compressed_tensors.transforms.apply import apply_transforms_to_parameter
 from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from loguru import logger
 from torch.nn import Module
@@ -124,7 +125,20 @@ def update_weight_zp_scale(module: Module):
 
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
+
+        transform_data = getattr(module, "transform_data", None)
+        if transform_data is not None:
+            untransformed_weight = module.weight.data.clone()
+            apply_transforms_to_parameter(
+                module=module,
+                module_parameter=module.weight,
+                transform_data=transform_data,
+            )
+
         call_observer(module=module, base_name="weight")
+
+        if transform_data is not None:
+            module.weight.data.copy_(untransformed_weight)
 
 
 def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
