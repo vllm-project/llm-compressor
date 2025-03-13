@@ -47,7 +47,13 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         save_file({}, weights_file_path, metadata={"format": "pt"})
 
         # load from tmp dir
-        return original_fn(tmp_dir, **kwargs)
+        model = original_fn(tmp_dir, **kwargs)
+
+        # replace model_path
+        model.name_or_path = model_stub
+        model.config._name_or_path = model_stub
+
+        return model
 
     with (
         tempfile.TemporaryDirectory() as tmp_dir,
@@ -65,5 +71,8 @@ def skip_weights_initialize():
         patch_attr(torch.nn.init, "kaiming_uniform_", skip),
         patch_attr(torch.nn.init, "uniform", skip),
         patch_attr(torch.nn.init, "normal_", skip),
+        patch_attr(torch.Tensor, "kaiming_uniform_", skip),
+        patch_attr(torch.Tensor, "uniform", skip),
+        patch_attr(torch.Tensor, "normal_", skip),
     ):
         yield
