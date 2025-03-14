@@ -86,8 +86,10 @@ def train(**kwargs) -> PreTrainedModel:
         checkpoint = training_args.resume_from_checkpoint
 
     logger.info("*** Train ***")
+
     train_result = trainer.train(
         resume_from_checkpoint=checkpoint,
+        stage=recipe_args.stage,
     )
 
     # return output
