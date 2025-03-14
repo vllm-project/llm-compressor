@@ -6,10 +6,9 @@ import pytest
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor import oneshot
+from llmcompressor import oneshot, train
 from llmcompressor.core import create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import train
 
 
 @pytest.mark.unit
@@ -21,13 +20,13 @@ class TestOneshotThenFinetune(unittest.TestCase):
     def test_oneshot_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto"
+            "nm-testing/llama2.c-stories15M", device_map="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
         num_calibration_samples = 64
         output_dir = self.output / "oneshot_out"
-        splits = {"calibration": "train[:10%]"}
+        splits = {"calibration": "train[:5%]"}
 
         with create_session():
             oneshot(
@@ -51,13 +50,12 @@ class TestOneshotThenFinetune(unittest.TestCase):
             quantization_config=self.quantization_config,
         )
         distill_teacher = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map="auto"
+            "nm-testing/llama2.c-stories15M", device_map="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
         output_dir = self.output / "finetune_out"
-        splits = "train[:50%]"
-        max_steps = 25
+        splits = "train[5%:7%]"
 
         with create_session():
             train(
@@ -65,11 +63,10 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 distill_teacher=distill_teacher,
                 dataset=dataset,
                 output_dir=output_dir,
-                num_calibration_samples=num_calibration_samples,
+                num_train_epochs=0.05,
                 recipe=recipe_str,
                 concatenate_data=concatenate_data,
                 splits=splits,
-                max_steps=max_steps,
             )
 
         # test reloading checkpoint and final model
@@ -85,11 +82,10 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 distill_teacher=distill_teacher,
                 dataset=dataset,
                 output_dir=output_dir,
-                num_calibration_samples=num_calibration_samples,
+                num_train_epochs=0.05,
                 recipe=recipe_str,
                 concatenate_data=concatenate_data,
                 splits=splits,
-                max_steps=max_steps,
                 resume_from_checkpoint=True,  # use last checkpoint
             )
 
@@ -106,7 +102,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
         concatenate_data = False
         num_calibration_samples = 64
         output_dir = self.output / "oneshot_out"
-        splits = {"calibration": "train[:10%]"}
+        splits = {"calibration": "train[:5%]"}
 
         with create_session():
             oneshot(
@@ -130,17 +126,17 @@ class TestOneshotThenFinetune(unittest.TestCase):
         dataset = "open_platypus"
         concatenate_data = False
         output_dir = self.output / "finetune_out"
-        splits = {"calibration": "train[:10%]", "train": "train[:10%]"}
+        splits = {"calibration": "train[:5%]", "train": "train[5%:7%]"}
 
         with create_session():
             train(
                 model=model,
                 dataset=dataset,
                 output_dir=output_dir,
-                num_calibration_samples=num_calibration_samples,
                 recipe=recipe,
                 concatenate_data=concatenate_data,
                 splits=splits,
+                num_train_epochs=0.05,
             )
 
         # test reloading checkpoint and final model
@@ -152,10 +148,10 @@ class TestOneshotThenFinetune(unittest.TestCase):
                 model=model,
                 dataset=dataset,
                 output_dir=output_dir,
-                num_calibration_samples=num_calibration_samples,
                 recipe=recipe,
                 concatenate_data=concatenate_data,
                 splits=splits,
+                num_train_epochs=0.05,
                 resume_from_checkpoint=True,  # use last checkpoint
             )
 

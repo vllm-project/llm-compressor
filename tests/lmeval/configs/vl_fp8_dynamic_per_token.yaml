@@ -1,0 +1,16 @@
+cadence: weekly
+model: Qwen/Qwen2-VL-2B-Instruct
+model_class: TraceableQwen2VLForConditionalGeneration
+scheme: FP8_DYNAMIC
+seed: 42  # compressed model is sensitive to random seed
+lmeval:
+  model: "hf-multimodal"
+  model_args:
+    dtype: bfloat16
+    add_bos_token: True
+    convert_img_format: True
+  task: mmmu_val_economics
+  num_fewshot: 0
+  batch_size: 8
+  metrics:
+    acc,none: 0.333

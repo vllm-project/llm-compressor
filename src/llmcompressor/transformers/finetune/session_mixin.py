@@ -11,27 +11,18 @@ from torch.utils.data import IterableDataset
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
 
-from llmcompressor.core import (
-    active_session,
-    callbacks,
-    create_session,
-    finalize,
-    initialize,
-    pre_initialize_structure,
-)
+from llmcompressor.core import active_session, callbacks, create_session
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
 )
-from llmcompressor.pytorch.model_load.helpers import get_session_model
+from llmcompressor.pytorch.model_load.helpers import get_session_model, save_checkpoint
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
-from llmcompressor.transformers import RECIPE_FILE_NAME
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
 )
 from llmcompressor.utils.fsdp.context import summon_full_params_context
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model, save_pretrained_fsdp
 from llmcompressor.utils.pytorch import qat_active
 
 if TYPE_CHECKING:
@@ -57,15 +48,15 @@ class SessionManagerMixIn:
 
     :param recipe: path to recipe file to apply during training
     :param recipe_args: additional kwargs to use for evaluating recipe
-    :param data_args: kwargs for configuring dataset loading
+    :param dataset_args: kwargs for configuring dataset loading
     :param teacher: optional teacher model to use for distillation
     """
 
     def __init__(
         self,
         recipe: str,
+        dataset_args: "DatasetArguments",
         model_args: "ModelArguments",
-        data_args: Optional["DatasetArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         **kwargs,
@@ -80,7 +71,7 @@ class SessionManagerMixIn:
 
         self.metadata = None
         if training_args is not None:
-            # trl_sft_trainer pathway. Both training_args and data_args
+            # trl_sft_trainer pathway. Both training_args and dataset_args
             # have `max_seq_length` which causes collision error. This is the
             # only shared parameter, where training arg is `TRLSFTConfig` that
             # inherits HuggingFace's `TrainingArguments`
@@ -90,7 +81,7 @@ class SessionManagerMixIn:
                     training_args_dict.pop("max_seq_length")
                 )
                 logger.warning(
-                    "Detected `max_seq_length` in both data_args ",
+                    "Detected `max_seq_length` in both dataset_args ",
                     "and training_args. This is expected for TRL in distillation. ",
                     "Updating metadata to `training_args_max_seq_length`",
                 )
@@ -98,7 +89,7 @@ class SessionManagerMixIn:
             self.metadata = self._extract_metadata(
                 metadata_args=METADATA_ARGS,
                 training_args_dict=training_args_dict,
-                data_args_dict=asdict(data_args) if data_args else {},
+                dataset_args_dict=asdict(dataset_args) if dataset_args else {},
             )
 
         # setup metrics and session
@@ -128,8 +119,8 @@ class SessionManagerMixIn:
         if self.is_fsdp_enabled:
             self._prepare_model_for_fsdp()
 
-        if data_args is not None:
-            self.min_tokens_per_module = data_args.min_tokens_per_module
+        if dataset_args is not None:
+            self.min_tokens_per_module = dataset_args.min_tokens_per_module
 
     def initialize_session(
         self,
@@ -154,18 +145,20 @@ class SessionManagerMixIn:
 
         self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
-            initialize(
-                model=self.model,
-                teacher_model=self.teacher,  # TODO: what about for self/disable?
+            active_session().initialize(
                 recipe=self.recipe,
                 recipe_stage=stage,
                 recipe_args=self.recipe_args,
+                model=self.model,
+                teacher_model=self.teacher,  # TODO: what about for self/disable?
                 train_data=train_data,
                 start=epoch,
                 copy_data=False,
+                attach_optim_callbacks=True,
                 fsdp_active=self.is_fsdp_enabled,
                 metadata=self.metadata,
             )
+
         self.accelerator.wait_for_everyone()
         model = get_session_model()
         self.model_wrapped = self.model = model
@@ -179,26 +172,6 @@ class SessionManagerMixIn:
 
         torch.cuda.empty_cache()
 
-    def initialize_structure(self, stage: Optional[str] = None):
-        """
-        Initialize any recipe structural changes such as quantization on the model,
-        return immediately if session has already been initialized
-
-        :param stage: Optional stage of recipe to run, or None to run all stages
-        """
-        session = active_session()
-        if session.lifecycle.initialized_:
-            return False
-
-        pre_initialize_structure(
-            model=self.model,
-            recipe=self.recipe,
-            recipe_stage=stage,
-            recipe_args=self.recipe_args,
-        )
-        logger.info(f"Initialized LLM Compressor structure from recipe {self.recipe}")
-        torch.cuda.empty_cache()
-
     def finalize_session(self):
         """
         Wrap up training by finalizing all modifiers initialized in the current session
@@ -209,7 +182,7 @@ class SessionManagerMixIn:
 
         with summon_full_params_context(self.model, offload_to_cpu=True):
             # in order to update each layer we need to gathers all its parameters
-            finalize()
+            active_session().finalize()
         logger.info("Finalized LLM Compressor session")
         model = get_session_model()
         self.model = model
@@ -245,7 +218,9 @@ class SessionManagerMixIn:
                 len(self.train_dataset) / total_batch_size
             )
 
-        initialize(optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch)
+        active_session().initialize(
+            optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch
+        )
 
         return self.optimizer
 
@@ -399,44 +374,19 @@ class SessionManagerMixIn:
 
         # knowledge distillation requires making wrappers transparent during
         if isinstance(self.model, KDModelWrapper):
-            self.model.prepare_for_save()
+            self.model.prepare_for_save()  # TODO: move to finalize
 
-        if not is_fsdp_model(self.model):
-            self.model.save_pretrained(
-                output_dir,
-                save_compressed=self.model_args.save_compressed,
-                safe_serialization=self.args.save_safetensors,
-            )
-        else:  # FSDP model
-            save_pretrained_fsdp(
-                model=self.model,
-                accelerator=self.accelerator,
-                output_dir=output_dir,
-                save_compressed=self.model_args.save_compressed,
-                save_safetensors=self.metadata.get("save_safetensors", False),
-            )
-
+        # save checkpoint
         self.save_state()
-        processor = getattr(self, "processing_class", self.tokenizer)
-        if processor is not None:
-            processor.save_pretrained(output_dir)
-
-        if not self.recipe:
-            return
-
         if self.accelerator.is_main_process:
-            # save recipe, will contain modifiers from the model's original recipe as
-            # well as those added from self.recipe
-            recipe_path = os.path.join(output_dir, RECIPE_FILE_NAME)
-            session = active_session()
-            recipe_yaml_str = session.get_serialized_recipe()
-            with open(recipe_path, "w") as fp:
-                fp.write(recipe_yaml_str)
-
-            logger.info(
-                f"Saved LLM Compressor recipe with model state to {recipe_path}"
+            processor = getattr(self, "processing_class", self.tokenizer)
+            save_checkpoint(
+                output_dir,
+                model=self.model,
+                processor=processor,
+                save_safetensors=self.args.save_safetensors,
+                save_compressed=self.model_args.save_compressed,
             )
-
         self.accelerator.wait_for_everyone()
 
         if isinstance(self.model, KDModelWrapper):
@@ -507,16 +457,16 @@ class SessionManagerMixIn:
         self,
         metadata_args: List[str],
         training_args_dict: Dict[str, Any],
-        data_args_dict: Dict[str, Any],
+        dataset_args_dict: Dict[str, Any],
     ) -> Dict[str, Any]:
         metadata = {}
-        if not training_args_dict.keys().isdisjoint(data_args_dict.keys()):
+        if not training_args_dict.keys().isdisjoint(dataset_args_dict.keys()):
             raise ValueError(
                 "Found common keys in `training_args` and `data args`. "
                 "This is prohibitive and may lead to undesired behavior."
             )
 
-        args_dict = {**training_args_dict, **data_args_dict}
+        args_dict = {**training_args_dict, **dataset_args_dict}
 
         for arg in metadata_args:
             if arg not in args_dict.keys():

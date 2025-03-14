@@ -67,7 +67,7 @@ __all__ = [
     "DisableQuantization",
     "eval_context",
     "calibration_forward_context",
-    "preserve_attr",
+    "patch_attr",
 ]
 
 
@@ -1132,9 +1132,39 @@ def calibration_forward_context(model: PreTrainedModel):
 
 
 @contextlib.contextmanager
-def preserve_attr(base: object, attr: str):
-    value = getattr(base, attr)
+def patch_attr(base: object, attr: str, *args, **kwargs):
+    """
+    :param base: object which has the attribute to patch
+    :param attr: name of the the attribute to patch
+    :param value: optional value used to replace attribute value. If none is provided,
+        then the value is not replaced and the original value is restored upon exit
+
+    Usage:
+    >>> from types import SimpleNamespace
+    >>> obj = SimpleNamespace()
+    >>> with patch_attr(obj, "attribute", "value"):
+    ...     assert obj.attribute == "value"
+    >>> assert not hasattr(obj, "attribute")
+    """
+    # get value to patch with (handles `None` case)
+    has_patched_value = len(args) > 0 or "value" in kwargs
+    if len(args) > 0 and "value" in kwargs:
+        raise TypeError("Given two arguments for `value`")
+    patched_value = args[0] if len(args) > 0 else kwargs.pop("value", None)
+
+    # check if attribute already exists
+    has_original_value = hasattr(base, attr)
+    if has_original_value:
+        value = getattr(base, attr)
+
+    # override value
+    if has_patched_value:
+        setattr(base, attr, patched_value)
     try:
         yield
     finally:
-        setattr(base, attr, value)
+        # restore value
+        if has_original_value:
+            setattr(base, attr, value)
+        elif hasattr(base, attr):
+            delattr(base, attr)

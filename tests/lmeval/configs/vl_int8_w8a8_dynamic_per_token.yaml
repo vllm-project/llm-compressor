@@ -1,0 +1,19 @@
+cadence: "weekly"
+model: llava-hf/llava-1.5-7b-hf
+model_class: TraceableLlavaForConditionalGeneration
+scheme: INT8_dyn_per_token
+recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
+dataset_id: lmms-lab/flickr30k
+dataset_split: "test[:512]"
+seed: 42 #compressed model is sensitive to random seed
+lmeval:
+  model: "hf-multimodal"
+  model_args:
+    dtype: bfloat16
+    add_bos_token: True
+    convert_img_format: True
+  task: mmmu_val_economics
+  num_fewshot: 0
+  metrics:
+    acc,none: 0.233
+  batch_size: 8
