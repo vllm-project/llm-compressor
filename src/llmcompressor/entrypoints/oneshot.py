@@ -106,39 +106,13 @@ class Oneshot:
         self.recipe_args = recipe_args
         self.output_dir = output_dir
 
+        # initialize the model and processor
+        pre_process(model_args)
+
         # Set instance attributes
         self.model = self.model_args.model
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
-
-    @classmethod
-    def from_args(
-        cls,
-        model_args,
-        dataset_args,
-        recipe_args,
-        output_dir,
-        do_preprocess: bool = True,
-    ):
-        """
-        Used only for the stage runner to populate the args.
-        """
-        instance = super().__new__(cls)
-        instance.model_args = model_args
-        instance.dataset_args = dataset_args
-        instance.recipe_args = recipe_args
-        instance.output_dir = output_dir
-
-        # only run for the first oneshot call
-        if do_preprocess:
-            pre_process(model_args)
-
-        # Set instance attributes
-        instance.model = instance.model_args.model
-        instance.recipe = instance.recipe_args.recipe
-        instance.processor = instance.model_args.processor
-
-        return instance
 
     def __call__(self):
         """
@@ -150,12 +124,6 @@ class Oneshot:
         postprocessing.
 
         """
-        # TODO: move back once stage runner is removed
-        # Preprocess the model and tokenizer/processor
-        pre_process(self.model_args)
-        self.model = self.model_args.model
-        self.recipe = self.recipe_args.recipe
-        self.processor = self.model_args.processor
 
         calibration_dataloader = get_calibration_dataloader(
             self.dataset_args, self.processor
