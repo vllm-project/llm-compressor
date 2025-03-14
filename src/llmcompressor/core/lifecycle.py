@@ -10,12 +10,7 @@ from typing import Any, List, Optional
 
 from loguru import logger
 
-from llmcompressor.core.events import (
-    CallbacksEventLifecycle,
-    EventLifecycle,
-    EventType,
-    OptimizerEventLifecycle,
-)
+from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import StageModifiers
 from llmcompressor.recipe import (
@@ -39,17 +34,29 @@ class CompressionLifecycle:
     :type recipe_container: RecipeContainer
     :param modifiers: The list of stage modifiers
     :type modifiers: List[StageModifiers]
-    :param event_lifecycle: The event lifecycle manager
-    :type event_lifecycle: Optional[EventLifecycle]
     """
 
     state: State = field(default_factory=State)
     recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
     modifiers: List[StageModifiers] = field(default_factory=list)
-    event_lifecycle: Optional[EventLifecycle] = None
 
     initialized_: bool = False
     finalized: bool = False
+
+    # event order validation
+    _last_event_type: Optional[EventType] = EventType.BATCH_END
+    _event_order: List[EventType] = field(
+        default_factory=lambda: [
+            EventType.BATCH_START,
+            EventType.LOSS_CALCULATED,
+            EventType.OPTIM_PRE_STEP,
+            EventType.OPTIM_POST_STEP,
+            EventType.BATCH_END,
+        ]
+    )
+
+    # track global step in training (could be epoch/batch)
+    global_step: int = 0
 
     def reset(self):
         """
@@ -142,7 +149,9 @@ class CompressionLifecycle:
 
         return mod_data
 
-    def event(self, event_type: EventType, **kwargs) -> List[Any]:
+    def event(
+        self, event_type: EventType, global_step: Optional[int] = 0, **kwargs
+    ) -> List[Any]:
         """
         Handle a compression event.
 
@@ -172,6 +181,12 @@ class CompressionLifecycle:
                 f"Use the corresponding method instead."
             )
 
+        if not self._validate_event_order(event_type):
+            raise ValueError(
+                f"Lifecycle events must appear following order: {self._event_order}. "
+                f"Instead, {self._last_event_type} was called before {event_type}"
+            )
+
         if event_type == EventType.LOSS_CALCULATED and (
             "loss" not in kwargs or kwargs["loss"] is None
         ):
@@ -179,84 +194,41 @@ class CompressionLifecycle:
             raise ValueError("Loss must be provided for loss calculated event")
 
         logger.debug("Handling event: {}", event_type)
-        self._check_setup_event_lifecycle(event_type)
 
-        event = None
+        # update global step
+        if global_step is not None:
+            self.global_step = global_step
+
+        event = Event(type_=event_type)
         mod_data = []
-        for event in self.event_lifecycle.events_from_type(event_type):
-            if self.state.start_event is None:
-                self.state.start_event = event
-
-            for mod in self.modifiers:
-                data = mod.update_event(state=self.state, event=event, **kwargs)
-                logger.debug("Updated event with modifier: {}", mod)
-                if data is not None:
-                    mod_data.append(data)
+        for mod in self.modifiers:
+            data = mod.update_event(state=self.state, event=event, **kwargs)
+            logger.debug("Updated event with modifier: {}", mod)
+            if data is not None:
+                mod_data.append(data)
 
         assert (
             event is not None
         ), f"Event lifecycle did not return an event for {event_type}"
-        self.state.last_event = event
 
         return mod_data
 
-    def _check_setup_event_lifecycle(self, event_type: EventType):
-        if self.event_lifecycle is not None:
-            return
+    def _validate_event_order(self, event_type: EventType) -> bool:
+        if event_type not in self._event_order:
+            # for unhandled events, do not save last event
+            return True
 
-        if (
-            self.state is None
-            or self.state.model is None
-            or self.state.start_event is None
-            or self.recipe_container.compiled_recipe is None
-        ):
-            logger.error("Cannot invoke event before recipe, model, and start are set")
-            raise ValueError(
-                "Cannot invoke event before recipe, model, and start are set"
-            )
-
-        if not self.state.compression_ready:
-            logger.error("Cannot invoke event before recipe, model, and start are set")
-            raise ValueError(
-                "Cannot invoke event before recipe, model, and start are set"
-            )
-
-        logger.debug("Setting up event lifecycle for event type: {}", event_type)
-
-        for mod in self.modifiers:
-            logger.debug("Checking if modifier is initialized: {}", mod)
-            mod.check_initialized()
-
-        # first check for creation of a callbacks event lifecycle
-        # must start with BATCH_START event
         if event_type == EventType.BATCH_START:
-            self.event_lifecycle = CallbacksEventLifecycle(
-                type_first=EventType.BATCH_START, start=self.state.start_event
-            )
-        elif (
-            event_type == EventType.LOSS_CALCULATED
-            or event_type == EventType.OPTIM_PRE_STEP
-        ):
-            self.event_lifecycle = OptimizerEventLifecycle(
-                type_first=event_type, start=self.state.start_event
-            )
-        else:
-            logger.error(
-                "Invalid event type for initializing event lifecycle: "
-                "{}. Must be BATCH_START, LOSS_CALCULATED, or OPTIM_PRE_STEP",
-                event_type,
-            )
-            raise ValueError(
-                f"Invalid event type for initializing event lifecycle: "
-                f"{event_type}. Must be BATCH_START, LOSS_CALCULATED, or OPTIM_PRE_STEP"
-            )
+            valid = self._last_event_type != EventType.BATCH_START
 
-        logger.info(
-            "Event lifecycle for compression lifecycle created: "
-            "{} with start event type: {}",
-            self.event_lifecycle,
-            event_type,
-        )
+        else:
+            last_event_index = self._event_order.index(self._last_event_type)
+            curr_event_index = self._event_order.index(event_type)
+            valid = last_event_index <= curr_event_index
+
+        if valid:
+            self._last_event_type = event_type
+        return valid
 
     def _set_model_layer_prefix(self):
         compiled_recipe = self.recipe_container.compiled_recipe

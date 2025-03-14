@@ -1,6 +1,5 @@
 from typing import List, Optional
 
-from loguru import logger
 from pydantic import BaseModel, Field
 
 from llmcompressor.core.events import Event
@@ -49,24 +48,6 @@ class StageModifiers(ModifierInterface, BaseModel):
         :return: ID for stage containing the name and index
         """
         return self.group + "_" + str(self.index)
-
-    def check_initialized(self):
-        """
-        Check if all of the stage modifiers have been initialized, and log a warning
-        if not. This warning is expected when loading an input recipe during finetuning
-        """
-
-        at_least_one_initialized = False
-        for modifier in self.modifiers:
-            if modifier.initialized:
-                at_least_one_initialized = True
-        if not at_least_one_initialized:
-            modifier_names = [type(mod).__name__ for mod in self.modifiers]
-            logger.warning(
-                f"Found no initialized modifiers in stage {self.group}. "
-                "Found the following uninitialized modifiers: "
-                f"{modifier_names}"
-            )
 
     def calculate_start(self) -> float:
         """
