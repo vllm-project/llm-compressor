@@ -48,14 +48,13 @@ class TestMaskStructurePreserved(unittest.TestCase):
         import torch
 
         from llmcompressor import oneshot
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
         from llmcompressor.utils.pytorch import qat_active
 
         tolerance = 1e-3
         num_calibration_samples = 16
 
-        oneshot(
+        model = oneshot(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -64,7 +63,6 @@ class TestMaskStructurePreserved(unittest.TestCase):
             oneshot_device=self.device,
             save_compressed=False,
         )
-        first_tiny_model = get_session_model()
         targetted_layer = first_tiny_model.model.layers[0].self_attn.k_proj
         target_layer_sparsity = tensor_sparsity(targetted_layer.weight)
         initial_mask = first_tiny_model.model.layers[0].self_attn.k_proj.weight == 0
@@ -78,7 +76,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
 
         reset_session()
 
-        oneshot(
+        second_tiny_model = oneshot(
             model=self.output_first,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,

@@ -445,7 +445,6 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     ],
 )
 def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp_path):
-    from llmcompressor.pytorch.model_load.helpers import get_session_model
 
     device = "cuda"
     if not torch.cuda.is_available():
@@ -456,7 +455,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     splits = {"calibration": "train[:10%]"}
     empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
 
-    oneshot(
+    model = oneshot(
         model=model_stub,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -466,8 +465,6 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
         oneshot_device=device,
     )
 
-    # Fetch the oneshot model
-    model = get_session_model()
     og_state_dict = model.state_dict()
     path = tmp_path / "compressed"
 
