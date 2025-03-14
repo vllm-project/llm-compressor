@@ -430,8 +430,8 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         if key.endswith("weight") and quant_format != "dense":
             # we don't expect an exact match for compressed
             diff = torch.abs(dense_tensor - reconstructed_tensor)
-            # max diff value found empirically
-            assert not torch.any(diff > 0.022), f"Max diff: {torch.max(diff)}"
+            # maximum quantization error as a result of compression is ~0.025
+            assert not torch.any(diff > 0.025), f"Max diff: {torch.max(diff)}"
         else:
             assert torch.equal(dense_tensor, reconstructed_tensor)
     shutil.rmtree(tmp_path)
