@@ -68,16 +68,6 @@ def test_state_update():
 
 
 @pytest.mark.regression
-def test_state_sparsification_ready():
-    state = State()
-    assert not state.compression_ready
-
-    state.model = "model"
-    state.optimizer = "optimizer"
-    assert state.compression_ready
-
-
-@pytest.mark.regression
 def test_state_update_loggers():
     state = State()
     logger1 = BaseLogger("test1", False)

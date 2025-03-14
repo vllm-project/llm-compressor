@@ -84,10 +84,13 @@ class CompressionLifecycle:
         :return: List of data returned from initialization of modifiers
         :rtype: List[Any]
         """
-        self.state.update(**kwargs)
-        if self.initialized_:  # TODO: do not initialize twice
-            return
+        if self.initialized_:
+            raise ValueError(
+                "Initialize was called twice. To update state values prior to "
+                "initialization, please use `active_session().state.update()`"
+            )
 
+        self.state.update(**kwargs)
         logger.debug("Initializing compression lifecycle")
         self.recipe_container.append(recipe, recipe_stage, recipe_args)
         self.modifiers = self.recipe_container.get_modifiers()
@@ -210,12 +213,6 @@ class CompressionLifecycle:
             or self.state.start_event is None
             or self.recipe_container.compiled_recipe is None
         ):
-            logger.error("Cannot invoke event before recipe, model, and start are set")
-            raise ValueError(
-                "Cannot invoke event before recipe, model, and start are set"
-            )
-
-        if not self.state.compression_ready:
             logger.error("Cannot invoke event before recipe, model, and start are set")
             raise ValueError(
                 "Cannot invoke event before recipe, model, and start are set"
