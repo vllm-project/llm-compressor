@@ -39,7 +39,6 @@ class TestConsecutiveRuns(unittest.TestCase):
             recipe=self.first_recipe,
             output_dir=self.output_first,
             oneshot_device=self.device,
-            clear_sparse_session=False,
         )
 
         first_model = AutoModelForCausalLM.from_pretrained(

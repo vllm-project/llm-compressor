@@ -62,7 +62,6 @@ class TestMaskStructurePreserved(unittest.TestCase):
             recipe=self.initial_pruning_only_recipe,
             output_dir=self.output_first,
             oneshot_device=self.device,
-            clear_sparse_session=False,
             save_compressed=False,
         )
         first_tiny_model = get_session_model()
@@ -86,7 +85,6 @@ class TestMaskStructurePreserved(unittest.TestCase):
             recipe=self.subsequent_prune_and_quant_recipe,
             output_dir=self.output_second,
             oneshot_device=self.device,
-            clear_sparse_session=False,
             save_compressed=False,
         )
 
