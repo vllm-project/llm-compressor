@@ -67,12 +67,15 @@ def pre_process(model_args: "ModelArguments"):
 
 
 def post_process(
-    model_args: "ModelArguments",
+    model_args: Optional["ModelArguments"] = None,
     recipe_args: Optional["RecipeArguments"] = None,
     output_dir: Optional[str] = None,
 ):
     """
-    Saves the model and tokenizer/processor to the output directory.
+    Saves the model and tokenizer/processor to the output directory if model_args,
+    output_dir is provided.
+
+    Save is skipped for stage runs for `train` - saves using the trainer.save_model()
 
     If the `output_dir` is not the default directory, the method resets lifecycle
     actions. The model is saved in a compressed format if specified in `model_args`.
@@ -81,20 +84,17 @@ def post_process(
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
-
-    if output_dir is not None:
-        if recipe_args is not None and recipe_args.stage is not None:
+    if model_args is not None and output_dir is not None:
+        if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:
             output_dir = os.path.join(output_dir, recipe_args.stage)
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-
+            os.makedirs(output_dir, exist_ok=True)
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
         model_args.model.save_pretrained(
-            output_dir,
-            save_compressed=model_args.save_compressed,
+            output_dir, save_compressed=model_args.save_compressed
         )
-        if model_args.processor:
+
+        if model_args.processor is not None:
             model_args.processor.save_pretrained(output_dir)
 
     else:

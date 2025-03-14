@@ -1,4 +1,5 @@
 import math
+import os
 
 from loguru import logger
 from transformers import PreTrainedModel
@@ -68,6 +69,18 @@ def train(**kwargs) -> PreTrainedModel:
     )
     training_dataset = processed_dataset.get("train")
 
+    # create output dir for stages
+    original_output_dir = output_dir = training_args.output_dir
+    if all([output_dir, recipe_args, getattr(recipe_args, "stage", None)]):
+        output_dir = os.path.join(original_output_dir, recipe_args.stage)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        # update output dir in training args
+        logger.info(
+            f"Stage detected for training. Updating output dir to: {output_dir}"
+        )
+        training_args.output_dir = output_dir
+
     trainer = Trainer(
         model=model_args.model,
         teacher=model_args.distill_teacher,
@@ -102,10 +115,8 @@ def train(**kwargs) -> PreTrainedModel:
     # this includes saving the state, optimizer and scheduler
     trainer.save_model(output_dir=training_args.output_dir)
 
-    post_process(
-        model_args=model_args,
-        recipe_args=recipe_args,
-        output_dir=training_args.output_dir,
-    )
+    # reset session only
+    post_process()
+    training_args.output_dir = original_output_dir
 
     return model_args.model
