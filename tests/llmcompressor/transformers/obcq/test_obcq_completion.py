@@ -60,7 +60,6 @@ class TestOBCQCompletion(unittest.TestCase):
             num_calibration_samples=self.num_samples,
             pad_to_max_length=False,
             output_dir=self.output,
-            clear_sparse_session=False,
             precision="bfloat16",
         )
 
