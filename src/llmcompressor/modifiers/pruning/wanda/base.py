@@ -9,7 +9,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import State
+from llmcompressor.core import State, Event, EventType
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.pruning.wanda.wanda_sparsify import (
@@ -91,11 +91,12 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
             self._num_samples[module],
         )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
         """
-        Sparsify modules
-        TODO: implement with event callback
+        Sparsify modules which have been calibrated with samples
         """
+        if event.type_ != EventType.SEQUENTIAL_BATCH_END:
+            return
 
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]

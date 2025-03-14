@@ -1,17 +1,15 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import List
 
 import torch
 import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
 
+from llmcompressor.core import LifecycleCallbacks
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.utils.helpers import calibration_forward_context
-
-if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
 
 __all__ = ["run_pipeline"]
 
@@ -21,7 +19,6 @@ def run_pipeline(
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
-    callback_modifier: Optional["Modifier"] = None,
 ):
     """
     Run a sequential data pipeline according to the following steps:
@@ -69,9 +66,8 @@ def run_pipeline(
                 inputs = intermediates.fetch(batch_index, subgraph.input_names)
                 forward_function(model, **inputs)
 
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
+            # trigger compression
+            LifecycleCallbacks.sequential_batch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
