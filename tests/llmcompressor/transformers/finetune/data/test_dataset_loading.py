@@ -273,12 +273,12 @@ class TestSplitLoading(unittest.TestCase):
             trust_remote_code_data=True,
         )
 
-        train_dataset = get_processed_dataset(
+        dataset = get_processed_dataset(
             dataset_args=dataset_args, processor=self.tiny_llama_tokenizer
         )
 
-        assert train_dataset is not None
-        self.assertIsInstance(train_dataset, dict)
+        assert dataset is not None
+        self.assertIsInstance(dataset, dict)
 
 
 @pytest.mark.unit
@@ -304,18 +304,18 @@ class TestTokenizationDataset(unittest.TestCase):
         tokenized_dataset = self.dataset.map(
             preprocess, remove_columns=["input", "output", "instruction", "data_source"]
         )
-        breakpoint()
-        dataset_args = (
-            DatasetArguments(
-                dataset=tokenized_dataset, shuffle_calibration_samples=False
-            ),
+
+        dataset_args = DatasetArguments(
+            dataset=tokenized_dataset, shuffle_calibration_samples=False
         )
-        calib_dataset = get_processed_dataset(
+
+        dataset = get_processed_dataset(
             dataset_args=dataset_args,
             processor=self.tiny_llama_tokenizer,
             do_oneshot=True,
             do_train=False,
         )
+        calib_dataset = dataset["calibration"]
 
         self.assertEqual(len(calib_dataset), self.num_calib_samples)
         data_cols = calib_dataset.column_names
@@ -324,7 +324,7 @@ class TestTokenizationDataset(unittest.TestCase):
         self.assertIn("attention_mask", data_cols)
 
         # confirm turning shuffle off works
-        breakpoint()
+
         calib_dataloader = format_calibration_data(
             tokenized_dataset=calib_dataset,
             num_calibration_samples=self.num_calib_samples,
