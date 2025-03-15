@@ -9,13 +9,13 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.recipe import RecipeInput
 
 # mixins
-from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
-from llmcompressor.core.llmcompressor.train import HFSFTMixin
+from llmcompressor.core.events.events_mixin import EventsMixin
+from llmcompressor.core.train import HFSFTMixin
 
 # todo: move
 from llmcompressor.datasets.utils import get_calibration_dataloader
 
-from llmcompressor.core.llmcompressor.utils import parse_args, LCDatasetArguments, LCModelArguments, get_modifiers_from_recipe, prepare_models, infer_calibration_pipeline
+from llmcompressor.core.utils import parse_args, LCDatasetArguments, LCModelArguments, get_modifiers_from_recipe, prepare_models, infer_calibration_pipeline
 
 
 class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):

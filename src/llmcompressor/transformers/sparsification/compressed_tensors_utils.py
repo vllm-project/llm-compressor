@@ -18,7 +18,6 @@ from loguru import logger
 from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
 
-from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
@@ -148,7 +147,7 @@ def new_dtype_byte_size(dtype):
     return bit_size // 8
 
 
-def patch_tied_tensors_bug(model: PreTrainedModel):
+def patch_tied_tensors_bug(model: torch.nn.Module):
     """
     Patches bug where HF transformers will fail to untie weights under specific
     circumstances (https://github.com/huggingface/transformers/issues/33689).
@@ -169,26 +168,16 @@ def patch_tied_tensors_bug(model: PreTrainedModel):
             return
 
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
-            untie_weights(model)
-
-def untie_weights(model: PreTrainedModel):
-    input_embed = model.get_input_embeddings()
-    output_embed = model.get_output_embeddings()
-
-    if input_embed is None or output_embed is None:
-        # some models fail to properly override the abstract methods
-        return
-    
-    for module in (input_embed, output_embed):
-        if not is_module_offloaded(module):
-            # create new storage ptr for onloaded weight
-            untied_data = module.weight.data.clone()
-            module.weight.data = untied_data
-        else:
-            # create new storage ptr for offloaded weight
-            # note `update_offload_parameter` does not create a new storage ptr
-            untied_data = module._hf_hook.weights_map["weight"].clone()
-            update_offload_parameter(module, "weight", untied_data)
+            for module in (input_embed, output_embed):
+                if not is_module_offloaded(module):
+                    # create new storage ptr for onloaded weight
+                    untied_data = module.weight.data.clone()
+                    module.weight.data = untied_data
+                else:
+                    # create new storage ptr for offloaded weight
+                    # note `update_offload_parameter` does not create a new storage ptr
+                    untied_data = module._hf_hook.weights_map["weight"].clone()
+                    update_offload_parameter(module, "weight", untied_data)
 
 
 def get_model_compressor(
@@ -261,7 +250,9 @@ def update_and_save_recipe(model_path: str, save_directory: str):
     if existing_recipe is not None:
         recipes_to_save.append(existing_recipe)
 
-    new_recipe = active_session().lifecycle.recipe_container.compiled_recipe
+    # TODO: add back later
+    #new_recipe = active_session().lifecycle.recipe_container.compiled_recipe
+    new_recipe = None
     if new_recipe is not None:
         recipes_to_save.append(new_recipe)
 

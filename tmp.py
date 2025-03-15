@@ -1,4 +1,4 @@
-from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor
+from llmcompressor.core.llmcompressor import LLMCompressor
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
 recipe = [

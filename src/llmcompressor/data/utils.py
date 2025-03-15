@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from transformers.data import default_data_collator
 
 from llmcompressor.args import DatasetArguments
-from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 

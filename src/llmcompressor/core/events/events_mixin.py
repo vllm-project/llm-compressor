@@ -1,13 +1,13 @@
 from abc import ABC
-from typing import List
+from typing import List, Callable, Any
 
 import torch
 
-from llmcompressor.core.llmcompressor.event_lifecycle import EventsLifecycle
 from llmcompressor.core import State, EventType, Event
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import modify_save_pretrained
+from llmcompressor.core.events.lifecycle import EventsLifecycle
 
 
 class EventsMixin(ABC):
@@ -28,9 +28,8 @@ class EventsMixin(ABC):
         # post processing
         modify_save_pretrained(self.state.model)
     
-    def batch_start(self, global_step: int, **kwargs):
-        self.state.current_index = global_step
-        
+    @EventsLifecycle.handle_global_step
+    def batch_start(self, **kwargs):
         # modifiers can only start on batch_start
         for modifier in self.modifiers:
             if modifier.should_start(self.state):

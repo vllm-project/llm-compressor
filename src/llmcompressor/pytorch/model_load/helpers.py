@@ -8,7 +8,6 @@ from safetensors import safe_open
 from torch.nn import Module
 from transformers import PreTrainedModel
 
-from llmcompressor.core import active_session
 from llmcompressor.typing import Processor
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
@@ -17,7 +16,6 @@ __all__ = [
     "copy_python_files_from_model_cache",
     "fallback_to_cpu",
     "parse_dtype",
-    "get_session_model",
     "get_completed_stages",
     "save_completed_stages",
     "save_checkpoint",
@@ -72,19 +70,6 @@ def parse_dtype(dtype_arg: Union[str, torch.dtype]) -> torch.dtype:
         dtype = torch.float32
 
     return dtype
-
-
-def get_session_model() -> Optional[Module]:
-    """
-    :return: pytorch module stored by the active CompressionSession,
-        or None if no session is active
-    """
-    session = active_session()
-    if not session:
-        return None
-
-    active_model = session.state.model
-    return active_model
 
 
 def get_completed_stages(checkpoint_dir: Any) -> List[str]:

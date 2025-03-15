@@ -4,15 +4,16 @@ Utility / helper functions
 
 import difflib
 import re
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 import torch
+
+from dataclasses import dataclass
 from compressed_tensors.quantization.utils import is_module_quantized
 from packaging import version
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 
-from llmcompressor.core import ModelParameterizedLayer
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
@@ -277,6 +278,25 @@ def qat_active(module: Module) -> bool:
     return False
 
 
+# TODO: move to pruning modifiers folder
+@dataclass
+class ModelParameterizedLayer:
+    """
+    A dataclass for holding a parameter and its layer
+
+    :param layer_name: the name of the layer
+    :param layer: the layer object
+    :param param_name: the name of the parameter
+    :param param: the parameter object
+    """
+
+    layer_name: str
+    layer: Any
+    param_name: str
+    param: Any
+
+
+# TODO: move to pruning modifiers folder
 def get_layers_params(
     targets: Union[str, List[str]], module: Module
 ) -> Dict[str, ModelParameterizedLayer]:
