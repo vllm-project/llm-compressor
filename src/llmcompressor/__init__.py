@@ -38,8 +38,6 @@ from llmcompressor.core.session_functions import (
     active_session,
     callbacks,
     create_session,
-    finalize,
-    initialize,
     reset_session,
 )
-from llmcompressor.entrypoints import Oneshot, oneshot
+from llmcompressor.entrypoints import Oneshot, oneshot, train

@@ -10,7 +10,7 @@ try:
 except Exception:
     is_clearml = False
 
-from llmcompressor.transformers import train
+from llmcompressor import train
 
 
 @pytest.mark.skipif(not is_clearml, reason="clearML not installed")
