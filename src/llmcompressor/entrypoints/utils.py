@@ -105,7 +105,8 @@ def post_process(
         )
 
     # Reset the one-time-use session upon completion
-    reset_session()
+    if recipe_args.clear_sparse_session:
+        reset_session()
 
 
 def _warn_tied_embeddings(tie_word_embeddings: bool = False):

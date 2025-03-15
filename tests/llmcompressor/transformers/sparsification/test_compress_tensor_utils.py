@@ -66,6 +66,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         splits=splits,
         oneshot_device=device,
         precision=dtype,
+        clear_sparse_session=False,
     )
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -178,6 +179,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         splits=splits,
         oneshot_device=device,
         precision=dtype,
+        clear_sparse_session=False,
     )
 
     # Fetch the oneshot model
@@ -380,6 +382,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         concatenate_data=concatenate_data,
         splits=splits,
         oneshot_device=device,
+        clear_sparse_session=False,
     )
 
     # Fetch the oneshot model
@@ -445,7 +448,6 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     ],
 )
 def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp_path):
-
     device = "cuda"
     if not torch.cuda.is_available():
         device = "cpu"
@@ -463,6 +465,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
         concatenate_data=concatenate_data,
         splits=splits,
         oneshot_device=device,
+        clear_sparse_session=False,
     )
 
     og_state_dict = model.state_dict()

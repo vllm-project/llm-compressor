@@ -54,7 +54,7 @@ class TestMaskStructurePreserved(unittest.TestCase):
         tolerance = 1e-3
         num_calibration_samples = 16
 
-        model = oneshot(
+        first_tiny_model = oneshot(
             model=self.model,
             dataset=self.dataset,
             num_calibration_samples=num_calibration_samples,
@@ -85,8 +85,6 @@ class TestMaskStructurePreserved(unittest.TestCase):
             oneshot_device=self.device,
             save_compressed=False,
         )
-
-        second_tiny_model = get_session_model()
 
         # model is loaded
         assert second_tiny_model is not None

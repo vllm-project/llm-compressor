@@ -21,6 +21,15 @@ class RecipeArguments:
             )
         },
     )
+    clear_sparse_session: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": (
+                "Whether to clear CompressionSession/CompressionLifecycle ",
+                "data between runs.",
+            )
+        },
+    )
     stage: Optional[str] = field(
         default=None,
         metadata={"help": ("The stage of the recipe to use for oneshot / train.",)},

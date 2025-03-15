@@ -22,7 +22,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
         splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
         if self.dataset == "ultrachat-200k":
             splits = {"train": "train_gen[:5%]", "calibration": "train_gen[5%:10%]"}
-        
+
         oneshot_args = dict(
             dataset=self.dataset,
             output_dir=self.output,
@@ -32,7 +32,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
         )
-        
+
         train_args = dict(
             # num_train_epochs=self.num_train_epochs,
             # num_train_epochs=0,
@@ -40,10 +40,14 @@ class TestOneshotAndFinetune(unittest.TestCase):
             precision="bfloat16",
             bf16=True,
         )
-        oneshot_model = oneshot(model=self.model, **oneshot_args, stage="test_oneshot_stage")
-        
-        train_model = train(model=oneshot_model, **oneshot_args, **train_args, stage="test_train_stage")
-        
+        oneshot_model = oneshot(
+            model=self.model, **oneshot_args, stage="test_oneshot_stage"
+        )
+
+        train(
+            model=oneshot_model, **oneshot_args, **train_args, stage="test_train_stage"
+        )
+
         config_sparse_applied = ModelCompressor.parse_sparsity_config(
             AutoConfig.from_pretrained(
                 os.path.join(self.output, "test_oneshot_stage")
@@ -54,9 +58,11 @@ class TestOneshotAndFinetune(unittest.TestCase):
                 os.path.join(self.output, "test_train_stage")
             ).quantization_config
         )
-        breakpoint()
         # model is first sparsified, then finetuned, both should have the same sparsity
-        assert config_finetune_applied["global_sparsity"] == config_sparse_applied["global_sparsity"]
+        assert (
+            config_finetune_applied["global_sparsity"]
+            == config_sparse_applied["global_sparsity"]
+        )
 
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
