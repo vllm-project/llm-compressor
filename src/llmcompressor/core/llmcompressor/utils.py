@@ -1,4 +1,4 @@
-from typing import Dict, Any, Tuple, Type, Optional, List, Union
+from typing import Dict, Any, Tuple, Type, Optional, List, Union, Callable
 from dataclasses import dataclass, field
 from loguru import logger
 
@@ -18,6 +18,14 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import p
 from llmcompressor.modifiers.quantization.gptq.base import GPTQModifier
 from transformers import AutoConfig, AutoModelForCausalLM
 from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.pipelines import get_pipeline
+from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.core.llmcompressor.globals import get_model
+from llmcompressor.utils.pytorch.module import get_no_split_params
+
+
+## llmcompressor.Args ##
 
 
 @dataclass
@@ -35,6 +43,9 @@ def parse_args(dataclass: Type, **kwargs) -> Tuple[Any]:  # TODO: replace with c
     return parser.parse_dict(kwargs)[0]
 
 
+## llmcompressor.recipe ##
+
+
 def get_modifiers_from_recipe(recipe: Union[str, List[Modifier], Modifier]) -> List[Modifier]:
     ModifierFactory.refresh()
     
@@ -45,6 +56,9 @@ def get_modifiers_from_recipe(recipe: Union[str, List[Modifier], Modifier]) -> L
         recipe = [recipe]
 
     return recipe
+
+
+## llmcompressor.pytorch.model_load ##
 
 
 def prepare_models(model_args: LCModelArguments):
@@ -108,19 +122,53 @@ def initialize_model_from_path(model_path: str, model_args: LCModelArguments) ->
     return model
 
 
+## llmcompressor.pipelines
 
 
+def resolve_calibration_pipeline(user_selection: Optional[str], modifiers: List[Modifier]) -> Tuple[Callable[[Any], Any], Dict[str, Any]]:
+    # infer pipeline from modifiers
+    inferred_selection = infer_pipeline_from_modifiers(modifiers)
 
-def infer_calibration_pipeline(user_selection: Optional[str], modifiers: List[Modifier]):
-    from llmcompressor.pipelines import get_pipeline
+    # resolve with user selection
+    pipeline = resolve_pipeline(user_selection, inferred_selection)
+
+    # resolve pipeline kwargs
+    pipeline_kwargs = infer_pipeline_kwargs(pipeline, modifiers)
+
+    return get_pipeline(pipeline), pipeline_kwargs
+
+
+def infer_pipeline_from_modifiers(modifiers: List[Modifier]) -> str:
+    has_sequential_modifier = any(isinstance(mod, (GPTQModifier, SparsityModifierMixin)) for mod in modifiers)
+
+    if has_sequential_modifier:
+        return "sequential"
     
-    if GPTQModifier in modifiers:
-        inferred_pipeline = "sequential"
-    else:
-        inferred_pipeline = "basic"
+    return "basic"
 
-    if user_selection is not None and user_selection != inferred_pipeline:
+def resolve_pipeline(user_selection: str, inferred_selection: str):
+    if user_selection is not None and user_selection != inferred_selection:
         # raise some warning
-        pass
-    
-    return get_pipeline(inferred_pipeline)
+        return user_selection
+    else:
+        return inferred_selection
+
+def infer_pipeline_kwargs(pipeline: str, modifiers: List[Modifier]) -> Dict[str, Any]:
+    if pipeline == "sequential":
+        # naive resolution: use first modifier found
+
+        for modifier in modifiers:
+            if isinstance(modifier, (GPTQModifier, SparsityModifierMixin)):
+                model = get_model()
+
+                # infer sequential targets
+                if modifier.sequential_targets is None:
+                    sequential_targets = get_no_split_params(model)
+                if isinstance(modifier.sequential_targets, str):
+                    sequential_targets = [modifier.sequential_targets]
+
+                return {
+                    "sequential_targets": sequential_targets,
+                    "ignore": modifier.ignore,
+                    "callback_modifier": modifier,
+                }

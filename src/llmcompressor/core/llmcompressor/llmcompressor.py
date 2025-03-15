@@ -1,5 +1,6 @@
 from typing import List, Optional, Union, Tuple, Type, Dict, Any
 
+from torch.utils.data import DataLoader
 from transformers import PreTrainedModel
 
 # core
@@ -15,13 +16,13 @@ from llmcompressor.core.llmcompressor.train import HFSFTMixin
 # todo: move
 from llmcompressor.datasets.utils import get_calibration_dataloader
 
-from llmcompressor.core.llmcompressor.utils import parse_args, LCDatasetArguments, LCModelArguments, get_modifiers_from_recipe, prepare_models, infer_calibration_pipeline
+from llmcompressor.core.llmcompressor.utils import parse_args, LCDatasetArguments, LCModelArguments, get_modifiers_from_recipe, prepare_models, resolve_calibration_pipeline
 
 
 class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     state: State
     modifiers: List[Modifier]
-    calibration_loader: Optional["DatasetType"] = None
+    calibration_loader: Optional[DataLoader] = None
     
     def __init__(
         self,
@@ -43,19 +44,18 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     def set_calibration_dataset(self, dataset: "DatasetInput", **dataset_kwargs):
         dataset_args: LCDatasetArguments = parse_args(LCDatasetArguments, dataset=dataset, **dataset_kwargs)
 
-        # hack
-        dataset_args.splits = {"calibration": dataset_args.split}
+        # temporary hack
+        if dataset_args.split is not None:
+            dataset_args.splits = {"calibration": dataset_args.split}
 
-        # preprocess calibration dataset
         self.calibration_loader = get_calibration_dataloader(dataset_args, self.state.processor)
         
     def post_train(self, calibration_pipeline: Optional[str] = None, **pipeline_kwargs):
-        self.initialize()
+        pipeline_fn, pipeline_kwargs = resolve_calibration_pipeline(calibration_pipeline, self.modifiers)
 
         # run calibration
-        pipeline_fn = infer_calibration_pipeline(calibration_pipeline, self.modifiers)
+        self.initialize()
         pipeline_fn(self.state.model, self.calibration_loader, **pipeline_kwargs)
-
         self.finalize()
 
     def update_state(self, **kwargs):

@@ -82,7 +82,7 @@ class Event:
     global_batch: int = 0
 
     def __init__(self, **kwargs):
-        for key, value in kwargs:
+        for key, value in kwargs.items():
             setattr(self, key, value)
 
     @property

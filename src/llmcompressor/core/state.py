@@ -103,6 +103,7 @@ class State:
     model: Any = None
     processor: Any = None
     teacher_model: Any = None
+    current_index: int = -1  # only used by LLMCompressor class entrypoint
     optimizer: Any = None
     optim_wrapped: bool = None
     loss: Any = None

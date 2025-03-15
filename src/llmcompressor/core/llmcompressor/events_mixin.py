@@ -28,9 +28,8 @@ class EventsMixin(ABC):
         # post processing
         modify_save_pretrained(self.state.model)
     
-    def batch_start(self, global_step: int, **kwargs):
-        self.state.current_index = global_step
-        
+    @EventsLifecycle.handle_global_step
+    def batch_start(self, **kwargs):
         # modifiers can only start on batch_start
         for modifier in self.modifiers:
             if modifier.should_start(self.state):

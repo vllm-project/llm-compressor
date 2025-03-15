@@ -41,9 +41,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
     Lifecycle:
         - on_initialize
             - register_hook(module, calibrate_module, "forward")
-            - run_sequential / run_layer_sequential / run_basic
-                - make_empty_hessian
-                - accumulate_hessian
+        - run_sequential / run_layer_sequential / run_basic
+            - make_empty_hessian
+            - accumulate_hessian
         - on_sequential_batch_end
             - sparsify_weight
         - on_finalize
