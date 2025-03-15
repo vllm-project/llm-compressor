@@ -106,6 +106,7 @@ class State:
     """
 
     model: Any = None
+    processor: Any = None
     teacher_model: Any = None
     optimizer: Any = None
     optim_wrapped: bool = None

@@ -148,7 +148,7 @@ def new_dtype_byte_size(dtype):
     return bit_size // 8
 
 
-def patch_tied_tensors_bug(model: torch.nn.Module):
+def patch_tied_tensors_bug(model: PreTrainedModel):
     """
     Patches bug where HF transformers will fail to untie weights under specific
     circumstances (https://github.com/huggingface/transformers/issues/33689).
@@ -169,16 +169,26 @@ def patch_tied_tensors_bug(model: torch.nn.Module):
             return
 
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
-            for module in (input_embed, output_embed):
-                if not is_module_offloaded(module):
-                    # create new storage ptr for onloaded weight
-                    untied_data = module.weight.data.clone()
-                    module.weight.data = untied_data
-                else:
-                    # create new storage ptr for offloaded weight
-                    # note `update_offload_parameter` does not create a new storage ptr
-                    untied_data = module._hf_hook.weights_map["weight"].clone()
-                    update_offload_parameter(module, "weight", untied_data)
+            untie_weights(model)
+
+def untie_weights(model: PreTrainedModel):
+    input_embed = model.get_input_embeddings()
+    output_embed = model.get_output_embeddings()
+
+    if input_embed is None or output_embed is None:
+        # some models fail to properly override the abstract methods
+        return
+    
+    for module in (input_embed, output_embed):
+        if not is_module_offloaded(module):
+            # create new storage ptr for onloaded weight
+            untied_data = module.weight.data.clone()
+            module.weight.data = untied_data
+        else:
+            # create new storage ptr for offloaded weight
+            # note `update_offload_parameter` does not create a new storage ptr
+            untied_data = module._hf_hook.weights_map["weight"].clone()
+            update_offload_parameter(module, "weight", untied_data)
 
 
 def get_model_compressor(

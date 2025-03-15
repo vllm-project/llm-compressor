@@ -50,7 +50,6 @@ class EventType(Enum):
     OPTIM_POST_STEP = "optim_post_step"
 
 
-@dataclass
 class Event:
     """
     A class for defining an event that can be triggered during sparsification.
@@ -81,6 +80,10 @@ class Event:
     invocations_per_step: int = 1
     global_step: int = 0
     global_batch: int = 0
+
+    def __init__(self, **kwargs):
+        for key, value in kwargs:
+            setattr(self, key, value)
 
     @property
     def epoch_based(self) -> bool:
