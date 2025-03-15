@@ -12,13 +12,8 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from llmcompressor.core import State
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.pytorch.module import (
     get_layers,
-    get_no_split_params,
     get_prunable_layers,
     match_targets,
 )
@@ -107,7 +102,6 @@ class SparsityModifierMixin(HooksMixin):
         dataloader: torch.utils.data.DataLoader = state.data.calib
 
         # infer module and sequential targets
-        self.sequential_targets = self._infer_sequential_targets(model)
         layers = get_layers(self.sequential_targets, model)
         target_layers = get_layers(self.targets, model)  # layers containing targets
 
@@ -159,15 +153,6 @@ class SparsityModifierMixin(HooksMixin):
                 self._module_names[module] = name
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")
-
-    def _infer_sequential_targets(
-        self, model: torch.nn.Module
-    ) -> Union[str, List[str]]:
-        if self.sequential_targets is None:
-            return get_no_split_params(model)
-        if isinstance(self.sequential_targets, str):
-            return [self.sequential_targets]
-        return self.sequential_targets
 
     def _infer_owl_layer_sparsity(
         self,

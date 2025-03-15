@@ -23,13 +23,8 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
+from llmcompressor.utils.pytorch.module import qat_active
 
 __all__ = ["GPTQModifier"]
 
@@ -215,7 +210,6 @@ class GPTQModifier(Modifier, HooksMixin):
                 # but in the FUTURE this should be ignored by the user
                 if not isinstance(module, torch.nn.Embedding):
                     self.register_hook(module, self.calibrate_module, "forward")
-
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """

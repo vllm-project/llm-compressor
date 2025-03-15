@@ -12,10 +12,12 @@ def get_compressor() -> "LLMCompressor":
 
     return LLMCompressor.instance()
 
+
 def get_state() -> "State":
     from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor
 
     return LLMCompressor.instance().state
+
 
 def get_model() -> PreTrainedModel:
     from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor

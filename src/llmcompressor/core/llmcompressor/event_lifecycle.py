@@ -1,16 +1,18 @@
-from typing import List, Callable, Any, Optional, TYPE_CHECKING
+from functools import wraps
+from typing import TYPE_CHECKING, Any, Callable, List, Optional
 
 from loguru import logger
 
 from llmcompressor.core.events import Event, EventType
+from llmcompressor.utils.singleton import SingletonMixin
 
 if TYPE_CHECKING:
     from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
 
 
-class EventsLifecycle:
+class EventsLifecycle(SingletonMixin):
     auto_step: Optional[bool] = None
-    event_order: List[EventType] =[
+    event_order: List[EventType] = [
         EventType.BATCH_START,
         EventType.LOSS_CALCULATED,
         EventType.OPTIM_PRE_STEP,
@@ -18,72 +20,102 @@ class EventsLifecycle:
         EventType.BATCH_END,
     ]
     last_event_type: Optional[EventType] = EventType.BATCH_END
+    initialized: bool = False
+    finalized: bool = False
 
     @classmethod
     def validate_initialize(cls, fn: Callable[[Any], Any]):
-        return fn
-        
+        def validator(self: "EventsMixin", **kwargs):
+            if cls.initialized:
+                raise ValueError("Cannot initialize twice")
+            cls.initialized = True
+            cls.finalized = False
+
+        return cls._wrap_with_validation(fn, validator)
+
     @classmethod
     def validate_finalize(cls, fn: Callable[[Any], Any]):
-        return fn
-    
+        def validator(self: "EventsMixin", **kwargs):
+            if not cls.initialized:
+                raise ValueError("Cannot finalize before initializing")
+            if cls.finalized:
+                raise ValueError("Cannot finalize twice")
+            cls.finalized = True
+            cls.initialized = False
+
+        return cls._wrap_with_validation(fn, validator)
+
     @classmethod
     def handle_global_step(cls, fn: Callable[[Any], Any]):
-        def wrapped(self: "EventsMixin", global_step: Optional[int] = None, **kwargs):
-            # configure auto step based on first 
+        def validator(self: "EventsMixin", global_step: Optional[int] = None, **kwargs):
+            # configure auto step
             if cls.auto_step is None:
                 if global_step is None:
-                    logger.info("No global_step was passed to batch_start event, auto-stepping based on batches")
+                    logger.info(
+                        "No global_step was passed to batch_start event, "
+                        "auto-stepping based on batches"
+                    )
                     cls.auto_step = True
                 else:
-                    cls.auto_step = None
+                    cls.auto_step = False
 
             # auto step
             if global_step is None:
                 if not cls.auto_step:
-                    raise ValueError("Cannot auto-step batches if global_step was previously passed to batch_start event")
-                
+                    raise ValueError(
+                        "Cannot auto-step batches if global_step was "
+                        "previously passed to batch_start event"
+                    )
                 global_step = self.state.current_index + 1
-
             else:
                 if cls.auto_step:
-                    raise ValueError("Cannot auto-step batches if global_step was passed to batch_start event")
+                    raise ValueError(
+                        "Cannot auto-step batches if global_step "
+                        "was passed to batch_start event"
+                    )
 
-            # validate ordering
+            # validate order
             if global_step <= self.state.current_index:
-                raise ValueError("global_step")
-                
-            self.state.current_index = global_step
-            return fn(self, global_step=global_step, **kwargs)
+                raise ValueError("global_step must be greater than the current index")
 
-        return wrapped
+            self.state.current_index = global_step
+
+        return cls._wrap_with_validation(fn, validator)
 
     @classmethod
     def validate_event(cls, fn: Callable[[Any], Any]):
-        def wrapped(self: "EventsMixin", event: Event):
+        def validator(self: "EventsMixin", event: Event):
             event_type = event.type
-            
-            # for unhandled events, do not save last event
-            if event_type not in cls.event_order:
-                return True
 
+            # ignore unhandled events
+            if event_type not in cls.event_order:
+                return
+
+            # validate
             if event_type == EventType.BATCH_START:
                 valid = cls.last_event_type != EventType.BATCH_START
-
             else:
-                last_event_index = cls.event_order.index(self._last_event_type)
+                last_event_index = cls.event_order.index(cls.last_event_type)
                 curr_event_index = cls.event_order.index(event_type)
                 valid = last_event_index <= curr_event_index
 
-            if valid:
-                cls.last_event_type = event_type
-
-            else:
+            if not valid:
                 raise ValueError(
-                    f"Lifecycle events must appear following order: {cls.event_order}. "
+                    f"Lifecycle events must appear in order: {cls.event_order}. "
                     f"Instead, {cls.last_event_type} was called before {event_type}"
                 )
-                
-            return fn(self, event)
-        
+
+            cls.last_event_type = event_type
+
+        return cls._wrap_with_validation(fn, validator)
+
+    @classmethod
+    def _wrap_with_validation(
+        cls, fn: Callable[[Any], Any], validator: Callable[[Any], Any]
+    ) -> Callable:
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            validator(*args, **kwargs)
+            return fn(*args, **kwargs)
+
         return wrapped

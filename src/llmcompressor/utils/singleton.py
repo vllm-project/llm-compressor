@@ -1,7 +1,8 @@
-from typing import Optional, Type, TypeVar
 from abc import ABC
+from typing import Type, TypeVar
 
 T = TypeVar("T", bound="SingletonMixin")
+
 
 class SingletonMixin(ABC):
     _instances: dict[Type["SingletonMixin"], "SingletonMixin"] = {}

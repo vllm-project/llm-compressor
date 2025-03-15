@@ -171,6 +171,7 @@ def patch_tied_tensors_bug(model: PreTrainedModel):
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
             untie_weights(model)
 
+
 def untie_weights(model: PreTrainedModel):
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
@@ -178,7 +179,7 @@ def untie_weights(model: PreTrainedModel):
     if input_embed is None or output_embed is None:
         # some models fail to properly override the abstract methods
         return
-    
+
     for module in (input_embed, output_embed):
         if not is_module_offloaded(module):
             # create new storage ptr for onloaded weight

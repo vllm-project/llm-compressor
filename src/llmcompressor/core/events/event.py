@@ -50,6 +50,7 @@ class EventType(Enum):
     OPTIM_POST_STEP = "optim_post_step"
 
 
+@dataclass
 class Event:
     """
     A class for defining an event that can be triggered during sparsification.

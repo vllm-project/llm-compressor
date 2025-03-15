@@ -1,31 +1,37 @@
-from typing import Dict, Any, Tuple, Type, Optional, List, Union, Callable
 from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+
 from loguru import logger
-
-from llmcompressor.typing import Processor
-from llmcompressor.modifiers import Modifier
-from llmcompressor.recipe import Recipe, RecipeInput
-
-from transformers import HfArgumentParser, AutoModelForCausalLM, PreTrainedModel
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    HfArgumentParser,
+    PreTrainedModel,
+)
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.args.model_arguments import ModelArguments
 from llmcompressor.args.dataset_arguments import DatasetArguments
-from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_path
-from llmcompressor.entrypoints.utils import _warn_tied_embeddings, initialize_processor_from_path
-from llmcompressor.pytorch.model_load.helpers import parse_dtype
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import patch_tied_tensors_bug, untie_weights
-from llmcompressor.modifiers.quantization.gptq.base import GPTQModifier
-from transformers import AutoConfig, AutoModelForCausalLM
-from llmcompressor.modifiers.factory import ModifierFactory
-from llmcompressor.pipelines import get_pipeline
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.args.model_arguments import ModelArguments
 from llmcompressor.core.llmcompressor.globals import get_model
+from llmcompressor.entrypoints.utils import (
+    _warn_tied_embeddings,
+    initialize_processor_from_path,
+)
+from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.modifiers.quantization.gptq import GPTQModifier
+from llmcompressor.pipelines import get_pipeline
+from llmcompressor.pytorch.model_load.helpers import parse_dtype
+from llmcompressor.recipe import RecipeInput
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    patch_tied_tensors_bug,
+    untie_weights,
+)
+from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_path
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
-
-## llmcompressor.Args ##
+""" llmcompressor.Args """
 
 
 @dataclass
@@ -38,17 +44,21 @@ class LCDatasetArguments(DatasetArguments):
     split: Optional[str] = field(default=None)
 
 
-def parse_args(dataclass: Type, **kwargs) -> Tuple[Any]:  # TODO: replace with custom typed arguments type
+def parse_args(
+    dataclass: Type, **kwargs
+) -> Tuple[Any]:  # TODO: replace with custom typed arguments type
     parser = HfArgumentParser(dataclass)
     return parser.parse_dict(kwargs)[0]
 
 
-## llmcompressor.recipe ##
+""" llmcompressor.recipe """
 
 
-def get_modifiers_from_recipe(recipe: Union[str, List[Modifier], Modifier]) -> List[Modifier]:
+def get_modifiers_from_recipe(
+    recipe: Union[str, List[Modifier], Modifier],
+) -> List[Modifier]:
     ModifierFactory.refresh()
-    
+
     if isinstance(recipe, str):
         raise ValueError()
 
@@ -58,7 +68,7 @@ def get_modifiers_from_recipe(recipe: Union[str, List[Modifier], Modifier]) -> L
     return recipe
 
 
-## llmcompressor.pytorch.model_load ##
+""" llmcompressor.pytorch.model_load """
 
 
 def prepare_models(model_args: LCModelArguments):
@@ -68,7 +78,9 @@ def prepare_models(model_args: LCModelArguments):
 
     # Initialize teacher
     if isinstance(model_args.distill_teacher, str):
-        model_args.distill_teacher = initialize_model_from_path(model_args.distill_teacher, model_args)
+        model_args.distill_teacher = initialize_model_from_path(
+            model_args.distill_teacher, model_args
+        )
 
     # Initialize processor
     if isinstance(model_args.processor, (str, type(None))):
@@ -87,7 +99,9 @@ def prepare_models(model_args: LCModelArguments):
     return model_args.model, model_args.distill_teacher, model_args.processor
 
 
-def initialize_model_from_path(model_path: str, model_args: LCModelArguments) -> PreTrainedModel:
+def initialize_model_from_path(
+    model_path: str, model_args: LCModelArguments
+) -> PreTrainedModel:
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_path,
         cache_dir=model_args.cache_dir,
@@ -117,15 +131,19 @@ def initialize_model_from_path(model_path: str, model_args: LCModelArguments) ->
     model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
 
     if "sequence_length" in model_kwargs:
-        model.seqlen = model_kwargs["sequence_length"]  # TODO: Pretty sure the seqlen attribute is never used/ doesn't exist
+        model.seqlen = model_kwargs[
+            "sequence_length"
+        ]  # TODO: Pretty sure the seqlen attribute is never used/ doesn't exist
 
     return model
 
 
-## llmcompressor.pipelines
+""" llmcompressor.pipelines """
 
 
-def resolve_calibration_pipeline(user_selection: Optional[str], modifiers: List[Modifier]) -> Tuple[Callable[[Any], Any], Dict[str, Any]]:
+def resolve_calibration_pipeline(
+    user_selection: Optional[str], modifiers: List[Modifier]
+) -> Tuple[Callable[[Any], Any], Dict[str, Any]]:
     # infer pipeline from modifiers
     inferred_selection = infer_pipeline_from_modifiers(modifiers)
 
@@ -139,12 +157,15 @@ def resolve_calibration_pipeline(user_selection: Optional[str], modifiers: List[
 
 
 def infer_pipeline_from_modifiers(modifiers: List[Modifier]) -> str:
-    has_sequential_modifier = any(isinstance(mod, (GPTQModifier, SparsityModifierMixin)) for mod in modifiers)
+    has_sequential_modifier = any(
+        isinstance(mod, (GPTQModifier, SparsityModifierMixin)) for mod in modifiers
+    )
 
     if has_sequential_modifier:
         return "sequential"
-    
+
     return "basic"
+
 
 def resolve_pipeline(user_selection: str, inferred_selection: str):
     if user_selection is not None and user_selection != inferred_selection:
@@ -152,6 +173,7 @@ def resolve_pipeline(user_selection: str, inferred_selection: str):
         return user_selection
     else:
         return inferred_selection
+
 
 def infer_pipeline_kwargs(pipeline: str, modifiers: List[Modifier]) -> Dict[str, Any]:
     if pipeline == "sequential":
