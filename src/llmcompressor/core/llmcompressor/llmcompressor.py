@@ -13,10 +13,9 @@ from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
 from llmcompressor.core.llmcompressor.train import HFSFTMixin
 
 # todo: move
-from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.datasets.utils import get_calibration_dataloader
 
-from llmcompressor.core.llmcompressor.utils import parse_args, LCModelArguments, get_modifiers_from_recipe, prepare_models, infer_calibration_pipeline
+from llmcompressor.core.llmcompressor.utils import parse_args, LCDatasetArguments, LCModelArguments, get_modifiers_from_recipe, prepare_models, infer_calibration_pipeline
 
 
 class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
@@ -30,7 +29,7 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
         recipe: RecipeInput,
         **model_kwargs
     ):
-        model_args = parse_args(LCModelArguments, model=model, recipe=recipe, **model_kwargs)
+        model_args: LCModelArguments = parse_args(LCModelArguments, model=model, recipe=recipe, **model_kwargs)
         self.modifiers = get_modifiers_from_recipe(recipe)
 
         model, teacher_model, processor = prepare_models(model_args)
@@ -42,7 +41,10 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
         )
 
     def set_calibration_dataset(self, dataset: "DatasetInput", **dataset_kwargs):
-        dataset_args = parse_args(DatasetArguments, dataset=dataset, **dataset_kwargs)
+        dataset_args: LCDatasetArguments = parse_args(LCDatasetArguments, dataset=dataset, **dataset_kwargs)
+
+        # hack
+        dataset_args.splits = {"calibration": dataset_args.split}
 
         # preprocess calibration dataset
         self.calibration_loader = get_calibration_dataloader(dataset_args, self.state.processor)

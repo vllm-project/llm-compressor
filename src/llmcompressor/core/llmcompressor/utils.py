@@ -10,6 +10,7 @@ from transformers import HfArgumentParser, AutoModelForCausalLM, PreTrainedModel
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.args.model_arguments import ModelArguments
+from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_path
 from llmcompressor.entrypoints.utils import _warn_tied_embeddings, initialize_processor_from_path
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
@@ -21,6 +22,11 @@ from transformers import AutoConfig, AutoModelForCausalLM
 @dataclass
 class LCModelArguments(ModelArguments):
     recipe: "RecipeInput" = field(default="")
+
+
+@dataclass
+class LCDatasetArguments(DatasetArguments):
+    split: Optional[str] = field(default=None)
 
 
 def parse_args(dataclass: Type, **kwargs) -> Tuple[Any]:  # TODO: replace with custom typed arguments type
