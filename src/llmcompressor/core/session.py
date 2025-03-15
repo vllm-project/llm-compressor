@@ -222,57 +222,34 @@ class CompressionSession:
 
     def _log_model_info(self):
         # Log model level logs if cadence reached
-        event_lifecycle = self._lifecycle.event_lifecycle
-        if event_lifecycle is None:
-            # event lifecycle not available
-            # when recipe is not provided
-            return
-
-        epoch = event_lifecycle.current_index
+        current_index = self._lifecycle.global_step
 
         if (
             should_log_model_info(
                 model=self.state.model,
                 loggers=self.state.loggers,
-                current_log_step=epoch,
+                current_log_step=current_index,
                 last_log_step=self.state._last_log_step,
             )
             and self.state.loggers.frequency_manager.is_epoch_frequency_manager
         ):
             log_model_info(
                 state=self.state,
-                current_log_step=epoch,
+                current_log_step=current_index,
             )
             # update last log epoch
-            self.state.loggers.log_written(epoch)
+            self.state.loggers.log_written(current_index)
 
     def _log_loss(self, event_type: EventType, loss: Any):
         if event_type != EventType.LOSS_CALCULATED:
             # only log loss when loss is calculated
             return
-        event_lifecycle = self._lifecycle.event_lifecycle
 
-        if event_lifecycle is None:
-            # event lifecycle not available
-            # when recipe is not provided
-            return
-
-        epoch = event_lifecycle.current_index
-        if self.state.loggers.frequency_manager.is_optim_frequency_manager:
-            # log integer step for optimizer frequency manager
-            current_step = int(
-                self.state.loggers.epoch_to_step(
-                    epoch=epoch,
-                    steps_per_epoch=len(self.state.data.train),
-                )
-            )
-        else:
-            # log float epoch for epoch frequency manager
-            current_step = epoch
+        current_index = self._lifecycle.global_step
 
         # always log loss if available
         if loss is not None:
             loss = loss if isinstance(loss, dict) else {"loss": loss}
             self.state.loggers.metric.log_scalars(
-                tag="Loss", values=loss, step=current_step
+                tag="Loss", values=loss, step=current_index
             )
