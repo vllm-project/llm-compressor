@@ -115,8 +115,7 @@ def train(**kwargs) -> PreTrainedModel:
     # this includes saving the state, optimizer and scheduler
     trainer.save_model(output_dir=training_args.output_dir)
 
-    # reset session only
-    post_process()
+    post_process(recipe_args=recipe_args)
     training_args.output_dir = original_output_dir
 
     return model_args.model

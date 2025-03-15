@@ -31,21 +31,26 @@ class TestOneshotAndFinetune(unittest.TestCase):
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
+            clear_sparse_session=True,
         )
 
         train_args = dict(
-            # num_train_epochs=self.num_train_epochs,
-            # num_train_epochs=0,
+            num_train_epochs=self.num_train_epochs,
             splits=splits,
             precision="bfloat16",
             bf16=True,
         )
         oneshot_model = oneshot(
-            model=self.model, **oneshot_args, stage="test_oneshot_stage"
+            model=self.model,
+            **oneshot_args,
+            stage="test_oneshot_stage",
         )
 
         train(
-            model=oneshot_model, **oneshot_args, **train_args, stage="test_train_stage"
+            model=oneshot_model,
+            **oneshot_args,
+            **train_args,
+            stage="test_train_stage",
         )
 
         config_sparse_applied = ModelCompressor.parse_sparsity_config(
@@ -67,7 +72,8 @@ class TestOneshotAndFinetune(unittest.TestCase):
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
         # stored in results.json
-        shutil.rmtree(self.output)
+        # shutil.rmtree(self.output)
+        ...
 
 
 @pytest.mark.integration

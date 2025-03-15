@@ -105,7 +105,7 @@ def post_process(
         )
 
     # Reset the one-time-use session upon completion
-    if recipe_args.clear_sparse_session:
+    if recipe_args is not None and recipe_args.clear_sparse_session:
         reset_session()
 
 
