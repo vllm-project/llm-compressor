@@ -24,7 +24,7 @@ class EventsLifecycle(SingletonMixin):
     finalized: bool = False
 
     @classmethod
-    def validate_initialize(cls, fn: Callable[[Any], Any]):
+    def initalize(cls, fn: Callable[[Any], Any]):
         def validator(self: "EventsMixin", **kwargs):
             if cls.initialized:
                 raise ValueError("Cannot initialize twice")
@@ -34,7 +34,7 @@ class EventsLifecycle(SingletonMixin):
         return cls._wrap_with_validation(fn, validator)
 
     @classmethod
-    def validate_finalize(cls, fn: Callable[[Any], Any]):
+    def finalize(cls, fn: Callable[[Any], Any]):
         def validator(self: "EventsMixin", **kwargs):
             if not cls.initialized:
                 raise ValueError("Cannot finalize before initializing")
@@ -46,7 +46,7 @@ class EventsLifecycle(SingletonMixin):
         return cls._wrap_with_validation(fn, validator)
 
     @classmethod
-    def handle_global_step(cls, fn: Callable[[Any], Any]):
+    def global_step(cls, fn: Callable[[Any], Any]):
         def validator(self: "EventsMixin", global_step: Optional[int] = None, **kwargs):
             # configure auto step
             if cls.auto_step is None:
@@ -83,7 +83,7 @@ class EventsLifecycle(SingletonMixin):
         return cls._wrap_with_validation(fn, validator)
 
     @classmethod
-    def validate_event(cls, fn: Callable[[Any], Any]):
+    def event(cls, fn: Callable[[Any], Any]):
         def validator(self: "EventsMixin", event: Event):
             event_type = event.type
 

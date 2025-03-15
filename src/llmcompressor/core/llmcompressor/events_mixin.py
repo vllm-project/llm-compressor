@@ -15,21 +15,21 @@ class EventsMixin(ABC):
     state: State
     modifiers: List[Modifier]
 
-    @EventsLifecycle.validate_initialize
+    @EventsLifecycle.initialize
     def initialize(self):
         for modifier in self.modifiers:
             modifier.on_initialize(self.state)
 
-    @EventsLifecycle.validate_finalize
+    @EventsLifecycle.finalize
     def finalize(self):
         for modifier in self.modifiers:
             modifier.on_finalize(self.state)
 
-        # avoid compressed checkpoints
-        # post processing
+        # TODO: log info stating that save_pretrained has been modified
+        # TODO: make sure wrapped function can access new recipe and processor
         modify_save_pretrained(self.state.model)
 
-    @EventsLifecycle.handle_global_step
+    @EventsLifecycle.global_step
     def batch_start(self, **kwargs):
         # modifiers can only start on batch_start
         for modifier in self.modifiers:
@@ -60,7 +60,7 @@ class EventsMixin(ABC):
         event = Event(type_=EventType.BATCH_END, **kwargs)
         self._handle_event(event)
 
-    @EventsLifecycle.validate_event
+    @EventsLifecycle.event
     def _handle_event(self, event: Event):
         for modifier in self.modifiers:
             modifier.on_event(self.state, event)
