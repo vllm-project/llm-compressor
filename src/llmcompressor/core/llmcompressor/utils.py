@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 from loguru import logger
 from transformers import (
@@ -44,9 +44,10 @@ class LCDatasetArguments(DatasetArguments):
     split: Optional[str] = field(default=None)
 
 
-def parse_args(
-    dataclass: Type, **kwargs
-) -> Tuple[Any]:  # TODO: replace with custom typed arguments type
+T = TypeVar("T")
+
+
+def parse_args(dataclass: Type[T], **kwargs) -> T:
     parser = HfArgumentParser(dataclass)
     return parser.parse_dict(kwargs)[0]
 

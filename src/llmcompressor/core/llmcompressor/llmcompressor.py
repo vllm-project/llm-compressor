@@ -33,11 +33,9 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     calibration_loader: Optional[DataLoader] = None
 
     def __init__(
-        self, model: Union[PreTrainedModel, str], recipe: RecipeInput, **model_kwargs
+        self, model: Union[PreTrainedModel, str], recipe: RecipeInput, **kwargs
     ):
-        model_args: LCModelArguments = parse_args(
-            LCModelArguments, model=model, recipe=recipe, **model_kwargs
-        )
+        model_args = parse_args(LCModelArguments, model=model, recipe=recipe, **kwargs)
         self.modifiers = get_modifiers_from_recipe(recipe)
 
         model, teacher_model, processor = prepare_models(model_args)
@@ -46,12 +44,8 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
             model=model, teacher_model=teacher_model, processor=processor
         )
 
-    def set_calibration_dataset(
-        self, dataset: Union[str, DatasetType], **dataset_kwargs
-    ):
-        dataset_args: LCDatasetArguments = parse_args(
-            LCDatasetArguments, dataset=dataset, **dataset_kwargs
-        )
+    def set_calibration_dataset(self, dataset: Union[str, DatasetType], **kwargs):
+        dataset_args = parse_args(LCDatasetArguments, dataset=dataset, **kwargs)
 
         # temporary hack
         if dataset_args.split is not None:
@@ -61,7 +55,7 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
             dataset_args, self.state.processor
         )
 
-    def post_train(self, calibration_pipeline: Optional[str] = None, **pipeline_kwargs):
+    def post_train(self, calibration_pipeline: Optional[str] = None):
         pipeline_fn, pipeline_kwargs = resolve_calibration_pipeline(
             calibration_pipeline, self.modifiers
         )
