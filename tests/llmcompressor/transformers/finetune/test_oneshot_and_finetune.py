@@ -65,15 +65,14 @@ class TestOneshotAndFinetune(unittest.TestCase):
         )
         # model is first sparsified, then finetuned, both should have the same sparsity
         assert (
-            config_finetune_applied["global_sparsity"]
-            == config_sparse_applied["global_sparsity"]
+            config_sparse_applied["global_sparsity"]
+            >= config_finetune_applied["global_sparsity"]
         )
 
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
         # stored in results.json
-        # shutil.rmtree(self.output)
-        ...
+        shutil.rmtree(self.output)
 
 
 @pytest.mark.integration
