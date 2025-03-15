@@ -4,6 +4,7 @@ from datasets import Dataset, DatasetDict, IterableDataset
 from transformers import (
     BaseImageProcessor,
     FeatureExtractionMixin,
+    PreTrainedModel,
     PreTrainedTokenizer,
     ProcessorMixin,
 )
@@ -15,3 +16,6 @@ Processor = Union[
 
 # Supported dataset types, IterableDataset is a streamed dataset
 DatasetType = Union[Dataset, DatasetDict, IterableDataset]
+
+# Supported model input types
+ModelInput = Union[str, PreTrainedModel]

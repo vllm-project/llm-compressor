@@ -1,8 +1,8 @@
 from typing import List, Optional, Union
 
 from torch.utils.data import DataLoader
-from transformers import PreTrainedModel
 
+from llmcompressor.args.model_arguments import ModelArguments
 from llmcompressor.core import State
 
 # mixins
@@ -10,7 +10,6 @@ from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
 from llmcompressor.core.llmcompressor.train import HFSFTMixin
 from llmcompressor.core.llmcompressor.utils import (
     LCDatasetArguments,
-    LCModelArguments,
     get_modifiers_from_recipe,
     parse_args,
     prepare_models,
@@ -21,7 +20,7 @@ from llmcompressor.core.llmcompressor.utils import (
 from llmcompressor.datasets.utils import get_calibration_dataloader
 from llmcompressor.modifiers import Modifier
 from llmcompressor.recipe import RecipeInput
-from llmcompressor.typing import DatasetType
+from llmcompressor.typing import DatasetType, ModelInput
 
 # core
 from llmcompressor.utils.singleton import SingletonMixin
@@ -32,10 +31,8 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     modifiers: List[Modifier]
     calibration_loader: Optional[DataLoader] = None
 
-    def __init__(
-        self, model: Union[PreTrainedModel, str], recipe: RecipeInput, **kwargs
-    ):
-        model_args = parse_args(LCModelArguments, model=model, recipe=recipe, **kwargs)
+    def __init__(self, model: ModelInput, recipe: RecipeInput, **kwargs):
+        model_args = parse_args(ModelArguments, model=model, **kwargs)
         self.modifiers = get_modifiers_from_recipe(recipe)
 
         model, teacher_model, processor = prepare_models(model_args)

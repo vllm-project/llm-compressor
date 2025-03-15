@@ -23,7 +23,6 @@ from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from llmcompressor.pipelines import get_pipeline
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
-from llmcompressor.recipe import RecipeInput
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
     untie_weights,
@@ -32,11 +31,6 @@ from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
 """ llmcompressor.Args """
-
-
-@dataclass
-class LCModelArguments(ModelArguments):
-    recipe: "RecipeInput" = field(default="")
 
 
 @dataclass
@@ -72,7 +66,7 @@ def get_modifiers_from_recipe(
 """ llmcompressor.pytorch.model_load """
 
 
-def prepare_models(model_args: LCModelArguments):
+def prepare_models(model_args: ModelArguments):
     # Initialize model
     if isinstance(model_args.model, str):
         model_args.model = initialize_model_from_path(model_args.model, model_args)
@@ -101,7 +95,7 @@ def prepare_models(model_args: LCModelArguments):
 
 
 def initialize_model_from_path(
-    model_path: str, model_args: LCModelArguments
+    model_path: str, model_args: ModelArguments
 ) -> PreTrainedModel:
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_path,
