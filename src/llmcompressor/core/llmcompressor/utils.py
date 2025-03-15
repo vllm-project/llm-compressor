@@ -1,10 +1,10 @@
-from typing import Dict, Any, Tuple, Type, Optional, List
+from typing import Dict, Any, Tuple, Type, Optional, List, Union
 from dataclasses import dataclass, field
 from loguru import logger
 
 from llmcompressor.typing import Processor
 from llmcompressor.modifiers import Modifier
-from llmcompressor.recipe import RecipeInput
+from llmcompressor.recipe import Recipe, RecipeInput
 
 from transformers import HfArgumentParser, AutoModelForCausalLM, PreTrainedModel
 from transformers.utils.quantization_config import CompressedTensorsConfig
@@ -17,6 +17,7 @@ from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import patch_tied_tensors_bug, untie_weights
 from llmcompressor.modifiers.quantization.gptq.base import GPTQModifier
 from transformers import AutoConfig, AutoModelForCausalLM
+from llmcompressor.modifiers.factory import ModifierFactory
 
 
 @dataclass
@@ -34,8 +35,16 @@ def parse_args(dataclass: Type, **kwargs) -> Tuple[Any]:  # TODO: replace with c
     return parser.parse_dict(kwargs)[0]
 
 
-def get_modifiers_from_recipe(recipe: RecipeInput) -> List[Modifier]:
-    return []
+def get_modifiers_from_recipe(recipe: Union[str, List[Modifier], Modifier]) -> List[Modifier]:
+    ModifierFactory.refresh()
+    
+    if isinstance(recipe, str):
+        raise ValueError()
+
+    if isinstance(recipe, Modifier):
+        recipe = [recipe]
+
+    return recipe
 
 
 def prepare_models(model_args: LCModelArguments):
