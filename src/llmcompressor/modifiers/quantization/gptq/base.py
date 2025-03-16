@@ -13,7 +13,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
@@ -262,11 +262,13 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
         """
-        Quantize modules.
-        TODO: implement with event callback
+        Sparsify modules which have been calibrated with samples
         """
+        if event.type_ not in (EventType.SEQUENTIAL_BATCH_END, EventType.BATCH_END):
+            return
+
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             num_samples = self._num_samples[module]

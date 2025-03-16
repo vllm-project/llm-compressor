@@ -51,6 +51,10 @@ class EventsMixin(ABC):
         event = Event(type_=EventType.LOSS_CALCULATED, loss=loss, **kwargs)
         self._handle_event(event)
 
+    def sequential_batch_end(self, **kwargs):
+        event = Event(type_=EventType.SEQUENTIAL_BATCH_END, **kwargs)
+        self._handle_event(event)
+
     def batch_end(self, **kwargs):
         # modifiers can only end on batch_end
         for modifier in self.modifiers:

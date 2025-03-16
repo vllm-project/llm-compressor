@@ -3,9 +3,13 @@ from typing import Any, Callable
 from .basic import run_pipeline as run_basic
 from .layer_sequential import run_pipeline as run_layer_sequential
 from .sequential import run_pipeline as run_sequential
+from .skip import run_pipeline as run_skip
 
 
 def get_pipeline(pipeline: str) -> Callable[[Any], Any]:
+    if pipeline == "skip":
+        return run_skip
+
     if pipeline == "basic":
         return run_basic
 

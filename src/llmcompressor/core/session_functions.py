@@ -126,6 +126,16 @@ class LifecycleCallbacks:
         return cls.event(EventType.OPTIM_POST_STEP, **kwargs)
 
     @classmethod
+    def sequential_batch_end(cls, **kwargs) -> ModifiedState:
+        """
+        Invoke a sequential batch end event for the active session
+
+        This is called after a sequential layer has been calibrated with one batch, see
+        `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
+        """
+        return cls.event(EventType.SEQUENTIAL_BATCH_END, **kwargs)
+
+    @classmethod
     def batch_end(cls, **kwargs) -> ModifiedState:
         """
         Invoke a batch end event for the active session

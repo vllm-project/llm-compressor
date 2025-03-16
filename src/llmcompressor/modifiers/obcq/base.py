@@ -10,7 +10,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.obcq.sgpt_sparsify import (
@@ -108,11 +108,13 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
         """
-        Sparsify modules
-        TODO: implement with event callback
+        Sparsify modules which have been calibrated with samples
         """
+        if event.type_ not in (EventType.SEQUENTIAL_BATCH_END, EventType.BATCH_END):
+            return
+
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
