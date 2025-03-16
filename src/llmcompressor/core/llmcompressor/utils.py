@@ -188,3 +188,5 @@ def infer_pipeline_kwargs(pipeline: str, modifiers: List[Modifier]) -> Dict[str,
                     "sequential_targets": sequential_targets,
                     "ignore": modifier.ignore,
                 }
+
+    return dict()
