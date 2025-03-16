@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 from loguru import logger
+from torch.utils.data import DataLoader
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -63,7 +64,24 @@ def get_modifiers_from_recipe(
     return recipe
 
 
-""" llmcompressor.pytorch.model_load """
+def check_for_calibration_data(
+    modifiers: List[Modifier], dataloader: Optional[DataLoader]
+):
+    needs_calib_data = False
+    for modifier in modifiers:
+        if hasattr(modifier, "scheme"):
+            if not modifier.scheme.input_activations.dynamic:
+                needs_calib_data = True
+                break
+
+    if needs_calib_data and dataloader is None:
+        raise ValueError()
+
+    if not needs_calib_data and dataloader is not None:
+        logger.warning("")
+
+
+""" llmcompressor.model """
 
 
 def prepare_models(model_args: ModelArguments):

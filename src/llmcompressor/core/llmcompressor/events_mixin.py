@@ -29,6 +29,10 @@ class EventsMixin(ABC):
         # TODO: make sure wrapped function can access new recipe and processor
         modify_save_pretrained(self.state.model)
 
+    def update_state(self, **kwargs):
+        self.state.update(**kwargs)
+        # if future modifiers require update, do that update here
+
     @EventsLifecycle.global_step
     def batch_start(self, **kwargs):
         # modifiers can only start on batch_start
