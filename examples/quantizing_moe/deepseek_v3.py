@@ -15,7 +15,7 @@ MODEL_ID = "deepseek-ai/DeepSeek-V3"
 #MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 #MODEL_ID = "deepseek-ai/DeepSeek-V2.5-1210"
 config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
-#del config.quantization_config
+del config.quantization_config
 
 # adjust based off number of desired GPUs
 # if not enough memory is available, some layers will automatically be offlaoded to cpu
