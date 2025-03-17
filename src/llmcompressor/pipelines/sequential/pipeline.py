@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, List, Optional
 import torch
 import torch.utils.data.dataloader
 import tqdm
-from compressed_tensors.utils import get_execution_device
+from compressed_tensors.utils import get_execution_device, has_offloaded_params
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -64,22 +64,40 @@ def run_pipeline(
             # compile subgraph forward function
             forward_function = subgraph.compile_forward()
 
-            # do an preliminary pass to trigger modifier hooks
-            for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                forward_function(model, **inputs)
-
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
-
-            # this pass does not trigger modifier hooks
-            # and is only used for capturing outputs from the newly compressed modules
-            with HooksMixin.disable_hooks():
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
+            with align_modules(subgraph.modules):
+                # do an preliminary pass to trigger modifier hooks
+                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    output = forward_function(model, **inputs)
+                    forward_function(model, **inputs)
 
-                    if subgraph_index < num_subgraphs - 1:
-                        intermediates.update(batch_index, output)
-                        intermediates.delete(batch_index, subgraph.consumed_names)
+                # TODO: replace with a lifecycle event
+                if callback_modifier:
+                    callback_modifier.on_sequential_batch_end()
+
+                # this pass does not trigger modifier hooks
+                # and is only used for capturing outputs from the newly compressed modules
+                with HooksMixin.disable_hooks():
+                    for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
+                        inputs = intermediates.fetch(batch_index, subgraph.input_names)
+                        output = forward_function(model, **inputs)
+
+                        if subgraph_index < num_subgraphs - 1:
+                            intermediates.update(batch_index, output)
+                            intermediates.delete(batch_index, subgraph.consumed_names)
+
+
+from .helpers import Subgraph
+import contextlib
+
+@contextlib.contextmanager
+def align_modules(modules: List[torch.nn.Module]):
+    can_offload = [module for module in modules if has_offloaded_params(module)]
+    for module in can_offload:
+        module._hf_hook.pre_forward(module)
+        module._hf_hook.offload = False
+
+    yield
+
+    for module in can_offload:
+        module._hf_hook.post_forward(module, None)
+        module._hf_hook.offload = True

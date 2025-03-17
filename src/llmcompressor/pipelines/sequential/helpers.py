@@ -32,6 +32,7 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    modules: List[Module]
 
     def compile_forward(self) -> Callable[[Any], Any]:
         """
@@ -94,7 +95,7 @@ def trace_subgraphs(
 
     # perform subgraph partition
     partitions = topological_partition(graph, sequential_targets)
-    subgraphs = partition_graph(model, partitions)
+    subgraphs = partition_graph(model, partitions, graph)
     trace_consumed_names(subgraphs)
 
     return subgraphs
@@ -263,7 +264,7 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     return partitions
 
 
-def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgraph]:
+def partition_graph(model: Module, partitions: List[List[Node]], parent_graph: GraphModule) -> List[Subgraph]:
     """
     Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
     of output node names to their computed values. Note that the `consumed_names`
@@ -309,17 +310,23 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
         # save the subgraph for this partition
         graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
+        modules = get_subgraph_modules(graph, parent_graph)
         subgraphs.append(
             Subgraph(
                 graph=graph,
                 input_names=input_names,
                 consumed_names=set(),  # populated later
+                modules=modules,
             )
         )
 
         assert graph_is_well_formed(graph)
 
     return subgraphs
+
+def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
+    modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
+    return [parent_graph.get_submodule(op.target) for op in modules_ops]
 
 
 def trace_consumed_names(subgraphs: List[Subgraph]):

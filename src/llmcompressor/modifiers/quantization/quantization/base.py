@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
+import torch
 from loguru import logger
 from pydantic import Field, field_validator
 from torch.nn import Module
@@ -33,6 +34,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import (
 )
 from llmcompressor.observers.helpers import get_observer_token_count
 from llmcompressor.utils.helpers import calibration_forward_context
+from compressed_tensors.utils.offload import align_module_device
 
 __all__ = ["QuantizationModifier"]
 
@@ -92,6 +94,7 @@ class QuantizationModifier(Modifier):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        print("QMOD init")
         if self.end and self.end != -1:
             raise ValueError(
                 "end_epoch is disabled for QuantizationModifier and can only be set to"
@@ -102,24 +105,35 @@ class QuantizationModifier(Modifier):
         module = state.model
 
         # initialize quantization in appropriate modules
-        config = self._apply_modifier_to_model(module)
+        print("one")
+        config = self._apply_modifier_to_model(module)  # takes a long time
+        print("two")
         module.apply(lambda module: initialize_observer(module, base_name="weight"))
 
+        print("three")
         if self.calculate_start() == -1:  # one-shot
             self._check_calibration_data(config)
-            module.apply(update_weight_zp_scale)
+            print("four")
+            module.apply(update_weight_zp_scale)  # TODO: not required by GPTQ  # takes a long time
+            print("five")
+            #apply_with_alignment(module, update_weight_zp_scale)
             module.apply(apply_calibration_status)
+            print("six")
             self._calibrate_if_possible(module)
+            print("seven")
             self._check_token_distribution(
                 module, threshold=kwargs.get("min_tokens_per_module")
             )
+            print("eight")
             module.apply(freeze_module_quantization)
+            print("nine")
 
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
         module = state.model
         module.apply(update_weight_zp_scale)
+        #apply_with_alignment(module, update_weight_zp_scale)
 
     def on_update(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.BATCH_START:
@@ -374,3 +388,11 @@ class QuantizationModifier(Modifier):
                     f"({token_count}/{total_token_count} tokens). "
                     "This could harm the quantization quality."
                 )
+
+
+def apply_with_alignment(module: torch.nn.Module, fn):
+    with align_module_device(module):
+        fn(module)
+        for submodule in module.children():
+            assert submodule is not module
+            apply_with_alignment(submodule, fn)

@@ -5,6 +5,8 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
+from accelerate import dispatch_model
+from accelerate.hooks import attach_align_device_hook, AlignDevicesHook, PrefixedDataset
 
 # NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
 # Please consider either downgrading your transformers version to a
@@ -36,9 +38,24 @@ with skip_weights_download(), skip_weights_initialize():
         "lm_head": "cpu",
     }
 
+class SkipAlignDevicesHook(AlignDevicesHook):
+    def init_hook(self, module):
+        return module
+    
+    def pre_forward(self, module, *args, **kwargs):
+        return args, kwargs
+    
+    def post_forward(self, module, output):
+        return output
+    
+    def detach_hook(self, module):
+        return module
+
+
 with skip_weights_download(), skip_weights_initialize(use_zeros=True):
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
+        #device_map="cpu",
         device_map=device_map,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
