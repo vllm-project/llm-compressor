@@ -153,7 +153,7 @@ def quantize_weight(
 
     # compute inverse hessian in place to save memory
     try:
-        H = H.fill_(0)
+        H = torch.eye(len(H), dtype=H.dtype, device=H.device)
         damp = percdamp * torch.mean(torch.diag(H))
         diag = torch.arange(H.shape[0], device=H.device)
         H[diag, diag] += damp

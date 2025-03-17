@@ -6,4 +6,3 @@ quant_stage:
         group_0:
           weights: {num_bits: 4, type: int, symmetric: true, strategy: channel, dynamic: false}
           targets: [Linear]
-      dampening_frac: 1e10
