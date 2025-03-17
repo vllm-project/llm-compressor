@@ -258,7 +258,7 @@ class SessionManagerMixIn:
         """
         self._check_super_defined("training_step")
 
-        callbacks.batch_start(batch_data=inputs)
+        callbacks.batch_start(batch_data=inputs, global_step=self.state.epoch)
         model_outputs = super().training_step(
             model=model, inputs=inputs, num_items_in_batch=num_items_in_batch
         )

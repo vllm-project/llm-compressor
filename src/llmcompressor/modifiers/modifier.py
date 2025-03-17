@@ -15,6 +15,13 @@ class Modifier(ModifierInterface, HooksMixin):
     Modifiers are used to modify the training process for a model.
     Defines base attributes and methods available to all modifiers
 
+    Lifecycle:
+    1. initialize
+    2. on_event ->
+        * on_start if self.start <= event.current_index
+        * on_end if self.end >= event.current_index
+    5. finalize
+
     :param index: The index of the modifier in the list of modifiers
         for the model
     :param group: The group name for the modifier
@@ -48,13 +55,6 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         return self.finalized_
 
-    def check_initialized(self):
-        """
-        :raises RuntimeError: if the modifier has not been initialized
-        """
-        if not self.initialized_:
-            raise RuntimeError("modifier has not been initialized")
-
     def calculate_start(self) -> float:
         """
         Calculate and return the start epoch for the modifier.
@@ -78,37 +78,21 @@ class Modifier(ModifierInterface, HooksMixin):
         :param kwargs: Additional arguments for initializing the modifier
         """
         if self.initialized_:
-            return
-
-        if self.finalized_:
-            raise RuntimeError("cannot initialize a finalized modifier")
-
-        if state.start_event is None:
-            return
-
-        # ignore modifier structure initialized from one-shot
-        if state.start_event.current_index >= 0 and self.calculate_start() < 0:
-            return
-
-        # if modifier should have ended by current index, don't initialize
-        if (
-            self.calculate_end() >= 0
-            and state.start_event.current_index >= self.calculate_end()
-        ):
-            return
-
-        initialized = self.on_initialize(state=state, **kwargs)
-
-        if not isinstance(initialized, bool):
-            raise ValueError(
-                "on_initialize must return a boolean value; "
-                "True for success, False for not initialized"
+            raise RuntimeError(
+                "Cannot initialize a modifier that has already been initialized"
             )
 
-        self.initialized_ = initialized
+        if self.finalized_:
+            raise RuntimeError(
+                "Cannot initialize a modifier that has already been finalized"
+            )
 
-        if self.should_start(state.start_event):
-            self.on_start(state, state.start_event, **kwargs)
+        self.initialized_ = self.on_initialize(state=state, **kwargs)
+
+        # trigger start
+        fake_start_event = Event(type_=EventType.BATCH_START, global_step=0)
+        if self.should_start(fake_start_event):
+            self.on_start(state, fake_start_event, **kwargs)
             self.started_ = True
 
     def finalize(self, state: State, **kwargs):
@@ -125,15 +109,8 @@ class Modifier(ModifierInterface, HooksMixin):
         if not self.initialized_:
             raise RuntimeError("cannot finalize an uninitialized modifier")
 
-        finalized = self.on_finalize(state=state, **kwargs)
-
-        if not isinstance(finalized, bool):
-            raise ValueError(
-                "on_finalize must return a boolean value; "
-                "True for success, False for not finalized"
-            )
-
-        self.finalized_ = finalized
+        # TODO: all finalization should succeed
+        self.finalized_ = self.on_finalize(state=state, **kwargs)
 
     def update_event(self, state: State, event: Event, **kwargs):
         """
@@ -148,10 +125,10 @@ class Modifier(ModifierInterface, HooksMixin):
         :param kwargs: Additional arguments for updating the modifier
         """
         if not self.initialized_:
-            return
+            raise RuntimeError("Cannot update an uninitialized modifier")
 
         if self.finalized_:
-            raise RuntimeError("cannot update a finalized modifier")
+            raise RuntimeError("Cannot update a finalized modifier")
 
         self.on_event(state, event, **kwargs)
 

@@ -2,9 +2,7 @@ from unittest.mock import MagicMock
 
 from torch.utils.data import DataLoader
 
-from llmcompressor.core import State
-from llmcompressor.core.events import EventType
-from llmcompressor.core.lifecycle import CallbacksEventLifecycle
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.factory import ModifierFactory
 
 
@@ -31,14 +29,9 @@ class LifecyleTestingHarness:
             calib_data=DataLoader(MagicMock(__len__=lambda _: 0, column_names=[])),
         )
 
-        self.event_lifecycle = CallbacksEventLifecycle(
-            type_first=EventType.BATCH_START, start=self.state.start_event
-        )
-
     def update_modifier(self, modifier, event_type):
-        events = self.event_lifecycle.events_from_type(event_type)
-        for event in events:
-            modifier.update_event(self.state, event=event)
+        event = Event(event_type=event_type)
+        modifier.update_event(self.state, event=event)
 
     def get_state(self):
         return self.state
