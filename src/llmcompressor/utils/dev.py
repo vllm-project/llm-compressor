@@ -63,8 +63,10 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
 
 
 @contextlib.contextmanager
-def skip_weights_initialize():
+def skip_weights_initialize(use_zeros: bool = False):
     def skip(tensor: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        if use_zeros:
+            return tensor.fill_(0)
         return tensor
 
     with (
