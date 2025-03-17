@@ -370,3 +370,26 @@ def _reduce_targets_and_ignores_into_lists(
             targets.extend(curr_targets)
             ignore.extend(curr_ignores)
     return targets, ignore
+
+
+def device_map_from_modifiers(
+    model_stub: str,
+    modifiers: List["Modifier"],
+    model_cls: Type = AutoModelForCausalLM,
+    **model_kwargs,
+) -> Dict[str, str]:
+    
+    with init_empty_weights():
+        dummy_model = model_cls.from_pretrained(model_stub, **model_kwargs)
+
+    for modifier in modifiers:
+        get_modifier_memory_req(modifier)
+
+
+    # to get max, sum all baselines and add the amx of all peaks
+
+
+def get_modifier_memory_req(modifier: "Modifier") -> int:
+    # baseline is stuff like qparams, static and always present
+    # peak is stuff like hessians, triggered by hooks and callbacks which are independent from other modifiers
+    return (baseline, peak)
