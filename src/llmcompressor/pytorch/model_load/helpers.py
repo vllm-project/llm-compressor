@@ -27,7 +27,7 @@ __all__ = [
 def save_checkpoint(
     save_path: str,
     model: PreTrainedModel,
-    processor: Processor,
+    processor: Optional[Processor] = None,
     save_safetensors: bool = True,
     save_compressed: bool = True,
 ):

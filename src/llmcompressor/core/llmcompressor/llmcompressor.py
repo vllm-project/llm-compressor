@@ -16,6 +16,7 @@ from llmcompressor.core.llmcompressor.utils import (
 )
 from llmcompressor.datasets.utils import get_calibration_dataloader
 from llmcompressor.modifiers import Modifier
+from llmcompressor.pytorch.model_load.helpers import save_checkpoint
 from llmcompressor.recipe import RecipeInput
 from llmcompressor.typing import DatasetType, ModelInput
 from llmcompressor.utils.singleton import SingletonMixin
@@ -45,12 +46,15 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
             dataset_args, self.state.processor
         )
 
-    def post_train(self, calibration_pipeline: Optional[str] = None):
+    def post_train(self, pipeline: Optional[str] = None, save_path: Optional[str] = None):
         check_for_calibration_data(self.modifiers, self.calibration_loader)
         pipeline_fn, pipeline_kwargs = resolve_calibration_pipeline(
-            calibration_pipeline, self.modifiers
+            pipeline, self.modifiers
         )
 
         self.initialize()
         pipeline_fn(self.state.model, self.calibration_loader, **pipeline_kwargs)
         self.finalize()
+
+        if save_path is not None:
+            save_checkpoint(save_path, self.state.model, self.state.processor)

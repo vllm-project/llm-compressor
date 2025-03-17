@@ -8,11 +8,8 @@ recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
 ]
+save_path = model_id.split("/")[1] + "-W8A8"
 
 compressor = LLMCompressor(model_id, recipe)
 compressor.set_calibration_dataset("ultrachat_200k", split="train_sft[:512]")
-compressor.post_train()
-
-save_dir = model_id.split("/")[1] + "-W8A8-G128"
-compressor.state.processor.save_pretrained(save_dir)
-compressor.state.model.save_pretrained(save_dir)
+compressor.post_train(save_path=save_path)
