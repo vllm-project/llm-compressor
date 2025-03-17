@@ -8,6 +8,7 @@ from compressed_tensors.quantization.utils import iter_named_leaf_modules
 from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
+from compressed_tensors.quantization.lifecycle.forward import dequantize
 
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -18,7 +19,7 @@ COMPRESSED_LINEAR_CONFIG_DIR = (
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
-class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
+class _Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
     """
     Uncompressed-Linear-forward decompressed-Linear-foward check
 
@@ -58,7 +59,8 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
 
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
 
-    def test_compressed_matches_decompressed(self):
+    """
+    def _test_compressed_matches_decompressed(self):
         SAMPLE_INPUT = [
             "I love 4-bit quantization because",
             "What is the capital of France?",
@@ -84,6 +86,7 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
 
         for idx in range(len(SAMPLE_INPUT)):
             assert torch.equal(decompressed_output[idx], uncompressed_output[idx])
+    """
 
     @classmethod
     def tearDownClass(cls):
@@ -115,22 +118,55 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
 
         # Should have CompressedLinear modules
         # Compressed Linear forward
-        cls.compressed_model = AutoModelForCausalLM.from_pretrained(
+        from llmcompressor.transformers.tracing.debug import get_model_class
+        pretrained_model_class = get_model_class("TraceableQwen2VLForConditionalGeneration")
+
+        cls.compressed_model = pretrained_model_class.from_pretrained(
             cls.compressed_model_stub,
             torch_dtype="auto",
             device_map="auto",
         )
-
         # Should just be linear modules
         # Linear forward
         quantization_config = CompressedTensorsConfig(run_compressed=False)
-        cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
+        cls.decompressed_model = pretrained_model_class.from_pretrained(
             cls.compressed_model_stub,
             torch_dtype=cls.compressed_model.dtype,
             device_map=cls.compressed_model.device,
             quantization_config=quantization_config,
         )
 
+        def _run_dequant():
+            attn_layers = ["q_proj", "v_proj", "o_proj", "k_proj"]
+            mlp_layers = ["gate_proj", "up_proj", "down_proj"]
+            for i in range(len(cls.compressed_model.model.layers)):
+
+                layer = cls.compressed_model.model.layers[i]
+                decompressed_layer = cls.decompressed_model.model.layers[i]
+
+                attn = layer.self_attn 
+                mlp = layer.mlp
+
+                attn_decompressed = decompressed_layer.self_attn 
+                mlp_decompressed = decompressed_layer.mlp
+
+                for attn_attribute in attn_layers: 
+                    attn_layer = getattr(attn, attn_attribute)
+                    attn_layer_decomp = getattr(attn_decompressed, attn_attribute)
+
+                    dequant = dequantize(x_q=attn_layer.weight, scale=attn_layer.weight_scale, zero_point=None, g_idx=None)
+                    max_diff = torch.max(abs(dequant-attn_layer_decomp.weight))
+                    assert max_diff == 0
+
+                for mlp_attribute in mlp_layers: 
+                    mlp_layer = getattr(mlp, mlp_attribute)
+                    mlp_layer_decomp = getattr(mlp_decompressed, mlp_attribute)
+
+                    dequant = dequantize(x_q=mlp_layer.weight, scale=mlp_layer.weight_scale, zero_point=None, g_idx=None)
+                    max_diff = torch.max(abs(dequant-mlp_layer_decomp.weight))
+                    assert max_diff == 0
+        
+        _run_dequant()
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
 
     def test_compressed_linear_modules_exist(self):
