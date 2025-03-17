@@ -4,12 +4,7 @@ on:
 
 env:
   CADENCE: "commit"
-  CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-  CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-  CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-  CLEARML_FILES_HOST: ${{ secrets.CLEARML_FILES_HOST }}
-  CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
-
+  
 jobs:
 
   base-tests:
