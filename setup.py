@@ -54,7 +54,6 @@ setup(
         "numpy>=1.17.0,<2.0",
         "requests>=2.0.0",
         "tqdm>=4.0.0",
-        "click>=7.1.2,!=8.0.0",  # 8.0.0 blocked due to reported bug
         "torch>=1.7.0",
         "transformers>4.0,<5.0",
         "datasets",
