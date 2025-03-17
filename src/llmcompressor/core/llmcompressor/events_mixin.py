@@ -71,4 +71,5 @@ class EventsMixin(ABC):
     @EventsLifecycle.event
     def _handle_event(self, event: Event):
         for modifier in self.modifiers:
-            modifier.on_event(self.state, event)
+            if modifier.started_ and not modifier.ended_:
+                modifier.on_event(self.state, event)
