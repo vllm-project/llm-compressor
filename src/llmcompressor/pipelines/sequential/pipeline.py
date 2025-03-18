@@ -43,10 +43,13 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param ignore: patterns which match to modules which should be ignored by tracing
     """
+    compressor = get_compressor()
+
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
+    compressor.initialize()
     with calibration_forward_context(model):
         # prepare intermediates cache
         model_device = get_execution_device(model)
@@ -67,7 +70,7 @@ def run_pipeline(
                 forward_function(model, **inputs)
 
             # trigger compression
-            get_compressor().sequential_batch_end()
+            compressor.sequential_batch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
@@ -79,3 +82,5 @@ def run_pipeline(
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
+
+    compressor.finalize()

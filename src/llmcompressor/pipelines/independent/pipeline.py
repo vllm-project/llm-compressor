@@ -1,20 +1,22 @@
-from collections import OrderedDict
-from typing import List
+from typing import TYPE_CHECKING, List
 
 import torch
 import torch.utils.data.dataloader
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
+
 __all__ = ["run_pipeline"]
 
-resolve_pipeline_kwargs = Modifier = None
+resolve_pipeline_kwargs = None
 
 
 def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    modifiers: List[Modifier],
+    modifiers: List["Modifier"],
     independent_pipelines: List[str],
 ):
     """

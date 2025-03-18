@@ -4,7 +4,6 @@ import torch
 import torch.utils.data.dataloader
 import tqdm
 
-from llmcompressor.core import LifecycleCallbacks
 from llmcompressor.core.llmcompressor.globals import get_compressor
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -46,9 +45,12 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
+    compressor = get_compressor()
+
     # find layers
     layers = match_modules(model, sequential_targets)
 
+    compressor.initialize()
     with calibration_forward_context(model):
         # prepare intermediates cache
         intermediates: IntermediatesCache = capture_first_layer_intermediates(
@@ -67,7 +69,7 @@ def run_pipeline(
                 layer(**inputs)
 
             # trigger compression
-            get_compressor().sequential_batch_end()
+            compressor.sequential_batch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
@@ -83,3 +85,5 @@ def run_pipeline(
 
                         intermediates.delete(batch_index)
                         intermediates.update(batch_index, output)
+
+    compressor.finalize()

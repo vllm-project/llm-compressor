@@ -46,15 +46,15 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
             dataset_args, self.state.processor
         )
 
-    def post_train(self, pipeline: Optional[str] = None, save_path: Optional[str] = None):
+    def post_train(
+        self, pipeline: Optional[str] = None, save_path: Optional[str] = None
+    ):
         check_for_calibration_data(self.modifiers, self.calibration_loader)
         pipeline_fn, pipeline_kwargs = resolve_calibration_pipeline(
             pipeline, self.modifiers
         )
 
-        self.initialize()
         pipeline_fn(self.state.model, self.calibration_loader, **pipeline_kwargs)
-        self.finalize()
 
         if save_path is not None:
             save_checkpoint(save_path, self.state.model, self.state.processor)
