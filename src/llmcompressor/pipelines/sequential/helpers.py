@@ -1,3 +1,4 @@
+import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ from transformers.utils.fx import HFTracer
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
 
-__all__ = ["trace_subgraphs", "Subgraph"]
+__all__ = ["trace_subgraphs", "Subgraph", "align_modules"]
 
 
 @dataclass
@@ -32,6 +33,7 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    modules: List[Module]
 
     def compile_forward(self) -> Callable[[Any], Any]:
         """
@@ -94,7 +96,7 @@ def trace_subgraphs(
 
     # perform subgraph partition
     partitions = topological_partition(graph, sequential_targets)
-    subgraphs = partition_graph(model, partitions)
+    subgraphs = partition_graph(model, partitions, graph)
     trace_consumed_names(subgraphs)
 
     return subgraphs
@@ -264,7 +266,9 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     return partitions
 
 
-def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgraph]:
+def partition_graph(
+    model: Module, partitions: List[List[Node]], parent_graph: GraphModule
+) -> List[Subgraph]:
     """
     Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
     of output node names to their computed values. Note that the `consumed_names`
@@ -310,11 +314,13 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
         # save the subgraph for this partition
         graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
+        modules = get_subgraph_modules(graph, parent_graph)
         subgraphs.append(
             Subgraph(
                 graph=graph,
                 input_names=input_names,
                 consumed_names=set(),  # populated later
+                modules=modules,
             )
         )
 
@@ -380,3 +386,23 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
+    modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
+    return [parent_graph.get_submodule(op.target) for op in modules_ops]
+
+
+@contextlib.contextmanager
+def align_modules(modules: List[Module]):
+    all_modules = {m for module in modules for m in module.modules()}
+    can_offload = [module for module in all_modules if has_offloaded_params(module)]
+    for module in can_offload:
+        module._hf_hook.pre_forward(module)
+        module._hf_hook.offload = False
+
+    yield
+
+    for module in can_offload:
+        module._hf_hook.post_forward(module, None)
+        module._hf_hook.offload = True
