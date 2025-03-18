@@ -33,23 +33,10 @@ with skip_weights_download(), skip_weights_initialize():
     device_map = {
         "model.embed_tokens": 0,
         "model.norm": 0,
-        "model.layers.0": 0,
+        "model.layers.0": "cpu",
         **{f"model.layers.{i}": "cpu" for i in range(1, 61)},
         "lm_head": "cpu",
     }
-
-class SkipAlignDevicesHook(AlignDevicesHook):
-    def init_hook(self, module):
-        return module
-    
-    def pre_forward(self, module, *args, **kwargs):
-        return args, kwargs
-    
-    def post_forward(self, module, output):
-        return output
-    
-    def detach_hook(self, module):
-        return module
 
 
 with skip_weights_download(), skip_weights_initialize(use_zeros=True):

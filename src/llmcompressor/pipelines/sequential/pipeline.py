@@ -64,7 +64,9 @@ def run_pipeline(
             # compile subgraph forward function
             forward_function = subgraph.compile_forward()
 
-            with align_modules(subgraph.modules):
+            #with align_modules(subgraph.modules):
+            print("no alignment")
+            with contextlib.nullcontext():
                 # do an preliminary pass to trigger modifier hooks
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
@@ -91,7 +93,14 @@ import contextlib
 
 @contextlib.contextmanager
 def align_modules(modules: List[torch.nn.Module]):
-    can_offload = [module for module in modules if has_offloaded_params(module)]
+    all_modules = []
+    for module in modules:
+        for m in module.modules():
+            all_modules.append(m)
+
+    all_modules = set(all_modules)
+    can_offload = [module for module in all_modules if has_offloaded_params(module)]
+    print(f"can_offload: {len(can_offload)}")
     for module in can_offload:
         module._hf_hook.pre_forward(module)
         module._hf_hook.offload = False

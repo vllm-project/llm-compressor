@@ -114,7 +114,7 @@ class QuantizationModifier(Modifier):
         if self.calculate_start() == -1:  # one-shot
             self._check_calibration_data(config)
             print("four")
-            module.apply(update_weight_zp_scale)  # TODO: not required by GPTQ  # takes a long time
+            #module.apply(update_weight_zp_scale)  # TODO: not required by GPTQ  # takes a long time
             print("five")
             #apply_with_alignment(module, update_weight_zp_scale)
             module.apply(apply_calibration_status)
@@ -132,7 +132,7 @@ class QuantizationModifier(Modifier):
 
     def on_start(self, state: State, event: Event, **kwargs):
         module = state.model
-        module.apply(update_weight_zp_scale)
+        #module.apply(update_weight_zp_scale)
         #apply_with_alignment(module, update_weight_zp_scale)
 
     def on_update(self, state: State, event: Event, **kwargs):
