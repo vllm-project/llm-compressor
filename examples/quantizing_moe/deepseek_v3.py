@@ -19,6 +19,15 @@ MODEL_ID = "deepseek-ai/DeepSeek-V3"
 config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
 del config.quantization_config
 
+# TODO: replace with a more automatic device map
+device_map = {
+    "model.embed_tokens": "cpu",
+    "model.norm": 0,
+    "model.layers.0": "cpu",
+    **{f"model.layers.{i}": "cpu" for i in range(1, 61)},
+    "lm_head": "cpu",
+}
+
 with skip_weights_download(), skip_weights_initialize(use_zeros=True):
     # with contextlib.nullcontext():
     model = AutoModelForCausalLM.from_pretrained(
@@ -29,7 +38,7 @@ with skip_weights_download(), skip_weights_initialize(use_zeros=True):
     )
     model = dispatch_model(
         model,
-        device_map={"": "cpu"},
+        device_map=device_map,
         main_device=torch.device("cuda:0"),
         force_hooks=True,
     )
