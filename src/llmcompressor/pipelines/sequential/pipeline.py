@@ -7,8 +7,8 @@ from tqdm import tqdm
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import align_modules, trace_subgraphs
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
+from llmcompressor.utils.helpers import align_modules, calibration_forward_context
 
 if TYPE_CHECKING:
     from llmcompressor.modifiers import Modifier

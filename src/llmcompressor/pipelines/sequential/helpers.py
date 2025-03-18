@@ -1,4 +1,3 @@
-import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
@@ -16,7 +15,7 @@ from transformers.utils.fx import HFTracer
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
 
-__all__ = ["trace_subgraphs", "Subgraph", "align_modules"]
+__all__ = ["trace_subgraphs", "Subgraph"]
 
 
 @dataclass
@@ -391,18 +390,3 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
 def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
     modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
     return [parent_graph.get_submodule(op.target) for op in modules_ops]
-
-
-@contextlib.contextmanager
-def align_modules(modules: List[Module]):
-    all_modules = {m for module in modules for m in module.modules()}
-    can_offload = [module for module in all_modules if has_offloaded_params(module)]
-    for module in can_offload:
-        module._hf_hook.pre_forward(module)
-        module._hf_hook.offload = False
-
-    yield
-
-    for module in can_offload:
-        module._hf_hook.post_forward(module, None)
-        module._hf_hook.offload = True

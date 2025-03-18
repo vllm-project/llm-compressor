@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 import torch
 import torch.utils.data.dataloader
-import tqdm
+from tqdm import tqdm
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -12,7 +12,7 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     maybe_inject_pos_embeddings,
     to_next_layer_kwargs,
 )
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import align_modules, calibration_forward_context
 
 if TYPE_CHECKING:
     from llmcompressor.modifiers import Modifier
@@ -63,26 +63,29 @@ def run_pipeline(
             calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
             prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
-            # do an preliminary pass to trigger modifier hooks
-            for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                inputs = intermediates.fetch(batch_index)
-                layer(**inputs)
-
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
-
-            # this pass does not trigger modifier hooks
-            # and is only used for capturing outputs from the newly compressed modules
-            with HooksMixin.disable_hooks():
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
+            with align_modules([layer]):
+                # do an preliminary pass to trigger modifier hooks
+                for batch_index in tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index)
-                    output = layer(**inputs)
+                    layer(**inputs)
 
-                    if layer_index < num_layers - 1:
-                        next_layer = layers[layer_index + 1]
-                        output = to_next_layer_kwargs(output, next_layer)
-                        output = maybe_inject_pos_embeddings(output, next_layer, inputs)
+                # TODO: replace with a lifecycle event
+                if callback_modifier:
+                    callback_modifier.on_sequential_batch_end()
 
-                        intermediates.delete(batch_index)
-                        intermediates.update(batch_index, output)
+                # this pass does not trigger modifier hooks
+                # and is only used for capturing outputs from newly compressed modules
+                with HooksMixin.disable_hooks():
+                    for batch_index in tqdm(range(len(dataloader)), desc=prop_desc):
+                        inputs = intermediates.fetch(batch_index)
+                        output = layer(**inputs)
+
+                        if layer_index < num_layers - 1:
+                            next_layer = layers[layer_index + 1]
+                            output = to_next_layer_kwargs(output, next_layer)
+                            output = maybe_inject_pos_embeddings(
+                                output, next_layer, inputs
+                            )
+
+                            intermediates.delete(batch_index)
+                            intermediates.update(batch_index, output)
