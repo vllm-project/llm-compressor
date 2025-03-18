@@ -2,6 +2,7 @@ import contextlib
 import os
 import tempfile
 from typing import Type
+import logging
 
 import torch
 from huggingface_hub import snapshot_download
@@ -58,6 +59,7 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
     with (
         tempfile.TemporaryDirectory() as tmp_dir,
         patch_attr(model_class, "from_pretrained", patched),
+        patch_transformers_logger_level(),
     ):
         yield
 
@@ -78,3 +80,14 @@ def skip_weights_initialize(use_zeros: bool = False):
         patch_attr(torch.Tensor, "normal_", skip),
     ):
         yield
+
+
+@contextlib.contextmanager
+def patch_transformers_logger_level(level: int = logging.ERROR):
+    transformers_logger = logging.getLogger("transformers.modeling_utils")
+    restore_log_level = transformers_logger.getEffectiveLevel()
+    transformers_logger.setLevel(level=level)
+
+    yield
+
+    transformers_logger.setLevel(level=restore_log_level)
