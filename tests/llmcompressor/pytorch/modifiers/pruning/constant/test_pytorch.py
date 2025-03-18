@@ -74,7 +74,6 @@ def test_constant_pruning_modifier_e2e(model, optimizer):
     state.update(
         model=model,
         optimizer=optimizer(model.parameters(), lr=0.1),
-        start=0,
     )
     modifier = ConstantPruningModifier(
         targets="__ALL_PRUNABLE__",
@@ -82,7 +81,7 @@ def test_constant_pruning_modifier_e2e(model, optimizer):
         end=1,
         update=0.5,
     )
-    modifier.initialize(state)
+    modifier.initialize(state, start=0)
 
     # check mask is added and has correct sparsity
 
