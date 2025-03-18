@@ -64,9 +64,9 @@ def run_pipeline(
             # compile subgraph forward function
             forward_function = subgraph.compile_forward()
 
-            #with align_modules(subgraph.modules):
-            print("no alignment")
-            with contextlib.nullcontext():
+            with align_modules(subgraph.modules):
+            #print("no alignment")
+            #with contextlib.nullcontext():
                 # do an preliminary pass to trigger modifier hooks
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)

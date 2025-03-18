@@ -31,7 +31,7 @@ with skip_weights_download(), skip_weights_initialize():
     #     config=config,
     # )
     device_map = {
-        "model.embed_tokens": 0,
+        "model.embed_tokens": "cpu",
         "model.norm": 0,
         "model.layers.0": "cpu",
         **{f"model.layers.{i}": "cpu" for i in range(1, 61)},

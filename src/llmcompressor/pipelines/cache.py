@@ -32,12 +32,12 @@ class IntermediatesCache:
     """
 
     batch_intermediates: List[Dict[str, IntermediateValue]]
-    offload_device: torch.device
+    offload_device: Optional[torch.device]
 
     def __init__(
         self,
         batch_intermediates: List[Dict[str, IntermediateValue]],
-        offload_device: torch.device,
+        offload_device: Optional[torch.device],
     ):
         self.batch_intermediates = batch_intermediates
         self.offload_device = offload_device
@@ -59,7 +59,7 @@ class IntermediatesCache:
         dataloader: torch.utils.data.DataLoader,
         model_device: torch.device,
         mask_padding: bool = True,
-        offload_device: torch.device = torch.device("cpu"),
+        offload_device: Optional[torch.device] = torch.device("cpu"),
     ):
         """
         Initialize a cache with data from the provided dataloader
@@ -148,6 +148,9 @@ class IntermediatesCache:
 
     def _offload_value(self, value: Any) -> IntermediateValue:
         if isinstance(value, torch.Tensor):
+            if self.offload_device is not None:
+                value = value.to(device=self.offload_device)
+
             return IntermediateValue(
                 value=value.to(device=self.offload_device), device=value.device
             )
