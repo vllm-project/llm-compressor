@@ -18,7 +18,7 @@ import warnings
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
@@ -1064,14 +1064,25 @@ def preserve_attr(base: object, attr: str):
 
 
 @contextlib.contextmanager
-def align_modules(modules: Iterable[torch.nn.Module]):
+def align_modules(
+    modules: Iterable[torch.nn.Module], execution_device: Optional[torch.device] = None
+):
+    original_devices = {}
     can_offload = [module for module in modules if has_offloaded_params(module)]
+
     for module in can_offload:
+        if execution_device is not None:
+            module._hf_hook.execution_device = execution_device
+            original_devices[module] = module._hf_hook.execution_device
+
         module._hf_hook.pre_forward(module)
         module._hf_hook.offload = False
 
     yield
 
     for module in can_offload:
-        module._hf_hook.post_forward(module, None)
+        if execution_device is not None:
+            module._hf_hook.execution_device = original_devices[module]
+
         module._hf_hook.offload = True
+        module._hf_hook.post_forward(module, None)
