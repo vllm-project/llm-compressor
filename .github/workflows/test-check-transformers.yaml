@@ -8,12 +8,7 @@ on:
 
 env:
   CADENCE: "commit"
-  CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-  CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-  CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-  CLEARML_FILES_HOST: ${{ secrets.CLEARML_FILES_HOST }}
-  CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
-
+  
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -88,7 +83,6 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest tests/llmcompressor/transformers/sparsification -v
-          pytest tests/llmcompressor/transformers/test_clear_ml.py -v
       - name: Running OBCQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
