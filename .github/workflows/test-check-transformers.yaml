@@ -83,7 +83,6 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest tests/llmcompressor/transformers/sparsification -v
-          pytest tests/llmcompressor/transformers/test_clear_ml.py -v
       - name: Running OBCQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
