@@ -1144,8 +1144,7 @@ def preserve_attr(base: object, attr: str):
 
 @contextlib.contextmanager
 def align_modules(modules: Iterable[torch.nn.Module]):
-    all_modules = {m for module in modules for m in module.modules()}
-    can_offload = [module for module in all_modules if has_offloaded_params(module)]
+    can_offload = [module for module in modules if has_offloaded_params(module)]
     for module in can_offload:
         module._hf_hook.pre_forward(module)
         module._hf_hook.offload = False

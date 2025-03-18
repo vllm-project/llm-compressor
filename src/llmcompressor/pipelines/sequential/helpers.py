@@ -388,5 +388,14 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
 
 
 def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
+    """
+    Get all submodules executed by `subgraph`
+
+    :param subgraph: subgraph of parent_graph
+    :param parent_graph: GraphModule describing the model,
+        used for `get_submodule` method
+    :return: all submodules executed by subgraph
+    """
     modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
-    return [parent_graph.get_submodule(op.target) for op in modules_ops]
+    called_modules = [parent_graph.get_submodule(op.target) for op in modules_ops]
+    return list({m for module in called_modules for m in module.modules()})

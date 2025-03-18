@@ -63,7 +63,7 @@ def run_pipeline(
             calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
             prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
-            with align_modules([layer]):
+            with align_modules((layer,)):
                 # do an preliminary pass to trigger modifier hooks
                 for batch_index in tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index)
