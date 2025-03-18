@@ -12,10 +12,6 @@ env:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
-
-    outputs:
-      changes-present: ${{ steps.changed-files.outputs.any_modified }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
