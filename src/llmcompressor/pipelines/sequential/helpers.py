@@ -264,7 +264,9 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     return partitions
 
 
-def partition_graph(model: Module, partitions: List[List[Node]], parent_graph: GraphModule) -> List[Subgraph]:
+def partition_graph(
+    model: Module, partitions: List[List[Node]], parent_graph: GraphModule
+) -> List[Subgraph]:
     """
     Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
     of output node names to their computed values. Note that the `consumed_names`
@@ -323,6 +325,7 @@ def partition_graph(model: Module, partitions: List[List[Node]], parent_graph: G
         assert graph_is_well_formed(graph)
 
     return subgraphs
+
 
 def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
     modules_ops: List[Node] = subgraph.find_nodes(op="call_module")

@@ -1,12 +1,12 @@
+import contextlib
+
 import torch
+from accelerate import dispatch_model
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
-from accelerate import dispatch_model
-from accelerate.hooks import attach_align_device_hook, AlignDevicesHook, PrefixedDataset
 
 # NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
 # Please consider either downgrading your transformers version to a
@@ -14,40 +14,26 @@ from accelerate.hooks import attach_align_device_hook, AlignDevicesHook, Prefixe
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "deepseek-ai/DeepSeek-V3"
-#MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
-#MODEL_ID = "deepseek-ai/DeepSeek-V2.5-1210"
+# MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
+# MODEL_ID = "deepseek-ai/DeepSeek-V2.5-1210"
 config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
 del config.quantization_config
 
-# adjust based off number of desired GPUs
-# if not enough memory is available, some layers will automatically be offlaoded to cpu
-with skip_weights_download(), skip_weights_initialize():
-    # device_map = calculate_offload_device_map(
-    #     MODEL_ID,
-    #     reserve_for_hessians=True,
-    #     num_gpus=1,
-    #     torch_dtype=torch.bfloat16,
-    #     trust_remote_code=True,
-    #     config=config,
-    # )
-    device_map = {
-        "model.embed_tokens": "cpu",
-        "model.norm": 0,
-        "model.layers.0": "cpu",
-        **{f"model.layers.{i}": "cpu" for i in range(1, 61)},
-        "lm_head": "cpu",
-    }
-
-
 with skip_weights_download(), skip_weights_initialize(use_zeros=True):
+    # with contextlib.nullcontext():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        #device_map="cpu",
-        device_map=device_map,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
         config=config,
     )
+    model = dispatch_model(
+        model,
+        device_map={"": "cpu"},
+        main_device=torch.device("cuda:0"),
+        force_hooks=True,
+    )
+
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.

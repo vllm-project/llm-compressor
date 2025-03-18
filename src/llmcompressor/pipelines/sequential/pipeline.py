@@ -65,8 +65,6 @@ def run_pipeline(
             forward_function = subgraph.compile_forward()
 
             with align_modules(subgraph.modules):
-            #print("no alignment")
-            #with contextlib.nullcontext():
                 # do an preliminary pass to trigger modifier hooks
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
@@ -79,7 +77,9 @@ def run_pipeline(
                 # this pass does not trigger modifier hooks
                 # and is only used for capturing outputs from the newly compressed modules
                 with HooksMixin.disable_hooks():
-                    for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
+                    for batch_index in tqdm.tqdm(
+                        range(len(dataloader)), desc=prop_desc
+                    ):
                         inputs = intermediates.fetch(batch_index, subgraph.input_names)
                         output = forward_function(model, **inputs)
 
@@ -88,8 +88,8 @@ def run_pipeline(
                             intermediates.delete(batch_index, subgraph.consumed_names)
 
 
-from .helpers import Subgraph
 import contextlib
+
 
 @contextlib.contextmanager
 def align_modules(modules: List[torch.nn.Module]):
@@ -100,7 +100,6 @@ def align_modules(modules: List[torch.nn.Module]):
 
     all_modules = set(all_modules)
     can_offload = [module for module in all_modules if has_offloaded_params(module)]
-    print(f"can_offload: {len(can_offload)}")
     for module in can_offload:
         module._hf_hook.pre_forward(module)
         module._hf_hook.offload = False

@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Union
 
+import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationConfig,
@@ -10,7 +11,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
-import torch
+from compressed_tensors.utils.offload import align_module_device
 from loguru import logger
 from pydantic import Field, field_validator
 from torch.nn import Module
@@ -34,7 +35,6 @@ from llmcompressor.modifiers.utils.pytorch_helpers import (
 )
 from llmcompressor.observers.helpers import get_observer_token_count
 from llmcompressor.utils.helpers import calibration_forward_context
-from compressed_tensors.utils.offload import align_module_device
 
 __all__ = ["QuantizationModifier"]
 
@@ -114,9 +114,9 @@ class QuantizationModifier(Modifier):
         if self.calculate_start() == -1:  # one-shot
             self._check_calibration_data(config)
             print("four")
-            #module.apply(update_weight_zp_scale)  # TODO: not required by GPTQ  # takes a long time
+            # module.apply(update_weight_zp_scale)  # TODO: not required by GPTQ  # takes a long time
             print("five")
-            #apply_with_alignment(module, update_weight_zp_scale)
+            # apply_with_alignment(module, update_weight_zp_scale)
             module.apply(apply_calibration_status)
             print("six")
             self._calibrate_if_possible(module)
@@ -132,8 +132,8 @@ class QuantizationModifier(Modifier):
 
     def on_start(self, state: State, event: Event, **kwargs):
         module = state.model
-        #module.apply(update_weight_zp_scale)
-        #apply_with_alignment(module, update_weight_zp_scale)
+        # module.apply(update_weight_zp_scale)
+        # apply_with_alignment(module, update_weight_zp_scale)
 
     def on_update(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.BATCH_START:
