@@ -37,13 +37,13 @@ class IntermediatesCache:
     def __init__(
         self,
         batch_intermediates: List[Dict[str, IntermediateValue]],
-        offload_device: Optional[torch.device],
+        offload_device: Optional[torch.device] = torch.device("cpu"),
     ):
         self.batch_intermediates = batch_intermediates
         self.offload_device = offload_device
 
     @classmethod
-    def empty(cls, num_batches: int, offload_device: torch.device):
+    def empty(cls, num_batches: int, offload_device: Optional[torch.device] = torch.device("cpu")):
         """
         Construct an empty cache
 
@@ -148,12 +148,11 @@ class IntermediatesCache:
 
     def _offload_value(self, value: Any) -> IntermediateValue:
         if isinstance(value, torch.Tensor):
+            onload_device = value.device
             if self.offload_device is not None:
                 value = value.to(device=self.offload_device)
 
-            return IntermediateValue(
-                value=value.to(device=self.offload_device), device=value.device
-            )
+            return IntermediateValue(value=value, device=onload_device)
 
         if is_dataclass(value):
             for field in fields(value):  # `asdict` is recursive, not applicable here

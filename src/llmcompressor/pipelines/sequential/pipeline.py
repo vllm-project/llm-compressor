@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Iterable
 
 import torch
 import torch.utils.data.dataloader
@@ -92,20 +92,25 @@ import contextlib
 
 
 @contextlib.contextmanager
-def align_modules(modules: List[torch.nn.Module]):
-    all_modules = []
-    for module in modules:
-        for m in module.modules():
-            all_modules.append(m)
+def align_modules(
+    modules: Iterable[torch.nn.Module], execution_device: Optional[torch.device] = None
+):
+    original_devices = {}
+    can_offload = [module for module in modules if has_offloaded_params(module)]
 
-    all_modules = set(all_modules)
-    can_offload = [module for module in all_modules if has_offloaded_params(module)]
     for module in can_offload:
+        if execution_device is not None:
+            module._hf_hook.execution_device = execution_device
+            original_devices[module] = module._hf_hook.execution_device
+        
         module._hf_hook.pre_forward(module)
         module._hf_hook.offload = False
 
     yield
 
     for module in can_offload:
-        module._hf_hook.post_forward(module, None)
+        if execution_device is not None:
+            module._hf_hook.execution_device = original_devices[module]
+
         module._hf_hook.offload = True
+        module._hf_hook.post_forward(module, None)

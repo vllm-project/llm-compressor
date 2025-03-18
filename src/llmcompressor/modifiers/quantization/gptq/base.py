@@ -315,6 +315,8 @@ class GPTQModifier(Modifier, HooksMixin):
             init_device = (
                 "cpu" if self.offload_hessians else get_execution_device(module)
             )
+            name = self._module_names[module]
+            logger.info(f"Allocating hessian for {name}")
             self._hessians[module] = make_empty_hessian(module, device=init_device)
             self._num_samples[module] = 0
 
@@ -361,6 +363,9 @@ class GPTQModifier(Modifier, HooksMixin):
 
             # self._hessians[module] already deleted by quantize_weight
             del self._num_samples[module]
+
+        assert len(self._num_samples) <= 0
+        assert len(self._hessians) <= 0
 
     @contextlib.contextmanager
     def _maybe_onload_hessian(self, module: torch.nn.Module):
