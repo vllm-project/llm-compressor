@@ -81,7 +81,7 @@ def test_constant_pruning_modifier_e2e(model, optimizer):
         end=1,
         update=0.5,
     )
-    modifier.initialize(state, start=0)
+    modifier.initialize(state)
 
     # check mask is added and has correct sparsity
 
