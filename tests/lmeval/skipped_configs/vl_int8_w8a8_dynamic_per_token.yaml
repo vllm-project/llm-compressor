@@ -13,6 +13,10 @@ lmeval:
     convert_img_format: True
   task: mmmu_val_economics
   num_fewshot: 0
+  # dense model achieves 0.233 accuracy
+  # result is the same (0.233) with
+  #  "quantization_confg": CompressedTensorsConfig(run_compressed=False)
+  #  in model_args
   metrics:
     acc,none: 0.233
   batch_size: 8
