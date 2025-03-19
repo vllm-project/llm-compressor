@@ -1,5 +1,7 @@
 # Compression and Fine-tuning Entrypoint
 
+
+
 ## Oneshot
 
 An ideal compression technique reduces memory footprint while maintaining accuracy. One-shot in LLM-Compressor supports faster inference on vLLM by applying post-training quantization (PTQ) or sparsification.
@@ -17,7 +19,7 @@ Sparsification reduces model complexity by pruning selected weight values to zer
 
 ## Code
 
-Example scripts for all the above formats are located in the [examples](../../../examples/) folder. The [W8A8-FP8](../../../examples/quantization_w8a8_fp8/llama3_example.py) example is shown below: 
+Example scripts for all the above formats are located in the [examples](../../../examples/) folder. The [W8A8-FP8](../../../examples/quantization_w8a8_fp8/llama3_example.py) example is shown below:
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -68,7 +70,7 @@ oneshot(
     ...,
     output_dir="./oneshot_model", # Automatically save the safetensor, config, recipe. Weights are saved in a compressed format
 )
-```    
+```
 
 
 ### Lifecycle
@@ -81,9 +83,9 @@ The oneshot calibration lifecycle consists of three steps:
     - Patches the model to include additional functionality for saving with
         quantization configurations.
 2. **Oneshot Calibration**:
-    - Compresses the model based on the recipe (instructions for optimizing the model). The 
+    - Compresses the model based on the recipe (instructions for optimizing the model). The
         recipe defines the `Modifiers` (e.g., `GPTQModifier`, `SparseGPTModifier`) to apply, which
-        contain logic how to quantize or sparsify a model. 
+        contain logic how to quantize or sparsify a model.
 3. **Postprocessing**:
     - Saves the model, tokenizer/processor, and configuration to the specified
         `output_dir`.
@@ -147,7 +149,7 @@ Comparisons are defined in `/src/llmcompressor/modifiers/distillation/utils/pyto
 ```python
 # Define the teacher model
 distill_teacher = AutoModelForCausalLM.from_pretrained(
-    "meta-llama/Meta-Llama-3-8B-Instruct",  
+    "meta-llama/Meta-Llama-3-8B-Instruct",
     device_map="auto",
 )
 
@@ -189,7 +191,7 @@ The output terminal will provide the sparsification, quantization and training m
   train_steps_per_second   =      0.107
 ```
 
-### End-to-end Script 
+### End-to-end Script
 The end-to-end script for carrying out `oneshot` for `W8A8-FP8` and then knowledge distillation is shown below:
 
 ```python

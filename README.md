@@ -1,6 +1,8 @@
 # <img width="40" alt="tool icon" src="https://github.com/user-attachments/assets/f9b86465-aefa-4625-a09b-54e158efcf96" />  LLM Compressor
 `llmcompressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
 
+
+
 * Comprehensive set of quantization algorithms for weight-only and activation quantization
 * Seamless integration with Hugging Face models and repositories
 * `safetensors`-based file format compatible with `vllm`
@@ -30,16 +32,16 @@ PTQ is performed to reduce the precision of quantizable weights (e.g., linear la
 
 ##### [W4A16](./examples/quantization_w4a16/README.md)
 - Uses GPTQ to compress weights to 4 bits. Requires calibration dataset.
-- Useful speed ups in low QPS regimes with more weight compression. 
-- Recommended for any GPUs types. 
+- Useful speed ups in low QPS regimes with more weight compression.
+- Recommended for any GPUs types.
 ##### [W8A8-INT8](./examples/quantization_w8a8_int8/README.md)
 - Uses channel-wise quantization to compress weights to 8 bits using GPTQ, and uses dynamic per-token quantization to compress activations to 8 bits. Requires calibration dataset for weight quantization. Activation quantization is carried out during inference on vLLM.
-- Useful for speed ups in high QPS regimes or offline serving on vLLM. 
-- Recommended for NVIDIA GPUs with compute capability <8.9 (Ampere, Turing, Volta, Pascal, or older). 
+- Useful for speed ups in high QPS regimes or offline serving on vLLM.
+- Recommended for NVIDIA GPUs with compute capability <8.9 (Ampere, Turing, Volta, Pascal, or older).
 ##### [W8A8-FP8](./examples/quantization_w8a8_fp8/README.md)
 - Uses channel-wise quantization to compress weights to 8 bits, and uses dynamic per-token quantization to compress activations to 8 bits. Does not require calibration dataset. Activation quantization is carried out during inference on vLLM.
-- Useful for speed ups in high QPS regimes or offline serving on vLLM. 
-- Recommended for NVIDIA GPUs with compute capability >8.9 (Hopper and Ada Lovelace). 
+- Useful for speed ups in high QPS regimes or offline serving on vLLM.
+- Recommended for NVIDIA GPUs with compute capability >8.9 (Hopper and Ada Lovelace).
 
 #### Sparsification
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
