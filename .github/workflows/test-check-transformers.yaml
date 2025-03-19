@@ -13,7 +13,7 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      changes-present: ${{ steps.changed-files.outputs.all_changed_files}}
+      changes-present: ${{ steps.changed-files.outputs.all_changed_files }}
     steps:
       - name: prelim
         run: |
@@ -21,12 +21,15 @@ jobs:
           echo "github.event.pull_request.head.repo.full_name=${{ github.event.pull_request.head.repo.full_name }}"
           echo "github.repository=${{ github.repository }}"
           echo "repo=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}"
+          echo "changed_files=${{ github.event.pull_request.changed_files }}"
+          echo "sha=${{ github.event.pull_request.head.sha }}"
 
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'main' }}
 
       - name: Get changed files
         id: changed-files
