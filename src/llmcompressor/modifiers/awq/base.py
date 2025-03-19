@@ -576,11 +576,23 @@ class AWQModifier(Modifier):
             module (`torch.nn.Module`):
                 Target module to quantize.
         """
-        module_signature = inspect.signature(module.forward).parameters
+        params = inspect.signature(module.forward).parameters
         sanitized_kwargs = {}
         for k, v in inputs_kwargs.items():
-            if k in module_signature and k != "use_cache":
+            if k in params and k != "use_cache":
                 sanitized_kwargs[k] = v
+        # In case forward pass has optional dependencies that don't default to None.
+        # This is the case for `LlamaAttention.forward` which has input
+        #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
+        # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L269
+        for k, v in params.items():
+            if (
+                getattr(v.annotation, "_name", "") == "Optional"
+                and k not in sanitized_kwargs
+                and k != "use_cache"
+            ):
+                sanitized_kwargs[k] = None
+
         return sanitized_kwargs
 
 
