@@ -12,6 +12,8 @@ env:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    outputs:
+      changes-present: ${{ steps.changed-files.outputs.all_changed_files}}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,15 +32,16 @@ jobs:
             tests/lmeval/**
             tests/examples/**
             **/*.md
+
       - name: Log relevant output
         run: |
-          echo "all modified files: ${{ steps.changed-files.outputs.all_changed_files }}"
+          echo "changes-present: ${{ steps.changed-files.outputs.any_modified }}
         shell: bash
 
   transformers-tests:
     needs: [detect-changes]
     runs-on: gcp-k8s-vllm-l4-solo
-    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.changes-present == 'true'
+    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.changes-present != ''
     steps:
       - uses: actions/setup-python@v5
         with:
