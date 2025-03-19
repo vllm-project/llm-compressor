@@ -7,11 +7,7 @@ import datasets
 import torch
 from loguru import logger
 from torch.utils.data import Dataset
-<<<<<<< HEAD
 from transformers import PreTrainedModel
-import datasets
-=======
->>>>>>> 386ead2e (updates from debugging)
 
 from llmcompressor.args import (
     DatasetArguments,
