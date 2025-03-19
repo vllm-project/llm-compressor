@@ -243,8 +243,6 @@ class AWQModifier(Modifier):
             name = mapping.smooth_name
             self._scales[name] = torch.cat(self._scales[name], dim=0)
 
-        torch.cuda.empty_cache()
-
     @torch.no_grad()
     def _apply_smoothing(self, model: Module):
         """
@@ -354,9 +352,6 @@ class AWQModifier(Modifier):
                 for layer in balance_layers:
                     smooth(layer)
                 smooth(smooth_layer)
-
-        # clear out allocated smoothing scales
-        torch.cuda.empty_cache()
 
     def _compute_best_scale(
         self,
