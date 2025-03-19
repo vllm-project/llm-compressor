@@ -23,6 +23,7 @@ jobs:
           echo "repo=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}"
           echo "changed_files=${{ github.event.pull_request.changed_files }}"
           echo "ref=${{ github.event.pull_request.head.ref }}"
+          env
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,11 +41,11 @@ jobs:
             .*
             .github/workflows/test-check-transformers.yaml
           exclude-patterns: |-
-            ^examples/**
-            ^tests/e2e/**
-            ^tests/lmeval/**
-            ^tests/examples/**
-            **/*.md
+            ^examples
+            ^tests/e2e
+            ^tests/lmeval
+            ^tests/examples
+            .md$
       - name: Log relevant output
         run: |
           echo "changes-present: ${{ steps.changed-files.outputs.all_changed_files }}"
