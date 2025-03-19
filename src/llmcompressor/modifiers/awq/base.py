@@ -1,5 +1,4 @@
 import inspect
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 import torch
@@ -21,65 +20,9 @@ from llmcompressor.utils.pytorch.module import (
     get_parent_by_name,
 )
 
-__all__ = ["AWQMapping", "AWQModifier"]
+from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 
-
-@dataclass
-class AWQMapping:
-    """
-    Dataclass storing config of activation mappings to smooth
-    The output activations of smooth_layer are input activations
-    into the balance_layers
-
-    `AWQMapping`s are resolved into `ResolvedMapping`s, which
-    retain pointers to the actual `torch.nn.Module`s and additional
-    metadata at runtime
-    """
-
-    smooth_layer: str
-    balance_layers: list[str]
-
-
-DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
-    AWQMapping(
-        "re:.*input_layernorm",
-        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-    ),
-    # TODO this should only be added if v_proj/o_proj shapes match up
-    #  should we check during validation and skip if this is not the case?
-    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
-    AWQMapping(
-        "re:.*post_attention_layernorm",
-        ["re:.*gate_proj", "re:.*up_proj"],
-    ),
-    AWQMapping(
-        "re:.*up_proj",
-        ["re:.*down_proj"],
-    ),
-]
-
-
-@dataclass
-class ResolvedMapping:
-    """
-    Dataclass for storing the resolved mappings between an activation layer
-    and the following weights that must be balanced during smoothing
-
-    :param smooth_name: name of the activation layer
-    :param smooth_layer: PyTorch module storing the activation layer
-    :param balance_layers: list of PyTorch modules that smooth_layer feeds into, must be
-        balanced to offset the smoothing of smooth_layer
-    :param balance_names: optional list of names of the balance_layers
-    :param parent: parent module of the balance_layers
-    :param parent_name: name of the parent module
-    """
-
-    smooth_name: str
-    smooth_layer: Module
-    balance_layers: List[Module]
-    balance_names: Optional[List[str]] = None
-    parent: Optional[Module] = None
-    parent_name: Optional[str] = None
+__all__ = ["AWQModifier"]
 
 
 class AWQModifier(Modifier):
@@ -136,7 +79,7 @@ class AWQModifier(Modifier):
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
-    mappings: List[AWQMapping] = DEFAULT_AWQ_MAPPINGS
+    mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
     ignore: List[str] = []
     num_calibration_steps: Optional[int] = None
     group_size: int = 128
