@@ -22,7 +22,7 @@ jobs:
 
       - name: Get changed files
         id: changed-files
-        uses: neuralmagic/nm-actions/actions/changed-files@main
+        uses: neuralmagic/nm-actions/actions/changed-files@update-change-tracking
         with:
           include-patterns: |
             .*
