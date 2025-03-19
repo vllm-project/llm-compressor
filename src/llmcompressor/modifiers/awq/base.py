@@ -1,24 +1,21 @@
 import inspect
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from compressed_tensors.utils import align_module_device, update_offload_parameter
 from loguru import logger
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 from torch.nn import Module
 from tqdm import tqdm
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
-from llmcompressor.pytorch.utils import (
-    tensor_forward_with_input_args,
-)
+from llmcompressor.pytorch.utils import tensor_forward_with_input_args
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
-    get_layer,
     get_layers,
     get_matching_layer,
     get_parent_by_name,
@@ -48,7 +45,8 @@ DEFAULT_AWQ_MAPPINGS: list[AWQMapping] = [
         "re:.*input_layernorm",
         ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
     ),
-    # TODO this should only be added if v_proj/o_proj shapes match up, should we check during validation and skip if this is not the case?
+    # TODO this should only be added if v_proj/o_proj shapes match up
+    #  should we check during validation and skip if this is not the case?
     AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
     AWQMapping(
         "re:.*post_attention_layernorm",
@@ -148,7 +146,7 @@ class AWQModifier(Modifier):
     duo_scaling: bool = True
 
     _resolved_mappings: List[ResolvedMapping] = []
-    _scales: Dict[str, torch.Tensor | List[torch.Tensor]] = {}
+    _scales: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = {}
     _module_kwargs: Dict = {}
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -189,7 +187,7 @@ class AWQModifier(Modifier):
     def _set_resolved_mappings(self, model: Module) -> None:
         """
         Transforms the list of activations to smooth and their corresponding weights
-        into ResolvedMapping objects, resolving regular expressions. 
+        into ResolvedMapping objects, resolving regular expressions.
         Result is stored in _resolved_mappings.
 
         For each activation in the mapping list, we find the corresponding weight to
@@ -385,13 +383,25 @@ class AWQModifier(Modifier):
                         module.weight.mul_(scales.view(1, -1).to(module.weight.device))
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
-                            module.weight.div_(scales.to(module.weight.device))
+                            update_offload_parameter(
+                                module,
+                                "weight",
+                                module.weight.div(scales.to(module.weight.device)),
+                            )
                         else:
-                            module.weight.div_(
-                                scales.view(-1, 1).to(module.weight.device)
+                            update_offload_parameter(
+                                module,
+                                "weight",
+                                module.weight.div(
+                                    scales.view(-1, 1).to(module.weight.device)
+                                ),
                             )
                         if hasattr(module, "bias") and module.bias is not None:
-                            module.bias.div_(scales.to(module.bias.device))
+                            update_offload_parameter(
+                                module,
+                                "bias",
+                                module.bias.div(scales.to(module.bias.device)),
+                            )
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -636,13 +646,15 @@ class AWQModifier(Modifier):
         return sanitized_kwargs
 
 
-
 def _pseudo_quantize_tensor(
     w: torch.Tensor, symmetric: bool = False, bit_width: int = 8, group_size: int = -1
 ):
     org_w_shape = w.shape
     if group_size > 0:
-        assert org_w_shape[-1] % group_size == 0, f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({group_size})!"
+        assert org_w_shape[-1] % group_size == 0, (
+            f"org_w_shape ({org_w_shape[-1]}) must be a multiple "
+            + f"of group_size ({group_size})!"
+        )
         w = w.reshape(-1, group_size)
     assert w.dim() == 2
     assert torch.isnan(w).sum() == 0
@@ -658,7 +670,7 @@ def _pseudo_quantize_tensor(
         w = (
             torch.clamp(torch.round(w / scales) + zeros, min_int, max_int) - zeros
         ) * scales
-        zeros = (zeros - 2**(bit_width-1)).view(org_w_shape[0], -1) 
+        zeros = (zeros - 2 ** (bit_width - 1)).view(org_w_shape[0], -1)
     else:
         max_val = w.abs().amax(dim=1, keepdim=True)
         max_val = max_val.clamp(min=1e-5)
