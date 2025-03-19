@@ -15,6 +15,13 @@ jobs:
     outputs:
       changes-present: ${{ steps.changed-files.outputs.all_changed_files}}
     steps:
+      - name: prelim
+        run: |
+          echo "github.event_name=${{ github.event_name }}"
+          echo "github.event.pull_request.head.repo.full_name=${{ github.event.pull_request.head.repo.full_name }}"
+          echo "github.repository=${{ github.repository }}"
+          echo "repo=${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
