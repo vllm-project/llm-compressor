@@ -21,8 +21,16 @@ jobs:
         id: changed-files
         uses: neuralmagic/nm-actions/actions/changed-files@main
         with:
-          include-patterns: '**,.github/workflows/test-check-transformers.yaml'
-          exclude-patterns: 'examples/**,tests/e2e/**,tests/lmeval/**,tests/examples/**,**/*.md,.github/**'
+          include-patterns: |
+            **
+            .github/workflows/test-check-transformers.yaml
+          exclude-patterns: |
+            examples/**
+            tests/e2e/**
+            tests/lmeval/**
+            tests/examples/**
+            **/*.md
+            .github/**
       - name: Log relevant output
         run: |
           echo "all modified files: ${{ steps.changed-files.outputs.all_changed_files }}"
