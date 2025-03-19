@@ -35,7 +35,7 @@ jobs:
 
       - name: Log relevant output
         run: |
-          echo "changes-present: ${{ steps.changed-files.outputs.any_modified }}
+          echo "changes-present: ${{ steps.changed-files.outputs.all_changed_files }}
         shell: bash
 
   transformers-tests:
