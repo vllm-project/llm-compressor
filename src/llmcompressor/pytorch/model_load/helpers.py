@@ -27,10 +27,19 @@ __all__ = [
 def save_checkpoint(
     save_path: str,
     model: PreTrainedModel,
-    processor: Processor,
+    processor: Optional[Processor] = None,
     save_safetensors: bool = True,
     save_compressed: bool = True,
 ):
+    """
+    Save a model, processor, and recipe
+
+    :param save_path: Path used to save model and processor
+    :param model: model to save
+    :param processor: processor to save
+    :param save_safetensors: save model checkpoint using safetensors file type
+    :param save_compressed: save model checkpoint using compressed-tensors format
+    """
     # saving the model also saves the recipe
     model.save_pretrained(
         save_path,
