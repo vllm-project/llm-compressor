@@ -661,4 +661,3 @@ def swap_modules(
     parent.__setattr__(sections[-1], submodule_to_replace)
 
     return cur
-

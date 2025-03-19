@@ -4,7 +4,6 @@ from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data import (
     C4Dataset,
     OpenPlatypusDataset,
-    PileEvalDataset,
     TextGenerationDataset,
     WikiTextDataset,
 )
