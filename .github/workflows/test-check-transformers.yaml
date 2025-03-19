@@ -38,8 +38,8 @@ jobs:
         uses: neuralmagic/nm-actions/actions/changed-files@update-change-tracking
         with:
           include-patterns: |-
+            ^\.github/workflows/test-check-transformers.yaml
             .*
-            .github/workflows/test-check-transformers.yaml
           exclude-patterns: |-
             ^examples
             ^tests/e2e
