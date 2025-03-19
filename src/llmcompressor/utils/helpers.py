@@ -1063,6 +1063,7 @@ def preserve_attr(base: object, attr: str):
         setattr(base, attr, value)
 
 
+# TODO remove after https://github.com/neuralmagic/compressed-tensors/pull/282 lands
 @contextlib.contextmanager
 def align_modules(
     modules: Iterable[torch.nn.Module], execution_device: Optional[torch.device] = None
