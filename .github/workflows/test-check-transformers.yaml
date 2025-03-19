@@ -30,16 +30,14 @@ jobs:
             tests/lmeval/**
             tests/examples/**
             **/*.md
-            .github/**
       - name: Log relevant output
         run: |
           echo "all modified files: ${{ steps.changed-files.outputs.all_changed_files }}"
         shell: bash
 
   transformers-tests:
-    needs: [detect-changes]
     runs-on: gcp-k8s-vllm-l4-solo
-    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.changes-present == 'true'
+    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push')
     steps:
       - uses: actions/setup-python@v5
         with:
