@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.transforms.transform_config import TransformationConfig
 from loguru import logger
 from pydantic import Field, field_validator
 from torch.nn import Module
@@ -74,6 +75,7 @@ class QuantizationModifier(Modifier):
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
+    transforms_config: Optional[TransformationConfig] = None
     ignore: List[str] = Field(default_factory=list)
     targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
     scheme: Optional[Union[str, Dict[str, Any]]] = None
@@ -210,7 +212,9 @@ class QuantizationModifier(Modifier):
     def _apply_modifier_to_model(self, model: Module):
         modifier_as_config = self.create_init_config()
         # Add step to attach kv_cache to the model, if present within the config
-        apply_quantization_config(model, modifier_as_config)
+        apply_quantization_config(
+            model, modifier_as_config, transforms_config=self.transforms_config
+        )
         model.apply(set_unset_kv_cache)
         return modifier_as_config
 
