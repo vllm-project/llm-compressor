@@ -17,8 +17,8 @@ from llmcompressor.transformers.tracing import TraceableDeepseekV3ForCausalLM
 MODEL_ID = "deepseek-ai/DeepSeek-V3"
 # MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 # MODEL_ID = "deepseek-ai/DeepSeek-V2.5-1210"
-#config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
-#del config.quantization_config
+config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
+del config.quantization_config
 
 # TODO: replace with a more automatic device map
 device_map = {
@@ -29,17 +29,16 @@ device_map = {
     "lm_head": "cpu",
 }
 
-#with skip_weights_download(), skip_weights_initialize(use_zeros=True):
-with contextlib.nullcontext():
+with skip_weights_download(TraceableDeepseekV3ForCausalLM), skip_weights_initialize(use_zeros=True):
+#with contextlib.nullcontext():
     model = TraceableDeepseekV3ForCausalLM.from_pretrained(
         MODEL_ID,
         #device_map=device_map,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
-        #config=config,
+        config=config,
     )
-    breakpoint()
-    model.dequantize()
+    #model.dequantize()
     model = dispatch_model(
         model,
         device_map=device_map,

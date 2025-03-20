@@ -522,12 +522,29 @@ class DeepseekV3MoE(nn.Module):
 
     def forward(self, hidden_states):
         identity = hidden_states
-        orig_shape = hidden_states.shape
+        # TRACING
+        #orig_shape = hidden_states.shape
         topk_idx, topk_weight = self.gate(hidden_states)
         hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
         flat_topk_idx = topk_idx.view(-1)
-        if not self.training:
+        # TRACING:
+        #if not self.training:
+        if False:
             y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(*orig_shape)
+        else:
+            hidden_states = hidden_states.repeat_interleave(
+                self.num_experts_per_tok, dim=0
+            )
+            y = torch.empty_like(hidden_states)
+            for i, expert in enumerate(self.experts):
+                y[flat_topk_idx == i] = expert(hidden_states[flat_topk_idx == i])
+            #breakpoint()
+            # topk_weight.shape == [batch_size, self.config.num_experts_per_tok]
+            #y = (y.view(*topk_weight.shape, -1) * topk_weight.unsqueeze(-1)).sum(dim=1)
+            y = (y.view(topk_weight.size(0), self.config.num_experts_per_tok, -1) * topk_weight.unsqueeze(-1)).sum(dim=1)
+            #y = y.to(hidden_states.dtype).view(*orig_shape)
+            y = y.to(hidden_states.dtype).view(hidden_states.size(0), hidden_states.size(1))
+
         if self.config.n_shared_experts is not None:
             y = y + self.shared_experts(identity)
         return y
@@ -817,14 +834,17 @@ class DeepseekV3Attention(nn.Module):
             torch.matmul(query_states, key_states.transpose(2, 3)) * self.softmax_scale
         )
 
-        if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+        # TRACING:
+        #if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+        if False:
             raise ValueError(
                 f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
                 f" {attn_weights.size()}"
             )
         assert attention_mask is not None
         if attention_mask is not None:
-            if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
+            if False:
+            #if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
                 raise ValueError(
                     f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
                 )
@@ -839,7 +859,8 @@ class DeepseekV3Attention(nn.Module):
         )
         attn_output = torch.matmul(attn_weights, value_states)
 
-        if attn_output.size() != (bsz, self.num_heads, q_len, self.v_head_dim):
+        if False:
+        #if attn_output.size() != (bsz, self.num_heads, q_len, self.v_head_dim):
             raise ValueError(
                 f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.v_head_dim)}, but is"
                 f" {attn_output.size()}"
@@ -1791,7 +1812,8 @@ class DeepseekV3ForSequenceClassification(DeepseekV3PreTrainedModel):
         else:
             batch_size = inputs_embeds.shape[0]
 
-        if self.config.pad_token_id is None and batch_size != 1:
+        if False:
+        #if self.config.pad_token_id is None and batch_size != 1:
             raise ValueError(
                 "Cannot handle batch sizes > 1 if no padding token is defined."
             )

@@ -11,6 +11,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.args import DatasetArguments
+from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
 
 __all__ = [
     "get_model_class"
@@ -54,11 +55,13 @@ def trace(
         --modality text
     """
     # Load model
-    model = model_class.from_pretrained(
-        model_id,
-        device_map="auto",
-        torch_dtype="auto",
-    )
+    with skip_weights_download(model_class), skip_weights_initialize(use_zeros=True):
+        model = model_class.from_pretrained(
+            model_id,
+            #device_map="auto",
+            device_map="cpu",
+            torch_dtype="auto",
+        )
     processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
     print("Loaded model")
 
