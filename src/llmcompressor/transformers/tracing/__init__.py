@@ -19,9 +19,9 @@ from .qwen2_5_vl import (
 from .deepseek_v2.modeling_deepseek import (
     DeepseekV2ForCausalLM as TraceableDeepseekV2ForCausalLM
 )
-# from .deepseek_v3.modeling_deepseek import (
-#     DeepseekV3ForCausalLM as TraceableDeepseekV3ForCausalLM
-# )
+from .deepseek_v3.modeling_deepseek import (
+    DeepseekV3ForCausalLM as TraceableDeepseekV3ForCausalLM
+)
 from .debug import get_model_class
 
 __all__ = [
