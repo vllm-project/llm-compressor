@@ -63,21 +63,13 @@ recipe = [
 ]
 
 if fp8_enabled:
-    recipe.extend([
+    recipe.append(
         QuantizationModifier(
             targets=["Linear"],
             ignore=["lm_head"],
             scheme="FP8_DYNAMIC",
         ),
-        ConstantPruningModifier(
-            targets=[
-                r"re:.*q_proj.weight", r"re:.*k_proj.weight", r"re:.*v_proj.weight",
-                r"re:.*o_proj.weight", r"re:.*gate_proj.weight", r"re:.*up_proj.weight",
-                r"re:.*down_proj.weight",
-            ],
-            start=0,
-        ),
-    ])
+    )
 ```
 
 2. **Apply Compression**
