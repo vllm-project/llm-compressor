@@ -53,7 +53,7 @@ def run_pipeline(
     with calibration_forward_context(model):
         # prepare intermediates cache
         model_device = get_execution_device(model)
-        intermediates = IntermediatesCache.from_dataloader(dataloader, model_device, offload_device=None)
+        intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
 
         num_subgraphs = len(subgraphs)
         for subgraph_index, subgraph in enumerate(subgraphs):

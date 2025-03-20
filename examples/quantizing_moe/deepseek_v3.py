@@ -29,7 +29,7 @@ device_map = {
     "lm_head": "cpu",
 }
 
-with skip_weights_download(TraceableDeepseekV3ForCausalLM), skip_weights_initialize(use_zeros=True):
+with skip_weights_download(TraceableDeepseekV3ForCausalLM), skip_weights_initialize(use_zeros=False):
 #with contextlib.nullcontext():
     model = TraceableDeepseekV3ForCausalLM.from_pretrained(
         MODEL_ID,
