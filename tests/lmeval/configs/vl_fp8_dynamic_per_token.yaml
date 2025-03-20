@@ -1,8 +1,7 @@
 cadence: weekly
-model: Qwen/Qwen2-VL-2B-Instruct
-model_class: TraceableQwen2VLForConditionalGeneration
+model: Qwen/Qwen2.5-VL-7B-Instruct
+model_class: TraceableQwen2_5_VLForConditionalGeneration
 scheme: FP8_DYNAMIC
-seed: 42  # compressed model is sensitive to random seed
 lmeval:
   model: "hf-multimodal"
   model_args:
@@ -12,5 +11,9 @@ lmeval:
   task: mmmu_val_economics
   num_fewshot: 0
   batch_size: 8
+  # dense model achieves 0.4 accuracy
+  # result is the same (0.333) with
+  #  "quantization_config": CompressedTensorsConfig(run_compressed=False)
+  #  in model_args
   metrics:
     acc,none: 0.333

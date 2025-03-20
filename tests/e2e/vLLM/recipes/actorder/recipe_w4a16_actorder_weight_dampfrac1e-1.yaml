@@ -1,0 +1,15 @@
+quant_stage:
+  quant_modifiers:
+    GPTQModifier:
+      dampening_frac: 0.1
+      ignore: ["lm_head", "re:vision_tower.*", "re:multi_modal_projector.*", "re:visual.*", "re:vision_model.*"]
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 4
+            type: "int"
+            symmetric: true
+            strategy: "group"
+            group_size: 128
+            actorder: "weight"
+          targets: ["Linear"]
