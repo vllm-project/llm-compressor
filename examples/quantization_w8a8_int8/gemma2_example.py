@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor import oneshot
+from llmcompressor.transformers import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 
 # 1) Select model and load it.
