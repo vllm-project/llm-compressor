@@ -109,11 +109,6 @@ class QuantizationModifier(Modifier):
             self._check_calibration_data(config)
             module.apply(update_weight_zp_scale)
             module.apply(apply_calibration_status)
-            self._calibrate_if_possible(module)
-            self._check_token_distribution(
-                module, threshold=kwargs.get("min_tokens_per_module")
-            )
-            module.apply(freeze_module_quantization)
 
         return True
 
@@ -129,6 +124,14 @@ class QuantizationModifier(Modifier):
 
     def on_end(self, state: State, event: Event, **kwargs):
         module = state.model
+        module.apply(freeze_module_quantization)
+
+    def on_finalize(self, state: State, **kwargs):
+        module = state.model
+        if self.calculate_start() == -1:  # one-shot
+            self._check_token_distribution(
+                module, threshold=kwargs.get("min_tokens_per_module")
+            )
         module.apply(freeze_module_quantization)
 
     def create_init_config(self) -> QuantizationConfig:

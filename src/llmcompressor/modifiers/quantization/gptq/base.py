@@ -13,7 +13,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
@@ -23,13 +23,8 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
 )
 from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
+from llmcompressor.utils.pytorch.module import qat_active
 
 __all__ = ["GPTQModifier"]
 
@@ -65,9 +60,9 @@ class GPTQModifier(Modifier, HooksMixin):
         - on_initialize
             - _build_quant_modifier
             - register_hook(module, compress_module, "forward")
-            - run_sequential / run_layer_sequential / run_basic
-                - make_empty_hessian
-                - accumulate_hessian
+        - run_sequential / run_layer_sequential / run_basic
+            - make_empty_hessian
+            - accumulate_hessian
         - on_sequential_batch_end
             - quantize_weight
         - on_finalize
@@ -216,65 +211,6 @@ class GPTQModifier(Modifier, HooksMixin):
                 if not isinstance(module, torch.nn.Embedding):
                     self.register_hook(module, self.calibrate_module, "forward")
 
-        # infer sequential targets
-        if self.sequential_targets is None:
-            self.sequential_targets = get_no_split_params(state.model)
-        if isinstance(self.sequential_targets, str):
-            self.sequential_targets = [self.sequential_targets]
-
-        # infer pipeline
-        model_name = state.model.__class__.__name__
-        input_names = state.data.calib.dataset.column_names
-        unfixable_errors = (
-            torch.OutOfMemoryError,
-            torch._C._LinAlgError,
-            KeyboardInterrupt,
-        )
-        try:
-            run_sequential(
-                state.model,
-                state.data.calib,
-                self.sequential_targets,
-                self.ignore,
-                self,
-            )
-            return True
-
-        except Exception as exception:
-            if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(
-                    f"Failed to trace {model_name} with inputs {input_names}. For more "
-                    "information on tracing with the sequential pipeline, see "
-                    "https://github.com/vllm-project/llm-compressor/blob/main/"
-                    "src/llmcompressor/transformers/tracing/GUIDE.md"
-                )
-            if isinstance(exception, unfixable_errors):
-                raise exception
-
-            warnings.warn("Falling back to layer_sequential pipeline")
-            try:
-                run_layer_sequential(
-                    state.model,
-                    state.data.calib,
-                    self.sequential_targets,
-                    self,
-                )
-                return True
-
-            except Exception as exception:
-                if isinstance(exception, TypeError):
-                    warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, unfixable_errors):
-                    raise exception
-
-                warnings.warn(
-                    "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy. Consider using "
-                    "`offload_hessians=True`"
-                )
-                run_basic(state.model, state.data.calib, self)
-                return True
-
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         disable the quantization observers used by the OBCQ algorithm
@@ -298,7 +234,7 @@ class GPTQModifier(Modifier, HooksMixin):
         _output: torch.Tensor,
     ):
         """
-        Quantize a module's weight according to the GPTQ algorithm
+        Calibrate a module according to the GPTQ algorithm
 
         :param name: name of module being quantized
         :param module: module being quantized
@@ -326,11 +262,13 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
         """
-        Quantize modules.
-        TODO: implement with event callback
+        Sparsify modules which have been calibrated with samples
         """
+        if event.type_ not in (EventType.SEQUENTIAL_BATCH_END, EventType.BATCH_END):
+            return
+
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             num_samples = self._num_samples[module]
