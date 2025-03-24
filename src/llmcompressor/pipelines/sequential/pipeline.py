@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Dict, Any
 
 import torch
 import torch.utils.data.dataloader
@@ -83,3 +83,31 @@ def run_pipeline(
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
+
+
+def kwargs_from_modifiers(modifiers: List[Modifier]) -> Dict[str, Any]:
+    # avoid circular import
+    from llmcompressor.modifiers.quantization import GPTQModifier
+    from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+
+    sequential_modifiers = [
+        modifier
+        for modifier in modifiers
+        if isinstance(modifier, (GPTQModifier, SparsityModifierMixin))
+    ]
+
+    if len(sequential_modifiers) > 0:
+        pass
+
+    modifier = sequential_modifiers[0]
+
+    # infer sequential targets
+    if modifier.sequential_targets is None:
+        sequential_targets = get_no_split_params(model)
+    if isinstance(modifier.sequential_targets, str):
+        sequential_targets = [modifier.sequential_targets]
+
+    return {
+        "sequential_targets": sequential_targets,
+        "ignore": modifier.ignore,
+    }

@@ -196,7 +196,11 @@ class Oneshot:
             recipe_stage=recipe_stage,
         )
 
+        modifiers = ...
+        pipeline_fn: PipelineFn = PipelineFactory.from_modifiers(modifiers)
+
         session.initialize(**session_kwargs)
+        pipeline_fn(self.model, calibration_dataloader)
         session.finalize(**session_kwargs)
 
 
