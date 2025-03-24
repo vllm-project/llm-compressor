@@ -65,14 +65,15 @@ def run_pipeline(
             forward_function = subgraph.compile_forward()
 
             with align_modules(subgraph.modules):
-                # do an preliminary pass to trigger modifier hooks
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                    inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    forward_function(model, **inputs)
+                if subgraph_index > 0:
+                    # do an preliminary pass to trigger modifier hooks
+                    for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
+                        inputs = intermediates.fetch(batch_index, subgraph.input_names)
+                        forward_function(model, **inputs)
 
-                # TODO: replace with a lifecycle event
-                if callback_modifier:
-                    callback_modifier.on_sequential_batch_end()
+                    # TODO: replace with a lifecycle event
+                    if callback_modifier:
+                        callback_modifier.on_sequential_batch_end()
 
                 # this pass does not trigger modifier hooks
                 # and is only used for capturing outputs from the newly compressed modules

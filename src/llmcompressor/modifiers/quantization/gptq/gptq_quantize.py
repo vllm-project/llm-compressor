@@ -20,6 +20,15 @@ GPTQ_PRECISION = torch.float32
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
 
 
+class Hessian:
+    weight: Optional[torch.Tensor]
+    num_samples: int
+    num_tokens: int
+
+    def __init__(self, num_columns, device):
+        self.weight = torch.zeros((num_columns, num_columns), device=device, dtype=GPTQ_PRECISION)
+
+
 def make_empty_hessian(
     module: torch.nn.Module, device: Optional[torch.device] = None
 ) -> torch.Tensor:
@@ -34,18 +43,23 @@ def accumulate_hessian(
     module: torch.nn.Module,
     H: Optional[torch.Tensor],
     num_samples: int,
+    num_tokens: int
 ) -> Tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
+
+    # ensured batched
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
+    num_samples_added = inp.shape[0]
 
-    num_added = inp.shape[0]
-
+    # reduce batch dim for linear layers
     if isinstance(module, (torch.nn.Linear, transformers.Conv1D)):
         if len(inp.shape) == 3:
             inp = inp.reshape((-1, inp.shape[-1]))
         inp = inp.t()
+        num_tokens_added = inp.shape[1]
 
+    # unfold convolutions for conv layers
     if isinstance(module, torch.nn.Conv2d):
         unfold = torch.nn.Unfold(
             module.kernel_size,
@@ -56,15 +70,19 @@ def accumulate_hessian(
         inp = unfold(inp)
         inp = inp.permute([1, 0, 2])
         inp = inp.flatten(1)
+        num_tokens_added = 0
 
-    H *= num_samples / (num_samples + num_added)
-    num_samples += num_added
+    # unscale hessian by num_samples (could be scaled by num_tokens)
+    H *= num_samples / (num_samples + num_samples_added)
 
+    # add to hessian and rescale hessain by num_samples
     inp = inp.to(dtype=GPTQ_PRECISION)
-    inp = math.sqrt(2 / num_samples) * inp
+    inp = math.sqrt(2 / (num_samples + num_samples_added)) * inp
     H += inp.matmul(inp.t())
 
-    return H, num_samples
+    num_samples += num_samples_added
+    num_tokens += num_tokens_added
+    return H, num_samples, num_tokens
 
 
 def quantize_weight(

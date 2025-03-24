@@ -11,6 +11,7 @@ from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
+from loguru import logger
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
@@ -80,6 +81,7 @@ def trace_subgraphs(
     # exit(0)
 
     # trace
+    logger.info("Tracing")
     with (
         calibration_forward_context(model),
         HooksMixin.disable_hooks(),
@@ -95,6 +97,7 @@ def trace_subgraphs(
                 # args and kwargs in function signature
             ),
         )
+    logger.info("Successfully tracecd")
 
     # copy metadata
     graph.config = model.config
@@ -138,6 +141,8 @@ def get_tracer(
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
+            if module_qualified_name.startswith("model.layers.0") or module_qualified_name.startswith("model.layers.1") or module_qualified_name.startswith("model.layers.2"):
+                return True
             return module in skip_trace_modules or super().is_leaf_module(
                 module, module_qualified_name
             )

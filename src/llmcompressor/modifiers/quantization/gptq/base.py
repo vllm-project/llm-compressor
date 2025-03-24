@@ -128,6 +128,7 @@ class GPTQModifier(Modifier, HooksMixin):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
+    _num_tokens: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -288,6 +289,7 @@ class GPTQModifier(Modifier, HooksMixin):
         self.remove_hooks()
         self._hessians = dict()
         self._num_samples = dict()
+        self._num_tokens = dict()
         state.model.apply(freeze_module_quantization)
 
         return True
@@ -316,17 +318,19 @@ class GPTQModifier(Modifier, HooksMixin):
                 "cpu" if self.offload_hessians else get_execution_device(module)
             )
             name = self._module_names[module]
-            logger.info(f"Allocating hessian for {name}")
+            logger.info(f"Allocating hessian for {name}")  # TODO: change to debug
             self._hessians[module] = make_empty_hessian(module, device=init_device)
             self._num_samples[module] = 0
+            self._num_tokens[module] = 0
 
         # Accumulate hessian with input with optional offloading
         with self._maybe_onload_hessian(module):
-            self._hessians[module], self._num_samples[module] = accumulate_hessian(
+            self._hessians[module], self._num_samples[module], self._num_tokens[module] = accumulate_hessian(
                 inp,
                 module,
                 self._hessians[module],
                 self._num_samples[module],
+                self._num_tokens[module],
             )
 
     def on_sequential_batch_end(self):
@@ -337,9 +341,10 @@ class GPTQModifier(Modifier, HooksMixin):
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             num_samples = self._num_samples[module]
+            num_tokens = self._num_tokens[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-            logger.info(f"Quantizing {name} using {num_samples} samples")
+            logger.info(f"Quantizing {name} using {num_tokens} tokens ({num_samples} samples)")
             with (
                 torch.no_grad(),
                 align_module_device(module),
@@ -363,9 +368,11 @@ class GPTQModifier(Modifier, HooksMixin):
 
             # self._hessians[module] already deleted by quantize_weight
             del self._num_samples[module]
+            del self._num_tokens[module]
 
-        assert len(self._num_samples) <= 0
         assert len(self._hessians) <= 0
+        assert len(self._num_samples) <= 0
+        assert len(self._num_tokens) <= 0
 
     @contextlib.contextmanager
     def _maybe_onload_hessian(self, module: torch.nn.Module):

@@ -14,11 +14,10 @@ from llmcompressor.transformers.tracing import TraceableDeepseekV3ForCausalLM
 # previous version or upgrading to a version where this bug is fixed
 
 # select a Mixture of Experts model for quantization
-MODEL_ID = "deepseek-ai/DeepSeek-V3"
+#MODEL_ID = "DeepSeek-V3_local_bf16"
+MODEL_ID = "neuralmagic/DeepSeek-V3-BF16"
 # MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 # MODEL_ID = "deepseek-ai/DeepSeek-V2.5-1210"
-config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
-del config.quantization_config
 
 # TODO: replace with a more automatic device map
 device_map = {
@@ -36,7 +35,6 @@ with skip_weights_download(TraceableDeepseekV3ForCausalLM), skip_weights_initial
         #device_map=device_map,
         torch_dtype=torch.bfloat16,
         trust_remote_code=True,
-        config=config,
     )
     #model.dequantize()
     model = dispatch_model(
@@ -46,7 +44,7 @@ with skip_weights_download(TraceableDeepseekV3ForCausalLM), skip_weights_initial
         force_hooks=True,
     )
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -91,7 +89,7 @@ ds = ds.shuffle()
 # list so they remain at full precision
 recipe = "examples/quantizing_moe/deepseek_recipe_w4a16.yaml"
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16"
+SAVE_DIR = "v3_quantized" #MODEL_ID.split("/")[1] + "-W4A16"
 
 
 oneshot(
@@ -102,7 +100,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
     trust_remote_code_model=True,
-    output_dir=SAVE_DIR,
 )
 
 

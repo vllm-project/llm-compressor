@@ -2,7 +2,7 @@ quant_stage:
   quant_modifiers:
     GPTQModifier:
       sequential_targets: Linear
-      ignore: [lm_head, "re:.*mlp.gate$", "model.embed_tokens"]
+      ignore: [lm_head, "re:.*mlp.gate$", "model.embed_tokens", "model.layers.0.*", "model.layers.1.*", "model.layers.2.*"]
       config_groups:
         group_0:
           weights: {num_bits: 4, type: int, symmetric: true, strategy: channel, dynamic: false}

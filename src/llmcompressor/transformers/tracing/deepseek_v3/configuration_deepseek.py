@@ -157,8 +157,8 @@ class DeepseekV3Config(PretrainedConfig):
         rope_scaling=None,
         attention_bias=False,
         attention_dropout=0.0,
-        # CALIBRATION: add option to use inference-time activations
-        moe_calibrate_experts=False,
+        # CALIBRATION: add calibration options
+        moe_calibrate_experts=True,  # rout
         moe_eval_mode=False,
         **kwargs,
     ):

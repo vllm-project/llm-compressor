@@ -1,3 +1,4 @@
+# flake8: noqa
 # coding=utf-8
 # Copyright 2023 DeepSeek-AI and The HuggingFace Inc. team. All rights reserved.
 #
@@ -40,7 +41,7 @@ from transformers.modeling_outputs import (
     CausalLMOutputWithPast,
     SequenceClassifierOutputWithPast,
 )
-from transformers.modeling_utils import PreTrainedModel
+from transformers.modeling_utils import PreTrainedModel, GenerationMixin
 from transformers.pytorch_utils import (
     ALL_LAYERNORM_LAYERS,
     is_torch_greater_or_equal_than_1_13,
@@ -523,27 +524,24 @@ class DeepseekV3MoE(nn.Module):
     def forward(self, hidden_states):
         identity = hidden_states
         # TRACING
-        #orig_shape = hidden_states.shape
+        orig_shape = (hidden_states.size(0), hidden_states.size(1), hidden_states.size(2))
         topk_idx, topk_weight = self.gate(hidden_states)
         hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
         flat_topk_idx = topk_idx.view(-1)
-        # TRACING:
-        #if not self.training:
-        if False:
-            y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(*orig_shape)
-        else:
-            hidden_states = hidden_states.repeat_interleave(
-                self.num_experts_per_tok, dim=0
-            )
+        # TRACING: send to all experts
+        if True:
+            hidden_states = hidden_states.repeat_interleave(self.num_experts_per_tok, dim=0)
             y = torch.empty_like(hidden_states)
             for i, expert in enumerate(self.experts):
                 y[flat_topk_idx == i] = expert(hidden_states[flat_topk_idx == i])
-            #breakpoint()
-            # topk_weight.shape == [batch_size, self.config.num_experts_per_tok]
-            #y = (y.view(*topk_weight.shape, -1) * topk_weight.unsqueeze(-1)).sum(dim=1)
-            y = (y.view(topk_weight.size(0), self.config.num_experts_per_tok, -1) * topk_weight.unsqueeze(-1)).sum(dim=1)
-            #y = y.to(hidden_states.dtype).view(*orig_shape)
-            y = y.to(hidden_states.dtype).view(hidden_states.size(0), hidden_states.size(1))
+            # hidden_states (5488, 7168)
+            # topk_weight: (686, 8)
+            # topk_idx: (686, 8)
+            y = (y.view(topk_weight.size(0), topk_weight.size(1), -1) * topk_weight.unsqueeze(-1)).sum(dim=1)
+            y = y.to(hidden_states.dtype).view(orig_shape[0], orig_shape[1], orig_shape[2])
+        
+        if False:
+            y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(orig_shape[0], orig_shape[1], orig_shape[2])
 
         if self.config.n_shared_experts is not None:
             y = y + self.shared_experts(identity)
@@ -551,79 +549,84 @@ class DeepseekV3MoE(nn.Module):
 
     @torch.no_grad()
     def moe_infer(self, x, topk_ids, topk_weight):
-        cnts = topk_ids.new_zeros((topk_ids.shape[0], len(self.experts)))
-        cnts.scatter_(1, topk_ids, 1)
-        tokens_per_expert = cnts.sum(dim=0)
-        idxs = topk_ids.view(-1).argsort()
-        sorted_tokens = x[idxs // topk_ids.shape[1]]
-        sorted_tokens_shape = sorted_tokens.shape
-        if self.ep_size > 1:
-            tokens_per_ep_rank = tokens_per_expert.view(self.ep_size, -1).sum(dim=1)
-            tokens_per_expert_group = tokens_per_expert.new_empty(
-                tokens_per_expert.shape[0]
-            )
-            dist.all_to_all_single(tokens_per_expert_group, tokens_per_expert)
-            output_splits = (
-                tokens_per_expert_group.view(self.ep_size, -1)
-                .sum(1)
-                .cpu()
-                .numpy()
-                .tolist()
-            )
-            gathered_tokens = sorted_tokens.new_empty(
-                tokens_per_expert_group.sum(dim=0).cpu().item(), sorted_tokens.shape[1]
-            )
-            input_split_sizes = tokens_per_ep_rank.cpu().numpy().tolist()
-            dist.all_to_all(
-                list(gathered_tokens.split(output_splits)),
-                list(sorted_tokens.split(input_split_sizes)),
-            )
-            tokens_per_expert_post_gather = tokens_per_expert_group.view(
-                self.ep_size, self.experts_per_rank
-            ).sum(dim=0)
-            gatherd_idxs = np.zeros(shape=(gathered_tokens.shape[0],), dtype=np.int32)
-            s = 0
-            for i, k in enumerate(tokens_per_expert_group.cpu().numpy()):
-                gatherd_idxs[s : s + k] = i % self.experts_per_rank
-                s += k
-            gatherd_idxs = gatherd_idxs.argsort()
-            sorted_tokens = gathered_tokens[gatherd_idxs]
-            tokens_per_expert = tokens_per_expert_post_gather
-        tokens_per_expert = tokens_per_expert.cpu().numpy()
+        from llmcompressor.modifiers.utils.hooks import HooksMixin
 
-        outputs = []
-        start_idx = 0
-        for i, num_tokens in enumerate(tokens_per_expert):
-            end_idx = start_idx + num_tokens
-            if num_tokens == 0:
-                continue
-            expert = self.experts[i + self.ep_rank * self.experts_per_rank]
-            tokens_for_this_expert = sorted_tokens[start_idx:end_idx]
-            expert_out = expert(tokens_for_this_expert)
-            outputs.append(expert_out)
-            start_idx = end_idx
+        # CALIBRATION: do not calibrate
+        #with HooksMixin.disable_hooks() if self.config.moe_eval_mode:
+        if True:
+            cnts = topk_ids.new_zeros((topk_ids.shape[0], len(self.experts)))
+            cnts.scatter_(1, topk_ids, 1)
+            tokens_per_expert = cnts.sum(dim=0)
+            idxs = topk_ids.view(-1).argsort()
+            sorted_tokens = x[idxs // topk_ids.shape[1]]
+            sorted_tokens_shape = sorted_tokens.shape
+            if self.ep_size > 1:
+                tokens_per_ep_rank = tokens_per_expert.view(self.ep_size, -1).sum(dim=1)
+                tokens_per_expert_group = tokens_per_expert.new_empty(
+                    tokens_per_expert.shape[0]
+                )
+                dist.all_to_all_single(tokens_per_expert_group, tokens_per_expert)
+                output_splits = (
+                    tokens_per_expert_group.view(self.ep_size, -1)
+                    .sum(1)
+                    .cpu()
+                    .numpy()
+                    .tolist()
+                )
+                gathered_tokens = sorted_tokens.new_empty(
+                    tokens_per_expert_group.sum(dim=0).cpu().item(), sorted_tokens.shape[1]
+                )
+                input_split_sizes = tokens_per_ep_rank.cpu().numpy().tolist()
+                dist.all_to_all(
+                    list(gathered_tokens.split(output_splits)),
+                    list(sorted_tokens.split(input_split_sizes)),
+                )
+                tokens_per_expert_post_gather = tokens_per_expert_group.view(
+                    self.ep_size, self.experts_per_rank
+                ).sum(dim=0)
+                gatherd_idxs = np.zeros(shape=(gathered_tokens.shape[0],), dtype=np.int32)
+                s = 0
+                for i, k in enumerate(tokens_per_expert_group.cpu().numpy()):
+                    gatherd_idxs[s : s + k] = i % self.experts_per_rank
+                    s += k
+                gatherd_idxs = gatherd_idxs.argsort()
+                sorted_tokens = gathered_tokens[gatherd_idxs]
+                tokens_per_expert = tokens_per_expert_post_gather
+            tokens_per_expert = tokens_per_expert.cpu().numpy()
 
-        outs = torch.cat(outputs, dim=0) if len(outputs) else sorted_tokens.new_empty(0)
-        if self.ep_size > 1:
+            outputs = []
+            start_idx = 0
+            for i, num_tokens in enumerate(tokens_per_expert):
+                end_idx = start_idx + num_tokens
+                if num_tokens == 0:
+                    continue
+                expert = self.experts[i + self.ep_rank * self.experts_per_rank]
+                tokens_for_this_expert = sorted_tokens[start_idx:end_idx]
+                expert_out = expert(tokens_for_this_expert)
+                outputs.append(expert_out)
+                start_idx = end_idx
+
+            outs = torch.cat(outputs, dim=0) if len(outputs) else sorted_tokens.new_empty(0)
+            if self.ep_size > 1:
+                new_x = torch.empty_like(outs)
+                new_x[gatherd_idxs] = outs
+                gathered_tokens = new_x.new_empty(*sorted_tokens_shape)
+                dist.all_to_all(
+                    list(gathered_tokens.split(input_split_sizes)),
+                    list(new_x.split(output_splits)),
+                )
+                outs = gathered_tokens
+
             new_x = torch.empty_like(outs)
-            new_x[gatherd_idxs] = outs
-            gathered_tokens = new_x.new_empty(*sorted_tokens_shape)
-            dist.all_to_all(
-                list(gathered_tokens.split(input_split_sizes)),
-                list(new_x.split(output_splits)),
+            new_x[idxs] = outs
+            final_out = (
+                new_x.view(*topk_ids.shape, -1)
+                .type(topk_weight.dtype)
+                .mul_(topk_weight.unsqueeze(dim=-1))
+                .sum(dim=1)
+                .type(new_x.dtype)
             )
-            outs = gathered_tokens
-
-        new_x = torch.empty_like(outs)
-        new_x[idxs] = outs
-        final_out = (
-            new_x.view(*topk_ids.shape, -1)
-            .type(topk_weight.dtype)
-            .mul_(topk_weight.unsqueeze(dim=-1))
-            .sum(dim=1)
-            .type(new_x.dtype)
-        )
-        return final_out
+            return final_out
 
 
 # Copied from transformers.models.llama.modeling_llama.repeat_kv
@@ -834,7 +837,7 @@ class DeepseekV3Attention(nn.Module):
             torch.matmul(query_states, key_states.transpose(2, 3)) * self.softmax_scale
         )
 
-        # TRACING:
+        # TRACING: assume valid input
         #if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
         if False:
             raise ValueError(
@@ -843,8 +846,9 @@ class DeepseekV3Attention(nn.Module):
             )
         assert attention_mask is not None
         if attention_mask is not None:
-            if False:
+            # TRACING: assume valid input
             #if attention_mask.size() != (bsz, 1, q_len, kv_seq_len):
+            if False:
                 raise ValueError(
                     f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
                 )
@@ -859,8 +863,9 @@ class DeepseekV3Attention(nn.Module):
         )
         attn_output = torch.matmul(attn_weights, value_states)
 
-        if False:
+        # TRACING: assume valid input
         #if attn_output.size() != (bsz, self.num_heads, q_len, self.v_head_dim):
+        if False:
             raise ValueError(
                 f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.v_head_dim)}, but is"
                 f" {attn_output.size()}"
@@ -1270,7 +1275,7 @@ DeepseekV3_START_DOCSTRING = r"""
     "The bare DeepseekV3 Model outputting raw hidden-states without any specific head on top.",
     DeepseekV3_START_DOCSTRING,
 )
-class DeepseekV3PreTrainedModel(PreTrainedModel):
+class DeepseekV3PreTrainedModel(PreTrainedModel, GenerationMixin):
     config_class = DeepseekV3Config
     base_model_prefix = "model"
     supports_gradient_checkpointing = True
@@ -1812,8 +1817,7 @@ class DeepseekV3ForSequenceClassification(DeepseekV3PreTrainedModel):
         else:
             batch_size = inputs_embeds.shape[0]
 
-        if False:
-        #if self.config.pad_token_id is None and batch_size != 1:
+        if self.config.pad_token_id is None and batch_size != 1:
             raise ValueError(
                 "Cannot handle batch sizes > 1 if no padding token is defined."
             )
