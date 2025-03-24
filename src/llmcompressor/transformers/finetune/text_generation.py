@@ -43,3 +43,15 @@ def train(**kwargs):
     from llmcompressor import train
 
     train(**kwargs)
+
+def apply(**kwargs):
+    message = (
+        "`from llmcompressor.transformers import apply, compress` is deprecated, "
+        "please use `from llmcompressor import oneshot, train` "
+        "for sequential stages."
+    )
+    raise ValueError(message)
+
+
+def compress(**kwargs):
+    apply(**kwargs)
