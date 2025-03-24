@@ -10,7 +10,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.obcq.sgpt_sparsify import (
@@ -108,11 +108,15 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
         """
-        Sparsify modules
+        Quantize modules.
         TODO: implement with event callback
         """
+        if event.type_ == EventType.SEQUENTIAL_LAYER_END:
+            self.compress_modules()
+
+    def compress_modules(self):
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
@@ -154,6 +158,8 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
+        self.compress_modules()  # compress any remaining modules
+
         self.remove_hooks()
         self._hessians = dict()
         self._num_samples = dict()
