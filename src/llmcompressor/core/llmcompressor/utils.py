@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
+import os
+import yaml
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import (
@@ -53,15 +55,60 @@ def parse_args(dataclass: Type[T], **kwargs) -> T:
 def get_modifiers_from_recipe(
     recipe: Union[str, List[Modifier], Modifier],
 ) -> List[Modifier]:
-    ModifierFactory.refresh()
-
-    if isinstance(recipe, str):
-        raise ValueError()
-
+    # trivial cases
     if isinstance(recipe, Modifier):
-        recipe = [recipe]
+        return [recipe]
+    if isinstance(recipe, List):
+        return recipe
+    
+    # load yaml as dict
+    if os.path.exists(recipe):
+        with open(recipe, "r") as file:
+            recipe = yaml.safe_load(file)
+    else:
+        recipe_dict = yaml.safe_load(recipe)
 
-    return recipe
+    if not isinstance(recipe_dict, dict):
+        raise ValueError("Cannot parse yaml")
+
+    if not ModifierFactory._loaded:
+        ModifierFactory.refresh()
+
+    return [
+        ModifierFactory.create(
+            modifier_type,
+            allow_registered=True,
+            allow_experimental=True,
+            **args,
+        )
+        for modifier_type, args in get_modifiers_args_from_dict(recipe_dict)
+    ]
+
+
+def get_modifiers_args_from_dict(values: Dict) -> List[Dict[str, Any]]:
+    modifiers = []
+    remove_keys = []
+    
+    if "modifiers" in values and values["modifiers"]:
+        remove_keys.append("modifiers")
+        for mod_key, mod_value in values["stages"].items():
+            modifier = {mod_key: mod_value}
+            modifier["group"] = "default"
+            modifiers.append(modifier)
+
+    for key, value in list(values.items()):
+        if key.endswith("_modifiers"):
+            remove_keys.append(key)
+            group = key.rsplit("_modifiers", 1)[0]
+            for mod_key, mod_value in value.items():
+                modifier = {mod_key: mod_value}
+                modifier["group"] = group
+                modifiers.append(modifier)
+
+    for key in remove_keys:
+        del values[key]
+
+    return modifiers
 
 
 def check_for_calibration_data(
