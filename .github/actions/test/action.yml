@@ -4,6 +4,9 @@ inputs:
   venv:
     description: "path of virtualenv"
     required: true
+  suitename:
+    description: "test suite name"
+    required: true
 outputs:
   status:
     description: "final status from test"
@@ -25,7 +28,7 @@ runs:
           source ${{ inputs.venv }}/bin/activate
           rm -rf src
           SUCCESS=0
-          pytest tests --junitxml=test-results/report.xml || SUCCESS=$?
+          pytest tests --junitxml=test-results/report.xml -o junit_suite_name="${{ inputs.suitename }}" || SUCCESS=$?
           echo "status=${SUCCESS}" >> "$GITHUB_OUTPUT"
           deactivate
           exit ${SUCCESS}

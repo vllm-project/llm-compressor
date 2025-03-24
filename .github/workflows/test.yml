@@ -55,6 +55,9 @@ jobs:
         name: TEST (${{ inputs.python}}, ${{ inputs.test_label }})
         runs-on: ${{ inputs.test_label }}
         timeout-minutes: ${{ fromJson(inputs.timeout) }}
+        permissions:
+            contents: 'read'
+            id-token: 'write'
 
         steps:
 
@@ -94,6 +97,7 @@ jobs:
               uses: ./.github/actions/test/
               with:
                   venv: ${{ steps.create_venv.outputs.penv }}
+                  suitename: test-${{ inputs.python }}-${{ inputs.test_label }}
 
             - name: summary
               uses: neuralmagic/nm-actions/actions/summary-test@v1.13.0
@@ -104,3 +108,29 @@ jobs:
                   python: ${{ inputs.python }}
                   whl: ${{ inputs.whl }}
                   test_status: ${{ steps.test.outputs.status }}
+
+            # GCP
+            - name: 'Authenticate to Google Cloud'
+              id: auth
+              uses: google-github-actions/auth@v2.1.3
+              with:
+                  project_id: ${{ secrets.GCP_PROJECT }}
+                  workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+                  service_account: ${{ secrets.GCP_GHA_SA }}
+
+            - name: 'Set up Cloud SDK'
+              uses: 'google-github-actions/setup-gcloud@v2'
+              with:
+                  version: '>= 473.0.0'
+
+            - name: copy results to GCP
+              run: |
+                  gcloud storage cp test-results/report.xml ${{ secrets.GCP_BUILD_ML_ASSETS2 }}/${{ github.run_id }}/test-results/report-${{ inputs.test_label }}.xml
+
+            - name: upload results
+              uses: actions/upload-artifact@v4
+              if: success() || failure()
+              with:
+                  name: report-${{ inputs.test_label }}.xml
+                  path: test-results/report.xml
+                  retention-days: 5

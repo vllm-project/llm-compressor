@@ -56,11 +56,24 @@ jobs:
         secrets: inherit
 
     UPLOAD:
-        needs: [BUILD, TEST]
+        needs: [TEST]
         uses: ./.github/workflows/upload.yml
         with:
             label: k8s-util
             timeout: 40
             run_id: ${{ github.run_id }}
             push_to_pypi: ${{ inputs.push_to_pypi }}
+        secrets: inherit
+
+    REPORT:
+        needs: [BUILD, TEST]
+        uses: ./.github/workflows/report.yml
+        with:
+            label: rh-reporter
+            timeout: 40
+            run_id: ${{ github.run_id }}
+            run_name: compressed-tensors
+            wheel: ${{ needs.BUILD.outputs.whl }}
+            wf_category: ${{ inputs.wf_category }}
+            gitref: ${{ inputs.gitref }}
         secrets: inherit
