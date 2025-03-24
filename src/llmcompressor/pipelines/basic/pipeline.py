@@ -5,7 +5,6 @@ import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
 
-from llmcompressor.core import LifecycleCallbacks
 from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -40,5 +39,3 @@ def run_pipeline(
             batch = apply_pad_mask_to_batch(batch)
             batch = tensors_to_device(batch, model_device)
             model(**batch)
-
-        LifecycleCallbacks.sequential_layer_end()
