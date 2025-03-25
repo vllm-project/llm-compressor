@@ -138,7 +138,7 @@ class SmoothQuantModifier(Modifier):
         """
         Sparsify modules which have been calibrated with samples
         """
-        if event.type_ == EventType.SEQUENTIAL_LAYER_END:
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self._apply_smoothing(state.model)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
