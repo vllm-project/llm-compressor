@@ -13,7 +13,9 @@ from llmcompressor.modifiers.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
+from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_matching_layer,
@@ -130,7 +132,11 @@ class SmoothQuantModifier(Modifier):
         self.resolved_mappings_ = self._resolve_mappings(state.model)
         self.scales_ = {}
 
+        calibration_dataloader = state.data.calib
+
         self._setup_scale_hooks()
+        self._calibrate(state.model, calibration_dataloader)
+        self._apply_smoothing(state.model)
 
         return True
 
@@ -238,6 +244,31 @@ class SmoothQuantModifier(Modifier):
             name = mapping.smooth_name
             layer = mapping.smooth_layer
             self.register_hook(layer, create_hook_fn(name), "forward")
+
+    @torch.no_grad()
+    def _calibrate(self, model: Module, calibration_dataloader: List):
+        """
+        Catch the output dynamic ranges of each layer that will be smoothed by running
+        forward passes with calibration_dataloader
+        """
+        class_name = self.__class__.__name__.replace("PyTorch", "")
+        logger.info(
+            f"Running {class_name} calibration with "
+            f"{len(calibration_dataloader)} samples..."
+        )
+        if not calibration_dataloader:
+            raise ValueError(
+                "Calibration data loader not set, must populate the calib_data field of"
+                " CompressionSession to run the SmoothQuant modifier"
+            )
+
+        with calibration_forward_context(model):
+            run_calibration_forward(
+                model,
+                calibration_dataloader,
+                self.num_calibration_steps,
+                self.calibration_function,
+            )
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module):
