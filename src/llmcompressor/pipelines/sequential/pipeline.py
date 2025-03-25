@@ -1,5 +1,3 @@
-from typing import List
-
 import torch
 import tqdm
 from compressed_tensors.utils import get_execution_device
@@ -20,8 +18,6 @@ __all__ = ["run_pipeline"]
 def run_pipeline(
     model: torch.nn.Module,
     dataloader: DataLoader,
-    sequential_targets: List[str],
-    ignore: List[str],
 ):
     """
     Run a sequential data pipeline according to the following steps:

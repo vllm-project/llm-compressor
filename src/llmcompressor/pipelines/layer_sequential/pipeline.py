@@ -1,8 +1,6 @@
-from typing import List
-
 import torch
-import torch.utils.data.dataloader
 import tqdm
+from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers import Modifier
@@ -22,8 +20,7 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    modifiers: List[Modifier],
+    dataloader: DataLoader,
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:
