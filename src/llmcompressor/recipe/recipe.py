@@ -82,7 +82,7 @@ class Recipe(RecipeBase):
         stages: List[RecipeStage] = [
             RecipeStage(group=group_name, modifiers=recipe_modifiers)
         ]
-        recipe = Recipe()
+        recipe = cls()
         recipe.stages = stages
         return recipe
 
