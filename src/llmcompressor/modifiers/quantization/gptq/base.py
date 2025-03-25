@@ -219,7 +219,8 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :param state: session state storing input model and calibration data
         """
-        self.compress_modules()  # compress any remaining modules
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
 
         if self._quantization_modifier:
             self._quantization_modifier.finalize(state, **kwargs)
@@ -266,7 +267,10 @@ class GPTQModifier(Modifier, HooksMixin):
             )
 
     def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
             self.compress_modules()
 
     def compress_modules(self):

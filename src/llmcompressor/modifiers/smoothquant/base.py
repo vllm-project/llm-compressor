@@ -138,7 +138,10 @@ class SmoothQuantModifier(Modifier):
         """
         Sparsify modules which have been calibrated with samples
         """
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
             self._apply_smoothing(state.model)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
@@ -148,8 +151,10 @@ class SmoothQuantModifier(Modifier):
         :param state: unused
         :return: True
         """
+        if len(self.scales_) > 0:
+            raise ValueError(f"Failed to compress {len(self.scales_)} modules")
+
         self.remove_hooks()
-        self._apply_smoothing(state.model)
 
         if self.scales_ is not None:
             self.scales_.clear()

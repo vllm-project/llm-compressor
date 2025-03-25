@@ -86,3 +86,6 @@ def run_pipeline(
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
+
+        # redudant, finish any remaining compression
+        LifecycleCallbacks.calibration_epoch_end()

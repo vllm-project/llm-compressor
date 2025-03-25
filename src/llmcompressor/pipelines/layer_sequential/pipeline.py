@@ -86,3 +86,6 @@ def run_pipeline(
 
                         intermediates.delete(batch_index)
                         intermediates.update(batch_index, output)
+
+        # redudant, finish any remaining compression
+        LifecycleCallbacks.calibration_epoch_end()

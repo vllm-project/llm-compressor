@@ -117,7 +117,10 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
             )
 
     def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
             self.compress_modules()
 
     def compress_modules(self):
@@ -165,7 +168,8 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        self.compress_modules()  # compress any remaining modules
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
 
         self.remove_hooks()
         self._hessians = dict()
