@@ -37,5 +37,3 @@ def run_pipeline(
             batch = apply_pad_mask_to_batch(batch)
             batch = tensors_to_device(batch, model_device)
             model(**batch)
-
-    session.finalize()

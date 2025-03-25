@@ -174,7 +174,7 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     pipeline: Optional[str] = field(
-        default=None,
+        default="independent",
         metadata={
             "help": "Calibration pipeline used to calibrate model. "
             f"Options: {PIPELINES.keys()}"

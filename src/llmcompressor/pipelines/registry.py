@@ -33,6 +33,11 @@ def get_pipeline_fn(
 
     pipeline = user or inferred_pipeline
 
+    if pipeline not in PIPELINES:
+        raise ValueError(
+            f"Cannot find `{pipeline}` in registered pipelines {PIPELINES.keys()}"
+        )
+
     return pipeline, PIPELINES[pipeline]
 
 

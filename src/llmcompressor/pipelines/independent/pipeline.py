@@ -18,10 +18,13 @@ def run_pipeline(
     session = active_session()
 
     modifiers = session.get_modifiers()
-    for modifier in modifiers:
-        session.lifecycle.modifiers = StageModifiers(modifiers=[modifier])
+    for index, modifier in enumerate(modifiers):
+        mod_type = str(type(modifier).__name__)
+        session.lifecycle.modifiers = [
+            StageModifiers(modifiers=[modifier], group=mod_type, index=index)
+        ]
 
         pipeline, pipeline_fn = get_pipeline_fn(user=None, modifiers=[modifier])
-        logger.info(f"Inferred {pipeline} calibration pipeline for {type(modifier)}")
+        logger.info(f"Inferred `{pipeline}` calibration pipeline for `{mod_type}`")
 
         pipeline_fn(model, dataloader)

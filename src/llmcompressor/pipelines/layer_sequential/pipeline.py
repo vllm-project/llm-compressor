@@ -86,5 +86,3 @@ def run_pipeline(
 
                         intermediates.delete(batch_index)
                         intermediates.update(batch_index, output)
-
-    session.finalize()
