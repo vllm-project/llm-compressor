@@ -60,13 +60,13 @@ def get_recipe(fp8_enabled):
         )
         save_dir = MODEL_ID.split("/")[1] + "2of4-W8A8-FP8-Dynamic-Per-Token"
 
-    # check that asymmetric quantization is not being used
-    q_scheme = base_recipe[1].scheme
-    if not isinstance(q_scheme, str) and not q_scheme["weights"].symmetric:
-        raise ValueError(
-            "Asymmetric quantization with 2of4 sparsity is not supported by vLLM. "
-            "Please use symmetric quantization"
-        )
+        # check that asymmetric quantization is not being used
+        q_scheme = base_recipe[1].scheme
+        if not isinstance(q_scheme, str) and not q_scheme["weights"].symmetric:
+            raise ValueError(
+                "Asymmetric quantization with 2of4 sparsity is not supported by vLLM. "
+                "Please use symmetric quantization"
+            )
 
     return base_recipe, save_dir
 
