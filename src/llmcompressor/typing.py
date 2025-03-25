@@ -1,13 +1,13 @@
-from typing import Union, Callable
+from typing import Callable, Union
 
 import torch
 from datasets import Dataset, DatasetDict, IterableDataset
 from transformers import (
     BaseImageProcessor,
     FeatureExtractionMixin,
+    PreTrainedModel,
     PreTrainedTokenizer,
     ProcessorMixin,
-    PreTrainedModel,
 )
 
 # Tokenizer or Processor. Processors do not inherit from a unified base class

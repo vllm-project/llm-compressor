@@ -1,14 +1,17 @@
-from typing import TYPE_CHECKING, List, Optional, Dict, Any
+from typing import List
 
 import torch
-import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
+from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.core import LifecycleCallbacks
+from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
+from llmcompressor.pipelines.sequential.helpers import (
+    get_targets_from_modifiers,
+    trace_subgraphs,
+)
 from llmcompressor.utils.helpers import calibration_forward_context
 
 __all__ = ["run_pipeline"]
@@ -16,7 +19,7 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
+    dataloader: DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
 ):
@@ -43,6 +46,10 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param ignore: patterns which match to modules which should be ignored by tracing
     """
+    # infer sequential targets
+    modifiers = active_session().lifecycle.modifiers
+    sequential_targets, ignore = get_targets_from_modifiers(modifiers, model)
+
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
@@ -79,31 +86,3 @@ def run_pipeline(
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
-
-
-def kwargs_from_modifiers(modifiers: List[Modifier]) -> Dict[str, Any]:
-    # avoid circular import
-    from llmcompressor.modifiers.quantization import GPTQModifier
-    from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
-
-    sequential_modifiers = [
-        modifier
-        for modifier in modifiers
-        if isinstance(modifier, (GPTQModifier, SparsityModifierMixin))
-    ]
-
-    if len(sequential_modifiers) > 0:
-        pass
-
-    modifier = sequential_modifiers[0]
-
-    # infer sequential targets
-    if modifier.sequential_targets is None:
-        sequential_targets = get_no_split_params(model)
-    if isinstance(modifier.sequential_targets, str):
-        sequential_targets = [modifier.sequential_targets]
-
-    return {
-        "sequential_targets": sequential_targets,
-        "ignore": modifier.ignore,
-    }

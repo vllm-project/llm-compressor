@@ -1,5 +1,3 @@
-from typing import TYPE_CHECKING, Optional
-
 import torch
 import torch.utils.data.dataloader
 import tqdm
@@ -9,16 +7,12 @@ from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batc
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
-if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
-
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
-    callback_modifier: Optional["Modifier"] = None,
 ):
     """
     Run a basic data pipeline.
@@ -30,7 +24,7 @@ def run_pipeline(
 
     :param model: model being calibrated
     :param dataloader: loads data for calibration
-    :param callback_modifier: Temporary HACK which should be replaced by event callback
+    :param modifiers: list of modifiers, only included to match PipelineFn signature
     """
     model_device = get_execution_device(model)
 

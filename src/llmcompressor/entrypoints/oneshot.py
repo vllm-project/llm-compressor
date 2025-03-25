@@ -7,6 +7,8 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.pipelines.registry import get_pipeline_fn
+from llmcompressor.typing import PipelineFn
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -196,10 +198,9 @@ class Oneshot:
             recipe_stage=recipe_stage,
         )
 
-        modifiers = ...
-        pipeline_fn: PipelineFn = PipelineFactory.from_modifiers(modifiers)
-
         session.initialize(**session_kwargs)
+        modifiers = session.lifecycle.modifiers
+        pipeline_fn: PipelineFn = get_pipeline_fn(self.dataset_args.pipeline, modifiers)
         pipeline_fn(self.model, calibration_dataloader)
         session.finalize(**session_kwargs)
 
