@@ -121,7 +121,7 @@ jobs:
             - name: update "nm-pypi" index
               uses: actions/github-script@v6
               with:
-                github-token: ${{ secrets.CICD_GITHUB_PAT }}
+                github-token: ${{ secrets.NM_PYPI_WORKFLOW }}
                 script: |
                   const result = await github.rest.actions.createWorkflowDispatch({
                     owner: 'neuralmagic',
