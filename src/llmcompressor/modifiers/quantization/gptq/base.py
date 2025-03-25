@@ -13,7 +13,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
@@ -236,7 +236,6 @@ class GPTQModifier(Modifier, HooksMixin):
                 state.data.calib,
                 self.sequential_targets,
                 self.ignore,
-                self,
             )
             return True
 
@@ -257,7 +256,6 @@ class GPTQModifier(Modifier, HooksMixin):
                     state.model,
                     state.data.calib,
                     self.sequential_targets,
-                    self,
                 )
                 return True
 
@@ -281,6 +279,8 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :param state: session state storing input model and calibration data
         """
+        self.compress_modules()  # compress any remaining modules
+
         if self._quantization_modifier:
             self._quantization_modifier.finalize(state, **kwargs)
 
@@ -298,13 +298,12 @@ class GPTQModifier(Modifier, HooksMixin):
         _output: torch.Tensor,
     ):
         """
-        Quantize a module's weight according to the GPTQ algorithm
+        Calibration hook used to accumulate the hessian of the input to the module
 
-        :param name: name of module being quantized
-        :param module: module being quantized
-        :param args: input arguments for module forward pass
-
-        :return: total loss from applying weight quantization to this module
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
         """
         # Assume that first argument is the input
         inp = args[0]
@@ -326,10 +325,13 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            self.compress_modules()
+
+    def compress_modules(self):
         """
-        Quantize modules.
-        TODO: implement with event callback
+        Quantize modules which have been calibrated
         """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]

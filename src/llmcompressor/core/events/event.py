@@ -44,6 +44,7 @@ class EventType(Enum):
     BATCH_START = "batch_start"
     LOSS_CALCULATED = "loss_calculated"
     BATCH_END = "batch_end"
+    SEQUENTIAL_EPOCH_END = "sequential_epoch_end"
 
     # step lifecycle
     OPTIM_PRE_STEP = "optim_pre_step"
