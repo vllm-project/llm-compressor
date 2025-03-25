@@ -3,7 +3,6 @@ import tqdm
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
@@ -44,10 +43,14 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
+    session = active_session()
+
     # find layers
-    modifiers = active_session().lifecycle.modifiers
+    modifiers = session.get_modifiers()
     sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
     layers = match_modules(model, sequential_targets)
+
+    session.initialize()
 
     with calibration_forward_context(model):
         # prepare intermediates cache
@@ -83,3 +86,5 @@ def run_pipeline(
 
                         intermediates.delete(batch_index)
                         intermediates.update(batch_index, output)
+
+    session.finalize()

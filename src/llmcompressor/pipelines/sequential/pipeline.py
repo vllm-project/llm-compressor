@@ -42,13 +42,17 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param ignore: patterns which match to modules which should be ignored by tracing
     """
+    session = active_session()
+
     # infer sequential targets
-    modifiers = active_session().lifecycle.modifiers
+    modifiers = session.get_modifiers()
     sequential_targets, ignore = get_targets_from_modifiers(modifiers, model)
 
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+
+    session.initialize()
 
     with calibration_forward_context(model):
         # prepare intermediates cache
@@ -82,3 +86,5 @@ def run_pipeline(
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
+
+    session.finalize()

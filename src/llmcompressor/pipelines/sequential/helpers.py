@@ -386,7 +386,7 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
 
 
 def get_targets_from_modifiers(
-    model: PreTrainedModel, modifiers: List[Modifier]
+    modifiers: List[Modifier], model: PreTrainedModel
 ) -> Tuple[List[str], List[str]]:
     """
     Infer sequential targets and ignore list from modifiers list

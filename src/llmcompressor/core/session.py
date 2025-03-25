@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import reduce
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from loguru import logger
@@ -220,6 +221,10 @@ class CompressionSession:
             return recipe.yaml()
 
         logger.warning("Recipe not found in session - it may have been reset")
+
+    def get_modifiers(self):
+        stage_modifiers = self.lifecycle.modifiers
+        return list(reduce(sum, (mod.modifiers for mod in stage_modifiers)))
 
     def _log_model_info(self):
         # Log model level logs if cadence reached
