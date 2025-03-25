@@ -84,6 +84,12 @@ class RecipeModifier(RecipeBase):
     @classmethod
     def extract_modifier_type(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         if len(values) == 2:
+            if "group" not in values:
+                raise ValueError(
+                    "Invalid format: expected keys 'group' and one modifier "
+                    f"type, but got keys: {list(values.keys())}"
+                )
+
             # values contains only group and the Modifier type as keys
             group = values.pop("group")
             modifier_type, args = values.popitem()
