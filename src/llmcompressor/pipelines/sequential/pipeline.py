@@ -67,7 +67,7 @@ def run_pipeline(
                 forward_function(model, **inputs)
 
             # trigger compression
-            LifecycleCallbacks.sequential_layer_end()
+            LifecycleCallbacks.sequential_epoch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules

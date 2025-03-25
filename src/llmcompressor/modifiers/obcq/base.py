@@ -117,7 +117,7 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
             )
 
     def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.SEQUENTIAL_LAYER_END:
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self.compress_modules()
 
     def compress_modules(self):

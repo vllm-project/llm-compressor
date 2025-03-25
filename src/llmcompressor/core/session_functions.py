@@ -213,14 +213,15 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def sequential_layer_end(cls, **kwargs) -> ModifiedState:
+    def sequential_epoch_end(cls, **kwargs) -> ModifiedState:
         """
-        Invoke a sequential batch end event for the active session
+        Invoke a sequential epoch end event for the active session. This event should be
+        called after one sequential layer has been calibrated/trained for one epoch
 
         This is called after a sequential layer has been calibrated with one batch, see
         `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
         """
-        return cls.event(EventType.SEQUENTIAL_LAYER_END, **kwargs)
+        return cls.event(EventType.SEQUENTIAL_EPOCH_END, **kwargs)
 
 
 callbacks = LifecycleCallbacks
