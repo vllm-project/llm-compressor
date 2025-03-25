@@ -5,13 +5,13 @@ from typing import Any, Callable, Dict, List, Set, Union
 
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
+from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
-from loguru import logger
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
@@ -141,7 +141,11 @@ def get_tracer(
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            if module_qualified_name.startswith("model.layers.0") or module_qualified_name.startswith("model.layers.1") or module_qualified_name.startswith("model.layers.2"):
+            if (
+                module_qualified_name.startswith("model.layers.0")
+                or module_qualified_name.startswith("model.layers.1")
+                or module_qualified_name.startswith("model.layers.2")
+            ):
                 return True
             return module in skip_trace_modules or super().is_leaf_module(
                 module, module_qualified_name

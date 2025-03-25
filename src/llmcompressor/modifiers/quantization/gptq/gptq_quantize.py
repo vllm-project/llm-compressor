@@ -26,7 +26,9 @@ class Hessian:
     num_tokens: int
 
     def __init__(self, num_columns, device):
-        self.weight = torch.zeros((num_columns, num_columns), device=device, dtype=GPTQ_PRECISION)
+        self.weight = torch.zeros(
+            (num_columns, num_columns), device=device, dtype=GPTQ_PRECISION
+        )
 
 
 def make_empty_hessian(
@@ -43,7 +45,7 @@ def accumulate_hessian(
     module: torch.nn.Module,
     H: Optional[torch.Tensor],
     num_samples: int,
-    num_tokens: int
+    num_tokens: int,
 ) -> Tuple[torch.Tensor, int]:
     inp = inp.to(device=H.device)
 
@@ -171,7 +173,6 @@ def quantize_weight(
 
     # compute inverse hessian in place to save memory
     try:
-        H = torch.eye(len(H), dtype=H.dtype, device=H.device)
         damp = percdamp * torch.mean(torch.diag(H))
         diag = torch.arange(H.shape[0], device=H.device)
         H[diag, diag] += damp

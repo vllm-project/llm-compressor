@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List, Optional, Iterable
+from typing import TYPE_CHECKING, Iterable, List, Optional
 
 import torch
 import torch.utils.data.dataloader
@@ -67,7 +67,9 @@ def run_pipeline(
             with align_modules(subgraph.modules):
                 if subgraph_index > 0:
                     # do an preliminary pass to trigger modifier hooks
-                    for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
+                    for batch_index in tqdm.tqdm(
+                        range(len(dataloader)), desc=calib_desc
+                    ):
                         inputs = intermediates.fetch(batch_index, subgraph.input_names)
                         forward_function(model, **inputs)
 
@@ -103,7 +105,7 @@ def align_modules(
         if execution_device is not None:
             module._hf_hook.execution_device = execution_device
             original_devices[module] = module._hf_hook.execution_device
-        
+
         module._hf_hook.pre_forward(module)
         module._hf_hook.offload = False
 

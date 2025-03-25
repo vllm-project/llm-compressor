@@ -325,7 +325,11 @@ class GPTQModifier(Modifier, HooksMixin):
 
         # Accumulate hessian with input with optional offloading
         with self._maybe_onload_hessian(module):
-            self._hessians[module], self._num_samples[module], self._num_tokens[module] = accumulate_hessian(
+            (
+                self._hessians[module],
+                self._num_samples[module],
+                self._num_tokens[module],
+            ) = accumulate_hessian(
                 inp,
                 module,
                 self._hessians[module],
@@ -344,7 +348,9 @@ class GPTQModifier(Modifier, HooksMixin):
             num_tokens = self._num_tokens[module]
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
-            logger.info(f"Quantizing {name} using {num_tokens} tokens ({num_samples} samples)")
+            logger.info(
+                f"Quantizing {name} using {num_tokens} tokens ({num_samples} samples)"
+            )
             with (
                 torch.no_grad(),
                 align_module_device(module),

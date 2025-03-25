@@ -6,16 +6,12 @@ from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
 from llmcompressor.transformers.tracing import TraceableDeepseekV3ForCausalLM
-
-# NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
-# Please consider either downgrading your transformers version to a
-# previous version or upgrading to a version where this bug is fixed
+from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
 
 # select a Mixture of Experts model for quantization
-#MODEL_ID = "DeepSeek-V3_local_bf16"
-MODEL_ID = "neuralmagic/DeepSeek-V3-BF16"
+MODEL_ID = "DeepSeek-V3_local_bf16"
+# MODEL_ID = "neuralmagic/DeepSeek-V3-BF16"
 # MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 # MODEL_ID = "deepseek-ai/DeepSeek-V2.5-1210"
 
@@ -28,21 +24,20 @@ device_map = {
     "lm_head": "cpu",
 }
 
-with skip_weights_download(TraceableDeepseekV3ForCausalLM), skip_weights_initialize(use_zeros=False):
-#with contextlib.nullcontext():
-    model = TraceableDeepseekV3ForCausalLM.from_pretrained(
-        MODEL_ID,
-        #device_map=device_map,
-        torch_dtype=torch.bfloat16,
-        trust_remote_code=True,
-    )
-    #model.dequantize()
-    model = dispatch_model(
-        model,
-        device_map=device_map,
-        main_device=torch.device("cuda:0"),
-        force_hooks=True,
-    )
+# with skip_weights_download(TraceableDeepseekV3ForCausalLM), skip_weights_initialize(use_zeros=False):
+model = TraceableDeepseekV3ForCausalLM.from_pretrained(
+    MODEL_ID,
+    # device_map=device_map,
+    torch_dtype=torch.bfloat16,
+    trust_remote_code=True,
+)
+# model.dequantize()
+model = dispatch_model(
+    model,
+    device_map=device_map,
+    main_device=torch.device("cuda:0"),
+    force_hooks=True,
+)
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
@@ -89,7 +84,7 @@ ds = ds.shuffle()
 # list so they remain at full precision
 recipe = "examples/quantizing_moe/deepseek_recipe_w4a16.yaml"
 
-SAVE_DIR = "v3_quantized" #MODEL_ID.split("/")[1] + "-W4A16"
+SAVE_DIR = "v3_quantized"  # MODEL_ID.split("/")[1] + "-W4A16"
 
 
 oneshot(

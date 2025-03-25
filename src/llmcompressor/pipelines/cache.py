@@ -43,7 +43,11 @@ class IntermediatesCache:
         self.offload_device = offload_device
 
     @classmethod
-    def empty(cls, num_batches: int, offload_device: Optional[torch.device] = torch.device("cpu")):
+    def empty(
+        cls,
+        num_batches: int,
+        offload_device: Optional[torch.device] = torch.device("cpu"),
+    ):
         """
         Construct an empty cache
 

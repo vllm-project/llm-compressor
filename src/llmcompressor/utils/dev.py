@@ -1,8 +1,8 @@
 import contextlib
+import logging
 import os
 import tempfile
 from typing import Type
-import logging
 
 import torch
 from huggingface_hub import snapshot_download
