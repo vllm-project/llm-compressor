@@ -141,12 +141,6 @@ def get_tracer(
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            if (
-                module_qualified_name.startswith("model.layers.0")
-                or module_qualified_name.startswith("model.layers.1")
-                or module_qualified_name.startswith("model.layers.2")
-            ):
-                return True
             return module in skip_trace_modules or super().is_leaf_module(
                 module, module_qualified_name
             )

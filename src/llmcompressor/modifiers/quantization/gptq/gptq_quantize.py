@@ -10,7 +10,6 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
-
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD

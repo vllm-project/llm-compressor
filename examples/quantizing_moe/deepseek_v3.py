@@ -10,8 +10,8 @@ from llmcompressor.transformers.tracing import TraceableDeepseekV3ForCausalLM
 from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
 
 # select a Mixture of Experts model for quantization
-MODEL_ID = "DeepSeek-V3_local_bf16"
-# MODEL_ID = "neuralmagic/DeepSeek-V3-BF16"
+#MODEL_ID = "DeepSeek-V3_local_bf16"
+MODEL_ID = "neuralmagic/DeepSeek-V3-BF16"
 # MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 # MODEL_ID = "deepseek-ai/DeepSeek-V2.5-1210"
 
