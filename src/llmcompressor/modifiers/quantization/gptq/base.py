@@ -298,13 +298,12 @@ class GPTQModifier(Modifier, HooksMixin):
         _output: torch.Tensor,
     ):
         """
-        Quantize a module's weight according to the GPTQ algorithm
+        Calibration hook used to accumulate the hessian of the input to the module
 
-        :param name: name of module being quantized
-        :param module: module being quantized
-        :param args: input arguments for module forward pass
-
-        :return: total loss from applying weight quantization to this module
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
         """
         # Assume that first argument is the input
         inp = args[0]
@@ -327,14 +326,13 @@ class GPTQModifier(Modifier, HooksMixin):
             )
 
     def on_event(self, state: State, event: Event, **kwargs):
-        """
-        Quantize modules.
-        TODO: implement with event callback
-        """
         if event.type_ == EventType.SEQUENTIAL_LAYER_END:
             self.compress_modules()
 
     def compress_modules(self):
+        """
+        Quantize modules which have been calibrated
+        """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             num_samples = self._num_samples[module]

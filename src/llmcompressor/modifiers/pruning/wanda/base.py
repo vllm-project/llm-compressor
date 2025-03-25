@@ -74,6 +74,14 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
+        """
+        Calibration hook used to accumulate the row scalars of the input to the module
+
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
+        """
         # Assume that the first argument is the input
         inp = args[0]
 
@@ -96,6 +104,9 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
             self.compress_modules()
 
     def compress_modules(self):
+        """
+        Sparsify modules which have been calibrated
+        """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
