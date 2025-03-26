@@ -1,14 +1,11 @@
-# local/awq/AWQ/scripts/awq_one_shot.py
+import os
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import lm_eval
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # MODEL_ID= "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 MODEL_ID = "meta-llama/Llama-2-7b-hf"
 # MODEL_ID = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
-
-# TODO add Qwen mappings
-# MODEL_ID = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
 
 DATASET_ID = "mit-han-lab/pile-val-backup"
 DATASET_SPLIT = "validation"
@@ -17,17 +14,13 @@ MAX_SEQUENCE_LENGTH = 512
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
-###
-### 1) LLMCOMPRESSOR quantize
-###
+#
+# 1) LLMCOMPRESSOR quantize
+#
 
 
 def run_llmc_awq() -> AutoModelForCausalLM:
     OUTPUT_DIR = MODEL_ID.split("/")[-1] + f"-llmc-awq-{NUM_CALIBRATION_SAMPLES}"
-    from llmcompressor.modifiers.awq import AWQModifier
-    from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-    from llmcompressor.modifiers.quantization import QuantizationModifier
-    from llmcompressor import oneshot
     from compressed_tensors.quantization import (
         QuantizationArgs,
         QuantizationScheme,
@@ -35,8 +28,12 @@ def run_llmc_awq() -> AutoModelForCausalLM:
         QuantizationType,
     )
 
+    from llmcompressor import oneshot
+    from llmcompressor.modifiers.awq import AWQModifier
+    from llmcompressor.modifiers.quantization import QuantizationModifier
+
     recipe = [
-        AWQModifier(bits=4, apply_clip=False, symmetric=True),
+        AWQModifier(bits=4, apply_clip=False, symmetric=False),
         QuantizationModifier(
             ignore=["lm_head"],
             config_groups={
@@ -46,8 +43,7 @@ def run_llmc_awq() -> AutoModelForCausalLM:
                         num_bits=4,
                         type=QuantizationType.INT,
                         dynamic=False,
-                        symmetric=True,
-                        #   strategy=QuantizationStrategy.CHANNEL,
+                        symmetric=False,
                         strategy=QuantizationStrategy.GROUP,
                         group_size=128,
                     ),
@@ -60,8 +56,7 @@ def run_llmc_awq() -> AutoModelForCausalLM:
         MODEL_ID, device_map="auto", torch_dtype="auto"
     )
 
-    def get_calib_dataset_manual(tokenizer):
-
+    def get_calib_dataset(tokenizer):
         from datasets import load_dataset
 
         ds = load_dataset(
@@ -87,12 +82,9 @@ def run_llmc_awq() -> AutoModelForCausalLM:
 
     oneshot(
         model=model,
-        # dataset = get_calib_dataset(tokenizer=tokenizer),
-        dataset=get_calib_dataset_manual(tokenizer=tokenizer),
+        dataset=get_calib_dataset(tokenizer=tokenizer),
         recipe=recipe,
-        # save_compressed=True,
         output_dir=OUTPUT_DIR,
-        # overwrite_output_dir=True,
         max_seq_length=MAX_SEQUENCE_LENGTH,
         num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     )
@@ -102,9 +94,9 @@ def run_llmc_awq() -> AutoModelForCausalLM:
     return model, OUTPUT_DIR
 
 
-###
-### 2) AUTOAWQ quantize
-###
+#
+# 2) AUTOAWQ quantize
+#
 
 
 def run_auto_awq() -> AutoModelForCausalLM:
@@ -130,31 +122,30 @@ def run_auto_awq() -> AutoModelForCausalLM:
     model = model.model.to("cuda:0")
 
     # Save quantized model
-    # model.save_quantized(OUTPUT_DIR)
-    # model=AutoAWQForCausalLM.from_pretrained(OUTPUT_DIR, device_map="cuda:0").model
+    model.save_quantized(OUTPUT_DIR)
 
     return model, OUTPUT_DIR
 
 
-###
-### EVAL
-###
-
-import os
-
-# lm_eval --model vllm is failing for me if using V1
-os.environ["VLLM_USE_V1"] = "0"
+#
+# RUN
+#
 
 # print("RUNNING AUTOAWQ")
 # model, OUTPUT_DIR = run_auto_awq()
-
 print("RUNNING LLMCAWQ")
 model, OUTPUT_DIR = run_llmc_awq()
+
+#
+# EVAL
+#
+
+# NOTE: lm_eval --model vllm is failing with vllm==0.8.1 if using V1
+os.environ["VLLM_USE_V1"] = "0"
 
 results = lm_eval.simple_evaluate(
     model="vllm",
     model_args={
-        # "pretrained": MODEL_ID,
         "pretrained": OUTPUT_DIR,
         "add_bos_token": True,
         "dtype": "bfloat16",
