@@ -44,6 +44,7 @@ def train(**kwargs):
 
     train(**kwargs)
 
+
 def apply(**kwargs):
     message = (
         "`from llmcompressor.transformers import apply, compress` is deprecated, "

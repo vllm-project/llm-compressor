@@ -2,4 +2,4 @@
 
 from .data import TextGenerationDataset
 from .session_mixin import SessionManagerMixIn
-from .text_generation import oneshot, train, apply, compress
+from .text_generation import apply, compress, oneshot, train
