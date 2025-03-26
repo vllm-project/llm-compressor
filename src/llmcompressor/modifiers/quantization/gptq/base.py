@@ -28,6 +28,7 @@ from llmcompressor.pipelines.layer_sequential import (
     run_pipeline as run_layer_sequential,
 )
 from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
+from llmcompressor.utils import multi_context
 from llmcompressor.utils.metric_logging import CompressionLogger
 from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 
@@ -337,12 +338,12 @@ class GPTQModifier(Modifier, HooksMixin):
             quant_args = getattr_chain(module, "quantization_scheme.weights")
 
             logger.info(f"Quantizing {name} using {num_samples} samples")
-            with (
+            with multi_context(
                 torch.no_grad(),
                 align_module_device(module),
                 self._maybe_onload_hessian(module),
-                CompressionLogger(module) as comp_logger,
-            ):
+                CompressionLogger(module),
+            ) as [_, _, _, comp_logger]:
                 loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
                     module=module,
                     quant_args=quant_args,
