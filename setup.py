@@ -55,7 +55,7 @@ setup(
         "requests>=2.0.0",
         "tqdm>=4.0.0",
         "torch>=1.7.0",
-        "transformers>4.0,<5.0",
+        "transformers>4.0,<=4.49.0",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
