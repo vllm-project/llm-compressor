@@ -16,9 +16,20 @@ import sys
 import tarfile
 import warnings
 from collections import OrderedDict
+from contextlib import ExitStack, contextmanager
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    ContextManager,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Tuple,
+    Union,
+)
 from urllib.parse import urlparse
 
 import numpy
@@ -66,6 +77,7 @@ __all__ = [
     "eval_context",
     "calibration_forward_context",
     "preserve_attr",
+    "multi_context",
 ]
 
 
@@ -81,6 +93,41 @@ ROOT_PATH = Path(__file__).resolve().parents[1]
 # general python helper functions
 #
 ##############################
+
+
+@contextmanager
+def multi_context(*contexts: ContextManager) -> Iterator[List[object]]:
+    """
+    Workaround for multiple context managers in Python 3.9.
+
+    In Python 3.10+, you can use multiple context managers in a single
+    `with` statement using parentheses:
+
+    .. code-block:: python
+
+        with (
+            ctx1(),
+            ctx2(),
+            ctx3()
+        ):
+            ...
+
+    Python 3.9 does not support this syntax. This utility provides a clean and
+    safe workaround using :class:`contextlib.ExitStack`.
+
+    Example usage:
+
+    .. code-block:: python
+
+        with multi_context(ctx1(), ctx2(), ctx3()) as [cm1, cm2, cm3]:
+            # Use cm1, cm2, cm3 here
+
+    :param contexts: One or more context manager instances.
+    :return: A list of the return values from each context manager's
+        ``__enter__`` method.
+    """
+    with ExitStack() as stack:
+        yield [stack.enter_context(ctx) for ctx in contexts]
 
 
 def flatten_iterable(li: Iterable):
@@ -1043,7 +1090,7 @@ def calibration_forward_context(model: PreTrainedModel):
     - Disable quantization during forward pass
     - Disable train mode and enable eval mode
     """
-    with (
+    with multi_context(
         torch.no_grad(),
         DisableKVCache(model),
         DisableQuantization(model),
