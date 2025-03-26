@@ -17,7 +17,6 @@ from llmcompressor.modifiers.pruning.wanda.wanda_sparsify import (
     make_empty_row_scalars,
     sparsify_weight,
 )
-from llmcompressor.utils import multi_context
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["WandaPruningModifier"]
@@ -104,10 +103,8 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with multi_context(
-                torch.no_grad(),
-                align_module_device(module),
-                CompressionLogger(module),
+            with torch.no_grad(), align_module_device(module), CompressionLogger(
+                module
             ):
                 sparsified_weight = sparsify_weight(
                     module=module,

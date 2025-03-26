@@ -13,11 +13,7 @@ from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import (
-    calibration_forward_context,
-    multi_context,
-    preserve_attr,
-)
+from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
 
 __all__ = ["trace_subgraphs", "Subgraph"]
 
@@ -75,10 +71,7 @@ def trace_subgraphs(
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
-    with multi_context(
-        calibration_forward_context(model),
-        HooksMixin.disable_hooks(),
-    ):
+    with calibration_forward_context(model), HooksMixin.disable_hooks():
         graph = GraphModule(
             model,
             tracer.trace(

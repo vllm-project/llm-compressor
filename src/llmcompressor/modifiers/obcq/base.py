@@ -18,7 +18,6 @@ from llmcompressor.modifiers.obcq.sgpt_sparsify import (
     make_empty_hessian,
     sparsify_weight,
 )
-from llmcompressor.utils import multi_context
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["SparseGPTModifier"]
@@ -120,9 +119,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with multi_context(
-                torch.no_grad(), align_module_device(module), CompressionLogger(module)
-            ) as [_, _, comp_logger]:
+            with torch.no_grad(), align_module_device(module), CompressionLogger(
+                module
+            ) as comp_logger:
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
                     hessians_dict=self._hessians,
