@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Union
 from pydantic import field_validator
 
 from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
+from llmcompressor.core.llmcompressor.globals import get_compressor
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.helpers import (
     PruningCreateSettings,
@@ -92,7 +93,14 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
-        sparsity = self.scheduler_function_(event, state)
+        super().on_start(state, event)
+        try:
+            get_compressor()
+            current_index = state.current_index
+        except:
+            current_index = event.current_index
+        
+        sparsity = self.scheduler_function_(current_index, state)
         self.current_sparsity_ = sparsity
 
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
@@ -109,7 +117,13 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
 
     def on_update(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.BATCH_START:
-            sparsity = self.scheduler_function_(event, state)
+            try:
+                get_compressor()
+                current_index = state.current_index
+            except:
+                current_index = event.current_index
+
+            sparsity = self.scheduler_function_(current_index, state)
             if sparsity != self.current_sparsity_:
                 self.current_sparsity_ = sparsity
 
@@ -129,6 +143,7 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             self._update_masks(event)
 
     def on_end(self, state: State, event: Event, **kwargs):
+        super().on_end(state, event)
         self.disable_masks()
 
     def _update_masks(self, event: Event):

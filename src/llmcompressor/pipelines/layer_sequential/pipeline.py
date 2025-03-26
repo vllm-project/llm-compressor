@@ -1,10 +1,8 @@
-from typing import List
-
 import torch
-import torch.utils.data.dataloader
 import tqdm
+from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.core.llmcompressor.globals import get_compressor
+from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
@@ -13,6 +11,7 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     maybe_inject_pos_embeddings,
     to_next_layer_kwargs,
 )
+from llmcompressor.pipelines.sequential.helpers import get_targets_from_modifiers
 from llmcompressor.utils.helpers import calibration_forward_context
 
 __all__ = ["run_pipeline"]
@@ -20,8 +19,7 @@ __all__ = ["run_pipeline"]
 
 def run_pipeline(
     model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    sequential_targets: List[str],
+    dataloader: DataLoader,
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:
@@ -45,12 +43,15 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
-    compressor = get_compressor()
+    session = active_session()
 
     # find layers
+    modifiers = session.get_modifiers()
+    sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
     layers = match_modules(model, sequential_targets)
 
-    compressor.initialize()
+    session.initialize()
+
     with calibration_forward_context(model):
         # prepare intermediates cache
         intermediates: IntermediatesCache = capture_first_layer_intermediates(
@@ -69,7 +70,7 @@ def run_pipeline(
                 layer(**inputs)
 
             # trigger compression
-            compressor.sequential_batch_end()
+            LifecycleCallbacks.sequential_epoch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
@@ -86,4 +87,5 @@ def run_pipeline(
                         intermediates.delete(batch_index)
                         intermediates.update(batch_index, output)
 
-    compressor.finalize()
+        # redudant, finish any remaining compression
+        LifecycleCallbacks.calibration_epoch_end()

@@ -2,24 +2,22 @@ from typing import List, Optional, Union
 
 from torch.utils.data import DataLoader
 
-from llmcompressor.args.model_arguments import ModelArguments
+from llmcompressor.args.post_train_arguments import PostTrainArguments
 from llmcompressor.core import State
 from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
 from llmcompressor.core.llmcompressor.train import HFSFTMixin
 from llmcompressor.core.llmcompressor.utils import (
+    LCModelArguments,
     LCDatasetArguments,
-    check_for_calibration_data,
     get_modifiers_from_recipe,
-    parse_args,
     prepare_models,
-    resolve_calibration_pipeline,
 )
 from llmcompressor.datasets.utils import get_calibration_dataloader
 from llmcompressor.modifiers import Modifier
 from llmcompressor.pytorch.model_load.helpers import save_checkpoint
-from llmcompressor.recipe import RecipeInput
-from llmcompressor.typing import DatasetType, ModelInput
+from llmcompressor.typing import DatasetType, ModelInput, RecipeInput
 from llmcompressor.utils.singleton import SingletonMixin
+from llmcompressor.pipelines.registry import get_pipeline_fn
 
 
 class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
@@ -28,33 +26,31 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     calibration_loader: Optional[DataLoader] = None
 
     def __init__(self, model: ModelInput, recipe: RecipeInput, **kwargs):
-        model_args = parse_args(ModelArguments, model=model, **kwargs)
+        args = LCModelArguments(model=model, recipe=recipe, **kwargs)
 
-        self.modifiers = get_modifiers_from_recipe(recipe)
+        self.modifiers = get_modifiers_from_recipe(args.recipe)
 
-        model, teacher, processor = prepare_models(model_args)
+        model, teacher, processor = prepare_models(args)
         self.state = State(model=model, teacher_model=teacher, processor=processor)
 
     def set_calibration_dataset(self, dataset: Union[str, DatasetType], **kwargs):
-        dataset_args = parse_args(LCDatasetArguments, dataset=dataset, **kwargs)
+        args = LCDatasetArguments(dataset=dataset, **kwargs)
 
         # temporary hack to support better interface
-        if dataset_args.split is not None:
-            dataset_args.splits = {"calibration": dataset_args.split}
+        if args.split is not None:
+            args.splits = {"calibration": args.split}
 
-        self.calibration_loader = get_calibration_dataloader(
-            dataset_args, self.state.processor
-        )
+        self.calibration_loader = get_calibration_dataloader(args, self.state.processor)
 
     def post_train(
-        self, pipeline: Optional[str] = None, save_path: Optional[str] = None
+        self, pipeline: Optional[str] = "independent", save_path: Optional[str] = None
     ):
-        check_for_calibration_data(self.modifiers, self.calibration_loader)
-        pipeline_fn, pipeline_kwargs = resolve_calibration_pipeline(
-            pipeline, self.modifiers
-        )
+        args = PostTrainArguments(pipeline=pipeline, save_path=save_path)
 
-        pipeline_fn(self.state.model, self.calibration_loader, **pipeline_kwargs)
+        _, pipeline_fn = get_pipeline_fn(args.pipeline, self.modifiers)
+        pipeline_fn(self.state.model, self.calibration_loader)
 
-        if save_path is not None:
-            save_checkpoint(save_path, self.state.model, self.state.processor)
+        self.finalize()
+
+        if args.save_path is not None:
+            save_checkpoint(args.save_path, self.state.model, self.state.processor)

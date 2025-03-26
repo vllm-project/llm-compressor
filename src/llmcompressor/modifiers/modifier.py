@@ -1,6 +1,8 @@
 from abc import abstractmethod
 from typing import Optional
 
+import math
+
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
 from llmcompressor.modifiers.interface import ModifierInterface
@@ -179,6 +181,27 @@ class Modifier(ModifierInterface, HooksMixin):
         current = event.current_index
 
         return self.end is not None and current >= self.end
+    
+    def lc_should_start(self, state: State) -> bool:
+        """
+        :param event: The event to check if the modifier should start
+        :return: True if the modifier should start based on the given event
+        """
+        start = self.start if self.start is not None else -1
+        end = self.end if self.end is not None else math.inf
+        current = state.current_index
+
+        return start <= current < end
+
+    def lc_should_end(self, state: State) -> bool:
+        """
+        :param event: The event to check if the modifier should end
+        :return: True if the modifier should end based on the given event
+        """
+        end = self.end if self.end is not None else math.inf
+        current = state.current_index
+
+        return current >= end
 
     @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -214,7 +237,7 @@ class Modifier(ModifierInterface, HooksMixin):
         :param event: The event that triggered the start
         :param kwargs: Additional arguments for starting the modifier
         """
-        pass
+        self.started_ = True
 
     def on_update(self, state: State, event: Event, **kwargs):
         """
@@ -237,7 +260,7 @@ class Modifier(ModifierInterface, HooksMixin):
         :param event: The event that triggered the end
         :param kwargs: Additional arguments for ending the modifier
         """
-        pass
+        self.ended_ = True
 
     def on_event(self, state: State, event: Event, **kwargs):
         """

@@ -60,9 +60,9 @@ class GPTQModifier(Modifier, HooksMixin):
         - on_initialize
             - _build_quant_modifier
             - register_hook(module, compress_module, "forward")
-        - run_sequential / run_layer_sequential / run_basic
-            - make_empty_hessian
-            - accumulate_hessian
+            - run_sequential / run_layer_sequential / run_basic
+                - make_empty_hessian
+                - accumulate_hessian
         - on_sequential_batch_end
             - quantize_weight
         - on_finalize
@@ -144,6 +144,8 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :param state: session state storing input model and calibration data
         """
+        ModifierFactory.refresh()
+        
         quantization_already_active = qat_active(model)
         if isinstance(self.quantize, bool):
             if not self.quantize and quantization_already_active:
@@ -211,12 +213,17 @@ class GPTQModifier(Modifier, HooksMixin):
                 if not isinstance(module, torch.nn.Embedding):
                     self.register_hook(module, self.calibrate_module, "forward")
 
+        return True
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         disable the quantization observers used by the OBCQ algorithm
 
         :param state: session state storing input model and calibration data
         """
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
         if self._quantization_modifier:
             self._quantization_modifier.finalize(state, **kwargs)
 
@@ -234,13 +241,12 @@ class GPTQModifier(Modifier, HooksMixin):
         _output: torch.Tensor,
     ):
         """
-        Calibrate a module according to the GPTQ algorithm
+        Calibration hook used to accumulate the hessian of the input to the module
 
-        :param name: name of module being quantized
-        :param module: module being quantized
-        :param args: input arguments for module forward pass
-
-        :return: total loss from applying weight quantization to this module
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
         """
         # Assume that first argument is the input
         inp = args[0]
@@ -263,12 +269,16 @@ class GPTQModifier(Modifier, HooksMixin):
             )
 
     def on_event(self, state: State, event: Event, **kwargs):
-        """
-        Sparsify modules which have been calibrated with samples
-        """
-        if event.type_ not in (EventType.SEQUENTIAL_BATCH_END, EventType.BATCH_END):
-            return
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
+            self.compress_modules()
 
+    def compress_modules(self):
+        """
+        Quantize modules which have been calibrated
+        """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             num_samples = self._num_samples[module]

@@ -48,6 +48,7 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
+        super().on_start(state, event)
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
             self.update_mask(
                 layer_param_name, parameterized_layer.param.data.abs() > self._epsilon
@@ -73,4 +74,5 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
             state.model.apply(apply_masks)
 
     def on_end(self, state: State, event: Event, **kwargs):
+        super().on_end(state, event)
         self.disable_masks()

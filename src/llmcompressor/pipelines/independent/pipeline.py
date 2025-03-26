@@ -1,33 +1,54 @@
-from typing import TYPE_CHECKING, List
-
 import torch
-import torch.utils.data.dataloader
+from loguru import logger
+from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.core import active_session
+from llmcompressor.modifiers.stage import StageModifiers
 
-if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
+from llmcompressor.core.llmcompressor.globals import get_compressor
 
 __all__ = ["run_pipeline"]
-
-resolve_pipeline_kwargs = None
 
 
 def run_pipeline(
     model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    modifiers: List["Modifier"],
-    independent_pipelines: List[str],
+    dataloader: DataLoader,
 ):
-    """
-    Pipeline which runs each modifier independently
-    """
-    from llmcompressor.pipelines import get_pipeline
+    # avoid circular import
+    from llmcompressor.pipelines.registry import get_pipeline_fn
 
-    for pipeline, modifier in zip(independent_pipelines, modifiers):
-        pipeline = get_pipeline(pipeline)
-        pipeline_kwargs = resolve_pipeline_kwargs(modifier)
+    try:
+        compressor = get_compressor()
+    except:
+        session = active_session()
+        compressor = None
 
-        modifier_hooks = modifier._hooks
-        with HooksMixin.disable_hooks(keep=modifier_hooks):
-            pipeline(**pipeline_kwargs)
+    if compressor is not None:
+        modifiers = compressor.modifiers
+        
+        for index, modifier in enumerate(modifiers):
+            mod_type = str(type(modifier).__name__)
+            compressor.modifiers = [modifier]
+
+            pipeline, pipeline_fn = get_pipeline_fn(user=None, modifiers=[modifier])
+            logger.info(f"Inferred `{pipeline}` calibration pipeline for `{mod_type}`")
+
+            pipeline_fn(model, dataloader)
+
+        compressor.modifiers = modifiers
+
+    else:
+        modifiers = session.get_modifiers()
+
+        for index, modifier in enumerate(modifiers):
+            mod_type = str(type(modifier).__name__)
+            session.lifecycle.modifiers = [
+                StageModifiers(modifiers=[modifier], group=mod_type, index=index)
+            ]
+
+            pipeline, pipeline_fn = get_pipeline_fn(user=None, modifiers=[modifier])
+            logger.info(f"Inferred `{pipeline}` calibration pipeline for `{mod_type}`")
+
+            pipeline_fn(model, dataloader)
+
+        session.lifecycle.modifiers = modifiers

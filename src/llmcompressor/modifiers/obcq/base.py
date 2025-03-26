@@ -41,9 +41,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
     Lifecycle:
         - on_initialize
             - register_hook(module, calibrate_module, "forward")
-        - run_sequential / run_layer_sequential / run_basic
-            - make_empty_hessian
-            - accumulate_hessian
+            - run_sequential / run_layer_sequential / run_basic
+                - make_empty_hessian
+                - accumulate_hessian
         - on_sequential_batch_end
             - sparsify_weight
         - on_finalize
@@ -90,6 +90,14 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
+        """
+        Calibration hook used to accumulate the hessian of the input to the module
+
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
+        """
         # Assume that the first argument is the input
         inp = args[0]
 
@@ -109,12 +117,16 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
             )
 
     def on_event(self, state: State, event: Event, **kwargs):
-        """
-        Sparsify modules which have been calibrated with samples
-        """
-        if event.type_ not in (EventType.SEQUENTIAL_BATCH_END, EventType.BATCH_END):
-            return
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
+            self.compress_modules()
 
+    def compress_modules(self):
+        """
+        Sparsify modules which have been calibrated
+        """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
@@ -156,6 +168,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
         self.remove_hooks()
         self._hessians = dict()
         self._num_samples = dict()

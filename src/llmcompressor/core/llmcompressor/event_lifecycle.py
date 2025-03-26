@@ -26,8 +26,6 @@ class EventsLifecycle(SingletonMixin):
     @classmethod
     def initialize(cls, fn: Callable[[Any], Any]):
         def validator(self: "EventsMixin", **kwargs):
-            if cls.initialized:
-                raise ValueError("Cannot initialize twice")
             cls.initialized = True
             cls.finalized = False
 

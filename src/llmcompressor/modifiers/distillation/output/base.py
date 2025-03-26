@@ -118,6 +118,7 @@ class OutputDistillationModifier(Modifier):
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
+        super().on_start(state, event)
         for student_wrapper, teacher_wrapper in self.wrappers_.values():
             student_wrapper.kd_enabled = True
             teacher_wrapper.kd_enabled = True
@@ -133,6 +134,7 @@ class OutputDistillationModifier(Modifier):
             state.loss = model_loss + distill_loss
 
     def on_end(self, state: State, event: Event, **kwargs):
+        super().on_end(state, event)
         for student_wrapper, teacher_wrapper in self.wrappers_.values():
             student_wrapper.kd_enabled = False
             teacher_wrapper.kd_enabled = False

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Optional, Union
 
 from llmcompressor.args.training_arguments import TrainingArguments
 from llmcompressor.core import State
-from llmcompressor.core.llmcompressor.utils import LCDatasetArguments, parse_args
+from llmcompressor.core.llmcompressor.utils import LCDatasetArguments
 from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.typing import DatasetType
@@ -18,7 +18,7 @@ class HFSFTMixin:
     train_data_collator: Optional["DataCollator"] = None
 
     def set_train_dataset(self, dataset: Union[str, DatasetType], **kwargs):
-        dataset_args = parse_args(LCDatasetArguments, dataset=dataset, **kwargs)
+        dataset_args = LCDatasetArguments(dataset=dataset, **kwargs)
 
         processed_dataset = get_processed_dataset(
             dataset_args=dataset_args,
@@ -27,12 +27,11 @@ class HFSFTMixin:
         self.train_dataset = processed_dataset.get("train")
 
     def train(self, **kwargs):
+        args = TrainingArguments(**kwargs)
         raise NotImplementedError(
             "Implementing LLMCompressor.train would require "
             "changes which break existing training pathways"
         )
-
-        training_args = parse_args(TrainingArguments, **kwargs)
 
         trainer = Trainer(
             model=self.state.model,

@@ -1,52 +1,43 @@
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, Dict, List, Optional, Union
 
 import os
 import yaml
 from loguru import logger
-from torch.utils.data import DataLoader
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
-    HfArgumentParser,
     PreTrainedModel,
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.typing import RecipeInput
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.args.model_arguments import ModelArguments
-from llmcompressor.core.llmcompressor.globals import get_model
 from llmcompressor.entrypoints.utils import (
     _warn_tied_embeddings,
     initialize_processor_from_path,
 )
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.factory import ModifierFactory
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
-from llmcompressor.modifiers.quantization.gptq import GPTQModifier
-from llmcompressor.pipelines import get_pipeline
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
     untie_weights,
 )
 from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_path
-from llmcompressor.utils.pytorch.module import get_no_split_params
 
 """ llmcompressor.Args """
 
 
 @dataclass
+class LCModelArguments(ModelArguments):
+    recipe: RecipeInput = field(default=None)  # dummy default to avoid inheritance issue
+
+
+@dataclass
 class LCDatasetArguments(DatasetArguments):
     split: Optional[str] = field(default=None)
-
-
-T = TypeVar("T")
-
-
-def parse_args(dataclass: Type[T], **kwargs) -> T:
-    parser = HfArgumentParser(dataclass)
-    return parser.parse_dict(kwargs)[0]
 
 
 """ llmcompressor.recipe """
@@ -71,6 +62,7 @@ def get_modifiers_from_recipe(
     if not isinstance(recipe_dict, dict):
         raise ValueError("Cannot parse yaml")
 
+    breakpoint()
     if not ModifierFactory._loaded:
         ModifierFactory.refresh()
 
@@ -109,23 +101,6 @@ def get_modifiers_args_from_dict(values: Dict) -> List[Dict[str, Any]]:
         del values[key]
 
     return modifiers
-
-
-def check_for_calibration_data(
-    modifiers: List[Modifier], dataloader: Optional[DataLoader]
-):
-    needs_calib_data = False
-    for modifier in modifiers:
-        if hasattr(modifier, "scheme"):
-            if not modifier.scheme.input_activations.dynamic:
-                needs_calib_data = True
-                break
-
-    if needs_calib_data and dataloader is None:
-        raise ValueError()
-
-    if not needs_calib_data and dataloader is not None:
-        logger.warning("")
 
 
 """ llmcompressor.model """
@@ -196,62 +171,3 @@ def initialize_model_from_path(
         ]  # TODO: Pretty sure the seqlen attribute is never used/ doesn't exist
 
     return model
-
-
-""" llmcompressor.pipelines """
-
-
-def resolve_calibration_pipeline(
-    user_selection: Optional[str], modifiers: List[Modifier]
-) -> Tuple[Callable[[Any], Any], Dict[str, Any]]:
-    # infer pipeline from modifiers
-    inferred_selection = infer_pipeline_from_modifiers(modifiers)
-
-    # resolve with user selection
-    pipeline = resolve_pipeline(user_selection, inferred_selection)
-
-    # resolve pipeline kwargs
-    pipeline_kwargs = infer_pipeline_kwargs(pipeline, modifiers)
-
-    return get_pipeline(pipeline), pipeline_kwargs
-
-
-def infer_pipeline_from_modifiers(modifiers: List[Modifier]) -> str:
-    has_sequential_modifier = any(
-        isinstance(mod, (GPTQModifier, SparsityModifierMixin)) for mod in modifiers
-    )
-
-    if has_sequential_modifier:
-        return "sequential"
-
-    return "basic"
-
-
-def resolve_pipeline(user_selection: str, inferred_selection: str):
-    if user_selection is not None and user_selection != inferred_selection:
-        # raise some warning
-        return user_selection
-    else:
-        return inferred_selection
-
-
-def infer_pipeline_kwargs(pipeline: str, modifiers: List[Modifier]) -> Dict[str, Any]:
-    if pipeline == "sequential":
-        # naive resolution: use first modifier found
-
-        for modifier in modifiers:
-            if isinstance(modifier, (GPTQModifier, SparsityModifierMixin)):
-                model = get_model()
-
-                # infer sequential targets
-                if modifier.sequential_targets is None:
-                    sequential_targets = get_no_split_params(model)
-                if isinstance(modifier.sequential_targets, str):
-                    sequential_targets = [modifier.sequential_targets]
-
-                return {
-                    "sequential_targets": sequential_targets,
-                    "ignore": modifier.ignore,
-                }
-
-    return dict()
