@@ -37,7 +37,9 @@ from safetensors.torch import save_file
 from torch.nn.modules import Linear, Sequential
 
 
-def get_dummy_quant_config(num_bits=4, strategy=None, group_size=None, actorder=None):
+def get_dummy_quant_config(
+    num_bits=4, strategy=None, group_size=None, actorder=None, symmetric=True
+):
     config_groups = {
         "group_1": QuantizationScheme(
             targets=["Linear"],
@@ -46,6 +48,7 @@ def get_dummy_quant_config(num_bits=4, strategy=None, group_size=None, actorder=
                 strategy=strategy,
                 group_size=group_size,
                 actorder=actorder,
+                symmetric=symmetric,
             ),
         ),
     }
@@ -151,21 +154,25 @@ def test_reload_match(tmp_path, num_bits):
         "dummy2.weight_zero_point": torch.tensor(15, dtype=torch.int8),
     }
 
+    # pack-compressor only needs the number of bits from the quant-args to decompress
+    # all other information is extracted from the compressed data directly
     names_to_scheme = {
         "dummy": QuantizationArgs(num_bits=num_bits),
         "dummy2": QuantizationArgs(num_bits=num_bits),
     }
-    quant_config = get_dummy_quant_config(num_bits)
+    quant_config = get_dummy_quant_config(num_bits, symmetric=False)
 
     compressor = PackedQuantizationCompressor(config=quant_config)
     quantized_modules_to_args = {
         "dummy": quant_config.config_groups["group_1"].weights,
         "dummy2": quant_config.config_groups["group_1"].weights,
     }
+
     compressed_state_dict = compressor.compress(
         dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
+
     reconstructed_dense_gen = compressor.decompress(
         tmp_path, names_to_scheme=names_to_scheme
     )

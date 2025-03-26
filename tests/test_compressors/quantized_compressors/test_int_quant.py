@@ -27,11 +27,13 @@ from compressed_tensors.quantization.lifecycle.forward import fake_quantize
 from safetensors.torch import save_file
 
 
-def get_dummy_quant_config(strategy, group_size=None):
+def get_dummy_quant_config(strategy, group_size=None, symmetric=True):
     config_groups = {
         "group_1": QuantizationScheme(
             targets=["Linear"],
-            weights=QuantizationArgs(strategy=strategy, group_size=group_size),
+            weights=QuantizationArgs(
+                strategy=strategy, group_size=group_size, symmetric=symmetric
+            ),
         ),
     }
     ignore = ["lm_head"]
@@ -69,7 +71,9 @@ def test_quant_format(strategy, symmetric, group_size, sc, zp):
         "dummy.weight_scale": torch.tensor(sc, dtype=torch.float32),
         "dummy.weight_zero_point": torch.tensor(zp, dtype=torch.int32),
     }
-    quant_config = get_dummy_quant_config(strategy=strategy, group_size=group_size)
+    quant_config = get_dummy_quant_config(
+        strategy=strategy, group_size=group_size, symmetric=symmetric
+    )
 
     compressor = IntQuantizationCompressor(config=quant_config)
     quantized_modules_to_args = {"dummy": quant_config.config_groups["group_1"].weights}

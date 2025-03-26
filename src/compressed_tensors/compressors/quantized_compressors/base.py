@@ -82,11 +82,32 @@ class BaseQuantizationCompressor(BaseCompressor):
         """
         compressed_dict = {}
         weight_suffix = ".weight"
+        input_zp_suffix = ".input_zero_point"
+        weight_zp_suffix = ".weight_zero_point"
         _LOGGER.debug(
             f"Compressing model with {len(model_state)} parameterized layers..."
         )
 
         for name, value in tqdm(model_state.items(), desc="Quantized Compression"):
+            # check if the parameter we're compressing is the weight zp
+            # or the input zp
+            is_weight_zp = name.endswith(weight_zp_suffix)
+            is_input_zp = name.endswith(input_zp_suffix)
+
+            # if we're saving the weight zp, fetch weight quant args
+            if is_weight_zp:
+                quant_args_zp = names_to_scheme.get(name[: -(len(weight_zp_suffix))])
+                if isinstance(quant_args_zp, tuple):
+                    # If tuple, first value is weight args, second is input args
+                    quant_args_zp = quant_args_zp[0]
+
+            # if we're saving the input zp, fetch input quant args
+            if is_input_zp:
+                input_args_zp = names_to_scheme.get(name[: -(len(input_zp_suffix))])
+                if isinstance(input_args_zp, tuple):
+                    # If tuple, first value is weight args, second is input args
+                    input_args_zp = input_args_zp[-1]
+
             if name.endswith(weight_suffix):
                 prefix = name[: -(len(weight_suffix))]
                 scale = model_state.get(merge_names(prefix, "weight_scale"), None)
@@ -94,7 +115,11 @@ class BaseQuantizationCompressor(BaseCompressor):
                 g_idx = model_state.get(merge_names(prefix, "weight_g_idx"), None)
                 if scale is not None:
                     # weight is quantized, compress it
-                    quant_args = names_to_scheme[prefix]
+                    if isinstance(names_to_scheme[prefix], tuple):
+                        quant_args = names_to_scheme[prefix][0]
+                    else:
+                        quant_args = names_to_scheme[prefix]
+
                     compressed_data = self.compress_weight(
                         weight=value,
                         scale=scale,
@@ -107,7 +132,11 @@ class BaseQuantizationCompressor(BaseCompressor):
                         compressed_dict[merge_names(prefix, key)] = value
                 else:
                     compressed_dict[name] = value.to("cpu")
-            elif name.endswith("zero_point") and torch.all(value == 0):
+            # only save if asym
+            elif is_weight_zp and quant_args_zp.symmetric:
+                continue
+            # only save if asym
+            elif is_input_zp and input_args_zp.symmetric:
                 continue
             elif name.endswith("g_idx") and torch.any(value <= -1):
                 continue

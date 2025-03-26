@@ -19,7 +19,7 @@ import os
 import re
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, TypeVar, Union
 
 import compressed_tensors
 import torch
@@ -522,10 +522,13 @@ class ModelCompressor:
                 update_parameter_data(module, data, param_name)
 
 
-def map_modules_to_quant_args(model: Module) -> Dict[str, QuantizationArgs]:
+def map_modules_to_quant_args(
+    model: Module,
+) -> Dict[str, Union[QuantizationArgs, Tuple[QuantizationArgs, QuantizationArgs]]]:
     """
     Given a pytorch model, map out the submodule name (usually linear layers)
-     to the QuantizationArgs
+    to the weight QuantizationArgs. If running input activation quantization, will also
+    map to the input QuantizationArgs in a tuple.
 
     :param model: pytorch model
     """
@@ -535,6 +538,12 @@ def map_modules_to_quant_args(model: Module) -> Dict[str, QuantizationArgs]:
             if submodule.quantization_scheme.weights is not None:
                 name = fix_fsdp_module_name(name)
                 quantized_modules_to_args[name] = submodule.quantization_scheme.weights
+                if submodule.quantization_scheme.input_activations is not None:
+                    weight_args = quantized_modules_to_args.get(name)
+                    quantized_modules_to_args[name] = (
+                        weight_args,
+                        submodule.quantization_scheme.input_activations,
+                    )
 
     return quantized_modules_to_args
 
