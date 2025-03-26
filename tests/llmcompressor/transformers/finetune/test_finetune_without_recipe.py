@@ -18,12 +18,14 @@ class TestFinetuneWithoutRecipe(unittest.TestCase):
 
     def setUp(self):
         self.output = "./finetune_output"
+        self.monkeypatch = pytest.MonkeyPatch()
 
     def test_finetune_without_recipe(self):
         from llmcompressor import train
 
         recipe_str = None
         device = "cuda:0"
+        self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
 
         concatenate_data = False
         max_steps = 50
@@ -42,3 +44,4 @@ class TestFinetuneWithoutRecipe(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.output)
+        self.monkeypatch.undo()

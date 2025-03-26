@@ -55,6 +55,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
         # TODO: we get really nice stats from finetune that we should log
         # stored in results.json
         shutil.rmtree(self.output)
+        self.monkeypatch.undo()
 
 
 @pytest.mark.integration
@@ -66,11 +67,14 @@ class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
     dataset_config_name = None
     num_train_epochs = None
     concat_txt = None
+    monkeypatch = pytest.MonkeyPatch()
 
     def setUp(self):
         import torch
 
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        if self.device == "cuda:0":
+            self.monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
         self.output = "./finetune_output"
 
     def test_oneshot_then_finetune_small(self):
