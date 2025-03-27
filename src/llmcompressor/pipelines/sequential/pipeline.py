@@ -2,12 +2,15 @@ from typing import TYPE_CHECKING, List, Optional
 
 import torch
 import torch.utils.data.dataloader
-from compressed_tensors.utils import get_execution_device
 from tqdm import tqdm
+from transformers import PreTrainedModel
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
+from llmcompressor.pipelines.sequential.helpers import (
+    infer_oneshot_device,
+    trace_subgraphs,
+)
 from llmcompressor.utils.helpers import align_modules, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -17,10 +20,11 @@ __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
-    model: torch.nn.Module,
+    model: PreTrainedModel,
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
     ignore: List[str],
+    oneshot_device: Optional[torch.device],
     callback_modifier: Optional["Modifier"] = None,
 ):
     """
@@ -45,16 +49,22 @@ def run_pipeline(
     :param dataloader: loads data for calibration
     :param sequential_targets: patterns which match to the layer modules of the model
     :param ignore: patterns which match to modules which should be ignored by tracing
+    :param oneshot_device: device to onload layers ontop, uses device_map if None
+    :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
+    # if the model is dispatched, use the dispatch to determine onloading, return None
+    # otherwise, infer a oneshot device (either user passed or the first available gpu)
+    oneshot_device = infer_oneshot_device(model, oneshot_device)
+
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
-    with calibration_forward_context(model):
-        # prepare intermediates cache
-        model_device = get_execution_device(model)
-        intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
+    # prepare intermediates cache
+    model_device = oneshot_device or model.device
+    intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
 
+    with calibration_forward_context(model):
         num_subgraphs = len(subgraphs)
         for subgraph_index, subgraph in enumerate(subgraphs):
             # prepare tqdm description texts
@@ -64,7 +74,7 @@ def run_pipeline(
             # compile subgraph forward function
             forward_function = subgraph.compile_forward()
 
-            with align_modules(subgraph.modules):
+            with align_modules(subgraph.modules, oneshot_device):
                 # do an preliminary pass to trigger modifier hooks
                 for batch_index in tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)

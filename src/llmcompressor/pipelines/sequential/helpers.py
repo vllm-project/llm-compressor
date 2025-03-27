@@ -1,10 +1,12 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
+import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
+from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.proxy import Argument
 from torch.nn import Module
@@ -399,3 +401,33 @@ def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Mod
     modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
     called_modules = [parent_graph.get_submodule(op.target) for op in modules_ops]
     return list({m for module in called_modules for m in module.modules()})
+
+
+def infer_oneshot_device(
+    model: PreTrainedModel, oneshot_device: Optional[torch.device]
+) -> Optional[torch.device]:
+    if is_gpu_dispatched(model):
+        logger.warning(
+            "Calibrating a model dispatched to the gpu can potentially lead to OOM "
+            "errors. Consider loading the model without a `device_map` and instead "
+            "executing with `cuda:0` (set `oneshot_device` to override this default)"
+        )
+        return None
+
+    elif oneshot_device is None:
+        has_cuda = torch.cuda.is_available()
+        oneshot_device = torch.device("cuda:0") if has_cuda else torch.device("cpu")
+        logger.info(f"No oneshot_device passed, using {oneshot_device}")
+
+    return oneshot_device
+
+
+def is_gpu_dispatched(model: PreTrainedModel) -> bool:
+    for module in model.modules():
+        if any(param.device not in ("meta", "cpu") for param in module.parameters()):
+            return True
+
+        if has_offloaded_params(module) and module._hf_hook.execution_device != "cpu":
+            return True
+
+    return False

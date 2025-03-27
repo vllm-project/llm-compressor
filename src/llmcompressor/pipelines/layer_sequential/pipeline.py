@@ -12,6 +12,7 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     maybe_inject_pos_embeddings,
     to_next_layer_kwargs,
 )
+from llmcompressor.pipelines.sequential.helpers import infer_oneshot_device
 from llmcompressor.utils.helpers import align_modules, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -24,6 +25,7 @@ def run_pipeline(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     sequential_targets: List[str],
+    oneshot_device: Optional[torch.device],
     callback_modifier: Optional["Modifier"] = None,
 ):
     """
@@ -46,8 +48,13 @@ def run_pipeline(
     :param model: model being calibrated
     :param dataloader: loads data for calibration
     :param sequential_targets: patterns which match to the layer modules of the model
+    :param oneshot_device: device to onload layers ontop, uses device_map if None
     :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
+    # if the model is dispatched, use the dispatch to determine onloading, return None
+    # otherwise, infer a oneshot device (either user passed or the first available gpu)
+    oneshot_device = infer_oneshot_device(model, oneshot_device)
+
     # find layers
     layers = match_modules(model, sequential_targets)
 
