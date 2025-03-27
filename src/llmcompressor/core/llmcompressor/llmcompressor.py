@@ -7,17 +7,17 @@ from llmcompressor.core import State
 from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
 from llmcompressor.core.llmcompressor.train import HFSFTMixin
 from llmcompressor.core.llmcompressor.utils import (
-    LCModelArguments,
     LCDatasetArguments,
+    LCModelArguments,
     get_modifiers_from_recipe,
     prepare_models,
 )
 from llmcompressor.datasets.utils import get_calibration_dataloader
 from llmcompressor.modifiers import Modifier
+from llmcompressor.pipelines.registry import get_pipeline_fn
 from llmcompressor.pytorch.model_load.helpers import save_checkpoint
 from llmcompressor.typing import DatasetType, ModelInput, RecipeInput
 from llmcompressor.utils.singleton import SingletonMixin
-from llmcompressor.pipelines.registry import get_pipeline_fn
 
 
 class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
@@ -48,7 +48,7 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
         args = PostTrainArguments(pipeline=pipeline, save_path=save_path)
 
         _, pipeline_fn = get_pipeline_fn(args.pipeline, self.modifiers)
-        pipeline_fn(self.state.model, self.calibration_loader)
+        pipeline_fn(self.state.model, self.calibration_loader, args)
 
         self.finalize()
 

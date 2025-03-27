@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Union
 from pydantic import field_validator
 
 from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
-from llmcompressor.core.llmcompressor.globals import get_compressor
+from llmcompressor.core.llmcompressor.globals import SingletonException, get_compressor
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.helpers import (
     PruningCreateSettings,
@@ -97,9 +97,9 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
         try:
             get_compressor()
             current_index = state.current_index
-        except:
+        except SingletonException:
             current_index = event.current_index
-        
+
         sparsity = self.scheduler_function_(current_index, state)
         self.current_sparsity_ = sparsity
 
@@ -120,7 +120,7 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             try:
                 get_compressor()
                 current_index = state.current_index
-            except:
+            except SingletonException:
                 current_index = event.current_index
 
             sparsity = self.scheduler_function_(current_index, state)

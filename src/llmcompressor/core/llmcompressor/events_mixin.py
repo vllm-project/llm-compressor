@@ -10,7 +10,6 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
 )
 
-
 # (1) can remove event arg after the default pathway is either removed or
 # no longer depends on event to get current_index
 

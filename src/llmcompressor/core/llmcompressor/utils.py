@@ -1,17 +1,12 @@
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
-import os
 import yaml
 from loguru import logger
-from transformers import (
-    AutoConfig,
-    AutoModelForCausalLM,
-    PreTrainedModel,
-)
+from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.typing import RecipeInput
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.args.model_arguments import ModelArguments
 from llmcompressor.entrypoints.utils import (
@@ -26,13 +21,16 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     untie_weights,
 )
 from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_path
+from llmcompressor.typing import RecipeInput
 
 """ llmcompressor.Args """
 
 
 @dataclass
 class LCModelArguments(ModelArguments):
-    recipe: RecipeInput = field(default=None)  # dummy default to avoid inheritance issue
+    recipe: RecipeInput = field(
+        default=None
+    )  # dummy default to avoid inheritance issue
 
 
 @dataclass
@@ -51,7 +49,7 @@ def get_modifiers_from_recipe(
         return [recipe]
     if isinstance(recipe, List):
         return recipe
-    
+
     # load yaml as dict
     if os.path.exists(recipe):
         with open(recipe, "r") as file:
@@ -80,7 +78,7 @@ def get_modifiers_from_recipe(
 def get_modifiers_args_from_dict(values: Dict) -> List[Dict[str, Any]]:
     modifiers = []
     remove_keys = []
-    
+
     if "modifiers" in values and values["modifiers"]:
         remove_keys.append("modifiers")
         for mod_key, mod_value in values["stages"].items():

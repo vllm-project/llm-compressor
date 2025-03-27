@@ -1,4 +1,4 @@
-from typing import Callable, Union, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, List, Union
 
 import torch
 from datasets import Dataset, DatasetDict, IterableDataset
@@ -11,6 +11,7 @@ from transformers import (
 )
 
 if TYPE_CHECKING:
+    from llmcompressor.args.post_train_arguments import PostTrainArguments
     from llmcompressor.modifiers import Modifier
 
 # Tokenizer or Processor. Processors do not inherit from a unified base class
@@ -22,7 +23,9 @@ Processor = Union[
 DatasetType = Union[Dataset, DatasetDict, IterableDataset]
 
 # Pipeline callable
-PipelineFn = Callable[[PreTrainedModel, torch.utils.data.DataLoader], None]
+PipelineFn = Callable[
+    [PreTrainedModel, torch.utils.data.DataLoader, "PostTrainArguments"], None
+]
 
 # Supported model input types
 ModelInput = Union[str, PreTrainedModel]

@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+import torch
+
 from llmcompressor.pipelines.registry import PIPELINES
 
 
@@ -14,6 +16,6 @@ class PostTrainArguments:
         },
     )
 
-    save_path: Optional[str] = field(
-        default=None
-    )
+    oneshot_device: Optional[torch.device] = field(default=None)
+
+    save_path: Optional[str] = field(default=None)

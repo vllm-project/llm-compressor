@@ -1,20 +1,27 @@
+from typing import TYPE_CHECKING
+
 import torch
 import torch.utils.data.dataloader
 import tqdm
-from compressed_tensors.utils import get_execution_device
+from loguru import logger
+from transformers import PreTrainedModel
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.core.llmcompressor.globals import SingletonException, get_compressor
 from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.core.llmcompressor.globals import get_compressor
+
+if TYPE_CHECKING:
+    from llmcompressor.args.post_train_arguments import PostTrainArguments
 
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
-    model: torch.nn.Module,
+    model: PreTrainedModel,
     dataloader: torch.utils.data.DataLoader,
+    args: "PostTrainArguments",
 ):
     """
     Run a basic data pipeline.
@@ -30,11 +37,15 @@ def run_pipeline(
     """
     try:
         compressor = get_compressor()
-    except:
+    except SingletonException:
         session = active_session()
         compressor = None
-    
-    model_device = get_execution_device(model)
+
+    if args.oneshot_device is not None:
+        logger.warning(
+            "Basic pipeline does not utilize `oneshot_device` argument, instead use "
+            "`from_pretrained(device_map=...)` to determine onloading behavior"
+        )
 
     if compressor is not None:
         compressor.initialize()
@@ -44,7 +55,7 @@ def run_pipeline(
     with calibration_forward_context(model):
         for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
             batch = apply_pad_mask_to_batch(batch)
-            batch = tensors_to_device(batch, model_device)
+            batch = tensors_to_device(batch, model.device)
             model(**batch)
 
     if compressor is not None:

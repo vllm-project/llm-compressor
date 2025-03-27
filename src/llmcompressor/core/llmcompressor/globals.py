@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 from transformers import PreTrainedModel
 
+from llmcompressor.utils.singleton import SingletonException  # noqa: F401
+
 if TYPE_CHECKING:
     from llmcompressor.core import State
     from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor

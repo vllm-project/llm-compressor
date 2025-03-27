@@ -145,7 +145,7 @@ class GPTQModifier(Modifier, HooksMixin):
         :param state: session state storing input model and calibration data
         """
         ModifierFactory.refresh()
-        
+
         quantization_already_active = qat_active(model)
         if isinstance(self.quantize, bool):
             if not self.quantize and quantization_already_active:

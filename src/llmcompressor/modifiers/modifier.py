@@ -1,7 +1,6 @@
+import math
 from abc import abstractmethod
 from typing import Optional
-
-import math
 
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
@@ -181,7 +180,7 @@ class Modifier(ModifierInterface, HooksMixin):
         current = event.current_index
 
         return self.end is not None and current >= self.end
-    
+
     def lc_should_start(self, state: State) -> bool:
         """
         :param event: The event to check if the modifier should start
