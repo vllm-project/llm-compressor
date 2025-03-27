@@ -23,6 +23,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
     is_model_ct_quantized_from_path,
+    resolve_processor_from_model_args,
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
@@ -40,6 +41,8 @@ def pre_process(model_args: "ModelArguments"):
         FileNotFoundError: If the model or processor path is invalid.
     """
     _warn_tied_embeddings(model_args.tie_word_embeddings)
+
+    resolve_processor_from_model_args(model_args)
 
     # Initialize model
     if isinstance(model_args.model, (str, PosixPath)):
