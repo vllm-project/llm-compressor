@@ -110,12 +110,6 @@ class SessionManagerMixIn:
         model_signature = inspect.signature(self.model.forward)
         self._signature_columns = list(model_signature.parameters.keys())
 
-        if self.teacher is not None and teacher not in ("disable", "self"):
-            teacher_signature = inspect.signature(self.teacher.forward)
-            self._teacher_signature_columns = list(teacher_signature.parameters.keys())
-        else:
-            self._teacher_signature_columns = None
-
         if self.is_fsdp_enabled:
             self._prepare_model_for_fsdp()
 
