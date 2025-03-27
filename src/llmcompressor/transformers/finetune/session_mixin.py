@@ -218,24 +218,6 @@ class SessionManagerMixIn:
 
         return self.optimizer
 
-    def create_scheduler(
-        self, num_training_steps: int, optimizer: torch.optim.Optimizer = None
-    ):
-        """
-        Create an LR scheduler to work with the applied recipes. This is a placeholder
-        that just calls the super method, but would be expanded upon if we ever
-        implement a LearningRateModifier.
-
-        :param num_training_steps: the total number of training steps
-        :param optimizer: pre-initialized optimizer
-        """
-
-        # TODO: we don't currently have a LR scheduler in the new modifier framework
-        self._check_super_defined("create_scheduler")
-        return super().create_scheduler(
-            num_training_steps=num_training_steps, optimizer=optimizer
-        )
-
     def training_step(
         self,
         model: torch.nn.Module,
