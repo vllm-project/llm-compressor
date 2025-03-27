@@ -19,9 +19,5 @@ class SingletonMixin(ABC):
     @classmethod
     def instance(cls: Type[T]) -> T:
         if cls not in cls._instances:
-            raise SingletonException(f"Instance of {cls} has not been created yet.")
+            raise ValueError(f"Instance of {cls} has not been created yet.")
         return cls._instances[cls]
-
-
-class SingletonException(Exception):
-    pass

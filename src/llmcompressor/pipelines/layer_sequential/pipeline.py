@@ -4,7 +4,7 @@ import torch
 import tqdm
 from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.core.llmcompressor.globals import get_compressor
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
@@ -52,19 +52,18 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
+    compressor = get_compressor()
+
     # if the model is dispatched, use the dispatch to determine onloading, return None
     # otherwise, infer a oneshot device (either user passed or the first available gpu)
     oneshot_device = infer_oneshot_device(model, args.oneshot_device)
 
-    session = active_session()
-
     # find layers
-    modifiers = session.get_modifiers()
+    modifiers = compressor.modifiers
     sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
     layers = match_modules(model, sequential_targets)
 
-    session.initialize()
-
+    compressor.initialize()
     with calibration_forward_context(model):
         # prepare intermediates cache
         intermediates: IntermediatesCache = capture_first_layer_intermediates(
@@ -84,7 +83,7 @@ def run_pipeline(
                     layer(**inputs)
 
                 # trigger compression
-                LifecycleCallbacks.sequential_epoch_end()
+                compressor.sequential_epoch_end()
 
                 # this pass does not trigger modifier hooks
                 # and is only used for capturing outputs from newly compressed modules
@@ -106,4 +105,4 @@ def run_pipeline(
                             intermediates.update(batch_index, output)
 
         # redudant, finish any remaining compression
-        LifecycleCallbacks.calibration_epoch_end()
+        compressor.calibration_epoch_end()

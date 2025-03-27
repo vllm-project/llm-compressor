@@ -1,32 +1,37 @@
 import inspect
-import math
 import os
-from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 import torch
 from loguru import logger
 from torch.nn import Module
-from torch.utils.data import IterableDataset
+from transformers import PreTrainedModel
+from transformers import Trainer as HFTransformersTrainer
 from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
 
-from llmcompressor.core import active_session, callbacks, create_session
+from llmcompressor.args.training_arguments import TrainingArguments
+from llmcompressor.core.llmcompressor.globals import (
+    get_compressor,
+    get_model,
+    get_state,
+)
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,
 )
-from llmcompressor.pytorch.model_load.helpers import get_session_model, save_checkpoint
+from llmcompressor.pytorch.model_load.helpers import save_checkpoint
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.finetune.callbacks import (
     DisableHalfPrecisionCallback,
     TrainingLoopCallbacks,
 )
+from llmcompressor.typing import DatasetType, Processor
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.pytorch import qat_active
 
 if TYPE_CHECKING:
-    from llmcompressor.args import DatasetArguments, ModelArguments
+    from transformers.data.data_collator import DataCollator
 
 __all__ = [
     "SessionManagerMixIn",
@@ -41,63 +46,37 @@ METADATA_ARGS = [
 ]
 
 
-class SessionManagerMixIn:
+class SessionManagerMixIn(HFTransformersTrainer):
     """
-    Mix-In class to extend the Hugging Face Trainer class to support LLM Compressor
-    recipes for one-shot and finetuning flows.
+    Mix-In class to extend the Hugging Face Trainer and TRL Trainer classes to support
+    LLM Compressor recipes for finetuning pathways
 
-    :param recipe: path to recipe file to apply during training
-    :param recipe_args: additional kwargs to use for evaluating recipe
-    :param dataset_args: kwargs for configuring dataset loading
-    :param teacher: optional teacher model to use for distillation
+    Must use epoch as current_index
     """
 
     def __init__(
         self,
-        recipe: str,
-        dataset_args: "DatasetArguments",
-        model_args: "ModelArguments",
-        teacher: Optional[Union[Module, str]] = None,
-        recipe_args: Optional[Union[Dict[str, Any], str]] = None,
+        model: PreTrainedModel,
+        args: TrainingArguments,
+        data_collator: Optional["DataCollator"] = None,
+        train_dataset: Optional[DatasetType] = None,
+        eval_dataset: Optional[DatasetType] = None,
+        processing_class: Optional[Processor] = None,
         **kwargs,
     ):
-        self.recipe = recipe
-        self.recipe_args = recipe_args
-        self.model_args = model_args
-        self.teacher = teacher
-
-        # parse training and metadata args
-        training_args = kwargs.get("args")
-
-        self.metadata = None
-        if training_args is not None:
-            # trl_sft_trainer pathway. Both training_args and dataset_args
-            # have `max_seq_length` which causes collision error. This is the
-            # only shared parameter, where training arg is `TRLSFTConfig` that
-            # inherits HuggingFace's `TrainingArguments`
-            training_args_dict = training_args.to_dict()
-            if "max_seq_length" in training_args_dict:
-                training_args_dict["training_args_max_seq_length"] = (
-                    training_args_dict.pop("max_seq_length")
-                )
-                logger.warning(
-                    "Detected `max_seq_length` in both dataset_args ",
-                    "and training_args. This is expected for TRL in distillation. ",
-                    "Updating metadata to `training_args_max_seq_length`",
-                )
-
-            self.metadata = self._extract_metadata(
-                metadata_args=METADATA_ARGS,
-                training_args_dict=training_args_dict,
-                dataset_args_dict=asdict(dataset_args) if dataset_args else {},
-            )
-
         # setup metrics and session
         self.logger_manager = LoggerManager(log_python=False)
-        create_session()
 
         # call Trainer initialization
-        super().__init__(**kwargs)
+        super().__init__(
+            model=model,
+            args=args,
+            data_collator=data_collator,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            processing_class=processing_class,
+            **kwargs,
+        )
         self.accelerator.wait_for_everyone()
 
         # setup callbacks and loss
@@ -107,27 +86,17 @@ class SessionManagerMixIn:
         self.callback_handler.add_callback(self.callback_disable_fp16)
         self.criterion = torch.nn.CrossEntropyLoss()
 
-        model_signature = inspect.signature(self.model.forward)
+        # used when computing loss
+        model = get_model()
+        model_signature = inspect.signature(model.forward)
         self._signature_columns = list(model_signature.parameters.keys())
 
-        if self.teacher is not None and teacher not in ("disable", "self"):
-            teacher_signature = inspect.signature(self.teacher.forward)
-            self._teacher_signature_columns = list(teacher_signature.parameters.keys())
-        else:
-            self._teacher_signature_columns = None
+        # used to toggle compressed saving
 
         if self.is_fsdp_enabled:
             self._prepare_model_for_fsdp()
 
-        if dataset_args is not None:
-            self.min_tokens_per_module = dataset_args.min_tokens_per_module
-
-    def initialize_session(
-        self,
-        epoch: float,
-        checkpoint: Optional[str] = None,
-        stage: Optional[str] = None,
-    ):
+    def initialize_session(self, epoch: float):
         """
         Initialize the CompressionSession from the specified epoch, evaluates the recipe
         and initialized the modifiers for the training session
@@ -137,56 +106,23 @@ class SessionManagerMixIn:
         :param checkpoint: Optional checkpoint to initialize from to continue training
         :param stage: Optional stage of recipe to run, or None to run all stages
         """
-        session = active_session()
-        if session.lifecycle.initialized_ or session.lifecycle.finalized:
-            return False
-
-        train_data = self.get_train_dataloader()
+        compressor = get_compressor()
 
         self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
-            active_session().initialize(
-                recipe=self.recipe,
-                recipe_stage=stage,
-                recipe_args=self.recipe_args,
-                model=self.model,
-                teacher_model=self.teacher,  # TODO: what about for self/disable?
-                train_data=train_data,
-                start=epoch,
-                copy_data=False,
-                attach_optim_callbacks=True,
-                fsdp_active=self.is_fsdp_enabled,
-                metadata=self.metadata,
-            )
-
+            compressor.initialize(model=self.model, start=epoch)
         self.accelerator.wait_for_everyone()
-        model = get_session_model()
-        self.model_wrapped = self.model = model
-
-        if self.recipe is None:
-            logger.warning(
-                "No training recipe was provided, finetuning will be run "
-                "without event callbacks to LLM Compressor. To supply a recipe "
-                "pass a yaml file or string to the `recipe` argument."
-            )
-
-        torch.cuda.empty_cache()
 
     def finalize_session(self):
         """
         Wrap up training by finalizing all modifiers initialized in the current session
         """
-        session = active_session()
-        if not session.lifecycle.initialized_ or session.lifecycle.finalized:
-            return False
+        compressor = get_compressor()
 
+        self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
-            # in order to update each layer we need to gathers all its parameters
-            active_session().finalize()
-        logger.info("Finalized LLM Compressor session")
-        model = get_session_model()
-        self.model = model
-        torch.cuda.empty_cache()
+            compressor.finalize()
+        self.accelerator.wait_for_everyone()
 
     def create_optimizer(self):
         """
@@ -195,59 +131,13 @@ class SessionManagerMixIn:
         self.optimizer to the optimizer state and optionally set self.scaler
         if using amp.
         """
-
         self._check_super_defined("create_optimizer")
+
         super().create_optimizer()
-
-        # n_gpu handled internally by dataloader
-        total_batch_size = (
-            self.args.per_device_train_batch_size
-            * self.args.gradient_accumulation_steps
-        )
-
-        if isinstance(self.train_dataset, IterableDataset):
-            logger.warning(
-                "Training is being run with a streamed dataset, "
-                "steps_per_epoch cannot be determined and will default to "
-                "1. LLM Compressor modifiers utilizing this statistic may not "
-                "behave as expected. "
-            )
-            self.total_steps_per_epoch = 1
-        else:
-            self.total_steps_per_epoch = math.ceil(
-                len(self.train_dataset) / total_batch_size
-            )
-
-        active_session().initialize(
-            optimizer=self.optimizer, steps_per_epoch=self.total_steps_per_epoch
-        )
-
+        get_state().optimizer = self.optimizer
         return self.optimizer
 
-    def create_scheduler(
-        self, num_training_steps: int, optimizer: torch.optim.Optimizer = None
-    ):
-        """
-        Create an LR scheduler to work with the applied recipes. This is a placeholder
-        that just calls the super method, but would be expanded upon if we ever
-        implement a LearningRateModifier.
-
-        :param num_training_steps: the total number of training steps
-        :param optimizer: pre-initialized optimizer
-        """
-
-        # TODO: we don't currently have a LR scheduler in the new modifier framework
-        self._check_super_defined("create_scheduler")
-        return super().create_scheduler(
-            num_training_steps=num_training_steps, optimizer=optimizer
-        )
-
-    def training_step(
-        self,
-        model: torch.nn.Module,
-        inputs: Dict[str, Union[torch.Tensor, Any]],
-        num_items_in_batch: Optional[int] = None,
-    ) -> torch.Tensor:
+    def training_step(self, *args, **kwargs) -> torch.Tensor:
         """
         Overrides the Trainer's training step to trigger the batch_start callback to
         the modifiers, then calls the parent function.
@@ -258,12 +148,8 @@ class SessionManagerMixIn:
         """
         self._check_super_defined("training_step")
 
-        callbacks.batch_start(batch_data=inputs, global_step=self.state.epoch)
-        model_outputs = super().training_step(
-            model=model, inputs=inputs, num_items_in_batch=num_items_in_batch
-        )
-
-        return model_outputs
+        get_compressor().batch_start(global_step=self.state.epoch)
+        return super().training_step(*args, **kwargs)
 
     def compute_loss(
         self,
@@ -283,6 +169,8 @@ class SessionManagerMixIn:
             containing the loss and the model's outputs
         """
         self._check_super_defined("compute_loss")
+        compressor = get_compressor()
+        state = get_state()
 
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
@@ -306,13 +194,12 @@ class SessionManagerMixIn:
             log["step_loss"] = loss.item()
             log["perplexity"] = torch.exp(loss).item()
 
-        if active_session().lifecycle.initialized_:
-            state = callbacks.loss_calculated(loss=loss)
-            if state and state.loss is not None:
-                loss = state.loss
-                if do_log:
-                    log["distill_step_loss"] = loss.item() - log["step_loss"]
-            callbacks.optim_pre_step()
+        compressor.loss_calculated(loss=loss)
+        if state and state.loss is not None:
+            loss = state.loss
+            if do_log:
+                log["distill_step_loss"] = loss.item() - log["step_loss"]
+        compressor.optim_pre_step()
 
         if do_log:
             self.log(log)
@@ -332,23 +219,16 @@ class SessionManagerMixIn:
         :return: the output from super.train()
         """
 
-        # lifecycle
-        checkpoint, epoch = self._calculate_checkpoint_info(kwargs)
-        self.initialize_session(epoch=epoch, checkpoint=checkpoint, stage=stage)
-
-        # do not save checkpoints as compressed
-        original_save_compressed = self.model_args.save_compressed
-        self.model_args.save_compressed = False
+        # initialize session with correct epoch
+        _, epoch = self._calculate_checkpoint_info(kwargs)
+        self.initialize_session(epoch=epoch)
 
         # train with accelerator
         self.accelerator.wait_for_everyone()
         output = super().train(*args, **kwargs)
         self.accelerator.wait_for_everyone()
 
-        # restore original setting for saving final model
-        self.model_args.save_compressed = original_save_compressed
-
-        # lifecycle
+        # finalize session
         self.finalize_session()
         self.accelerator.wait_for_everyone()
 
@@ -360,15 +240,14 @@ class SessionManagerMixIn:
 
     def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
         """
+        Only saves checkpoints
+
         Override of the save_model function and expects it to exist in the parent.
         Calls into super() to save the model and additionally saves any recipes
         that were used with the model within the model folder.
 
         :param output_dir: the path to save the recipes into
         """
-        if active_session() is None:
-            return  # nothing to save
-
         if output_dir is None:
             output_dir = self.args.output_dir
 
@@ -385,7 +264,7 @@ class SessionManagerMixIn:
                 model=self.model,
                 processor=processor,
                 save_safetensors=self.args.save_safetensors,
-                save_compressed=self.model_args.save_compressed,
+                save_compressed=False,  # Saving as a checkpoint, not final model
             )
         self.accelerator.wait_for_everyone()
 
@@ -441,44 +320,24 @@ class SessionManagerMixIn:
         """
         Sets up FSDP ahead of time so we can run one-shot in FSDP mode
         """
-        self.model.to("cpu")
-        self.model = self.accelerator.prepare(self.model)
+        state = get_state()
+        model = state.model
+        teacher = state.teacher_model
+
+        model = model.to("cpu")
+        model = self.accelerator.prepare(model)
         self.accelerator.wait_for_everyone()
 
-        if self.teacher is not None:
-            self.teacher.to("cpu")
+        if teacher is not None:
+            teacher.to("cpu")
             for n, p in self.teacher.named_parameters():
                 p.requires_grad = False
-            self.teacher = self.accelerator.prepare(self.teacher)
-            self.teacher.eval()
+            teacher = self.accelerator.prepare(teacher)
+            teacher.eval()
             self.accelerator.wait_for_everyone()
 
-    def _extract_metadata(
-        self,
-        metadata_args: List[str],
-        training_args_dict: Dict[str, Any],
-        dataset_args_dict: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        metadata = {}
-        if not training_args_dict.keys().isdisjoint(dataset_args_dict.keys()):
-            raise ValueError(
-                "Found common keys in `training_args` and `data args`. "
-                "This is prohibitive and may lead to undesired behavior."
-            )
-
-        args_dict = {**training_args_dict, **dataset_args_dict}
-
-        for arg in metadata_args:
-            if arg not in args_dict.keys():
-                logger.warning(
-                    f"Required metadata argument {arg} was not found "
-                    f"in the training arguments. Setting {arg} to None."
-                )
-                metadata[arg] = None
-            else:
-                metadata[arg] = args_dict[arg]
-
-        return metadata
+        state.model = model
+        state.teacher_model = teacher
 
     def _check_super_defined(self, func: str):
         if not hasattr(super(), func):

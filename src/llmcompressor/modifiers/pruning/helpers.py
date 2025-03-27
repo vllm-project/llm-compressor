@@ -29,7 +29,7 @@ class PruningCreateSettings:
     args: Dict[str, Any]
 
 
-SchedulerCalculationType = Callable[[int, State], float]
+SchedulerCalculationType = Callable[[State], float]
 CreateSchedulerType = Callable[[PruningCreateSettings], SchedulerCalculationType]
 
 
@@ -71,7 +71,7 @@ def create_custom_scheduler(
 
     inner_expr = match.group(1)
 
-    def _schedule(current_index: int, state: State):
+    def _schedule(state: State):
         return eval(
             inner_expr,
             {"math": math},
@@ -82,7 +82,7 @@ def create_custom_scheduler(
                 "init_sparsity": settings.init_sparsity,
                 "final_sparsity": settings.final_sparsity,
                 **(settings.args if settings.args else {}),
-                "index": current_index,
+                "index": state.current_index,
             },
         )
 
@@ -91,8 +91,8 @@ def create_custom_scheduler(
 
 @PruningSchedulerFactory.register_decorator("linear")
 def linear_scheduler(settings: PruningCreateSettings) -> SchedulerCalculationType:
-    def _schedule(current_index: int, state: State) -> float:
-        per_complete = (current_index - settings.start) / (
+    def _schedule(state: State) -> float:
+        per_complete = (state.current_index - settings.start) / (
             settings.end - settings.start
         )
 
@@ -118,8 +118,8 @@ def polynomial_decay_scheduler(
     args = settings.args if settings.args else {}
     exponent = args.get("exponent", 2)
 
-    def _schedule(current_index: int, state: State) -> float:
-        per_complete = (current_index - settings.start) / (
+    def _schedule(state: State) -> float:
+        per_complete = (state.current_index - settings.start) / (
             settings.end - settings.start
         )
 
@@ -138,8 +138,8 @@ def polynomial_scheduler(settings: PruningCreateSettings) -> SchedulerCalculatio
     args = settings.args if settings.args else {}
     exponent = args.get("exponent", 2)
 
-    def _schedule(current_index: int, state: State) -> float:
-        per_complete = (current_index - settings.start) / (
+    def _schedule(state: State) -> float:
+        per_complete = (state.current_index - settings.start) / (
             settings.end - settings.start
         )
         scaled_complete = per_complete**exponent
@@ -158,11 +158,11 @@ def multi_step_scheduler(settings: PruningCreateSettings) -> SchedulerCalculatio
     steps = args.get("steps", [])
     steps = sorted(steps, key=lambda x: x[0])
 
-    def _schedule(current_index: int, state: State) -> float:
+    def _schedule(state: State) -> float:
         current_sparsity = settings.init_sparsity
 
         for index, sparsity in steps:
-            if current_index >= index:
+            if state.current_index >= index:
                 current_sparsity = sparsity
 
         return current_sparsity

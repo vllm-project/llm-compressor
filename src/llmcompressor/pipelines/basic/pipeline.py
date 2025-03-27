@@ -6,8 +6,7 @@ import tqdm
 from loguru import logger
 from transformers import PreTrainedModel
 
-from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.core.llmcompressor.globals import SingletonException, get_compressor
+from llmcompressor.core.llmcompressor.globals import get_compressor
 from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -35,11 +34,7 @@ def run_pipeline(
     :param dataloader: loads data for calibration
     :param modifiers: list of modifiers, only included to match PipelineFn signature
     """
-    try:
-        compressor = get_compressor()
-    except SingletonException:
-        session = active_session()
-        compressor = None
+    compressor = get_compressor()
 
     if args.oneshot_device is not None:
         logger.warning(
@@ -47,18 +42,11 @@ def run_pipeline(
             "`from_pretrained(device_map=...)` to determine onloading behavior"
         )
 
-    if compressor is not None:
-        compressor.initialize()
-    else:
-        session.initialize()
-
+    compressor.initialize()
     with calibration_forward_context(model):
         for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
             batch = apply_pad_mask_to_batch(batch)
             batch = tensors_to_device(batch, model.device)
             model(**batch)
 
-    if compressor is not None:
-        compressor.calibration_epoch_end()
-    else:
-        LifecycleCallbacks.calibration_epoch_end()
+    compressor.calibration_epoch_end()

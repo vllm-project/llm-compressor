@@ -4,7 +4,8 @@ Utility / helper functions
 
 import difflib
 import re
-from typing import Dict, List, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization.utils import is_module_quantized
@@ -12,7 +13,6 @@ from packaging import version
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 
-from llmcompressor.core import ModelParameterizedLayer
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
@@ -60,6 +60,7 @@ __all__ = [
     "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
+    "ModelParameterizedLayer",
 ]
 
 
@@ -277,22 +278,6 @@ def qat_active(module: Module) -> bool:
     return False
 
 
-def get_layers_params(
-    targets: Union[str, List[str]], module: Module
-) -> Dict[str, ModelParameterizedLayer]:
-    params = get_params(targets, module)
-    layers = get_layers(targets, module)
-
-    parameterized_layers = {}
-    for name, param in params.items():
-        param_layer = ModelParameterizedLayer(
-            layer_name=name, layer=layers[name], param_name=name, param=param
-        )
-        parameterized_layers[name] = param_layer
-
-    return parameterized_layers
-
-
 def get_matching_layer(
     target: str, name_to_match: str, module: Module
 ) -> Optional[Tuple[str, Module]]:
@@ -338,3 +323,36 @@ def get_no_split_params(module: Module) -> Union[str, List[str]]:
     if hasattr(model, "_no_split_modules"):
         return model._no_split_modules
     return ALL_TARGET
+
+
+@dataclass
+class ModelParameterizedLayer:
+    """
+    A dataclass for holding a parameter and its layer
+
+    :param layer_name: the name of the layer
+    :param layer: the layer object
+    :param param_name: the name of the parameter
+    :param param: the parameter object
+    """
+
+    layer_name: str
+    layer: Any
+    param_name: str
+    param: Any
+
+
+def get_layers_params(
+    targets: Union[str, List[str]], module: Module
+) -> Dict[str, ModelParameterizedLayer]:
+    params = get_params(targets, module)
+    layers = get_layers(targets, module)
+
+    parameterized_layers = {}
+    for name, param in params.items():
+        param_layer = ModelParameterizedLayer(
+            layer_name=name, layer=layers[name], param_name=name, param=param
+        )
+        parameterized_layers[name] = param_layer
+
+    return parameterized_layers

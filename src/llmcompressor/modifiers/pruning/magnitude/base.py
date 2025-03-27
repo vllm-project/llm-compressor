@@ -3,8 +3,7 @@ from typing import Any, Dict, List, Union
 
 from pydantic import field_validator
 
-from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
-from llmcompressor.core.llmcompressor.globals import SingletonException, get_compressor
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.helpers import (
     PruningCreateSettings,
@@ -17,7 +16,10 @@ from llmcompressor.modifiers.pruning.utils.pytorch import (
     PruningMaskCreatorArgs,
     PruningMaskFactory,
 )
-from llmcompressor.utils.pytorch.module import get_layers_params
+from llmcompressor.utils.pytorch.module import (
+    ModelParameterizedLayer,
+    get_layers_params,
+)
 
 __all__ = ["MagnitudePruningModifier"]
 
@@ -86,21 +88,16 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
 
         return True
 
-    def on_finalize(self, state: State, **kwargs) -> bool:
+    def on_finalize(self, state: State) -> bool:
         for layer_param_name, _ in self.parameterized_layers_.items():
             self.remove_mask(layer_param_name)
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        super().on_start(state, event)
-        try:
-            get_compressor()
-            current_index = state.current_index
-        except SingletonException:
-            current_index = event.current_index
+    def on_start(self, state: State):
+        super().on_start(state)
 
-        sparsity = self.scheduler_function_(current_index, state)
+        sparsity = self.scheduler_function_(state)
         self.current_sparsity_ = sparsity
 
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
@@ -115,15 +112,9 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
 
         self.enable_masks()
 
-    def on_update(self, state: State, event: Event, **kwargs):
+    def on_update(self, state: State, event: Event):
         if event.type_ == EventType.BATCH_START:
-            try:
-                get_compressor()
-                current_index = state.current_index
-            except SingletonException:
-                current_index = event.current_index
-
-            sparsity = self.scheduler_function_(current_index, state)
+            sparsity = self.scheduler_function_(state)
             if sparsity != self.current_sparsity_:
                 self.current_sparsity_ = sparsity
 

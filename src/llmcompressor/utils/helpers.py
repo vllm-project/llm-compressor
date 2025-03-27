@@ -1150,3 +1150,4 @@ def align_modules(
     with contextlib.ExitStack() as stack:
         for module in modules:
             stack.enter_context(align_module_device(module, execution_device))
+        yield

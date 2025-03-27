@@ -102,9 +102,7 @@ class QuantizedKVParameterCache(DynamicCache):
             q_value_states, KVCacheScaleType.VALUE, layer_idx
         )
 
-        keys_to_return, values_to_return = qdq_key_states, qdq_value_states
-
-        return keys_to_return, values_to_return
+        return qdq_key_states, qdq_value_states
 
     def get_seq_length(self, layer_idx: Optional[int] = 0) -> int:
         """

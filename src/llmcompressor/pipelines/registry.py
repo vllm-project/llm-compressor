@@ -23,27 +23,29 @@ PIPELINES: Dict[str, PipelineFn] = {
 def get_pipeline_fn(
     user: Optional[str], modifiers: List[Modifier]
 ) -> Tuple[str, PipelineFn]:
-    inferred_pipeline = infer_pipeline_fn(modifiers)
-
-    if user is not None and user != inferred_pipeline:
-        logger.warning(
-            f"Calibration pipeline is set to `{user}`, but it is recommend to "
-            f"use `{inferred_pipeline}`"
-        )
-
-    pipeline = user or inferred_pipeline
+    inferred = infer_pipeline(modifiers)
+    pipeline = resolve_pipeline(user, inferred)
 
     if pipeline not in PIPELINES:
         raise ValueError(
             f"Cannot find `{pipeline}` in registered pipelines {PIPELINES.keys()}"
         )
-
     return pipeline, PIPELINES[pipeline]
 
 
-def infer_pipeline_fn(modifiers: List[Modifier]) -> str:
+def infer_pipeline(modifiers: List[Modifier]) -> str:
     if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
         return "sequential"
 
     else:
         return "basic"
+
+
+def resolve_pipeline(user: str, inferred: str) -> str:
+    if user is not None and user != "independent" and user != inferred:
+        logger.warning(
+            f"Calibration pipeline is set to `{user}`, but it is recommend to "
+            f"use `{inferred}`"
+        )
+
+    return user or inferred

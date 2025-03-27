@@ -3,8 +3,7 @@ import math
 from transformers import TrainerCallback, TrainerControl, TrainingArguments
 from transformers.trainer_callback import TrainerState
 
-from llmcompressor.core import active_session
-from llmcompressor.core import callbacks as session_callbacks
+from llmcompressor.core.llmcompressor.globals import get_compressor, get_state
 
 __all__ = [
     "DisableHalfPrecisionCallback",
@@ -39,8 +38,7 @@ class TrainingLoopCallbacks(TrainerCallback):
         model, as it will have changed to a wrapper if FSDP is enabled
         """
         super().on_train_begin(args, state, control, **kwargs)
-        session = active_session()
-        session.state.model = self.trainer.model
+        get_state().model = self.trainer.model
 
     def on_step_end(
         self,
@@ -56,8 +54,9 @@ class TrainingLoopCallbacks(TrainerCallback):
         Triggers optimizer post_step and batch_end in the active CompressionSession
         """
         super().on_step_end(args, state, control, **kwargs)
-        session_callbacks.optim_post_step()
-        session_callbacks.batch_end()
+        compressor = get_compressor()
+        compressor.optim_post_step()
+        compressor.batch_end()
 
     def on_substep_end(
         self,
@@ -72,12 +71,15 @@ class TrainingLoopCallbacks(TrainerCallback):
         Triggers optimizer post_step and batch_end in the active CompressionSession
         """
         super().on_substep_end(args, state, control, **kwargs)
-        session_callbacks.optim_post_step()
-        session_callbacks.batch_end()
+        compressor = get_compressor()
+        compressor.optim_post_step()
+        compressor.batch_end()
 
 
 class DisableHalfPrecisionCallback(TrainerCallback):
     """
+    TODO: I don't think this callback actually does anything?
+
     TrainerCallback for disabling FP16 training before QAT training begins
 
     :param trainer: LLM Compressor trainer that will call back into this object
@@ -90,13 +92,6 @@ class DisableHalfPrecisionCallback(TrainerCallback):
         self.trainer = trainer
         self.on_begin_called = False
         self.quant_start_epoch = math.inf
-
-    def qat_active(self) -> bool:
-        """
-        :return: True if a quantization modifier is active in the current session
-        """
-        session = active_session()
-        return session.state.model.qat_active()
 
     def on_epoch_begin(
         self,

@@ -221,6 +221,27 @@ def set_unset_kv_cache(module: Module):
             setattr(module, "kv_cache", kv_cache)
 
 
+def initialize_quantized_kv_cache(module: Module):
+    if not hasattr(module, "quantization_scheme"):
+        return
+
+    is_kv_cache_scheme = is_kv_cache_quant_scheme(module.quantization_scheme)
+    existing_kv_cache = getattr(module, "kv_cache", None)
+    has_quantized_kv_cache = isinstance(existing_kv_cache, QuantizedKVParameterCache)
+
+    if is_kv_cache_scheme and not has_quantized_kv_cache:
+        output_args = module.quantization_scheme.output_activations
+        quantized_kv_cache = QuantizedKVParameterCache(output_args)
+        setattr(module, "kv_cache", quantized_kv_cache)
+
+
+def remove_quantized_kv_cache(module: Module):
+    existing_kv_cache = getattr(module, "kv_cache", None)
+    has_quantized_kv_cache = isinstance(existing_kv_cache, QuantizedKVParameterCache)
+    if has_quantized_kv_cache:
+        delattr(module, "kv_cache")  # TODO: should this be replaced with the original?
+
+
 def apply_calibration_status(module: Module):
     scheme = getattr(module, "quantization_scheme", None)
     if not scheme:

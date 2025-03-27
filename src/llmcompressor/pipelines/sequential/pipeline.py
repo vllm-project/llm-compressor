@@ -4,8 +4,7 @@ import tqdm
 from torch.utils.data.dataloader import DataLoader
 from transformers import PreTrainedModel
 
-from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.core.llmcompressor.globals import SingletonException, get_compressor
+from llmcompressor.core.llmcompressor.globals import get_compressor
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import (
@@ -49,31 +48,21 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param ignore: patterns which match to modules which should be ignored by tracing
     """
+    compressor = get_compressor()
+
     # if the model is dispatched, use the dispatch to determine onloading, return None
     # otherwise, infer a oneshot device (either user passed or the first available gpu)
     oneshot_device = infer_oneshot_device(model, args.oneshot_device)
 
-    try:
-        compressor = get_compressor()
-        modifiers = compressor.modifiers
-
-    except SingletonException:
-        session = active_session()
-        modifiers = session.get_modifiers()
-        compressor = None
-
     # infer sequential targets
+    modifiers = compressor.modifiers
     sequential_targets, ignore = get_targets_from_modifiers(modifiers, model)
 
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
-    if compressor is not None:
-        compressor.initialize()
-    else:
-        session.initialize()
-
+    compressor.initialize()
     with calibration_forward_context(model):
         # prepare intermediates cache
         model_device = oneshot_device or model.device
@@ -95,10 +84,7 @@ def run_pipeline(
                     forward_function(model, **inputs)
 
                 # trigger compression
-                if compressor is not None:
-                    compressor.sequential_epoch_end()
-                else:
-                    LifecycleCallbacks.sequential_epoch_end()
+                compressor.sequential_epoch_end()
 
                 # this pass does not trigger modifier hooks
                 # and is only used for capturing outputs from newly compressed modules
@@ -114,7 +100,4 @@ def run_pipeline(
                             intermediates.delete(batch_index, subgraph.consumed_names)
 
         # redudant, finish any remaining compression
-        if compressor is not None:
-            compressor.calibration_epoch_end()
-        else:
-            LifecycleCallbacks.calibration_epoch_end()
+        compressor.calibration_epoch_end()

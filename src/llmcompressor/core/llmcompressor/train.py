@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 class HFSFTMixin:
     state: State
     train_dataset: Optional[DatasetType] = None
+    eval_dataset: Optional[DatasetType] = None
     train_data_collator: Optional["DataCollator"] = None
 
     def set_train_dataset(self, dataset: Union[str, DatasetType], **kwargs):
@@ -26,28 +27,30 @@ class HFSFTMixin:
         )
         self.train_dataset = processed_dataset.get("train")
 
+    def set_eval_dataset(self, dataset: Union[str, DatasetType], **kwargs):
+        dataset_args = LCDatasetArguments(dataset=dataset, **kwargs)
+
+        processed_dataset = get_processed_dataset(
+            dataset_args=dataset_args,
+            processor=self.state.processor,
+        )
+        self.eval_dataset = processed_dataset.get("train")
+
     def train(self, **kwargs):
         args = TrainingArguments(**kwargs)
-        raise NotImplementedError(
-            "Implementing LLMCompressor.train would require "
-            "changes which break existing training pathways"
-        )
 
+        # TODO: warn if max_seq_len conflicts between dataset and training args
+
+        # train model
         trainer = Trainer(
             model=self.state.model,
-            teacher=self.state.teacher_model,
-            # recipe=recipe_args.recipe,
-            # recipe_args=recipe_args.recipe_args,
-            args=training_args,
-            # model_args=model_args,
-            # dataset_args=dataset_args,
-            train_dataset=self.train_dataset,
-            processing_class=self.state.processor,
+            args=args,
             data_collator=self.train_data_collator,
+            train_dataset=self.train_dataset,
+            eval_dataset=self.eval_dataset,
+            processing_class=self.state.processor,
         )
-
-        # run training
-        checkpoint = training_args.resume_from_checkpoint
+        checkpoint = args.resume_from_checkpoint
         train_result = trainer.train(resume_from_checkpoint=checkpoint)
 
         # save metrics
@@ -58,4 +61,4 @@ class HFSFTMixin:
         trainer.save_metrics("train", metrics)
 
         # save model
-        trainer.save_model(output_dir=training_args.output_dir)
+        trainer.save_model(output_dir=args.output_dir)

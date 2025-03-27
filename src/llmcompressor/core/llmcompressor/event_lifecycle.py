@@ -72,9 +72,11 @@ class EventsLifecycle(SingletonMixin):
                         "was passed to batch_start event"
                     )
 
-            # validate order
-            if global_step <= self.state.current_index:
-                raise ValueError("global_step must be greater than the current index")
+            # validate order (can be equal, for example, multiple batches per epoch)
+            if global_step < self.state.current_index:
+                raise ValueError(
+                    "global_step must be greater than or equal to the current index"
+                )
 
             self.state.current_index = global_step
 

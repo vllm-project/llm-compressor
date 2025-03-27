@@ -46,6 +46,7 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
         self, pipeline: Optional[str] = "independent", save_path: Optional[str] = None
     ):
         args = PostTrainArguments(pipeline=pipeline, save_path=save_path)
+        # TODO: check requires calibration data
 
         _, pipeline_fn = get_pipeline_fn(args.pipeline, self.modifiers)
         pipeline_fn(self.state.model, self.calibration_loader, args)

@@ -2,13 +2,16 @@ from typing import Dict, List, Union
 
 import torch
 
-from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.utils.pytorch import (
     LayerParamMasking,
     param_mask_name,
 )
-from llmcompressor.utils.pytorch.module import get_layers_params
+from llmcompressor.utils.pytorch.module import (
+    ModelParameterizedLayer,
+    get_layers_params,
+)
 
 __all__ = ["ConstantPruningModifier"]
 
