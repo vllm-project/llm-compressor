@@ -155,7 +155,7 @@ class SessionManagerMixIn:
 
         self.accelerator.wait_for_everyone()
         model = get_session_model()
-        self.model_wrapped = self.model = model
+        self.model = model
 
         if self.recipe is None:
             logger.warning(
