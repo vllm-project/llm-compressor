@@ -1,5 +1,4 @@
-import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import torch
 from datasets import Dataset
@@ -9,14 +8,11 @@ from transformers.data import default_data_collator
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
-from llmcompressor.typing import Processor
+from llmcompressor.typing import DatasetType, Processor
 
 
 def get_processed_dataset(
-    dataset_args: DatasetArguments,
-    processor: Processor,
-    do_oneshot: bool = False,
-    do_train: bool = True,
+    dataset_args: DatasetArguments, processor: Processor, add_labels: bool
 ) -> Optional[Dict[str, Dataset]]:
     """
     Loads datasets for each flow based on dataset_args, stores a Dataset for each
@@ -24,58 +20,20 @@ def get_processed_dataset(
     :param dataset_args: DatasetArguments that contain dataset loading and
         processing params
     :param processor: processor or tokenizer to use for dataset tokenization
-    :param do_oneshot: True for oneshot pathway
-    :param do_train: True for train pathway
-    :return: A dataset corresponding to either train or calibration (oneshot)
+    :param add_labels: set to False for calibration, True for train and evaluation
+    :return: tokenized dataset
     """
-    if dataset_args.dataset is None:
-        logger.warning(
-            "Running oneshot without calibration data. This is expected for "
-            "weight-only and dynamic quantization"
-        )
-        return
+    dataset = dataset_args.dataset
+    assert isinstance(dataset, str, DatasetType)
 
-    splits = dataset_args.splits
-    tokenized_datasets = {}
-
-    def _get_split_name(inp_str):
-        # strip out split name, for ex train[60%:] -> train
-        match = re.match(r"(\w*)\[.*\]", inp_str)
-        if match is not None:
-            return match.group(1)
-        return inp_str
-
-    if splits is None:
-        splits = {"all": None}
-    elif isinstance(splits, str):
-        splits = {_get_split_name(splits): splits}
-    elif isinstance(splits, List):
-        splits = {_get_split_name(s): s for s in splits}
-
-    # default to custom dataset if dataset provided isn't a string
-    registry_id = (
-        dataset_args.dataset if isinstance(dataset_args.dataset, str) else "custom"
+    registry_id = dataset if isinstance(dataset, str) else "custom"
+    dataset_manager = TextGenerationDataset.load_from_registry(
+        registry_id,
+        dataset_args=dataset_args,
+        split=dataset_args.split,
+        processor=processor,
     )
-    for split_name, split_str in splits.items():
-        dataset = dataset_args.dataset
-        if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
-            # dataset is already tokenized
-            tokenized_datasets[split_name] = dataset
-        else:
-            # dataset needs to be tokenized
-            dataset_manager = TextGenerationDataset.load_from_registry(
-                registry_id,
-                dataset_args=dataset_args,
-                split=split_str,
-                processor=processor,
-            )
-            tokenized_datasets[split_name] = dataset_manager(add_labels=do_train)
-
-    return make_dataset_splits(
-        tokenized_datasets,
-        do_oneshot=do_oneshot,
-        do_train=do_train,
-    )
+    return dataset_manager(add_labels=add_labels)
 
 
 def get_calibration_dataloader(
@@ -88,19 +46,19 @@ def get_calibration_dataloader(
     :param processor: Processor or the tokenizer of the model.
     :return: PyTorch dataloader object that contains the calibration dataset.
     """
-    if dataset_args.dataset is None:
-        # weight-only quantization or dynamic quantization
+    dataset = dataset_args.dataset
+    assert isinstance(dataset, str, DatasetType)
+
+    # check if dataset is already processed/tokenized
+    if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:
         return
 
-    datasets = get_processed_dataset(
-        dataset_args=dataset_args,
-        processor=processor,
-        do_oneshot=True,
-        do_train=False,
+    # process dataset
+    calibration_dataset = get_processed_dataset(
+        dataset_args, processor, add_labels=False
     )
 
-    calibration_dataset = datasets.get("calibration")
-
+    # create dataloader
     return format_calibration_data(
         tokenized_dataset=calibration_dataset,
         num_calibration_samples=dataset_args.num_calibration_samples,
@@ -150,42 +108,3 @@ def format_calibration_data(
     calibration_dataloader = DataLoader(tokenized_calibration, **dataloader_params)
 
     return calibration_dataloader
-
-
-def make_dataset_splits(
-    tokenized_datasets: Dict[str, Any],
-    do_oneshot: bool = True,
-    do_train: bool = False,
-) -> Dict[str, Dataset]:
-    """
-    Restructures the datasets dictionary based on what tasks will be run
-    train
-    :param tokenized_datasets: dictionary of processed datasets
-    :param do_oneshot: Whether to store the calibration dataset
-    :return: A dataset corresponding to either train or calibration (oneshot)
-    """
-
-    # handles case where all splits are contained in a single dataset
-    if "all" in tokenized_datasets and len(tokenized_datasets) == 1:
-        tokenized_datasets = tokenized_datasets.get("all")
-        if isinstance(tokenized_datasets, Dataset):
-            tokenized_datasets = {"train": tokenized_datasets}
-
-    train_split = calib_split = None
-
-    if do_train:
-        if "train" not in tokenized_datasets:
-            raise ValueError("--do_train requires a train dataset")
-        train_split = tokenized_datasets["train"]
-    if do_oneshot:
-        calib_split = tokenized_datasets.get("calibration")
-        if calib_split is None:
-            if "train" not in tokenized_datasets:
-                raise ValueError("--do_oneshot requires a calibration dataset")
-            calib_split = tokenized_datasets["train"]
-
-    split_datasets = {
-        "train": train_split,
-        "calibration": calib_split,
-    }
-    return split_datasets

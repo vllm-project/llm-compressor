@@ -1,13 +1,13 @@
 import os
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from dataclasses import fields, is_dataclass
+from functools import wraps
+from typing import Any, Callable, Dict, List, Type, Union, get_type_hints
 
 import yaml
 from loguru import logger
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.args.model_arguments import ModelArguments
 from llmcompressor.entrypoints.utils import (
     _warn_tied_embeddings,
@@ -21,22 +21,6 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     untie_weights,
 )
 from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_path
-from llmcompressor.typing import RecipeInput
-
-""" llmcompressor.Args """
-
-
-@dataclass
-class LCModelArguments(ModelArguments):
-    recipe: RecipeInput = field(
-        default=None
-    )  # dummy default to avoid inheritance issue
-
-
-@dataclass
-class LCDatasetArguments(DatasetArguments):
-    split: Optional[str] = field(default=None)
-
 
 """ llmcompressor.recipe """
 
@@ -60,7 +44,6 @@ def get_modifiers_from_recipe(
     if not isinstance(recipe_dict, dict):
         raise ValueError("Cannot parse yaml")
 
-    breakpoint()
     if not ModifierFactory._loaded:
         ModifierFactory.refresh()
 
@@ -169,3 +152,34 @@ def initialize_model_from_path(
         ]  # TODO: Pretty sure the seqlen attribute is never used/ doesn't exist
 
     return model
+
+
+""" llmcompressor.utils """
+
+
+def add_dataclass_annotations(dataclass_type: Type):
+    def decorator(func: Callable) -> Callable:
+        if not is_dataclass(dataclass_type):
+            raise ValueError("Provided argument is not a dataclass")
+
+        # Use get_type_hints to resolve forward refs and get cleaner type strings
+        type_hints = get_type_hints(dataclass_type)
+
+        doc_lines = [f"Function: {func.__name__}"]
+        for f in fields(dataclass_type):
+            help_text = f.metadata.get("help", "")
+            type_hint = type_hints.get(f.name, "Unknown")
+            doc_lines.append(f"    :param {f.name}: {help_text}")
+            doc_lines.append(f"    :type {f.name}: {type_hint}")
+
+        docstring = "\n".join(doc_lines)
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+
+        func.__doc__ = docstring
+        wrapper.__doc__ = docstring
+        return wrapper
+
+    return decorator

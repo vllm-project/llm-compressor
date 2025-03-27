@@ -3,6 +3,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from transformers import DefaultDataCollator
 
+from llmcompressor.typing import DatasetType
+
 
 @dataclass
 class DVCDatasetArguments:
@@ -76,7 +78,7 @@ class DatasetArguments(CustomDatasetArguments):
     arguments to be able to specify them on the command line
     """
 
-    dataset: Optional[str] = field(
+    dataset: Union[str, DatasetType] = field(
         default=None,
         metadata={
             "help": (
@@ -109,10 +111,7 @@ class DatasetArguments(CustomDatasetArguments):
         default_factory=dict,
         metadata={"help": "Additional keyboard args to pass to datasets load_data"},
     )
-    splits: Union[None, str, List, Dict] = field(
-        default=None,
-        metadata={"help": "Optional percentages of each split to download"},
-    )
+    split: Optional[str] = field(default=None)
     num_calibration_samples: Optional[int] = field(
         default=512,
         metadata={"help": "Number of samples to use for one-shot calibration"},

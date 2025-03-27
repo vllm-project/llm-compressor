@@ -1,8 +1,9 @@
 from transformers import HfArgumentParser
 
+from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.args.model_arguments import ModelArguments
 from llmcompressor.args.training_arguments import TrainingArguments
 from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor
-from llmcompressor.core.llmcompressor.utils import LCDatasetArguments, LCModelArguments
 
 
 def train(**kwargs):
@@ -51,7 +52,7 @@ def train(**kwargs):
         ```
 
     """
-    parser = HfArgumentParser((LCModelArguments, LCDatasetArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DatasetArguments, TrainingArguments))
     model_args, dataset_args, training_args = parser.parse_dict(kwargs)
 
     compressor = LLMCompressor(**model_args)

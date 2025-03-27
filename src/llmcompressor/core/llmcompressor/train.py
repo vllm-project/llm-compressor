@@ -1,9 +1,10 @@
 import math
 from typing import TYPE_CHECKING, Optional, Union
 
+from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.args.training_arguments import TrainingArguments
 from llmcompressor.core import State
-from llmcompressor.core.llmcompressor.utils import LCDatasetArguments
+from llmcompressor.core.llmcompressor.utils import add_dataclass_annotations
 from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.typing import DatasetType
@@ -18,24 +19,23 @@ class HFSFTMixin:
     eval_dataset: Optional[DatasetType] = None
     train_data_collator: Optional["DataCollator"] = None
 
+    @add_dataclass_annotations(DatasetArguments)
     def set_train_dataset(self, dataset: Union[str, DatasetType], **kwargs):
-        dataset_args = LCDatasetArguments(dataset=dataset, **kwargs)
+        dataset_args = DatasetArguments(dataset=dataset, **kwargs)
 
-        processed_dataset = get_processed_dataset(
-            dataset_args=dataset_args,
-            processor=self.state.processor,
+        self.train_dataset = get_processed_dataset(
+            dataset_args, self.state.processor, add_labels=True
         )
-        self.train_dataset = processed_dataset.get("train")
 
+    @add_dataclass_annotations(DatasetArguments)
     def set_eval_dataset(self, dataset: Union[str, DatasetType], **kwargs):
-        dataset_args = LCDatasetArguments(dataset=dataset, **kwargs)
+        dataset_args = DatasetArguments(dataset=dataset, **kwargs)
 
-        processed_dataset = get_processed_dataset(
-            dataset_args=dataset_args,
-            processor=self.state.processor,
+        self.eval_dataset = get_processed_dataset(
+            dataset_args, self.state.processor, add_labels=True
         )
-        self.eval_dataset = processed_dataset.get("train")
 
+    @add_dataclass_annotations(TrainingArguments)
     def train(self, **kwargs):
         args = TrainingArguments(**kwargs)
 
