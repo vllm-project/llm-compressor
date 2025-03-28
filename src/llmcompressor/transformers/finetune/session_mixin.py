@@ -11,11 +11,7 @@ from transformers.trainer_callback import TrainerState
 from transformers.trainer_utils import get_last_checkpoint
 
 from llmcompressor.args.training_arguments import TrainingArguments
-from llmcompressor.core.llmcompressor.globals import (
-    get_compressor,
-    get_model,
-    get_state,
-)
+from llmcompressor.core import get_compressor, get_model, get_state
 from llmcompressor.metrics import LoggerManager
 from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
     KDModelWrapper,

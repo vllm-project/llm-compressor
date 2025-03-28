@@ -4,9 +4,9 @@ from torch.utils.data import DataLoader
 
 from llmcompressor.args import DatasetArguments, ModelArguments, PostTrainArguments
 from llmcompressor.core import State
-from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
-from llmcompressor.core.llmcompressor.train import HFSFTMixin
-from llmcompressor.core.llmcompressor.utils import (
+from llmcompressor.core.events_mixin import EventsMixin
+from llmcompressor.core.train import HFSFTMixin
+from llmcompressor.core.utils import (
     add_dataclass_annotations,
     error_if_requires_calibration_data,
     get_modifiers_from_recipe,

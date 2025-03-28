@@ -17,6 +17,7 @@ from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import Event, EventType, State
+from llmcompressor.core.utils import resolve_modifier_quantization_config
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
@@ -143,10 +144,6 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :param state: state storing input model and calibration data
         """
-        from llmcompressor.core.llmcompressor.utils import (
-            resolve_modifier_quantization_config,
-        )
-
         # build quantization modifier
         config = resolve_modifier_quantization_config(self)
         apply_quantization_config(state.model, config)

@@ -4,7 +4,7 @@ import torch
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.core.llmcompressor.globals import get_compressor
+from llmcompressor.core import get_compressor
 
 if TYPE_CHECKING:
     from llmcompressor.args import PostTrainArguments

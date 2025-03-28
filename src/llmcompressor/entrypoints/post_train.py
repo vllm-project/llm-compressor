@@ -1,7 +1,7 @@
 from transformers import HfArgumentParser
 
 from llmcompressor.args import DatasetArguments, ModelArguments, PostTrainArguments
-from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor
+from llmcompressor.core import LLMCompressor
 
 __all__ = ["oneshot", "post_train"]
 

@@ -1,4 +1,4 @@
-from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor
+from llmcompressor.core import LLMCompressor
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from llmcompressor.modifiers.smoothquant.base import SmoothQuantModifier
 

@@ -4,7 +4,7 @@ import tqdm
 from torch.utils.data.dataloader import DataLoader
 from transformers import PreTrainedModel
 
-from llmcompressor.core.llmcompressor.globals import get_compressor
+from llmcompressor.core import get_compressor
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import (

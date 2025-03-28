@@ -19,7 +19,7 @@ from loguru import logger
 from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
 
-from llmcompressor.core.llmcompressor.globals import get_compressor
+from llmcompressor.core import get_compressor
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,

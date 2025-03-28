@@ -3,7 +3,7 @@ import math
 from transformers import TrainerCallback, TrainerControl, TrainingArguments
 from transformers.trainer_callback import TrainerState
 
-from llmcompressor.core.llmcompressor.globals import get_compressor, get_state
+from llmcompressor.core import get_compressor, get_state
 
 __all__ = [
     "DisableHalfPrecisionCallback",

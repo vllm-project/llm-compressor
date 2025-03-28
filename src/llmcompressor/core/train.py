@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Optional, Union
 
 from llmcompressor.args import DatasetArguments, TrainingArguments
 from llmcompressor.core import State
-from llmcompressor.core.llmcompressor.utils import add_dataclass_annotations
+from llmcompressor.core.utils import add_dataclass_annotations
 from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.typing import DatasetType

@@ -4,7 +4,7 @@ from typing import List, Optional
 import torch
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.core.llmcompressor.event_lifecycle import EventsLifecycle
+from llmcompressor.core.event_lifecycle import EventsLifecycle
 from llmcompressor.modifiers import Modifier
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,

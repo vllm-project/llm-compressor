@@ -2,8 +2,7 @@ import math
 from abc import abstractmethod
 from typing import Optional
 
-from llmcompressor.core.events import Event
-from llmcompressor.core.state import State
+from llmcompressor.core import Event, State
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 __all__ = ["Modifier"]

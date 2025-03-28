@@ -3,14 +3,13 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional
 
 from loguru import logger
 
-from llmcompressor.core.events import Event, EventType
-from llmcompressor.utils.singleton import SingletonMixin
+from llmcompressor.core import Event, EventType
 
 if TYPE_CHECKING:
-    from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
+    from llmcompressor.core.events_mixin import EventsMixin
 
 
-class EventsLifecycle(SingletonMixin):
+class EventsLifecycle:
     auto_step: Optional[bool] = None
     event_order: List[EventType] = [
         EventType.BATCH_START,
