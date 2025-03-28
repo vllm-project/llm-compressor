@@ -15,7 +15,6 @@ COMPRESSED_LINEAR_CONFIG_DIR = (
     "tests/llmcompressor/transformers/compression/run_compressed_configs"
 )
 
-
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
 class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
@@ -27,7 +26,6 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
         AutoModelForCausalLM decompression
 
     AutoModelForCausalLM decompression diagram flow https://tinyurl.com/2ynb6wbu
-
     """
 
     compressed_model_stub = None
@@ -113,22 +111,22 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp()
 
+        # Should just be linear modules
+        # Linear forward
+        quantization_config = CompressedTensorsConfig(run_compressed=False)
+        cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
+            cls.compressed_model_stub,
+            torch_dtype="auto",
+            device_map="auto",
+            quantization_config=quantization_config,
+        )
+
         # Should have CompressedLinear modules
         # Compressed Linear forward
         cls.compressed_model = AutoModelForCausalLM.from_pretrained(
             cls.compressed_model_stub,
             torch_dtype="auto",
             device_map="auto",
-        )
-
-        # Should just be linear modules
-        # Linear forward
-        quantization_config = CompressedTensorsConfig(run_compressed=False)
-        cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
-            cls.compressed_model_stub,
-            torch_dtype=cls.compressed_model.dtype,
-            device_map=cls.compressed_model.device,
-            quantization_config=quantization_config,
         )
 
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
@@ -154,10 +152,6 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         decompressed_device = self.decompressed_model.device
         compressed_device = self.compressed_model.device
 
-        # overwrite weights in cpu to cuda
-        self.decompressed_model = self.decompressed_model.to(decompressed_device)
-        self.compressed_model = self.compressed_model.to(compressed_device)
-
         inputs = self.tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
             decompressed_device
         )
@@ -165,7 +159,7 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         decompressed_model_out = self.decompressed_model.generate(
             **inputs, max_length=50
         )
-
+        
         inputs = inputs.to(compressed_device)
 
         compressed_model_out = self.compressed_model.generate(**inputs, max_length=50)
