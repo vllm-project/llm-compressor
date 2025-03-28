@@ -10,7 +10,6 @@ from pydantic import Field, field_validator
 from torch.nn import Module
 
 from llmcompressor.core import Event, State
-from llmcompressor.core.utils import resolve_modifier_quantization_config
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
@@ -24,6 +23,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     remove_quantized_kv_cache,
     update_weight_zp_scale,
 )
+from llmcompressor.utils import resolve_modifier_quantization_config
 
 __all__ = ["QuantizationModifier"]
 

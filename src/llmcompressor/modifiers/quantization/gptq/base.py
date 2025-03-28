@@ -17,7 +17,6 @@ from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.core.utils import resolve_modifier_quantization_config
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
@@ -26,6 +25,7 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.utils import resolve_modifier_quantization_config
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
