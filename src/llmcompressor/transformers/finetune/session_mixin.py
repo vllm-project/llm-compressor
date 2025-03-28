@@ -61,6 +61,7 @@ class SessionManagerMixIn(HFTransformersTrainer):
         self.logger_manager = LoggerManager(log_python=False)
 
         # call Trainer initialization
+        # note that model is already initialized by LLMCompressor
         super().__init__(
             model=model,
             args=args,
@@ -103,7 +104,7 @@ class SessionManagerMixIn(HFTransformersTrainer):
 
         self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
-            compressor.initialize(model=self.model, start=epoch)
+            compressor.initialize()
         self.accelerator.wait_for_everyone()
 
     def finalize_session(self):

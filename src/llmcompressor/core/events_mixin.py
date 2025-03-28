@@ -41,7 +41,7 @@ class EventsMixin(ABC):
             if modifier.should_start(self.state):
                 modifier.on_start(self.state)
 
-        event = Event(type_=EventType.BATCH_START, global_step=global_step**kwargs)
+        event = Event(type_=EventType.BATCH_START, global_step=global_step, **kwargs)
         self._handle_event(event)
 
     def optim_pre_step(self, **kwargs):

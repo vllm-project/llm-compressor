@@ -49,7 +49,7 @@ class HFSFTMixin:
         trainer = Trainer(
             model=self.state.model,
             args=args,
-            data_collator=self.train_data_collator,
+            data_collator=self.data_collator,
             train_dataset=self.train_dataset,
             eval_dataset=self.eval_dataset,
             processing_class=self.state.processor,
