@@ -8,6 +8,7 @@ PyTorch and HuggingFace Transformers, allowing for quick experimentation.
 
 # flake8: noqa
 
+from .core import LLMCompressor
 from .logger import LoggerConfig, configure_logger, logger
 from .version import (
     __version__,
@@ -32,4 +33,5 @@ __all__ = [
     "configure_logger",
     "logger",
     "LoggerConfig",
+    "LLMCompressor",
 ]

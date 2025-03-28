@@ -1,40 +1,52 @@
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from loguru import logger
 
-from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.pipelines import basic, independent, layer_sequential, sequential
 from llmcompressor.typing import PipelineFn
 
-__all__ = ["PIPELINES", "get_pipeline_fn"]
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
 
-SEQUENTIAL_MODIFIERS = (GPTQModifier, SparsityModifierMixin)
+__all__ = ["get_pipeline_fn", "get_sequential_modifiers"]
 
-PIPELINES: Dict[str, PipelineFn] = {
-    "sequential": sequential.run_pipeline,
-    "layer_sequential": layer_sequential.run_pipeline,
-    "basic": basic.run_pipeline,
-    "independent": independent.run_pipeline,
-}
+
+def _get_pipelines() -> Dict[str, PipelineFn]:
+    # avoid circular imports by reducing dependency on individual pipelines,
+    from llmcompressor.pipelines import basic, independent, layer_sequential, sequential
+
+    return {
+        "sequential": sequential.run_pipeline,
+        "layer_sequential": layer_sequential.run_pipeline,
+        "basic": basic.run_pipeline,
+        "independent": independent.run_pipeline,
+    }
+
+
+def get_sequential_modifiers() -> Tuple["Modifier", ...]:
+    # avoid circular imports
+    from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+    from llmcompressor.modifiers.quantization import GPTQModifier
+
+    return (GPTQModifier, SparsityModifierMixin)
 
 
 def get_pipeline_fn(
-    user: Optional[str], modifiers: List[Modifier]
+    user: Optional[str], modifiers: List["Modifier"]
 ) -> Tuple[str, PipelineFn]:
     inferred = infer_pipeline(modifiers)
     pipeline = resolve_pipeline(user, inferred)
 
-    if pipeline not in PIPELINES:
+    all_pipelines = _get_pipelines()
+
+    if pipeline not in all_pipelines:
         raise ValueError(
-            f"Cannot find `{pipeline}` in registered pipelines {PIPELINES.keys()}"
+            f"Cannot find `{pipeline}` in registered pipelines {all_pipelines.keys()}"
         )
-    return pipeline, PIPELINES[pipeline]
+    return pipeline, all_pipelines[pipeline]
 
 
-def infer_pipeline(modifiers: List[Modifier]) -> str:
-    if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
+def infer_pipeline(modifiers: List["Modifier"]) -> str:
+    if any(isinstance(modifier, get_sequential_modifiers()) for modifier in modifiers):
         return "sequential"
 
     else:

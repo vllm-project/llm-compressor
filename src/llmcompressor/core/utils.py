@@ -1,7 +1,7 @@
 import os
 from dataclasses import is_dataclass
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type, Union
 
 import yaml
 from loguru import logger
@@ -10,8 +10,6 @@ from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.args import ModelArguments
-from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     patch_tied_tensors_bug,
@@ -20,12 +18,19 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
 from llmcompressor.transformers.utils.helpers import is_model_ct_quantized_from_path
 from llmcompressor.utils import resolve_modifier_quantization_config
 
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
+
+
 """ llmcompressor.recipe """
 
 
 def get_modifiers_from_recipe(
-    recipe: Union[str, List[Modifier], Modifier],
-) -> List[Modifier]:
+    recipe: Union[str, List["Modifier"], "Modifier"],
+) -> List["Modifier"]:
+    # avoid circular import
+    from llmcompressor.modifiers import Modifier, ModifierFactory
+
     # trivial cases
     if isinstance(recipe, Modifier):
         return [recipe]
@@ -39,9 +44,11 @@ def get_modifiers_from_recipe(
     else:
         recipe_dict = yaml.safe_load(recipe)
 
+    # validate yaml
     if not isinstance(recipe_dict, dict):
         raise ValueError("Cannot parse yaml")
 
+    # load modifiers
     if not ModifierFactory._loaded:
         ModifierFactory.refresh()
 
@@ -162,7 +169,7 @@ def initialize_model_from_path(
 
 
 def error_if_requires_calibration_data(
-    modifiers: List[Modifier], calibration_loader: Optional[DataLoader]
+    modifiers: List["Modifier"], calibration_loader: Optional[DataLoader]
 ):
     requires_data = False
     for modifier in modifiers:

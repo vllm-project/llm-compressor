@@ -1,19 +1,23 @@
 from abc import ABC
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import torch
 
-from llmcompressor.core import Event, EventType, State
-from llmcompressor.core.event_lifecycle import EventsLifecycle
-from llmcompressor.modifiers import Modifier
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
 )
 
+from .event import Event, EventType
+from .event_lifecycle import EventsLifecycle
+from .state import State
+
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
+
 
 class EventsMixin(ABC):
     state: State
-    modifiers: List[Modifier]
+    modifiers: List["Modifier"]
 
     @EventsLifecycle.initialize
     def initialize(self):

@@ -2,11 +2,12 @@ import math
 from typing import TYPE_CHECKING, Optional, Union
 
 from llmcompressor.args import DatasetArguments, TrainingArguments
-from llmcompressor.core import State
-from llmcompressor.core.utils import add_dataclass_annotations
 from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
 from llmcompressor.typing import DatasetType
+
+from .state import State
+from .utils import add_dataclass_annotations
 
 if TYPE_CHECKING:
     from transformers.data.data_collator import DataCollator
@@ -16,7 +17,7 @@ class HFSFTMixin:
     state: State
     train_dataset: Optional[DatasetType] = None
     eval_dataset: Optional[DatasetType] = None
-    train_data_collator: Optional["DataCollator"] = None
+    data_collator: Optional["DataCollator"] = None
 
     @add_dataclass_annotations(DatasetArguments)
     def set_train_dataset(self, dataset: Union[str, DatasetType], **kwargs):
@@ -25,6 +26,8 @@ class HFSFTMixin:
         self.train_dataset = get_processed_dataset(
             dataset_args, self.state.processor, add_labels=True
         )
+        if dataset_args.data_collator is not None:
+            self.data_collator = dataset_args.data_collator
 
     @add_dataclass_annotations(DatasetArguments)
     def set_eval_dataset(self, dataset: Union[str, DatasetType], **kwargs):
@@ -33,6 +36,8 @@ class HFSFTMixin:
         self.eval_dataset = get_processed_dataset(
             dataset_args, self.state.processor, add_labels=True
         )
+        if dataset_args.data_collator is not None:
+            self.data_collator = dataset_args.data_collator
 
     @add_dataclass_annotations(TrainingArguments)
     def train(self, **kwargs):

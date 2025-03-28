@@ -13,9 +13,6 @@ from transformers.trainer_utils import get_last_checkpoint
 from llmcompressor.args.training_arguments import TrainingArguments
 from llmcompressor.core import get_compressor, get_model, get_state
 from llmcompressor.metrics import LoggerManager
-from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
-    KDModelWrapper,
-)
 from llmcompressor.pytorch.model_load.helpers import save_checkpoint
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.finetune.callbacks import (
@@ -244,6 +241,11 @@ class SessionManagerMixIn(HFTransformersTrainer):
 
         :param output_dir: the path to save the recipes into
         """
+        # avoid circular import
+        from llmcompressor.modifiers.distillation.utils.pytorch.model_wrapper import (
+            KDModelWrapper,
+        )
+
         if output_dir is None:
             output_dir = self.args.output_dir
 

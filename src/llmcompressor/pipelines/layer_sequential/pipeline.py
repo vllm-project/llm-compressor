@@ -59,8 +59,7 @@ def run_pipeline(
     oneshot_device = infer_oneshot_device(model, args.oneshot_device)
 
     # find layers
-    modifiers = compressor.modifiers
-    sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
+    sequential_targets, _ = get_targets_from_modifiers(compressor.modifiers, model)
     layers = match_modules(model, sequential_targets)
 
     compressor.initialize()

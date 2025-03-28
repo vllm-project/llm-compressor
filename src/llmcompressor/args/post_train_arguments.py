@@ -3,19 +3,14 @@ from typing import Optional
 
 import torch
 
-from llmcompressor.pipelines.registry import PIPELINES
-
 
 @dataclass
 class PostTrainArguments:
     pipeline: Optional[str] = field(
         default=None,
-        metadata={
-            "help": "Calibration pipeline used to calibrate model. "
-            f"Options: {PIPELINES.keys()}"
-        },
+        metadata={"help": "Calibration pipeline used to calibrate model."},
     )
 
     oneshot_device: Optional[torch.device] = field(default=None)
 
-    save_path: Optional[str] = field(default=None)
+    output_dir: Optional[str] = field(default=None)

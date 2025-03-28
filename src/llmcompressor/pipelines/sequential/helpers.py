@@ -16,6 +16,7 @@ from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.registry import get_sequential_modifiers
 from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
@@ -401,11 +402,10 @@ def get_targets_from_modifiers(
     :param modifiers: list of modifiers being applied during calibration
     :return: list of sequential targets and list of modules to ignore for tracing
     """
-    # avoid circular import
-    from llmcompressor.pipelines.registry import SEQUENTIAL_MODIFIERS
-
     sequential_modifiers = [
-        modifier for modifier in modifiers if isinstance(modifier, SEQUENTIAL_MODIFIERS)
+        modifier
+        for modifier in modifiers
+        if isinstance(modifier, get_sequential_modifiers())
     ]
 
     if len(sequential_modifiers) >= 2:

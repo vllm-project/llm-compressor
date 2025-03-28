@@ -1,27 +1,30 @@
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from torch.utils.data import DataLoader
 
 from llmcompressor.args import DatasetArguments, ModelArguments, PostTrainArguments
-from llmcompressor.core import State
-from llmcompressor.core.events_mixin import EventsMixin
-from llmcompressor.core.train import HFSFTMixin
-from llmcompressor.core.utils import (
+from llmcompressor.datasets.utils import get_calibration_dataloader
+from llmcompressor.pipelines.registry import get_pipeline_fn
+from llmcompressor.pytorch.model_load.helpers import save_checkpoint
+from llmcompressor.utils.singleton import SingletonMixin
+
+from .events_mixin import EventsMixin
+from .state import State
+from .train import HFSFTMixin
+from .utils import (
     add_dataclass_annotations,
     error_if_requires_calibration_data,
     get_modifiers_from_recipe,
     prepare_models,
 )
-from llmcompressor.datasets.utils import get_calibration_dataloader
-from llmcompressor.modifiers import Modifier
-from llmcompressor.pipelines.registry import get_pipeline_fn
-from llmcompressor.pytorch.model_load.helpers import save_checkpoint
-from llmcompressor.utils.singleton import SingletonMixin
+
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
 
 
 class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     state: State
-    modifiers: List[Modifier]
+    modifiers: List["Modifier"]
     calibration_loader: Optional[DataLoader] = None
 
     @add_dataclass_annotations(ModelArguments)
@@ -48,5 +51,5 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
 
         self.finalize()
 
-        if args.save_path is not None:
-            save_checkpoint(args.save_path, self.state.model, self.state.processor)
+        if args.output_dir is not None:
+            save_checkpoint(args.output_dir, self.state.model, self.state.processor)

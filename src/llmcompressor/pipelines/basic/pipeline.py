@@ -7,8 +7,8 @@ from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.core import get_compressor
-from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
+from llmcompressor.utils import apply_pad_mask_to_batch
 from llmcompressor.utils.helpers import calibration_forward_context
 
 if TYPE_CHECKING:
