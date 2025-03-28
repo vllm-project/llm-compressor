@@ -15,7 +15,10 @@ from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
+from llmcompressor.modifiers.quantization.calibration import (
+    apply_calibration_status,
+    freeze_module_quantization,
+)
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
@@ -193,6 +196,7 @@ class GPTQModifier(Modifier, HooksMixin):
         """
         # build quantization modifier
         self._check_build_quant_modifier(state.model)
+        state.model.apply(apply_calibration_status)
 
         if self._quantization_modifier:
             self._quantization_modifier.initialize(state, **kwargs)
