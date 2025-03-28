@@ -24,7 +24,7 @@ def get_processed_dataset(
     :return: tokenized dataset
     """
     dataset = dataset_args.dataset
-    assert isinstance(dataset, str, DatasetType)
+    assert isinstance(dataset, (str, DatasetType))
 
     registry_id = dataset if isinstance(dataset, str) else "custom"
     dataset_manager = TextGenerationDataset.load_from_registry(
@@ -47,7 +47,6 @@ def get_calibration_dataloader(
     :return: PyTorch dataloader object that contains the calibration dataset.
     """
     dataset = dataset_args.dataset
-    assert isinstance(dataset, str, DatasetType)
 
     # check if dataset is already processed/tokenized
     if hasattr(dataset, "column_names") and "input_ids" in dataset.column_names:

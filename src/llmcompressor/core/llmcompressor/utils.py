@@ -1,18 +1,22 @@
 import os
-from dataclasses import fields, is_dataclass
+from dataclasses import is_dataclass
 from functools import wraps
-from typing import Any, Callable, Dict, List, Type, Union, get_type_hints
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import yaml
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationScheme,
+    QuantizationStatus,
+    is_preset_scheme,
+    preset_name_to_scheme,
+)
 from loguru import logger
+from torch.utils.data.dataloader import DataLoader
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.args.model_arguments import ModelArguments
-from llmcompressor.entrypoints.utils import (
-    _warn_tied_embeddings,
-    initialize_processor_from_path,
-)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
@@ -88,6 +92,12 @@ def get_modifiers_args_from_dict(values: Dict) -> List[Dict[str, Any]]:
 
 
 def prepare_models(model_args: ModelArguments):
+    # TODO: circular import
+    from llmcompressor.entrypoints.utils import (
+        _warn_tied_embeddings,
+        initialize_processor_from_path,
+    )
+
     # Initialize model
     if isinstance(model_args.model, str):
         model_args.model = initialize_model_from_path(model_args.model, model_args)
@@ -154,6 +164,68 @@ def initialize_model_from_path(
     return model
 
 
+""" llmcompressor.data """
+
+
+def error_if_requires_calibration_data(
+    modifiers: List[Modifier], calibration_loader: Optional[DataLoader]
+):
+    requires_data = False
+    for modifier in modifiers:
+        if hasattr(modifier, "scheme"):
+            config = resolve_modifier_quantization_config(modifier)
+            if config.requires_calibration_data():
+                requires_data = True
+                break
+
+    if requires_data and calibration_loader is None:
+        raise ValueError(
+            "Recipe requries calibration data, but none was provided. Please call "
+            "LLMCompressor.set_calibration_dataset with a calibration dataset"
+        )
+
+
+def resolve_modifier_quantization_config(modifier: Modifier) -> QuantizationConfig:
+    scheme = getattr(modifier, "scheme", None)
+    targets = getattr(modifier, "targets", [])
+    config_groups = getattr(modifier, "config_groups", None)
+    kv_cache_scheme = getattr(modifier, "kv_cache_scheme", None)
+    ignore = getattr(modifier, "ignore", None)
+
+    if isinstance(targets, str):
+        targets = [targets]
+
+    if scheme is not None:
+        # takes precedence over config_groups
+
+        if isinstance(scheme, str) and is_preset_scheme(scheme):
+            # attach targets to scheme
+            scheme = {scheme: targets}
+
+        config_groups = {}
+        for idx, key in enumerate(scheme.keys()):
+            if is_preset_scheme(key):
+                scheme = preset_name_to_scheme(key, scheme[key])
+            else:
+                scheme = QuantizationScheme.model_validate(
+                    {"targets": scheme[key], **scheme}
+                )
+
+            group_name = f"group_{idx}"
+            config_groups[group_name] = scheme
+
+    if config_groups is None or len(config_groups) == 0:
+        default_quant_scheme = QuantizationScheme(targets=targets)
+        config_groups = {"group_0": default_quant_scheme}
+
+    return QuantizationConfig(
+        config_groups=config_groups,
+        kv_cache_scheme=kv_cache_scheme,
+        quantization_status=QuantizationStatus.INITIALIZED,
+        ignore=ignore,
+    )
+
+
 """ llmcompressor.utils """
 
 
@@ -162,24 +234,12 @@ def add_dataclass_annotations(dataclass_type: Type):
         if not is_dataclass(dataclass_type):
             raise ValueError("Provided argument is not a dataclass")
 
-        # Use get_type_hints to resolve forward refs and get cleaner type strings
-        type_hints = get_type_hints(dataclass_type)
-
-        doc_lines = [f"Function: {func.__name__}"]
-        for f in fields(dataclass_type):
-            help_text = f.metadata.get("help", "")
-            type_hint = type_hints.get(f.name, "Unknown")
-            doc_lines.append(f"    :param {f.name}: {help_text}")
-            doc_lines.append(f"    :type {f.name}: {type_hint}")
-
-        docstring = "\n".join(doc_lines)
+        # TODO: handle non-standard types
 
         @wraps(func)
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
 
-        func.__doc__ = docstring
-        wrapper.__doc__ = docstring
         return wrapper
 
     return decorator

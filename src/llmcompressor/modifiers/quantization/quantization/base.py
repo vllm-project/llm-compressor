@@ -2,15 +2,10 @@ from typing import Any, Dict, List, Optional, Union
 
 from compressed_tensors.quantization import (
     QuantizationArgs,
-    QuantizationConfig,
     QuantizationScheme,
-    QuantizationStatus,
     apply_quantization_config,
     is_attention_module,
-    is_preset_scheme,
-    preset_name_to_scheme,
 )
-from loguru import logger
 from pydantic import Field, field_validator
 from torch.nn import Module
 
@@ -90,8 +85,12 @@ class QuantizationModifier(Modifier):
         return value
 
     def on_initialize(self, state: State) -> bool:
+        from llmcompressor.core.llmcompressor.utils import (
+            resolve_modifier_quantization_config,
+        )
+
         # apply config to model
-        config = self._resolve_config()
+        config = resolve_modifier_quantization_config(self)
         apply_quantization_config(state.model, config)
 
         # add observers as modules
@@ -121,40 +120,6 @@ class QuantizationModifier(Modifier):
 
     def on_finalize(self, state: State):
         super().on_finalize(state)
-
-    def _resolve_config(self) -> QuantizationConfig:
-        if self.scheme is not None:
-            # takes precedence over config_groups
-
-            if isinstance(self.scheme, str) and is_preset_scheme(self.scheme):
-                # attach targets to scheme
-                self.scheme = {self.scheme: self.targets}
-
-            self.config_groups = {}
-            for idx, key in enumerate(self.scheme.keys()):
-                if is_preset_scheme(key):
-                    scheme = preset_name_to_scheme(key, self.scheme[key])
-                else:
-                    scheme = QuantizationScheme.model_validate(
-                        {"targets": self.scheme[key], **self.scheme}
-                    )
-
-                group_name = f"group_{idx}"
-                self.config_groups[group_name] = scheme
-
-        if self.config_groups is None or len(self.config_groups) == 0:
-            default_quant_scheme = QuantizationScheme(targets=self.targets)
-            self.config_groups = {"group_0": default_quant_scheme}
-            logger.info(
-                f"No config groups were provided, using default {self.config_groups}"
-            )
-
-        return QuantizationConfig(
-            config_groups=self.config_groups,
-            kv_cache_scheme=self.kv_cache_scheme,
-            quantization_status=QuantizationStatus.INITIALIZED,
-            ignore=self.ignore,
-        )
 
     def _register_calibration_hooks(self, module: Module):
         """

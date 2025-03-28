@@ -4,12 +4,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
-    QuantizationConfig,
     QuantizationScheme,
-    QuantizationStatus,
     apply_quantization_config,
-    is_preset_scheme,
-    preset_name_to_scheme,
 )
 from compressed_tensors.utils import (
     align_module_device,
@@ -147,8 +143,12 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :param state: state storing input model and calibration data
         """
+        from llmcompressor.core.llmcompressor.utils import (
+            resolve_modifier_quantization_config,
+        )
+
         # build quantization modifier
-        config = self._resolve_config()
+        config = resolve_modifier_quantization_config(self)
         apply_quantization_config(state.model, config)
 
         # prepare module names
@@ -267,36 +267,3 @@ class GPTQModifier(Modifier, HooksMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
-
-    def _resolve_config(self) -> QuantizationConfig:
-        if self.scheme is not None:
-            # takes precedence over config_groups
-
-            if isinstance(self.scheme, str) and is_preset_scheme(self.scheme):
-                # attach targets to scheme
-                self.scheme = {self.scheme: self.targets}
-
-            self.config_groups = {}
-            for idx, key in enumerate(self.scheme.keys()):
-                if is_preset_scheme(key):
-                    scheme = preset_name_to_scheme(key, self.scheme[key])
-                else:
-                    scheme = QuantizationScheme.model_validate(
-                        {"targets": self.scheme[key], **self.scheme}
-                    )
-
-                group_name = f"group_{idx}"
-                self.config_groups[group_name] = scheme
-
-        if self.config_groups is None or len(self.config_groups) == 0:
-            default_quant_scheme = QuantizationScheme(targets=self.targets)
-            self.config_groups = {"group_0": default_quant_scheme}
-            logger.info(
-                f"No config groups were provided, using default {self.config_groups}"
-            )
-
-        return QuantizationConfig(
-            config_groups=self.config_groups,
-            quantization_status=QuantizationStatus.INITIALIZED,
-            ignore=self.ignore,
-        )

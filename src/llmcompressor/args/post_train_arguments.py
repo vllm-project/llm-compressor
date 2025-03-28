@@ -9,7 +9,7 @@ from llmcompressor.pipelines.registry import PIPELINES
 @dataclass
 class PostTrainArguments:
     pipeline: Optional[str] = field(
-        default="independent",
+        default=None,
         metadata={
             "help": "Calibration pipeline used to calibrate model. "
             f"Options: {PIPELINES.keys()}"

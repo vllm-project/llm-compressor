@@ -7,69 +7,7 @@ from llmcompressor.typing import DatasetType
 
 
 @dataclass
-class DVCDatasetArguments:
-    """
-    Arguments for training using DVC
-    """
-
-    dvc_data_repository: Optional[str] = field(
-        default=None,
-        metadata={"help": "Path to repository used for dvc_dataset_path"},
-    )
-
-
-@dataclass
-class CustomDatasetArguments(DVCDatasetArguments):
-    """
-    Arguments for training using custom datasets
-    """
-
-    dataset_path: Optional[str] = field(
-        default=None,
-        metadata={
-            "help": (
-                "Path to the custom dataset. Supports json, csv, dvc. "
-                "For DVC, the to dvc dataset to load, of format dvc://path. "
-                "For csv or json, the path containing the dataset. "
-            ),
-        },
-    )
-
-    text_column: str = field(
-        default="text",
-        metadata={
-            "help": (
-                "Optional key to be used as the `text` input to tokenizer/processor "
-                "after dataset preprocesssing"
-            )
-        },
-    )
-
-    remove_columns: Union[None, str, List] = field(
-        default=None,
-        metadata={"help": "Column names to remove after preprocessing (deprecated)"},
-    )
-
-    preprocessing_func: Union[None, str, Callable] = field(
-        default=None,
-        metadata={
-            "help": (
-                "Typically a function which applies a chat template. Can take the form "
-                "of either a function to apply to the dataset, a name defined in "
-                "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
-                "a path to a function definition of the form /path/to/file.py:func"
-            )
-        },
-    )
-
-    data_collator: Callable[[Any], Any] = field(
-        default_factory=lambda: DefaultDataCollator(),
-        metadata={"help": "The function to used to form a batch from the dataset"},
-    )
-
-
-@dataclass
-class DatasetArguments(CustomDatasetArguments):
+class DatasetArguments:
     """
     Arguments pertaining to what data we are going to input our model for
     calibration, training
@@ -79,7 +17,6 @@ class DatasetArguments(CustomDatasetArguments):
     """
 
     dataset: Union[str, DatasetType] = field(
-        default=None,
         metadata={
             "help": (
                 "The name of the dataset to use (via the datasets library). "
@@ -169,4 +106,51 @@ class DatasetArguments(CustomDatasetArguments):
             "repositories you trust and in which you have read the code, as it "
             "will execute code present on the Hub on your local machine."
         },
+    )
+
+    dataset_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Path to the custom dataset. Supports json, csv, dvc. "
+                "For DVC, the to dvc dataset to load, of format dvc://path. "
+                "For csv or json, the path containing the dataset. "
+            ),
+        },
+    )
+
+    text_column: str = field(
+        default="text",
+        metadata={
+            "help": (
+                "Optional key to be used as the `text` input to tokenizer/processor "
+                "after dataset preprocesssing"
+            )
+        },
+    )
+    remove_columns: Union[None, str, List] = field(
+        default=None,
+        metadata={"help": "Column names to remove after preprocessing (deprecated)"},
+    )
+
+    preprocessing_func: Union[None, str, Callable] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Typically a function which applies a chat template. Can take the form "
+                "of either a function to apply to the dataset, a name defined in "
+                "src/llmcompressor/transformers/utils/preprocessing_functions.py, or "
+                "a path to a function definition of the form /path/to/file.py:func"
+            )
+        },
+    )
+
+    data_collator: Callable[[Any], Any] = field(
+        default_factory=lambda: DefaultDataCollator(),
+        metadata={"help": "The function to used to form a batch from the dataset"},
+    )
+
+    dvc_data_repository: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to repository used for dvc_dataset_path"},
     )

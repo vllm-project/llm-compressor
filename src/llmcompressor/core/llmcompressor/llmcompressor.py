@@ -10,6 +10,7 @@ from llmcompressor.core.llmcompressor.events_mixin import EventsMixin
 from llmcompressor.core.llmcompressor.train import HFSFTMixin
 from llmcompressor.core.llmcompressor.utils import (
     add_dataclass_annotations,
+    error_if_requires_calibration_data,
     get_modifiers_from_recipe,
     prepare_models,
 )
@@ -42,7 +43,7 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     @add_dataclass_annotations(PostTrainArguments)
     def post_train(self, *args, **kwargs):
         args = PostTrainArguments(*args, **kwargs)
-        # TODO: check requires calibration data
+        error_if_requires_calibration_data(self.modifiers, self.calibration_loader)
 
         _, pipeline_fn = get_pipeline_fn(args.pipeline, self.modifiers)
         pipeline_fn(self.state.model, self.calibration_loader, args)
