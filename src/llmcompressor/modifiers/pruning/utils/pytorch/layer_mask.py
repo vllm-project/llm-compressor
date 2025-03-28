@@ -4,8 +4,8 @@ from typing import Dict
 import torch
 from torch.nn import Parameter
 
-from llmcompressor.core import ModelParameterizedLayer
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.utils.pytorch.module import ModelParameterizedLayer
 
 __all__ = ["LayerParamMasking", "param_mask_name"]
 

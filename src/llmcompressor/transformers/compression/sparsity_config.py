@@ -12,12 +12,12 @@ from loguru import logger
 from torch import Tensor
 from torch.nn import Module
 
-from llmcompressor.core import active_session
+from llmcompressor.core import get_compressor
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.compression.helpers import (
     infer_sparse_targets_and_ignores,
     infer_sparsity_structure_from_model,
-    infer_sparsity_structure_from_stage_modifiers,
+    infer_sparsity_structure_from_modifiers,
 )
 
 
@@ -62,17 +62,17 @@ class SparsityConfigMetadata:
 
         :return: sparsity structure as a string
         """
-        sparsity_structure = None
+        compressor = get_compressor()
+        modifiers = compressor.modifiers
 
-        current_session = active_session()
-        stage_modifiers = current_session.lifecycle.modifiers
-        if stage_modifiers:
-            sparsity_structure = infer_sparsity_structure_from_stage_modifiers(
-                stage_modifiers
-            )
+        if modifiers:
+            sparsity_structure = infer_sparsity_structure_from_modifiers(modifiers)
 
-        if model and sparsity_structure is None:
+        elif model and sparsity_structure is None:
             sparsity_structure = infer_sparsity_structure_from_model(model)
+
+        else:
+            sparsity_structure = None
 
         return SparsityStructure(sparsity_structure).value
 

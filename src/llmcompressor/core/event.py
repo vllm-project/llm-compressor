@@ -44,6 +44,8 @@ class EventType(Enum):
     BATCH_START = "batch_start"
     LOSS_CALCULATED = "loss_calculated"
     BATCH_END = "batch_end"
+    SEQUENTIAL_EPOCH_END = "sequential_epoch_end"
+    CALIBRATION_EPOCH_END = "calibration_epoch_end"
 
     # step lifecycle
     OPTIM_PRE_STEP = "optim_pre_step"
@@ -81,6 +83,10 @@ class Event:
     invocations_per_step: int = 1
     global_step: int = 0
     global_batch: int = 0
+
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     @property
     def epoch_based(self) -> bool:

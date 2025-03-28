@@ -1,16 +1,17 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from llmcompressor.typing import ModelInput, RecipeInput
+
 
 @dataclass
 class ModelArguments:
     """
     Model variables used for oneshot calibration, finetuning and
     stage runners (sequential run of oneshot and finetune).
-
     """
 
-    model: str = field(
+    model: ModelInput = field(
         metadata={
             "help": (
                 "A pretrained model or a string as a path to pretrained model, "
@@ -18,7 +19,8 @@ class ModelArguments:
             )
         },
     )
-    distill_teacher: Optional[str] = field(
+    recipe: RecipeInput = field(metadata={"help": ""})
+    distill_teacher: ModelInput = field(
         default=None,
         metadata={
             "help": "Teacher model (a trained text generation model)",

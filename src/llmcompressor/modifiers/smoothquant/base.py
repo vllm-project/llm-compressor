@@ -2,19 +2,18 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.utils.offload import is_module_offloaded
+from compressed_tensors.utils.offload import align_module_device
 from loguru import logger
+from pydantic import ConfigDict
 from torch.nn import Module
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.smoothquant.utils import (
     get_layer_mappings_from_architecture,
     handle_mapping_resolution_errors,
 )
-from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
-from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_matching_layer,
@@ -105,7 +104,7 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    resolved_mappings_: Optional[List] = None
+    resolved_mappings_: Optional[List[SmoothQuantMapping]] = None
     scales_: Optional[Dict] = None
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -131,13 +130,19 @@ class SmoothQuantModifier(Modifier):
         self.resolved_mappings_ = self._resolve_mappings(state.model)
         self.scales_ = {}
 
-        calibration_dataloader = state.data.calib
-
         self._setup_scale_hooks()
-        self._calibrate(state.model, calibration_dataloader)
-        self._apply_smoothing(state.model)
 
         return True
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        """
+        Sparsify modules which have been calibrated with samples
+        """
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
+            self._apply_smoothing(state.model)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -146,6 +151,11 @@ class SmoothQuantModifier(Modifier):
         :param state: unused
         :return: True
         """
+        if len(self.scales_) > 0:
+            raise ValueError(f"Failed to compress {len(self.scales_)} modules")
+
+        self.remove_hooks()
+
         if self.scales_ is not None:
             self.scales_.clear()
         if self.resolved_mappings_ is not None:
@@ -166,7 +176,7 @@ class SmoothQuantModifier(Modifier):
         )
 
     @handle_mapping_resolution_errors
-    def _resolve_mappings(self, model: Module) -> List:
+    def _resolve_mappings(self, model: Module) -> List[SmoothQuantMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into SmoothQuantMapping objects, resolving regular expressions.
@@ -235,34 +245,6 @@ class SmoothQuantModifier(Modifier):
             self.register_hook(layer, create_hook_fn(name), "forward")
 
     @torch.no_grad()
-    def _calibrate(self, model: Module, calibration_dataloader: List):
-        """
-        Catch the output dynamic ranges of each layer that will be smoothed by running
-        forward passes with calibration_dataloader
-        """
-        class_name = self.__class__.__name__.replace("PyTorch", "")
-        logger.info(
-            f"Running {class_name} calibration with "
-            f"{len(calibration_dataloader)} samples..."
-        )
-        if not calibration_dataloader:
-            raise ValueError(
-                "Calibration data loader not set, must populate the calib_data field of"
-                " CompressionSession to run the SmoothQuant modifier"
-            )
-
-        with calibration_forward_context(model):
-            run_calibration_forward(
-                model,
-                calibration_dataloader,
-                self.num_calibration_steps,
-                self.calibration_function,
-            )
-
-        # remove the hooks now that we are done calibrating
-        self.remove_hooks()
-
-    @torch.no_grad()
     def _apply_smoothing(self, model: Module):
         """
         After calibration, apply smoothing to the activations and push the transform
@@ -273,8 +255,11 @@ class SmoothQuantModifier(Modifier):
 
         This modifies the weights of the model in-place.
         """
-        logger.info("Smoothing activation scales...")
         for mapping in self.resolved_mappings_:
+            if mapping.smooth_name not in self.scales_:
+                continue
+            logger.info(f"Smoothing with {mapping.smooth_name}")
+
             activation_scales = (  # get dynamic range for each activation channel
                 self.scales_[mapping.smooth_name].max_channel_vals
                 - self.scales_[mapping.smooth_name].min_channel_vals
@@ -289,22 +274,16 @@ class SmoothQuantModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
-                offloaded = is_module_offloaded(module)
-                if offloaded:
-                    module._hf_hook.pre_forward(module)
-
-                if module in balance_layers:
-                    module.weight.mul_(scales.view(1, -1))
-                elif module == smooth_layer:
-                    if module.weight.ndim == 1:
-                        module.weight.div_(scales)
-                    else:
-                        module.weight.div_(scales.view(-1, 1))
-                    if hasattr(module, "bias") and module.bias is not None:
-                        module.bias.div_(scales)
-
-                if offloaded:
-                    module._hf_hook.post_forward(module, None)
+                with align_module_device(module):
+                    if module in balance_layers:
+                        module.weight.mul_(scales.view(1, -1))
+                    elif module == smooth_layer:
+                        if module.weight.ndim == 1:
+                            module.weight.div_(scales)
+                        else:
+                            module.weight.div_(scales.view(-1, 1))
+                        if hasattr(module, "bias") and module.bias is not None:
+                            module.bias.div_(scales)
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -314,6 +293,9 @@ class SmoothQuantModifier(Modifier):
                 for layer in balance_layers:
                     smooth(layer)
                 smooth(smooth_layer)
+
+            # clear calibration data
+            del self.scales_[mapping.smooth_name]
 
     def _calculate_smoothing_scales(
         self, balance_layers: List[Module], activation_scales: torch.Tensor
@@ -329,15 +311,9 @@ class SmoothQuantModifier(Modifier):
         # get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
-            offloaded = is_module_offloaded(layer)
-            if offloaded:
-                layer._hf_hook.pre_forward(layer)
-
-            scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
-            weight_scales.append(scale)
-
-            if offloaded:
-                layer._hf_hook.post_forward(layer, None)
+            with align_module_device(layer):
+                scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
+                weight_scales.append(scale)
 
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
@@ -350,3 +326,5 @@ class SmoothQuantModifier(Modifier):
         scales = torch.where(weight_scales > 0.0, scales, activation_scales)
 
         return scales
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

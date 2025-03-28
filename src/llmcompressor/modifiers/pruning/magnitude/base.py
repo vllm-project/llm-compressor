@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Union
 
 from pydantic import field_validator
 
-from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.helpers import (
     PruningCreateSettings,
@@ -16,7 +16,10 @@ from llmcompressor.modifiers.pruning.utils.pytorch import (
     PruningMaskCreatorArgs,
     PruningMaskFactory,
 )
-from llmcompressor.utils.pytorch.module import get_layers_params
+from llmcompressor.utils.pytorch.module import (
+    ModelParameterizedLayer,
+    get_layers_params,
+)
 
 __all__ = ["MagnitudePruningModifier"]
 
@@ -32,8 +35,8 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
     apply_globally: bool = False
 
     parameterized_layers_: Dict[str, ModelParameterizedLayer] = None
-    _save_masks: bool = False
-    _use_hooks: bool = False
+    save_masks: bool = False
+    use_hooks: bool = False
     scheduler_function_: SchedulerCalculationType = None
     mask_creator_function_: MaskCreatorType = None
     current_sparsity_: float = None
@@ -49,11 +52,6 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.apply_globally:
             raise NotImplementedError("global pruning not implemented yet for PyTorch")
-
-        if "save_masks" in kwargs:
-            self._save_masks = kwargs["save_masks"]
-        if "use_hooks" in kwargs:
-            self._use_hooks = kwargs["use_hooks"]
 
         if not state.model:
             return False
@@ -79,20 +77,22 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             self.add_mask(
                 layer_param_name,
                 parameterized_layer,
-                persistent=self._save_masks,
-                add_hooks=self._use_hooks,
+                persistent=self.save_masks,
+                add_hooks=self.use_hooks,
             )
 
         return True
 
-    def on_finalize(self, state: State, **kwargs) -> bool:
+    def on_finalize(self, state: State) -> bool:
         for layer_param_name, _ in self.parameterized_layers_.items():
             self.remove_mask(layer_param_name)
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        sparsity = self.scheduler_function_(event, state)
+    def on_start(self, state: State):
+        super().on_start(state)
+
+        sparsity = self.scheduler_function_(state)
         self.current_sparsity_ = sparsity
 
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
@@ -107,9 +107,9 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
 
         self.enable_masks()
 
-    def on_update(self, state: State, event: Event, **kwargs):
+    def on_update(self, state: State, event: Event):
         if event.type_ == EventType.BATCH_START:
-            sparsity = self.scheduler_function_(event, state)
+            sparsity = self.scheduler_function_(state)
             if sparsity != self.current_sparsity_:
                 self.current_sparsity_ = sparsity
 
@@ -129,12 +129,13 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             self._update_masks(event)
 
     def on_end(self, state: State, event: Event, **kwargs):
+        super().on_end(state, event)
         self.disable_masks()
 
     def _update_masks(self, event: Event):
-        if event.type_ == EventType.OPTIM_PRE_STEP and not self._use_hooks:
+        if event.type_ == EventType.OPTIM_PRE_STEP and not self.use_hooks:
             for layer_param_name, _ in self.parameterized_layers_.items():
                 self.apply_mask_gradient(layer_param_name)
-        elif event.type_ == EventType.OPTIM_POST_STEP and not self._use_hooks:
+        elif event.type_ == EventType.OPTIM_POST_STEP and not self.use_hooks:
             for layer_param_name, _ in self.parameterized_layers_.items():
                 self.apply_mask_weight(layer_param_name)

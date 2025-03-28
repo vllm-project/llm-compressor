@@ -1,9 +1,10 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 import torch
-import torch.utils.data.dataloader
 import tqdm
+from torch.utils.data.dataloader import DataLoader
 
+from llmcompressor.core import get_compressor
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
@@ -12,19 +13,22 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     maybe_inject_pos_embeddings,
     to_next_layer_kwargs,
 )
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.pipelines.sequential.helpers import (
+    get_targets_from_modifiers,
+    infer_oneshot_device,
+)
+from llmcompressor.utils.helpers import align_modules, calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
+    from llmcompressor.args import PostTrainArguments
 
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
     model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    sequential_targets: List[str],
-    callback_modifier: Optional["Modifier"] = None,
+    dataloader: DataLoader,
+    args: "PostTrainArguments",
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:
@@ -48,9 +52,17 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param callback_modifier: Temporary HACK which should be replaced by event callback
     """
+    compressor = get_compressor()
+
+    # if the model is dispatched, use the dispatch to determine onloading, return None
+    # otherwise, infer a oneshot device (either user passed or the first available gpu)
+    oneshot_device = infer_oneshot_device(model, args.oneshot_device)
+
     # find layers
+    sequential_targets, _ = get_targets_from_modifiers(compressor.modifiers, model)
     layers = match_modules(model, sequential_targets)
 
+    compressor.initialize()
     with calibration_forward_context(model):
         # prepare intermediates cache
         intermediates: IntermediatesCache = capture_first_layer_intermediates(
@@ -63,26 +75,33 @@ def run_pipeline(
             calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
             prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
-            # do an preliminary pass to trigger modifier hooks
-            for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                inputs = intermediates.fetch(batch_index)
-                layer(**inputs)
-
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
-
-            # this pass does not trigger modifier hooks
-            # and is only used for capturing outputs from the newly compressed modules
-            with HooksMixin.disable_hooks():
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
+            with align_modules(layer.modules(), oneshot_device):
+                # do an preliminary pass to trigger modifier hooks
+                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_index)
-                    output = layer(**inputs)
+                    layer(**inputs)
 
-                    if layer_index < num_layers - 1:
-                        next_layer = layers[layer_index + 1]
-                        output = to_next_layer_kwargs(output, next_layer)
-                        output = maybe_inject_pos_embeddings(output, next_layer, inputs)
+                # trigger compression
+                compressor.sequential_epoch_end()
 
-                        intermediates.delete(batch_index)
-                        intermediates.update(batch_index, output)
+                # this pass does not trigger modifier hooks
+                # and is only used for capturing outputs from newly compressed modules
+                with HooksMixin.disable_hooks():
+                    for batch_index in tqdm.tqdm(
+                        range(len(dataloader)), desc=prop_desc
+                    ):
+                        inputs = intermediates.fetch(batch_index)
+                        output = layer(**inputs)
+
+                        if layer_index < num_layers - 1:
+                            next_layer = layers[layer_index + 1]
+                            output = to_next_layer_kwargs(output, next_layer)
+                            output = maybe_inject_pos_embeddings(
+                                output, next_layer, inputs
+                            )
+
+                            intermediates.delete(batch_index)
+                            intermediates.update(batch_index, output)
+
+        # redudant, finish any remaining compression
+        compressor.calibration_epoch_end()
