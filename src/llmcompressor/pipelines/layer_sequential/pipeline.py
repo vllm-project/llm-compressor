@@ -20,7 +20,7 @@ from llmcompressor.pipelines.sequential.helpers import (
 from llmcompressor.utils.helpers import align_modules, calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.args.post_train_arguments import PostTrainArguments
+    from llmcompressor.args import PostTrainArguments
 
 __all__ = ["run_pipeline"]
 

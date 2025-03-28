@@ -11,7 +11,7 @@ from transformers import (
 )
 
 if TYPE_CHECKING:
-    from llmcompressor.args.post_train_arguments import PostTrainArguments
+    from llmcompressor.args import PostTrainArguments
     from llmcompressor.modifiers import Modifier
 
 # Tokenizer or Processor. Processors do not inherit from a unified base class

@@ -16,7 +16,7 @@ from torch.utils.data.dataloader import DataLoader
 from transformers import AutoConfig, AutoModelForCausalLM, PreTrainedModel
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.args.model_arguments import ModelArguments
+from llmcompressor.args import ModelArguments
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.pytorch.model_load.helpers import parse_dtype

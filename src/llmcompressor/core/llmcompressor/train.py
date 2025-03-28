@@ -1,8 +1,7 @@
 import math
 from typing import TYPE_CHECKING, Optional, Union
 
-from llmcompressor.args.dataset_arguments import DatasetArguments
-from llmcompressor.args.training_arguments import TrainingArguments
+from llmcompressor.args import DatasetArguments, TrainingArguments
 from llmcompressor.core import State
 from llmcompressor.core.llmcompressor.utils import add_dataclass_annotations
 from llmcompressor.datasets.utils import get_processed_dataset

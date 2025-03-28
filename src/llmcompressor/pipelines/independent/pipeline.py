@@ -7,7 +7,7 @@ from torch.utils.data.dataloader import DataLoader
 from llmcompressor.core.llmcompressor.globals import get_compressor
 
 if TYPE_CHECKING:
-    from llmcompressor.args.post_train_arguments import PostTrainArguments
+    from llmcompressor.args import PostTrainArguments
 
 __all__ = ["run_pipeline"]
 

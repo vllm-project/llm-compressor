@@ -1,8 +1,6 @@
 from transformers import HfArgumentParser
 
-from llmcompressor.args.dataset_arguments import DatasetArguments
-from llmcompressor.args.model_arguments import ModelArguments
-from llmcompressor.args.training_arguments import TrainingArguments
+from llmcompressor.args import DatasetArguments, ModelArguments, TrainingArguments
 from llmcompressor.core.llmcompressor.llmcompressor import LLMCompressor
 
 

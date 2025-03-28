@@ -12,7 +12,7 @@ from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.args.post_train_arguments import PostTrainArguments
+    from llmcompressor.args import PostTrainArguments
 
 __all__ = ["run_pipeline"]
 
