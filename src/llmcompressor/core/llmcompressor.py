@@ -12,7 +12,6 @@ from .events_mixin import EventsMixin
 from .state import State
 from .train import HFSFTMixin
 from .utils import (
-    add_dataclass_annotations,
     error_if_requires_calibration_data,
     get_modifiers_from_recipe,
     prepare_models,
@@ -27,7 +26,6 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
     modifiers: List["Modifier"]
     calibration_loader: Optional[DataLoader] = None
 
-    @add_dataclass_annotations(ModelArguments)
     def __init__(self, *args, **kwargs):
         args = ModelArguments(*args, **kwargs)
 
@@ -35,13 +33,11 @@ class LLMCompressor(SingletonMixin, EventsMixin, HFSFTMixin):
         model, teacher, processor = prepare_models(args)
         self.state = State(model=model, teacher_model=teacher, processor=processor)
 
-    @add_dataclass_annotations(DatasetArguments)
     def set_calibration_dataset(self, *args, **kwargs):
         args = DatasetArguments(*args, **kwargs)
 
         self.calibration_loader = get_calibration_dataloader(args, self.state.processor)
 
-    @add_dataclass_annotations(PostTrainArguments)
     def post_train(self, *args, **kwargs):
         args = PostTrainArguments(*args, **kwargs)
         error_if_requires_calibration_data(self.modifiers, self.calibration_loader)

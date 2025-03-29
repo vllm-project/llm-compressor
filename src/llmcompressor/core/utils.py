@@ -1,7 +1,5 @@
 import os
-from dataclasses import is_dataclass
-from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import yaml
 from loguru import logger
@@ -191,22 +189,3 @@ def error_if_requires_calibration_data(
             "Recipe requries calibration data, but none was provided. Please call "
             "LLMCompressor.set_calibration_dataset with a calibration dataset"
         )
-
-
-""" llmcompressor.utils """
-
-
-def add_dataclass_annotations(dataclass_type: Type):
-    def decorator(func: Callable) -> Callable:
-        if not is_dataclass(dataclass_type):
-            raise ValueError("Provided argument is not a dataclass")
-
-        # TODO: handle non-standard types
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
