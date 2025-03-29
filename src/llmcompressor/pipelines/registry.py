@@ -11,7 +11,8 @@ __all__ = ["get_pipeline_fn", "get_sequential_modifiers"]
 
 
 def _get_pipelines() -> Dict[str, PipelineFn]:
-    # avoid circular imports by reducing dependency on individual pipelines,
+    # avoid circular imports by avoiding dependency on
+    # modifiers (which are imported by individual pipelines)
     from llmcompressor.pipelines import basic, independent, layer_sequential, sequential
 
     return {

@@ -5,7 +5,7 @@ from llmcompressor.modifiers.smoothquant.base import SmoothQuantModifier
 #model_id = "meta-llama/Llama-3.2-1B-instruct"
 model_id = "meta-llama/Llama-3.1-8B-Instruct"
 recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
+    #SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
 ]
 output_dir = model_id.split("/")[1] + "-W8A8"
