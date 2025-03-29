@@ -55,8 +55,8 @@ class SessionManagerMixIn:
     def __init__(
         self,
         recipe: str,
-        dataset_args: "DatasetArguments",
         model_args: "ModelArguments",
+        dataset_args: Optional["DatasetArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         **kwargs,
