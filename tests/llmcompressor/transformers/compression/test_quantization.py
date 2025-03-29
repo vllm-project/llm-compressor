@@ -67,7 +67,6 @@ class TestQuantizationMatches(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=recipe,
             pad_to_max_length=pad_to_max_length,
-            clear_sparse_session=False,
             splits={"calibration": "train_gen[:1%]"},
             save_compressed=False,
         )

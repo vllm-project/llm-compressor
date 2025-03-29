@@ -197,7 +197,7 @@ class Recipe(RecipeBase):
             stages = recipe.recipe.stages
         else:
             for stage in recipe.recipe.stages:
-                if stage.group in stage_names:
+                if any(stage.group in stage_name for stage_name in stage_names):
                     stages.append(stage)
 
         # default args in recipe

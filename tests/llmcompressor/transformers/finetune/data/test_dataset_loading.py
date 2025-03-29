@@ -5,15 +5,9 @@ import torch
 from datasets import IterableDataset, load_dataset
 from parameterized import parameterized
 
-from llmcompressor.args import (
-    DatasetArguments,
-    ModelArguments,
-    RecipeArguments,
-    TrainingArguments,
-)
-from llmcompressor.datasets import format_calibration_data
+from llmcompressor.args import DatasetArguments
+from llmcompressor.datasets import format_calibration_data, get_processed_dataset
 from llmcompressor.transformers import TextGenerationDataset
-from llmcompressor.transformers.finetune.runner import StageRunner
 
 
 @pytest.mark.unit
@@ -278,20 +272,13 @@ class TestSplitLoading(unittest.TestCase):
             splits=split_def,
             trust_remote_code_data=True,
         )
-        training_args = TrainingArguments(do_train=True, output_dir="dummy")
-        model_args = ModelArguments(model=None)
-        recipe_args = RecipeArguments()
-        stage_runner = StageRunner(
-            model_args=model_args,
-            dataset_args=dataset_args,
-            training_args=training_args,
-            recipe_args=recipe_args,
-        )
-        stage_runner.populate_datasets(processor=self.tiny_llama_tokenizer)
 
-        train_dataset = stage_runner.get_dataset_split("train")
-        assert train_dataset is not None
-        self.assertIsInstance(train_dataset[0], dict)
+        dataset = get_processed_dataset(
+            dataset_args=dataset_args, processor=self.tiny_llama_tokenizer
+        )
+
+        assert dataset is not None
+        self.assertIsInstance(dataset, dict)
 
 
 @pytest.mark.unit
@@ -317,16 +304,19 @@ class TestTokenizationDataset(unittest.TestCase):
         tokenized_dataset = self.dataset.map(
             preprocess, remove_columns=["input", "output", "instruction", "data_source"]
         )
-        stage_runner = StageRunner(
-            model_args=None,
-            dataset_args=DatasetArguments(
-                dataset=tokenized_dataset, shuffle_calibration_samples=False
-            ),
-            training_args=TrainingArguments(do_oneshot=True),
-            recipe_args=RecipeArguments(),
+
+        dataset_args = DatasetArguments(
+            dataset=tokenized_dataset, shuffle_calibration_samples=False
         )
-        stage_runner.populate_datasets(processor=None)
-        calib_dataset = stage_runner.get_dataset_split("calibration")
+
+        dataset = get_processed_dataset(
+            dataset_args=dataset_args,
+            processor=self.tiny_llama_tokenizer,
+            do_oneshot=True,
+            do_train=False,
+        )
+        calib_dataset = dataset["calibration"]
+
         self.assertEqual(len(calib_dataset), self.num_calib_samples)
         data_cols = calib_dataset.column_names
         self.assertEqual(len(data_cols), 2)
@@ -334,10 +324,11 @@ class TestTokenizationDataset(unittest.TestCase):
         self.assertIn("attention_mask", data_cols)
 
         # confirm turning shuffle off works
+
         calib_dataloader = format_calibration_data(
             tokenized_dataset=calib_dataset,
             num_calibration_samples=self.num_calib_samples,
-            do_shuffle=stage_runner._dataset_args.shuffle_calibration_samples,
+            do_shuffle=dataset_args.shuffle_calibration_samples,
         )
         self.assertEqual(len(calib_dataloader), self.num_calib_samples)
         dataloader_sample = next(iter(calib_dataloader))["input_ids"]

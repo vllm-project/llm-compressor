@@ -1,6 +1,8 @@
 import math
+import os
 
 from loguru import logger
+from transformers import PreTrainedModel
 
 from llmcompressor.args import parse_args
 from llmcompressor.datasets.utils import get_processed_dataset
@@ -9,7 +11,7 @@ from llmcompressor.transformers.finetune.trainer import Trainer
 from .utils import post_process, pre_process
 
 
-def train(**kwargs):
+def train(**kwargs) -> PreTrainedModel:
     """
     Fine-tuning entrypoint that supports vanilla fine-tuning and
     knowledge distillation for compressed model using `oneshot`.
@@ -67,6 +69,18 @@ def train(**kwargs):
     )
     training_dataset = processed_dataset.get("train")
 
+    # create output dir for stages
+    original_output_dir = output_dir = training_args.output_dir
+    if all([output_dir, recipe_args, getattr(recipe_args, "stage", None)]):
+        output_dir = os.path.join(original_output_dir, recipe_args.stage)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        # update output dir in training args
+        logger.info(
+            f"Stage detected for training. Updating output dir to: {output_dir}"
+        )
+        training_args.output_dir = output_dir
+
     trainer = Trainer(
         model=model_args.model,
         teacher=model_args.distill_teacher,
@@ -85,8 +99,10 @@ def train(**kwargs):
         checkpoint = training_args.resume_from_checkpoint
 
     logger.info("*** Train ***")
+
     train_result = trainer.train(
         resume_from_checkpoint=checkpoint,
+        stage=recipe_args.stage,
     )
 
     # return output
@@ -99,4 +115,7 @@ def train(**kwargs):
     # this includes saving the state, optimizer and scheduler
     trainer.save_model(output_dir=training_args.output_dir)
 
-    post_process(model_args=model_args, output_dir=training_args.output_dir)
+    post_process(recipe_args=recipe_args)
+    training_args.output_dir = original_output_dir
+
+    return model_args.model
