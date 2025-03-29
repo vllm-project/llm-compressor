@@ -6,7 +6,10 @@ from llmcompressor.modifiers.distillation import OutputDistillationModifier
 
 model_id = "meta-llama/Llama-3.2-1B-Instruct"
 #recipe = ConstantPruningModifier(targets="__ALL__")
-recipe = OutputDistillationModifier(targets="__ALL__")
+recipe = [
+    ConstantPruningModifier(targets="__ALL__"),
+    OutputDistillationModifier(targets="__ALL__")
+]
 save_path = model_id.split("/")[1] + "-W8A8"
 
 compressor = LLMCompressor(model_id, recipe, distill_teacher=model_id)

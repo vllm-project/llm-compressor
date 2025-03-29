@@ -23,7 +23,7 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
     save_masks: bool = False
     use_hooks: bool = False
 
-    def on_initialize(self, state: State) -> bool:
+    def on_initialize(self, state: State, **kwargs) -> bool:
         if not state.model:
             return False
 
@@ -39,7 +39,7 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
 
         return True
 
-    def on_finalize(self, state: State) -> bool:
+    def on_finalize(self, state: State, **kwargs) -> bool:
         for layer_param_name, _ in self.parameterized_layers_.items():
             self.remove_mask(layer_param_name)
 

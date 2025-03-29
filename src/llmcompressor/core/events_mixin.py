@@ -44,6 +44,14 @@ class EventsMixin(ABC):
         event = Event(type_=EventType.BATCH_START, global_step=global_step, **kwargs)
         self._handle_event(event)
 
+    def batch_end(self, **kwargs):
+        for modifier in self.modifiers:
+            if modifier.should_end(self.state):
+                modifier.on_end(self.state)
+
+        event = Event(type_=EventType.BATCH_END, **kwargs)
+        self._handle_event(event)
+
     def optim_pre_step(self, **kwargs):
         event = Event(type_=EventType.OPTIM_PRE_STEP, **kwargs)
         self._handle_event(event)
@@ -64,14 +72,6 @@ class EventsMixin(ABC):
 
     def calibration_epoch_end(self, **kwargs):
         event = Event(type_=EventType.CALIBRATION_EPOCH_END, **kwargs)
-        self._handle_event(event)
-
-    def batch_end(self, **kwargs):
-        for modifier in self.modifiers:
-            if modifier.should_end(self.state):
-                modifier.on_end(self.state)
-
-        event = Event(type_=EventType.BATCH_END, **kwargs)
         self._handle_event(event)
 
     @EventsLifecycle.event

@@ -2,6 +2,8 @@ import math
 from abc import abstractmethod
 from typing import Optional
 
+from pydantic import Field
+
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 
@@ -14,45 +16,18 @@ class Modifier(HooksMixin):
     Modifiers are used to modify the training process for a model.
     Defines base attributes and methods available to all modifiers
 
-    Lifecycle:
-    1. initialize
-    2. on_event ->
-        * on_start if self.start <= event.current_index
-        * on_end if self.end >= event.current_index
-    5. finalize
-
-    :param index: The index of the modifier in the list of modifiers
-        for the model
-    :param group: The group name for the modifier
     :param start: The start step for the modifier
     :param end: The end step for the modifier
     :param update: The update step for the modifier
     """
 
-    index: Optional[int] = None
-    group: Optional[str] = None
     start: Optional[float] = None
     end: Optional[float] = None
-    update: Optional[float] = None
 
-    initialized_: bool = False
-    finalized_: bool = False
-    started_: bool = False
-    ended_: bool = False
-
-    @property
-    def initialized(self) -> bool:
-        """
-        :return: True if the modifier has been initialized
-        """
-        return self.initialized_
-
-    @property
-    def finalized(self) -> bool:
-        """
-        :return: True if the modifier has been finalized
-        """
-        return self.finalized_
+    initialized_: bool = Field(default=False, repr=False)
+    finalized_: bool = Field(default=False, repr=False)
+    started_: bool = Field(default=False, repr=False)
+    ended_: bool = Field(default=False, repr=False)
 
     def should_start(self, state: State) -> bool:
         """
