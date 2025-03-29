@@ -47,6 +47,8 @@ class SessionManagerMixIn(HFTransformersTrainer):
     Must use epoch as current_index
     """
 
+    args: TrainingArguments
+
     def __init__(
         self,
         model: PreTrainedModel,
@@ -104,7 +106,13 @@ class SessionManagerMixIn(HFTransformersTrainer):
 
         self.accelerator.wait_for_everyone()
         with summon_full_params_context(self.model, offload_to_cpu=True):
-            compressor.initialize()
+            compressor.initialize(
+                per_device_train_batch_size=self.args.per_device_train_batch_size,
+                max_seq_length=self.args.max_seq_length,
+                fsdp_active=self.is_fsdp_enabled,
+            )
+            # some modifiers (OutputDistillationModifier) wrap the model
+            self.model_wrapped = self.model = compressor.state.model
         self.accelerator.wait_for_everyone()
 
     def finalize_session(self):
@@ -164,7 +172,6 @@ class SessionManagerMixIn(HFTransformersTrainer):
         """
         self._check_super_defined("compute_loss")
         compressor = get_compressor()
-        state = get_state()
 
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
@@ -188,11 +195,10 @@ class SessionManagerMixIn(HFTransformersTrainer):
             log["step_loss"] = loss.item()
             log["perplexity"] = torch.exp(loss).item()
 
-        compressor.loss_calculated(loss=loss)
-        if state and state.loss is not None:
-            loss = state.loss
-            if do_log:
-                log["distill_step_loss"] = loss.item() - log["step_loss"]
+        loss = compressor.loss_calculated(loss)
+        if do_log:
+            # assume that all additional loss is due to knowledge distillation
+            log["distill_step_loss"] = loss.item() - log["step_loss"]
         compressor.optim_pre_step()
 
         if do_log:

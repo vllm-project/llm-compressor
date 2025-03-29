@@ -1,19 +1,21 @@
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, Tuple
 
 import torch
 from torch.nn import Module
+
+from llmcompressor.modifiers.distillation.utils.pytorch import KDModuleWrapper
 
 __all__ = ["KDModelWrapper"]
 
 
 class KDModelWrapper(Module):
-    KD_LAST_COMPARISON = "kd_last_comparison"
+    kd_last_comparison: torch.Tensor
 
     def __init__(
         self,
         student_model: Module,
         teacher_model: Module,
-        wrappers: Dict[str, Any],
+        wrappers: Dict[str, Tuple[KDModuleWrapper, KDModuleWrapper]],
         comparison,
         fsdp_active: bool,
     ):
@@ -26,7 +28,7 @@ class KDModelWrapper(Module):
         self._save_active = False
         self._fsdp_active = fsdp_active
         self.kd_enabled = False
-        self.register_buffer(self.KD_LAST_COMPARISON, torch.zeros(1, device="cpu"))
+        self.register_buffer("kd_last_comparison", torch.zeros(1, device="cpu"))
         self._init_called = True  # make sure this is last property to be set
 
         def _clear_missing_keys(module, incompatible_keys):
@@ -51,7 +53,7 @@ class KDModelWrapper(Module):
             comp = self.kd_comparison(student_out, teacher_out)
             layerwise_comps.append(comp)
 
-        setattr(self, self.KD_LAST_COMPARISON, torch.stack(layerwise_comps).mean())
+        setattr(self, "kd_last_comparison", torch.stack(layerwise_comps).mean())
 
         return org_output
 

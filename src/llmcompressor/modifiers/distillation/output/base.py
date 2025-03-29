@@ -1,5 +1,6 @@
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+from pydantic import ConfigDict, Field
 from torch.nn import Module
 
 from llmcompressor.core import Event, EventType, State
@@ -28,30 +29,34 @@ class OutputDistillationModifier(Modifier):
     distill_scale: float = 1.0
     offload_layer_output: bool = False
 
-    wrappers_: Dict[str, Any] = None
-    wrapped_kd_model_: Any = None
+    wrappers_: Dict[str, Tuple[KDModuleWrapper, KDModuleWrapper]] = Field(
+        default_factory=dict, repr=False
+    )
+    wrapped_kd_model_: Optional[KDModelWrapper] = Field(default=None, repr=False)
     fsdp_active_: bool = False
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def on_initialize(
+        self,
+        state: State,
+        per_device_train_batch_size: int = 1,
+        max_seq_length: int = 512,
+        fsdp_active: bool = False,
+        **kwargs,
+    ) -> bool:
         if state.model is None or state.teacher_model is None:
             return False
 
-        self.wrappers_ = {}
-        if kwargs.get("fsdp_active"):
-            self.fsdp_active_ = True
+        self.fsdp_active_ = fsdp_active
 
-        if not hasattr(state.model.config, "hidden_size"):
+        model_hidden_size = getattr(state.model.config, "hidden_size", None)
+        if not model_hidden_size:
             raise ValueError(
                 "Model config must specify hidden_size in order to use "
                 "OutputDistillationModifier"
             )
 
         # needed to initialize intermediate output buffers for student and teacher
-        hidden_size = (
-            kwargs.get("metadata").get("per_device_train_batch_size", 1),
-            kwargs.get("metadata").get("max_seq_length", 512),
-            state.model.config.hidden_size,
-        )
+        hidden_size = (per_device_train_batch_size, max_seq_length, model_hidden_size)
 
         for target in (
             self.targets if isinstance(self.targets, list) else [self.targets]
@@ -117,24 +122,22 @@ class OutputDistillationModifier(Modifier):
         del self.wrapped_kd_model_
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
-        super().on_start(state, event)
+    def on_start(self, state: State):
+        super().on_start(state)
         for student_wrapper, teacher_wrapper in self.wrappers_.values():
             student_wrapper.kd_enabled = True
             teacher_wrapper.kd_enabled = True
         self.wrapped_kd_model_.kd_enabled = True
 
-    def on_update(self, state: State, event: Event, **kwargs):
-        if event.type_ == EventType.LOSS_CALCULATED and event.should_update(
-            self.start, self.end, self.update
-        ):
+    def on_event(self, state: State, event: Event):
+        if event.type_ == EventType.LOSS_CALCULATED:
             distill_loss = self.wrapped_kd_model_.kd_last_comparison
-            model_loss = self.orig_scale * kwargs["loss"]
+            model_loss = self.orig_scale * event.loss
             distill_loss = self.distill_scale * distill_loss.to(model_loss.device)
             state.loss = model_loss + distill_loss
 
-    def on_end(self, state: State, event: Event, **kwargs):
-        super().on_end(state, event)
+    def on_end(self, state: State):
+        super().on_end(state)
         for student_wrapper, teacher_wrapper in self.wrappers_.values():
             student_wrapper.kd_enabled = False
             teacher_wrapper.kd_enabled = False
@@ -196,3 +199,5 @@ class OutputDistillationModifier(Modifier):
             fsdp_active=self.fsdp_active_,
             offload_output=self.offload_layer_output,
         )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

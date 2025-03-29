@@ -94,10 +94,7 @@ def get_modifiers_args_from_dict(values: Dict) -> List[Dict[str, Any]]:
 
 def prepare_models(model_args: ModelArguments):
     # TODO: circular import
-    from llmcompressor.entrypoints.utils import (
-        _warn_tied_embeddings,
-        initialize_processor_from_path,
-    )
+    from llmcompressor.entrypoints.utils import initialize_processor_from_path
 
     # Initialize model
     if isinstance(model_args.model, str):
@@ -115,13 +112,23 @@ def prepare_models(model_args: ModelArguments):
             model_args, model_args.model
         )
 
-    # warnings and patches
-    _warn_tied_embeddings(model_args.tie_word_embeddings)
+    # warnings
+    if model_args.tie_word_embeddings:
+        logger.debug(
+            "The tie_word_embeddings flag is by default set to False. "
+            "This guarantees that the one-shot algorithm saves the final "
+            "weights without errors. Detected tie_word_embeddings=True. "
+            "This may cause issues with the one-shot algorithm on save."
+        )
+
+    # patch tied weights
     patch_tied_tensors_bug(model_args.model)  # untie tie_word_embeddings weights
     if model_args.tie_word_embeddings:
         untie_weights(model_args.model)
-
-    # potentially attach this compressor to the model?
+    if model_args.distill_teacher is not None:
+        patch_tied_tensors_bug(model_args.distill_teacher)
+        if model_args.tie_word_embeddings:
+            untie_weights(model_args.distill_teacher)
 
     return model_args.model, model_args.distill_teacher, model_args.processor
 

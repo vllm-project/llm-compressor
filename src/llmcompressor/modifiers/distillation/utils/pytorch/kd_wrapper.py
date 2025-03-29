@@ -11,7 +11,7 @@ __all__ = ["KDModuleWrapper"]
 
 
 class KDModuleWrapper(Module):
-    KD_TRANSFORMED_BUFFER = "kd_last_transformed"
+    kd_last_transformed: torch.Tensor
 
     def __init__(
         self,
@@ -30,7 +30,7 @@ class KDModuleWrapper(Module):
         self.kd_transforms = transforms
         self.kd_enabled = False
         self.register_buffer(
-            self.KD_TRANSFORMED_BUFFER, torch.zeros(hidden_size, device="cpu")
+            "kd_last_transformed", torch.zeros(hidden_size, device="cpu")
         )
         self._init_called = True  # make sure this is last property to be set
 
@@ -52,7 +52,7 @@ class KDModuleWrapper(Module):
 
         if self.offload_output:
             output = output.to("cpu")
-        setattr(self, self.KD_TRANSFORMED_BUFFER, output)
+        setattr(self, "kd_last_transformed", output)
         return org_output
 
     def state_dict(self, destination=None, prefix="", keep_vars=False, **kwargs):

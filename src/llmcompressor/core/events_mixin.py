@@ -20,20 +20,20 @@ class EventsMixin(ABC):
     modifiers: List["Modifier"]
 
     @EventsLifecycle.initialize
-    def initialize(self):
+    def initialize(self, **kwargs):
         for modifier in self.modifiers:
-            modifier.on_initialize(self.state)
+            modifier.on_initialize(self.state, **kwargs)
             if modifier.should_start(self.state):
                 modifier.on_start(self.state)
 
         modify_save_pretrained(self.state.model)
 
     @EventsLifecycle.finalize
-    def finalize(self):
+    def finalize(self, **kwargs):
         for modifier in self.modifiers:
-            if modifier.should_end(self.state):
+            if not modifier.ended_:
                 modifier.on_end(self.state)
-            modifier.on_finalize(self.state)
+            modifier.on_finalize(self.state, **kwargs)
 
     @EventsLifecycle.global_step
     def batch_start(self, global_step: Optional[int] = None, **kwargs):
@@ -52,9 +52,11 @@ class EventsMixin(ABC):
         event = Event(type_=EventType.OPTIM_POST_STEP, **kwargs)
         self._handle_event(event)
 
-    def loss_calculated(self, loss: torch.Tensor, **kwargs):
+    def loss_calculated(self, loss: torch.Tensor, **kwargs) -> torch.Tensor:
+        self.state.loss = loss  # may be modified by modifiers
         event = Event(type_=EventType.LOSS_CALCULATED, loss=loss, **kwargs)
         self._handle_event(event)
+        return self.state.loss
 
     def sequential_epoch_end(self, **kwargs):
         event = Event(type_=EventType.SEQUENTIAL_EPOCH_END, **kwargs)
