@@ -30,6 +30,7 @@ class Observer(Module, RegistryMixin):
         global_scale: Optional[torch.Tensor] = None,
     ):
         self.quantization_args: QuantizationArgs = quantization_args
+        self.global_scale: torch.Tensor = global_scale
         super().__init__()
         self.global_scale: Optional[torch.Tensor] = global_scale
         self._scale = None

@@ -5,6 +5,7 @@ from compressed_tensors.quantization import (
     KVCacheScaleType,
     QuantizationScheme,
     QuantizationStatus,
+    QuantizationType,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_fp4, is_kv_cache_quant_scheme
