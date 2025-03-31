@@ -24,8 +24,9 @@ class MovingAverageMSEObserver(Observer):
         grid: float = 100.0,
         maxshrink: float = 0.80,
         norm: float = 2.4,
+        global_scale: Optional[torch.Tensor] = None,
     ):
-        super().__init__(quantization_args=quantization_args)
+        super().__init__(quantization_args=quantization_args, global_scale=global_scale)
 
         self.min_val = {}
         self.max_val = {}
@@ -67,7 +68,10 @@ class MovingAverageMSEObserver(Observer):
             shrinked_max_val = p * absolute_max_val
 
             candidate_scales, candidate_zero_points = calculate_qparams(
-                shrinked_min_val, shrinked_max_val, self.quantization_args
+                min_vals=shrinked_min_val,
+                max_vals=shrinked_max_val,
+                quantization_args=self.quantization_args,
+                global_scale=self.global_scale,
             )
             q = fake_quantize(
                 observed,
@@ -130,7 +134,10 @@ class MovingAverageMSEObserver(Observer):
         self.max_val[tensor_id] = updated_max_val
 
         return calculate_qparams(
-            updated_min_val, updated_max_val, self.quantization_args
+            min_vals=updated_min_val,
+            max_vals=updated_max_val,
+            quaantization_args=self.quantization_args,
+            global_scale=self.global_scale,
         )
 
     def get_qparams_along_dim(

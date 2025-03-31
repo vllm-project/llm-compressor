@@ -22,8 +22,13 @@ class Observer(Module, RegistryMixin):
     pair
     """
 
-    def __init__(self, quantization_args: QuantizationArgs):
+    def __init__(
+        self,
+        quantization_args: QuantizationArgs,
+        global_scale: Optional[torch.Tensor] = None,
+    ):
         self.quantization_args: QuantizationArgs = quantization_args
+        self.global_scale: torch.Tensor = global_scale
         super().__init__()
         self._scale = None
         self._zero_point = None
