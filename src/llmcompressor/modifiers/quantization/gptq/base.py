@@ -18,7 +18,7 @@ from pydantic import Field, PrivateAttr, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
+from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization, initialize_observer, initialize_quantized_kv_cache, register_calibration_hooks, update_weight_zp_scale
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
@@ -144,10 +144,18 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :param state: state storing input model and calibration data
         """
-        # build quantization modifier
+        # apply config to model
         config = resolve_modifier_quantization_config(self)
         apply_quantization_config(state.model, config)
 
+        # prepare hooks for calibrating activation quantization
+        state.model.apply(lambda mod: initialize_observer(mod, base_name="input"))
+        state.model.apply(lambda mod: initialize_observer(mod, base_name="weight"))
+        state.model.apply(lambda mod: initialize_observer(mod, base_name="output"))
+        state.model.apply(initialize_quantized_kv_cache)
+        state.model.apply(lambda mod: register_calibration_hooks(self, mod))
+        state.model.apply(update_weight_zp_scale)
+        
         # prepare module names
         self._module_names = {m: name for name, m in state.model.named_modules()}
 

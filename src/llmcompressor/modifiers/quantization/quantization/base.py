@@ -13,10 +13,7 @@ from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
-    calibrate_input_hook,
-    calibrate_kv_cache_input_hook,
-    calibrate_kv_cache_output_hook,
-    calibrate_output_hook,
+    register_calibration_hooks,
     freeze_module_quantization,
     initialize_observer,
     initialize_quantized_kv_cache,
@@ -97,7 +94,7 @@ class QuantizationModifier(Modifier):
         state.model.apply(initialize_quantized_kv_cache)
 
         # register hooks to use observers
-        self._register_calibration_hooks()
+        state.model.apply(lambda mod: register_calibration_hooks(self, mod))
 
         return True
 
@@ -117,39 +114,3 @@ class QuantizationModifier(Modifier):
 
     def on_finalize(self, state: State):
         super().on_finalize(state)
-
-    def _register_calibration_hooks(self, module: Module):
-        """
-        Register hooks for input/output activation or kv_cache quantization.
-        """
-        quantization_scheme = getattr(module, "quantization_scheme", None)
-        if not quantization_scheme:
-            return
-
-        is_attention_module_ = is_attention_module(module)
-        input_quant = quantization_scheme.input_activations
-        output_quant = quantization_scheme.output_activations
-
-        calibrate_inputs = (
-            input_quant and not is_attention_module_ and not input_quant.dynamic
-        )
-
-        # Calibrate inputs if an input_quant is provided and not running dynamic quant
-        if calibrate_inputs:
-            self.register_hook(module, calibrate_input_hook, "forward_pre")
-
-        if output_quant:
-            # hooks for attn modules if running kv_cache quant
-            if is_attention_module_:
-                self.register_hook(
-                    module,
-                    calibrate_kv_cache_input_hook,
-                    "forward_pre",
-                    with_kwargs=True,
-                )
-
-                self.register_hook(module, calibrate_kv_cache_output_hook, "forward")
-
-            # hooks for output quant if not running dynamic quant
-            elif not output_quant.dynamic:
-                self.register_hook(module, calibrate_output_hook, "forward")
