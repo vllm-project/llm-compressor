@@ -84,7 +84,7 @@ class AWQModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     group_size: int = 128
     max_chunk_memory: int = 1024 * 1024 * 1024
-    bits: int = 4
+    num_bits: int = 4
     symmetric: bool = False
     duo_scaling: bool = True
 
@@ -411,7 +411,7 @@ class AWQModifier(Modifier):
                         _pseudo_quantize_tensor(
                             w=fc.weight.data,
                             symmetric=self.symmetric,
-                            bit_width=self.bits,
+                            bit_width=self.num_bits,
                             group_size=self.group_size,
                         )[0]
                         / _scalesview,
