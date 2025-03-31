@@ -169,6 +169,7 @@ class Oneshot:
             recipe_stage=recipe_stage,
         )
 
+        session.reset()
         session.initialize(**session_kwargs)
         session.finalize(**session_kwargs)
 

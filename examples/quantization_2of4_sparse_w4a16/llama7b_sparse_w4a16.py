@@ -78,7 +78,7 @@ finetune_applied_model = train(
     stage="finetuning_stage",
 )
 
-
+# Oneshot quantization
 model = oneshot(
     model=finetune_applied_model,
     **oneshot_kwargs,
