@@ -122,6 +122,7 @@ def update_weight_zp_scale(module: Module):
             "to re-calibrate a frozen module"
         )
 
+    breakpoint()
     if module.quantization_scheme.weights is not None:
         # set weight scale and zero_point up front, calibration data doesn't affect it
         call_observer(module=module, base_name="weight")

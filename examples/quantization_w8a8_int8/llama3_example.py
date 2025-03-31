@@ -57,10 +57,27 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * apply SmoothQuant to make the activations easier to quantize
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
-]
+recipe = """
+quant_stage:
+    quant_modifiers:
+        QuantizationModifier:
+            ignore: ["lm_head"]
+            config_groups:
+                group_0:
+                    weights:
+                        num_bits: 8
+                        type: int
+                        strategy: tensor
+                        dynamic: false
+                        symmetric: true
+                    input_activations:
+                        num_bits: 8
+                        type: int
+                        strategy: tensor
+                        dynamic: false
+                        symmetric: true
+                    targets: ["Linear"]
+"""
 
 # Apply algorithms and save to output_dir
 oneshot(
