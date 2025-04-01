@@ -155,12 +155,8 @@ class QuantizedKVParameterCache(DynamicCache):
             zps = self.v_zps
 
         scale, zp = observer(tensor)
-        if len(scales) <= layer_idx:
-            _pad_and_append_at_idx_(scales, layer_idx, scale)
-            _pad_and_append_at_idx_(zps, layer_idx, zp)
-        else:
-            scales[layer_idx] = scale
-            zps[layer_idx] = scale
+        _pad_and_append_at_idx_(scales, layer_idx, scale)
+        _pad_and_append_at_idx_(zps, layer_idx, zp)
 
         q_tensor = quantize(
             x=tensor,
