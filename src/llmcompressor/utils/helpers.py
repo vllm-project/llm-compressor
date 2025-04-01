@@ -18,12 +18,13 @@ import warnings
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import numpy
 import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
+from compressed_tensors.utils import align_module_device
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -66,6 +67,7 @@ __all__ = [
     "eval_context",
     "calibration_forward_context",
     "preserve_attr",
+    "align_modules",
 ]
 
 
@@ -1059,3 +1061,15 @@ def preserve_attr(base: object, attr: str):
         yield
     finally:
         setattr(base, attr, value)
+
+
+# TODO remove after https://github.com/neuralmagic/compressed-tensors/pull/282 lands
+@contextlib.contextmanager
+def align_modules(
+    modules: Iterable[torch.nn.Module], execution_device: Optional[torch.device] = None
+):
+    with contextlib.ExitStack() as stack:
+        [
+            stack.enter_context(align_module_device(module, execution_device))
+            for module in modules
+        ]
