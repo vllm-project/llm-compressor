@@ -165,7 +165,8 @@ def quantize_weight(
         logger.warning(
             "Failed to invert hessian due to numerical instability. Consider "
             "increasing GPTQModifier.dampening_frac, increasing the number "
-            "of calibration samples, or shuffling the calibration dataset"
+            "of calibration samples, or shuffling the calibration dataset. "
+            "Falling back to round-to-nearest for this module."
         )
         Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
