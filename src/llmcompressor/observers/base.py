@@ -3,9 +3,9 @@ from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization.quant_args import (
+    FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationStrategy,
-    FP8_E4M3_DATA
 )
 from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import safe_permute
@@ -98,7 +98,7 @@ class Observer(Module, RegistryMixin):
                     (rows, num_groups), dtype=observed.dtype, device=observed.device
                 )
                 # TODO: update
-                #zp_dtype = self.quantization_args.pytorch_dtype()
+                # zp_dtype = self.quantization_args.pytorch_dtype()
                 zp_dtype = FP8_E4M3_DATA.dtype
                 self._zero_point = torch.empty(
                     (rows, num_groups), dtype=zp_dtype, device=observed.device
