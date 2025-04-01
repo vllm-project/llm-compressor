@@ -28,8 +28,8 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
             "re:.*input_layernorm",
             ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
         ),
-        # TODO this should only be added if v_proj/o_proj shapes match up
-        #  should we check during validation and skip if this is not the case?
+        # TODO (Brian INFERENG-530) when resolving, only add
+        # if v_proj/o_proj shapes match up
         AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
         AWQMapping(
             "re:.*post_attention_layernorm",
@@ -40,9 +40,8 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
             ["re:.*down_proj"],
         ),
     ],
-    "Qwen": [
-        # TODO add Qwen mappings
-    ],
+    # TODO (Brian INFERENG-529) Add Qwen mappings
+    # "Qwen": [ ],
 }
 
 
