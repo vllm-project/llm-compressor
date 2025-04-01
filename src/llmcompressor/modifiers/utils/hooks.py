@@ -1,6 +1,8 @@
 import contextlib
 from functools import wraps
-from typing import Any, Callable, ClassVar, Optional, Set, Union
+from typing import Any, Callable, ClassVar, Optional, Set, Union, Dict
+
+from collections import defaultdict
 
 import torch
 from loguru import logger
@@ -39,19 +41,23 @@ class HooksMixin(BaseModel):
     # attached to global HooksMixin class
     _HOOKS_DISABLED: ClassVar[bool] = False
     _HOOKS_KEEP_ENABLED: ClassVar[Set[RemovableHandle]] = set()
+    _HOOK_GROUP: ClassVar[Dict[str, Set[RemovableHandle]]] = defaultdict(set)
 
     # attached to local subclasses
     _hooks: Set[RemovableHandle] = set()
 
     @classmethod
     @contextlib.contextmanager
-    def disable_hooks(cls, keep: Set[RemovableHandle] = frozenset()):
+    def disable_hooks(cls, keep: Set[RemovableHandle] = frozenset(), keep_group: Optional[str] = None):
         """
         Disable all hooks across all modifiers. Composing multiple contexts is
         equivalent to the union of `keep` arguments
 
         :param keep: optional set of handles to keep enabled
         """
+        if keep_group is not None:
+            keep |= cls._HOOK_GROUP[keep_group]
+
         try:
             cls._HOOKS_DISABLED = True
             cls._HOOKS_KEEP_ENABLED |= keep
@@ -65,6 +71,7 @@ class HooksMixin(BaseModel):
         target: Union[torch.nn.Module, torch.nn.Parameter],
         hook: Callable[[Any], Any],
         hook_type: str,
+        group: Optional[str] = None,
         **kwargs,
     ) -> RemovableHandle:
         """
@@ -94,9 +101,12 @@ class HooksMixin(BaseModel):
 
         register_function = getattr(target, f"register_{hook_type}_hook")
         handle = register_function(wrapped_hook, **kwargs)
-        self._hooks.add(handle)
-        logger.debug(f"{self} added {handle}")
 
+        self._hooks.add(handle)
+        if group is not None:
+            HooksMixin._HOOK_GROUP[group].add(handle)
+
+        logger.debug(f"{self} added {handle}")
         return handle
 
     def remove_hooks(self, handles: Optional[Set[RemovableHandle]] = None):

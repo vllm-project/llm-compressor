@@ -148,6 +148,10 @@ class GPTQModifier(Modifier, HooksMixin):
         config = resolve_modifier_quantization_config(self)
         apply_quantization_config(state.model, config)
 
+        # initialize observers
+        # register calibration hooks
+        # register execution hook with prepend
+
         # prepare hooks for calibrating activation quantization
         state.model.apply(lambda mod: initialize_observer(mod, base_name="input"))
         state.model.apply(lambda mod: initialize_observer(mod, base_name="weight"))

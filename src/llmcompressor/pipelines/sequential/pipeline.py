@@ -67,6 +67,7 @@ def run_pipeline(
         # prepare intermediates cache
         model_device = oneshot_device or model.device
         intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
+        num_batches = len(dataloader)
 
         num_subgraphs = len(subgraphs)
         for subgraph_index, subgraph in enumerate(subgraphs):
@@ -78,20 +79,18 @@ def run_pipeline(
             forward_function = subgraph.compile_forward()
 
             with align_modules(subgraph.modules, oneshot_device):
-                # do an preliminary pass to trigger modifier hooks
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                    inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    forward_function(model, **inputs)
+                # do an preliminary pass to trigger calibration hooks
+                with HooksMixin.disable_hooks(keep_group="calibration"):
+                    for batch_index in tqdm.tqdm(range(num_batches), desc=calib_desc):
+                        inputs = intermediates.fetch(batch_index, subgraph.input_names)
+                        forward_function(model, **inputs)
 
                 # trigger compression
                 compressor.sequential_epoch_end()
 
-                # this pass does not trigger modifier hooks
-                # and is only used for capturing outputs from newly compressed modules
-                with HooksMixin.disable_hooks():
-                    for batch_index in tqdm.tqdm(
-                        range(len(dataloader)), desc=prop_desc
-                    ):
+                # do another pass to capture outputs from newly compressed modules
+                with HooksMixin.disable_hooks(keep_group="execution"):
+                    for batch_index in tqdm.tqdm(range(num_batches), desc=prop_desc):
                         inputs = intermediates.fetch(batch_index, subgraph.input_names)
                         output = forward_function(model, **inputs)
 
