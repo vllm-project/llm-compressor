@@ -8,7 +8,7 @@ recipe = [
     #SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(targets="Linear", scheme="FP8", ignore=["lm_head"], sequential_targets="Linear")
 ]
-output_dir = model_id.split("/")[1] + "-FP8-yes_quant-linear"
+output_dir = model_id.split("/")[1] + "-FP8-no_quant-linear"
 
 compressor = LLMCompressor(model_id, recipe)
 compressor.set_calibration_dataset("ultrachat_200k", split="train_sft[:512]")

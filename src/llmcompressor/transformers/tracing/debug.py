@@ -7,9 +7,9 @@ import transformers
 from transformers import AutoProcessor, PreTrainedModel
 
 from llmcompressor.transformers import tracing
+from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
-from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.args import DatasetArguments
 
 __all__ = [

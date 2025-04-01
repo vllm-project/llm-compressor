@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Callable, List, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Union
 
 import torch
 from datasets import Dataset, DatasetDict, IterableDataset
@@ -31,4 +31,5 @@ PipelineFn = Callable[
 ModelInput = Union[str, PreTrainedModel]
 
 # Supported recipe input types
-RecipeInput = Union[str, "Modifier", List["Modifier"]]
+# RecipeInput = Union[str, "Modifier", List["Modifier"]]
+RecipeInput = Any

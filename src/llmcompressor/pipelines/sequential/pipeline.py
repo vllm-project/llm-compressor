@@ -70,7 +70,6 @@ def run_pipeline(
     with calibration_forward_context(model):
         # prepare intermediates cache
         model_device = oneshot_device or model.device
-        print(list(data["input_ids"].shape for data in dataloader))
         intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
         num_batches = len(dataloader)
 
@@ -83,8 +82,8 @@ def run_pipeline(
             with align_modules(subgraph.modules, oneshot_device):
                 # do an preliminary pass to trigger calibration hooks
                 # with HooksMixin.disable_hooks(keep_group="calibration"):
-                # with DisableQuantization(model):
-                if True:
+                with DisableQuantization(model):
+                    # if True:
                     for batch_index in tqdm.tqdm(range(num_batches), desc=calib_desc):
                         inputs = intermediates.fetch(batch_index, subgraph.input_names)
                         subgraph.forward(model, **inputs)
