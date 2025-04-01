@@ -50,7 +50,6 @@ class MinMaxObserver(Observer):
         """
         tensor_id = tensor_id or "default"
 
-        breakpoint()
         if not reduce_dims:
             min_val, max_val = torch.aminmax(observed)
         else:
@@ -83,7 +82,6 @@ class MinMaxObserver(Observer):
         self.min_val[tensor_id] = updated_min_val
         self.max_val[tensor_id] = updated_max_val
 
-        breakpoint()
         return calculate_qparams(
             min_vals=updated_min_val,
             max_vals=updated_max_val,
