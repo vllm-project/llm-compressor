@@ -5,8 +5,8 @@ from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.args import parse_args
-from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.core.session_functions import active_session
+from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
 
 from .utils import post_process, pre_process
