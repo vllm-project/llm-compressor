@@ -168,7 +168,7 @@ def get_tracer(
                 return super().create_arg(a)
 
         def iter(self, obj: Proxy) -> Iterator:
-            # assume that torch.Sizes can be iterated
+            # assume that torch.Sizes can be iterated, but their values are dynamic
             # ex.
             # input_shape = hidden_states.shape[:-1]
             # hidden_shape = (*input_shape, -1, self.head_dim)  # iterate shape
