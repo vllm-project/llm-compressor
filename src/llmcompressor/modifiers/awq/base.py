@@ -25,6 +25,7 @@ from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 __all__ = ["AWQModifier"]
 
 
+# TODO (Brian INFERENG-531) Add support for offloaded models
 class AWQModifier(Modifier):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,
