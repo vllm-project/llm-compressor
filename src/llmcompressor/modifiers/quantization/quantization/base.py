@@ -13,10 +13,10 @@ from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
-    register_calibration_hooks,
     freeze_module_quantization,
     initialize_observer,
     initialize_quantized_kv_cache,
+    register_calibration_hooks,
     remove_quantized_kv_cache,
     update_weight_zp_scale,
 )

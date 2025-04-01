@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import (
@@ -30,6 +30,13 @@ __all__ = [
     "apply_calibration_status",
     "register_calibration_hooks",
 ]
+
+
+def initialize_observers(model: torch.nn.Module):
+    model.apply(lambda mod: initialize_observer(mod, base_name="input"))
+    model.apply(lambda mod: initialize_observer(mod, base_name="weight"))
+    model.apply(lambda mod: initialize_observer(mod, base_name="output"))
+    model.apply(initialize_quantized_kv_cache)
 
 
 def initialize_observer(

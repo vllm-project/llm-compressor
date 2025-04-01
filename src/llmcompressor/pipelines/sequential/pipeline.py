@@ -12,7 +12,11 @@ from llmcompressor.pipelines.sequential.helpers import (
     infer_oneshot_device,
     trace_subgraphs,
 )
-from llmcompressor.utils.helpers import align_modules, calibration_forward_context
+from llmcompressor.utils.helpers import (
+    DisableQuantization,
+    align_modules,
+    calibration_forward_context,
+)
 
 if TYPE_CHECKING:
     from llmcompressor.args import PostTrainArguments
@@ -66,6 +70,7 @@ def run_pipeline(
     with calibration_forward_context(model):
         # prepare intermediates cache
         model_device = oneshot_device or model.device
+        print(list(data["input_ids"].shape for data in dataloader))
         intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
         num_batches = len(dataloader)
 
@@ -75,15 +80,14 @@ def run_pipeline(
             calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
             prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-            # compile subgraph forward function
-            forward_function = subgraph.compile_forward()
-
             with align_modules(subgraph.modules, oneshot_device):
                 # do an preliminary pass to trigger calibration hooks
-                with HooksMixin.disable_hooks(keep_group="calibration"):
+                # with HooksMixin.disable_hooks(keep_group="calibration"):
+                # with DisableQuantization(model):
+                if True:
                     for batch_index in tqdm.tqdm(range(num_batches), desc=calib_desc):
                         inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                        forward_function(model, **inputs)
+                        subgraph.forward(model, **inputs)
 
                 # trigger compression
                 compressor.sequential_epoch_end()
@@ -92,7 +96,7 @@ def run_pipeline(
                 with HooksMixin.disable_hooks(keep_group="execution"):
                     for batch_index in tqdm.tqdm(range(num_batches), desc=prop_desc):
                         inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                        output = forward_function(model, **inputs)
+                        output = subgraph.forward(model, **inputs)
 
                         if subgraph_index < num_subgraphs - 1:
                             intermediates.update(batch_index, output)

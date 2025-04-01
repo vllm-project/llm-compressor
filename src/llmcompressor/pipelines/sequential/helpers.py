@@ -1,13 +1,14 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from loguru import logger
-from torch.fx import Graph, GraphModule, Node
+from torch.fx import Graph, GraphModule, Node, Proxy
+from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
@@ -38,16 +39,23 @@ class Subgraph:
     input_names: Set[str]
     consumed_names: Set[str]
     modules: List[Module]
+    _code: Optional[PythonCode] = None
 
-    def compile_forward(self) -> Callable[[Any], Any]:
-        """
-        Generate and compile code for executing this subgraph
+    def forward(self, *args, **kwargs) -> Dict[str, Any]:
+        if self._code is None:
+            self._code = self.graph.python_code("self")
+            exec(self._code.src, self._code.globals)
 
-        :return: function which, when called, executes this subgraph
-        """
-        code = self.graph.python_code("self")
-        exec(code.src, code.globals)
-        return code.globals.get("forward")
+        forward_fn = self._code.globals.get("forward")
+        try:
+            outputs = forward_fn(*args, **kwargs)
+        except Exception as exception:
+            raise RuntimeError(
+                "Raised an exception during execution of the following code:\n```"
+                f"{self._code.src}\n```"
+            ) from exception
+
+        return outputs
 
 
 def trace_subgraphs(
@@ -68,6 +76,8 @@ def trace_subgraphs(
     :param ignore: list of patterns matching modules to ignore during tracing
     :return: a list of Subgraphs in order of execution
     """
+    model.config._attn_implementation = "eager"
+
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
     ignore = match_modules(model, ignore)
@@ -116,6 +126,8 @@ def get_tracer(
     Tracing within sequential targets and ignored targets is unnecessary, and tracing
     within offloaded modules may result in meta tensors being added to the model graph
 
+    Tracing assumes that input lengths are static, but input shapes are dynamic
+
     :param model: model being traced
     :param sequential_targets: modules which are sequential targets
     :param ignore: modules which are ignored
@@ -125,15 +137,6 @@ def get_tracer(
     skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
     class SequentialTracer(HFTracer):
-        def create_arg(self, a: Any) -> Argument:
-            # special extension allows models which depend on config values to be traced
-            if isinstance(a, PretrainedConfig):
-                kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
-                return self.create_node("call_function", a.__class__, (), kwargs)
-
-            else:
-                return super().create_arg(a)
-
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
             return module in skip_trace_modules or super().is_leaf_module(
                 module, module_qualified_name
@@ -154,6 +157,25 @@ def get_tracer(
 
             else:
                 return super().trace(root, *args, **kwargs)
+
+        def create_arg(self, a: Any) -> Argument:
+            # special extension allows models which depend on config values to be traced
+            if isinstance(a, PretrainedConfig):
+                kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
+                return self.create_node("call_function", a.__class__, (), kwargs)
+
+            else:
+                return super().create_arg(a)
+
+        def iter(self, obj: Proxy) -> Iterator:
+            # assume that torch.Sizes can be iterated
+            # ex.
+            # input_shape = hidden_states.shape[:-1]
+            # hidden_shape = (*input_shape, -1, self.head_dim)  # iterate shape
+            if isinstance(getattr(obj, "_metadata", None), torch.Size):
+                return iter(obj[i] for i in range(len(obj)))
+
+            return super().iter(obj)
 
     return SequentialTracer()
 

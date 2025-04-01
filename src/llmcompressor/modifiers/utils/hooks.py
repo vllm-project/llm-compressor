@@ -1,8 +1,7 @@
 import contextlib
-from functools import wraps
-from typing import Any, Callable, ClassVar, Optional, Set, Union, Dict
-
 from collections import defaultdict
+from functools import wraps
+from typing import Any, Callable, ClassVar, Dict, Optional, Set, Union
 
 import torch
 from loguru import logger
@@ -48,7 +47,9 @@ class HooksMixin(BaseModel):
 
     @classmethod
     @contextlib.contextmanager
-    def disable_hooks(cls, keep: Set[RemovableHandle] = frozenset(), keep_group: Optional[str] = None):
+    def disable_hooks(
+        cls, keep: Set[RemovableHandle] = frozenset(), keep_group: Optional[str] = None
+    ):
         """
         Disable all hooks across all modifiers. Composing multiple contexts is
         equivalent to the union of `keep` arguments

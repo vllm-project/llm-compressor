@@ -1,6 +1,6 @@
 import warnings
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Dict, List, Optional, Union, Iterator
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 import torch
 import tqdm
@@ -82,8 +82,10 @@ class IntermediatesCache:
             batch_intermediates.append(intermediate)
 
         return cls(batch_intermediates, offload_device)
-    
-    def iter_batches(self, input_names: Optional[List[str]] = None) -> Iterator[Dict[str, Any]]:
+
+    def iter_batches(
+        self, input_names: Optional[List[str]] = None
+    ) -> Iterator[Dict[str, Any]]:
         for batch_index in len(self.batch_intermediates):
             yield self.fetch(batch_index, input_names)
 
