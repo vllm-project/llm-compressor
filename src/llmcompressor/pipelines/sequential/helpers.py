@@ -46,7 +46,9 @@ class Subgraph:
         except Exception as exception:
             raise RuntimeError(
                 "Raised an exception during execution of the following code:\n"
-                f"```{add_line_numbers(self._code.src)}```"
+                f"```{add_line_numbers(self._code.src)}```\n"
+                "This is likely due to a violation of shape assumptions made when "
+                "tracing"
             ) from exception
 
         return outputs
