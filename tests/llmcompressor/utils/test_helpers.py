@@ -134,11 +134,12 @@ def test_calibration_forward_context():
     model = torch.nn.Linear(1, 1)
     model.config = SimpleNamespace()
     model.config.use_cache = True
+    model.train()
 
     with calibration_forward_context(model):
         assert not torch.is_grad_enabled()
-        assert not model.quantization_enabled
         assert not model.config.use_cache
+        assert not model.training
     assert torch.is_grad_enabled()
-    assert model.quantization_enabled
     assert model.config.use_cache
+    assert model.training

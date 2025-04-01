@@ -55,7 +55,7 @@ setup(
         "requests>=2.0.0",
         "tqdm>=4.0.0",
         "torch>=1.7.0",
-        "transformers>4.0,<5.0",
+        "transformers>4.0,<4.50",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
@@ -94,7 +94,7 @@ setup(
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",
