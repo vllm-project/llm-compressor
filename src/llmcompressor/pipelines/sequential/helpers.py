@@ -1,12 +1,13 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set, Union
+from typing import Any, Callable, Dict, Iterator, List, Set, Union
 
+import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from torch.fx import Graph, GraphModule, Node
-from torch.fx.proxy import Argument
+from torch.fx.proxy import Argument, Proxy
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
@@ -119,15 +120,6 @@ def get_tracer(
     skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
     class SequentialTracer(HFTracer):
-        def create_arg(self, a: Any) -> Argument:
-            # special extension allows models which depend on config values to be traced
-            if isinstance(a, PretrainedConfig):
-                kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
-                return self.create_node("call_function", a.__class__, (), kwargs)
-
-            else:
-                return super().create_arg(a)
-
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
             return module in skip_trace_modules or super().is_leaf_module(
                 module, module_qualified_name
@@ -148,6 +140,26 @@ def get_tracer(
 
             else:
                 return super().trace(root, *args, **kwargs)
+
+        def create_arg(self, a: Any) -> Argument:
+            # special extension allows models which depend on config values to be traced
+            if isinstance(a, PretrainedConfig):
+                kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
+                return self.create_node("call_function", a.__class__, (), kwargs)
+
+            else:
+                return super().create_arg(a)
+
+        def iter(self, obj: Proxy) -> Iterator:
+            # special extension which allows torch.Sizes to be iterated, but keeps
+            # their values are dynamic
+            #
+            # input_shape = hidden_states.shape[:-1]
+            # hidden_shape = (*input_shape, -1, self.head_dim)  # iterate shape
+            if isinstance(getattr(obj, "_metadata", None), torch.Size):
+                return iter(obj[i] for i in range(len(obj)))
+
+            return super().iter(obj)
 
     return SequentialTracer()
 
