@@ -1,10 +1,12 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
+import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
+from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.proxy import Argument
 from torch.nn import Module
@@ -12,10 +14,13 @@ from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.registry import get_sequential_modifiers
 from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
-__all__ = ["trace_subgraphs", "Subgraph"]
+__all__ = ["trace_subgraphs", "Subgraph", "get_targets_from_modifiers"]
 
 
 @dataclass
@@ -32,6 +37,7 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    modules: List[Module]
 
     def compile_forward(self) -> Callable[[Any], Any]:
         """
@@ -94,7 +100,7 @@ def trace_subgraphs(
 
     # perform subgraph partition
     partitions = topological_partition(graph, sequential_targets)
-    subgraphs = partition_graph(model, partitions)
+    subgraphs = partition_graph(model, partitions, graph)
     trace_consumed_names(subgraphs)
 
     return subgraphs
@@ -264,7 +270,9 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     return partitions
 
 
-def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgraph]:
+def partition_graph(
+    model: Module, partitions: List[List[Node]], parent_graph: GraphModule
+) -> List[Subgraph]:
     """
     Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
     of output node names to their computed values. Note that the `consumed_names`
@@ -310,11 +318,13 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
         # save the subgraph for this partition
         graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
+        modules = get_subgraph_modules(graph, parent_graph)
         subgraphs.append(
             Subgraph(
                 graph=graph,
                 input_names=input_names,
                 consumed_names=set(),  # populated later
+                modules=modules,
             )
         )
 
@@ -380,3 +390,83 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def get_targets_from_modifiers(
+    modifiers: List[Modifier], model: PreTrainedModel
+) -> Tuple[List[str], List[str]]:
+    """
+    Infer sequential targets and ignore list from modifiers list
+
+    :param model: model being calibrated
+    :param modifiers: list of modifiers being applied during calibration
+    :return: list of sequential targets and list of modules to ignore for tracing
+    """
+    sequential_modifiers = [
+        modifier
+        for modifier in modifiers
+        if isinstance(modifier, get_sequential_modifiers())
+    ]
+
+    if len(sequential_modifiers) >= 2:
+        types = [type(modifier) for modifier in sequential_modifiers]
+        logger.warning(
+            "Cannot infer sequential targets from multiple sequential modifiers "
+            f"({types}). Defaulting to {types[0]}"
+        )
+    elif len(sequential_modifiers) <= 0:
+        types = [type(modifier) for modifier in modifiers]
+        raise ValueError(f"Cannot infer sequential targets from list of {types}")
+
+    modifier = sequential_modifiers[0]
+
+    # infer sequential targets
+    if modifier.sequential_targets is None:
+        sequential_targets = get_no_split_params(model)
+    if isinstance(modifier.sequential_targets, str):
+        sequential_targets = [modifier.sequential_targets]
+
+    return sequential_targets, modifier.ignore
+
+
+def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
+    """
+    Get all submodules executed by `subgraph`
+    :param subgraph: subgraph of parent_graph
+    :param parent_graph: GraphModule describing the model,
+        used for `get_submodule` method
+    :return: all submodules executed by subgraph
+    """
+    modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
+    called_modules = [parent_graph.get_submodule(op.target) for op in modules_ops]
+    return list({m for module in called_modules for m in module.modules()})
+
+
+def infer_oneshot_device(
+    model: PreTrainedModel, oneshot_device: Optional[torch.device]
+) -> Optional[torch.device]:
+    if is_gpu_dispatched(model):
+        logger.warning(
+            "Calibrating a model dispatched to the gpu can potentially lead to OOM "
+            "errors. Consider loading the model without a `device_map` and instead "
+            "executing with `cuda:0` (set `oneshot_device` to override this default)"
+        )
+        return None
+
+    elif oneshot_device is None:
+        has_cuda = torch.cuda.is_available()
+        oneshot_device = torch.device("cuda:0") if has_cuda else torch.device("cpu")
+        logger.info(f"No oneshot_device passed, using {oneshot_device}")
+
+    return oneshot_device
+
+
+def is_gpu_dispatched(model: PreTrainedModel) -> bool:
+    for module in model.modules():
+        if any(param.device not in ("meta", "cpu") for param in module.parameters()):
+            return True
+
+        if has_offloaded_params(module) and module._hf_hook.execution_device != "cpu":
+            return True
+
+    return False

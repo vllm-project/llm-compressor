@@ -46,6 +46,8 @@ ComparisonFuncType = Callable[
 ]
 CreateComparisonFuncType = Callable[[str, Module, Module, State], ComparisonFuncType]
 
+EPSILON = 1e-3
+
 
 class KDFactory:
     registry_projections: Dict[str, CreateProjectionFuncType] = {}
@@ -358,7 +360,14 @@ def kl_divergence_comparison(
         val_one = val_one / temperature
         val_two = val_two / temperature
 
-        return torch.sum(val_one * torch.log(val_one / val_two), dim=dim)
+        val_two[val_two == 0.0] = EPSILON  # numerical stability
+
+        error = torch.sum(val_one * torch.log(val_one / val_two), dim=dim)
+        error = torch.nan_to_num(
+            error, nan=0.0, posinf=0.0, neginf=0.0
+        )  # numerical stability
+
+        return error
 
     def _create_comparison(
         val_one: TensorOrCollectionType, val_two: TensorOrCollectionType
@@ -397,6 +406,8 @@ def square_head_comparison(name: str, **kwargs):
     def _square_head(val_one: Tensor, val_two: Tensor) -> Tensor:
         numerator = torch.sum(torch.square(val_two - val_one))
         denominator = torch.sum(torch.square(val_two))
+
+        denominator[denominator == 0.0] = EPSILON  # numerical stability
 
         return numerator / denominator
 

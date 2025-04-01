@@ -16,12 +16,9 @@ class TrainingArguments(HFTrainingArgs):
 
     """
 
-    do_oneshot: Optional[bool] = field(
-        default=False,
-        metadata={"help": "Whether to run one-shot calibration in stages"},
-    )
-    run_stages: Optional[bool] = field(
-        default=False, metadata={"help": "Whether to trigger recipe stage by stage"}
+    max_seq_length: Optional[int] = field(
+        default=512,
+        metadata={"help": "The maximum sequence length to use during training"},
     )
     output_dir: str = field(
         default="./output",

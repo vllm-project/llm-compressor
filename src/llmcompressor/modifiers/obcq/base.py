@@ -10,7 +10,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.obcq.sgpt_sparsify import (
@@ -90,6 +90,14 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
+        """
+        Calibration hook used to accumulate the hessian of the input to the module
+
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
+        """
         # Assume that the first argument is the input
         inp = args[0]
 
@@ -108,10 +116,16 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
+            self.compress_modules()
+
+    def compress_modules(self):
         """
-        Sparsify modules
-        TODO: implement with event callback
+        Sparsify modules which have been calibrated
         """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
@@ -154,6 +168,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
         self.remove_hooks()
         self._hessians = dict()
         self._num_samples = dict()

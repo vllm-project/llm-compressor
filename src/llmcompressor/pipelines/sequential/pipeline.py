@@ -1,27 +1,29 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
-import torch
-import torch.utils.data.dataloader
 import tqdm
-from compressed_tensors.utils import get_execution_device
+from torch.utils.data.dataloader import DataLoader
+from transformers import PreTrainedModel
 
+from llmcompressor.core import get_compressor
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.pipelines.sequential.helpers import (
+    get_targets_from_modifiers,
+    infer_oneshot_device,
+    trace_subgraphs,
+)
+from llmcompressor.utils.helpers import align_modules, calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
+    from llmcompressor.args import PostTrainArguments
 
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
-    model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    sequential_targets: List[str],
-    ignore: List[str],
-    callback_modifier: Optional["Modifier"] = None,
+    model: PreTrainedModel,
+    dataloader: DataLoader,
+    args: "PostTrainArguments",
 ):
     """
     Run a sequential data pipeline according to the following steps:
@@ -46,14 +48,26 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param ignore: patterns which match to modules which should be ignored by tracing
     """
+    compressor = get_compressor()
+
+    # if the model is dispatched, use the dispatch to determine onloading, return None
+    # otherwise, infer a oneshot device (either user passed or the first available gpu)
+    oneshot_device = infer_oneshot_device(model, args.oneshot_device)
+
+    # infer sequential targets
+    modifiers = compressor.modifiers
+    sequential_targets, ignore = get_targets_from_modifiers(modifiers, model)
+
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
+    compressor.initialize()
     with calibration_forward_context(model):
         # prepare intermediates cache
-        model_device = get_execution_device(model)
+        model_device = oneshot_device or model.device
         intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
+        num_batches = len(dataloader)
 
         num_subgraphs = len(subgraphs)
         for subgraph_index, subgraph in enumerate(subgraphs):
@@ -64,22 +78,25 @@ def run_pipeline(
             # compile subgraph forward function
             forward_function = subgraph.compile_forward()
 
-            # do an preliminary pass to trigger modifier hooks
-            for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                forward_function(model, **inputs)
+            with align_modules(subgraph.modules, oneshot_device):
+                # do an preliminary pass to trigger calibration hooks
+                with HooksMixin.disable_hooks(keep_group="calibration"):
+                    for batch_index in tqdm.tqdm(range(num_batches), desc=calib_desc):
+                        inputs = intermediates.fetch(batch_index, subgraph.input_names)
+                        forward_function(model, **inputs)
 
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
+                # trigger compression
+                compressor.sequential_epoch_end()
 
-            # this pass does not trigger modifier hooks
-            # and is only used for capturing outputs from the newly compressed modules
-            with HooksMixin.disable_hooks():
-                for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
-                    inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    output = forward_function(model, **inputs)
+                # do another pass to capture outputs from newly compressed modules
+                with HooksMixin.disable_hooks(keep_group="execution"):
+                    for batch_index in tqdm.tqdm(range(num_batches), desc=prop_desc):
+                        inputs = intermediates.fetch(batch_index, subgraph.input_names)
+                        output = forward_function(model, **inputs)
 
-                    if subgraph_index < num_subgraphs - 1:
-                        intermediates.update(batch_index, output)
-                        intermediates.delete(batch_index, subgraph.consumed_names)
+                        if subgraph_index < num_subgraphs - 1:
+                            intermediates.update(batch_index, output)
+                            intermediates.delete(batch_index, subgraph.consumed_names)
+
+        # redudant, finish any remaining compression
+        compressor.calibration_epoch_end()

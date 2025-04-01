@@ -12,10 +12,6 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from llmcompressor.core import State
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -159,49 +155,6 @@ class SparsityModifierMixin(HooksMixin):
                 self._module_names[module] = name
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")
-
-        # infer and run pipeline
-        model_name = state.model.__class__.__name__
-        input_names = dataloader.dataset.column_names
-        unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
-        try:
-            run_sequential(
-                state.model,
-                state.data.calib,
-                self.sequential_targets,
-                self.ignore,
-                self,
-            )
-            return True
-
-        except Exception as exception:
-            if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(f"Failed to trace {model_name} with inputs {input_names}")
-            if isinstance(exception, unfixable_errors):
-                raise exception
-
-            warnings.warn("Falling back to layer_sequential pipeline")
-            try:
-                run_layer_sequential(
-                    state.model,
-                    state.data.calib,
-                    self.sequential_targets,
-                    self,
-                )
-                return True
-
-            except Exception as exception:
-                if isinstance(exception, TypeError):
-                    warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, unfixable_errors):
-                    raise exception
-
-                warnings.warn(
-                    "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy"
-                )
-                run_basic(state.model, state.data.calib, self)
-                return True
 
     def _infer_sequential_targets(
         self, model: torch.nn.Module

@@ -1,24 +1,26 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import torch
 import torch.utils.data.dataloader
 import tqdm
-from compressed_tensors.utils import get_execution_device
+from loguru import logger
+from transformers import PreTrainedModel
 
-from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
+from llmcompressor.core import get_compressor
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
+from llmcompressor.utils import apply_pad_mask_to_batch
 from llmcompressor.utils.helpers import calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
+    from llmcompressor.args import PostTrainArguments
 
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
-    model: torch.nn.Module,
+    model: PreTrainedModel,
     dataloader: torch.utils.data.DataLoader,
-    callback_modifier: Optional["Modifier"] = None,
+    args: "PostTrainArguments",
 ):
     """
     Run a basic data pipeline.
@@ -30,16 +32,21 @@ def run_pipeline(
 
     :param model: model being calibrated
     :param dataloader: loads data for calibration
-    :param callback_modifier: Temporary HACK which should be replaced by event callback
+    :param modifiers: list of modifiers, only included to match PipelineFn signature
     """
-    model_device = get_execution_device(model)
+    compressor = get_compressor()
 
+    if args.oneshot_device is not None:
+        logger.warning(
+            "Basic pipeline does not utilize `oneshot_device` argument, instead use "
+            "`from_pretrained(device_map=...)` to determine onloading behavior"
+        )
+
+    compressor.initialize()
     with calibration_forward_context(model):
         for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
             batch = apply_pad_mask_to_batch(batch)
-            batch = tensors_to_device(batch, model_device)
+            batch = tensors_to_device(batch, model.device)
             model(**batch)
 
-        # TODO: replace with a lifecycle event
-        if callback_modifier:
-            callback_modifier.on_sequential_batch_end()
+    compressor.calibration_epoch_end()

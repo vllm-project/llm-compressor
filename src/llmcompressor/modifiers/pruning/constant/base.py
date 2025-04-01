@@ -2,13 +2,16 @@ from typing import Dict, List, Union
 
 import torch
 
-from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.utils.pytorch import (
     LayerParamMasking,
     param_mask_name,
 )
-from llmcompressor.utils.pytorch.module import get_layers_params
+from llmcompressor.utils.pytorch.module import (
+    ModelParameterizedLayer,
+    get_layers_params,
+)
 
 __all__ = ["ConstantPruningModifier"]
 
@@ -17,15 +20,10 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
     targets: Union[str, List[str]]
     parameterized_layers_: Dict[str, ModelParameterizedLayer] = None
     _epsilon: float = 10e-9
-    _save_masks: bool = False
-    _use_hooks: bool = False
+    save_masks: bool = False
+    use_hooks: bool = False
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        if "save_masks" in kwargs:
-            self._save_masks = kwargs["save_masks"]
-        if "use_hooks" in kwargs:
-            self._use_hooks = kwargs["use_hooks"]
-
         if not state.model:
             return False
 
@@ -35,8 +33,8 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
             self.add_mask(
                 layer_param_name,
                 parameterized_layer,
-                persistent=self._save_masks,
-                add_hooks=self._use_hooks,
+                persistent=self.save_masks,
+                add_hooks=self.use_hooks,
             )
 
         return True
@@ -47,7 +45,8 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
 
         return True
 
-    def on_start(self, state: State, event: Event, **kwargs):
+    def on_start(self, state: State):
+        super().on_start(state)
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
             self.update_mask(
                 layer_param_name, parameterized_layer.param.data.abs() > self._epsilon
@@ -56,8 +55,8 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
         self.enable_masks()
 
     @torch.no_grad()
-    def on_update(self, state: State, event: Event, **kwargs):
-        if self._use_hooks:
+    def on_event(self, state: State, event: Event):
+        if self.use_hooks:
             # hooks are used to update, so nothing to do here
             return
         if event.type_ == EventType.OPTIM_POST_STEP:
@@ -72,5 +71,6 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
 
             state.model.apply(apply_masks)
 
-    def on_end(self, state: State, event: Event, **kwargs):
+    def on_end(self, state: State):
+        super().on_end(state)
         self.disable_masks()

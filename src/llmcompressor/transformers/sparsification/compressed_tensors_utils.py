@@ -6,6 +6,7 @@ from typing import Dict, Optional
 
 import torch
 import transformers
+import yaml
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
     CompressionFormat,
@@ -18,17 +19,14 @@ from loguru import logger
 from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
 
-from llmcompressor.core import active_session
+from llmcompressor.core import get_compressor
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
 from llmcompressor.transformers.compression.sparsity_config import (
     SparsityConfigMetadata,
 )
-from llmcompressor.transformers.utils import RECIPE_FILE_NAME
-from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
 __all__ = ["modify_save_pretrained"]
 
@@ -123,7 +121,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                 compressor.update_config(save_directory)
 
             # update existing recipe
-            update_and_save_recipe(model.name_or_path, save_directory)
+            #save_recipe(model.name_or_path, save_directory)
 
             # copy python files from cache dir to save_path if any
             copy_python_files_from_model_cache(model, save_directory)
@@ -148,7 +146,7 @@ def new_dtype_byte_size(dtype):
     return bit_size // 8
 
 
-def patch_tied_tensors_bug(model: torch.nn.Module):
+def patch_tied_tensors_bug(model: PreTrainedModel):
     """
     Patches bug where HF transformers will fail to untie weights under specific
     circumstances (https://github.com/huggingface/transformers/issues/33689).
@@ -169,16 +167,27 @@ def patch_tied_tensors_bug(model: torch.nn.Module):
             return
 
         if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
-            for module in (input_embed, output_embed):
-                if not is_module_offloaded(module):
-                    # create new storage ptr for onloaded weight
-                    untied_data = module.weight.data.clone()
-                    module.weight.data = untied_data
-                else:
-                    # create new storage ptr for offloaded weight
-                    # note `update_offload_parameter` does not create a new storage ptr
-                    untied_data = module._hf_hook.weights_map["weight"].clone()
-                    update_offload_parameter(module, "weight", untied_data)
+            untie_weights(model)
+
+
+def untie_weights(model: PreTrainedModel):
+    input_embed = model.get_input_embeddings()
+    output_embed = model.get_output_embeddings()
+
+    if input_embed is None or output_embed is None:
+        # some models fail to properly override the abstract methods
+        return
+
+    for module in (input_embed, output_embed):
+        if not is_module_offloaded(module):
+            # create new storage ptr for onloaded weight
+            untied_data = module.weight.data.clone()
+            module.weight.data = untied_data
+        else:
+            # create new storage ptr for offloaded weight
+            # note `update_offload_parameter` does not create a new storage ptr
+            untied_data = module._hf_hook.weights_map["weight"].clone()
+            update_offload_parameter(module, "weight", untied_data)
 
 
 def get_model_compressor(
@@ -245,18 +254,33 @@ def get_model_compressor(
     )
 
 
-def update_and_save_recipe(model_path: str, save_directory: str):
-    recipes_to_save = []
-    existing_recipe = infer_recipe_from_model_path(model_path)
-    if existing_recipe is not None:
-        recipes_to_save.append(existing_recipe)
+def save_recipe(model_path: str, save_directory: str):
+    compressor = get_compressor()
+    recipe = {
+        "default_stage": {
+            "modifiers": {
+                modifier.__class__.__name__: modifier.model_dump()  # TODO: make sure only relevant is written
+                for modifier in compressor.modifiers
+            }
+        }
+    }
 
-    new_recipe = active_session().lifecycle.recipe_container.compiled_recipe
-    if new_recipe is not None:
-        recipes_to_save.append(new_recipe)
+    # TODO: get recipe file names from model_path
 
-    recipe = Recipe.simplify_combine_recipes(recipes_to_save)
+    file_name = get_next_available_filename(save_directory)
 
-    # save recipe
-    recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
-    recipe.yaml(recipe_path)
+    with open(os.path.join(save_directory, file_name), "w") as file:
+        yaml.safe_dump(recipe, file)
+
+
+def get_next_available_filename(save_directory: str) -> str:
+    index = 0
+    while True:
+        if index == 0:
+            file_name = "recipe.yaml"
+        else:
+            file_name = f"recipe_{index}.yaml"
+
+        if not os.path.exists(os.path.join(save_directory, file_name)):
+            return file_name
+        index += 1

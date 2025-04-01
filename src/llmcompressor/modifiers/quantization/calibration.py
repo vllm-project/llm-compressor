@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
 import torch
 from compressed_tensors.quantization import (
@@ -15,6 +15,9 @@ from torch.nn import Module
 from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 
+if TYPE_CHECKING:
+    from llmcompressor.modifiers import Modifier
+
 __all__ = [
     "initialize_observer",
     "update_weight_zp_scale",
@@ -25,6 +28,7 @@ __all__ = [
     "set_unset_kv_cache",
     "freeze_module_quantization",
     "apply_calibration_status",
+    "register_calibration_hooks",
 ]
 
 
@@ -221,6 +225,27 @@ def set_unset_kv_cache(module: Module):
             setattr(module, "kv_cache", kv_cache)
 
 
+def initialize_quantized_kv_cache(module: Module):
+    if not hasattr(module, "quantization_scheme"):
+        return
+
+    is_kv_cache_scheme = is_kv_cache_quant_scheme(module.quantization_scheme)
+    existing_kv_cache = getattr(module, "kv_cache", None)
+    has_quantized_kv_cache = isinstance(existing_kv_cache, QuantizedKVParameterCache)
+
+    if is_kv_cache_scheme and not has_quantized_kv_cache:
+        output_args = module.quantization_scheme.output_activations
+        quantized_kv_cache = QuantizedKVParameterCache(output_args)
+        setattr(module, "kv_cache", quantized_kv_cache)
+
+
+def remove_quantized_kv_cache(module: Module):
+    existing_kv_cache = getattr(module, "kv_cache", None)
+    has_quantized_kv_cache = isinstance(existing_kv_cache, QuantizedKVParameterCache)
+    if has_quantized_kv_cache:
+        delattr(module, "kv_cache")  # TODO: should this be replaced with the original?
+
+
 def apply_calibration_status(module: Module):
     scheme = getattr(module, "quantization_scheme", None)
     if not scheme:
@@ -252,3 +277,40 @@ def freeze_module_quantization(module: Module):
             delattr(module, obs_name)
 
     module.quantization_status = QuantizationStatus.FROZEN
+
+
+def register_calibration_hooks(modifier: "Modifier", module: Module):
+    """
+    Register hooks for input/output activation or kv_cache quantization.
+    """
+    quantization_scheme = getattr(module, "quantization_scheme", None)
+    if not quantization_scheme:
+        return
+
+    is_attention_module_ = is_attention_module(module)
+    input_quant = quantization_scheme.input_activations
+    output_quant = quantization_scheme.output_activations
+
+    calibrate_inputs = (
+        input_quant and not is_attention_module_ and not input_quant.dynamic
+    )
+
+    # Calibrate inputs if an input_quant is provided and not running dynamic quant
+    if calibrate_inputs:
+        modifier.register_hook(module, calibrate_input_hook, "forward_pre")
+
+    if output_quant:
+        # hooks for attn modules if running kv_cache quant
+        if is_attention_module_:
+            modifier.register_hook(
+                module,
+                calibrate_kv_cache_input_hook,
+                "forward_pre",
+                with_kwargs=True,
+            )
+
+            modifier.register_hook(module, calibrate_kv_cache_output_hook, "forward")
+
+        # hooks for output quant if not running dynamic quant
+        elif not output_quant.dynamic:
+            modifier.register_hook(module, calibrate_output_hook, "forward")

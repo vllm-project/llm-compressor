@@ -1,6 +1,5 @@
 import inspect
 import os
-from pathlib import PosixPath
 from typing import Optional, Tuple
 
 from loguru import logger
@@ -16,98 +15,11 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.args import ModelArguments, TrainingArguments
 from llmcompressor.pytorch.model_load.helpers import fallback_to_cpu, parse_dtype
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    modify_save_pretrained,
-    patch_tied_tensors_bug,
-)
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
     is_model_ct_quantized_from_path,
 )
 from llmcompressor.typing import Processor
-from llmcompressor.utils.fsdp.helpers import is_fsdp_model
-
-
-def pre_process(model_args: "ModelArguments"):
-    """
-    Prepares the model and tokenizer/processor for calibration.
-    - Initializes the model if it's specified as a path or string.
-    - Applies patches to fix tied tensor issues and modifies `save_pretrained`
-        behavior.
-    - Initializes the processor if specified as a path or `None`.
-    - Sets the minimum tokens per module if `dataset_args` are provided.
-    Raises:
-        FileNotFoundError: If the model or processor path is invalid.
-    """
-    _warn_tied_embeddings(model_args.tie_word_embeddings)
-
-    # Initialize model
-    if isinstance(model_args.model, (str, PosixPath)):
-        model, distill_teacher = initialize_model_from_path(model_args)
-        if is_fsdp_model(model):
-            raise NotImplementedError(
-                "FSDP models are not supported in the current release but will be "
-                "suported in future releases of LLM Compressor."
-            )
-        model_args.model = model
-        model_args.distill_teacher = distill_teacher
-
-    # Initialize processor
-    if isinstance(model_args.processor, (str, type(None))):
-        model_args.processor = initialize_processor_from_path(
-            model_args, model_args.model
-        )
-
-    # untie tie_word_embeddings weights
-    patch_tied_tensors_bug(model_args.model)
-
-    # wrap model.save_pretrained
-    modify_save_pretrained(model_args.model)
-
-
-def post_process(
-    model_args: "ModelArguments",
-    output_dir: Optional[str] = None,
-):
-    """
-    Saves the model and tokenizer/processor to the output directory.
-
-    If the `output_dir` is not the default directory, the method resets lifecycle
-    actions. The model is saved in a compressed format if specified in `model_args`.
-    Additionally, the tokenizer or processor, if available, is also saved.
-
-    Raises:
-        ValueError: If saving fails due to an invalid `output_dir` or other issues.
-    """
-    if output_dir is not None:
-        model_args.model.save_pretrained(
-            output_dir,
-            save_compressed=model_args.save_compressed,
-        )
-        if model_args.processor:
-            model_args.processor.save_pretrained(output_dir)
-        return
-
-    logger.warning(
-        "Optimized model is not saved. To save, please provide",
-        "`output_dir` as input arg.",
-        "Ex. `oneshot(..., output_dir=...)`",
-    )
-
-
-def _warn_tied_embeddings(tie_word_embeddings: bool = False):
-    """
-    Logs a warning if the model has tied word embeddings.
-    The `tie_word_embeddings` flag may cause issues during saving in the one-shot
-    calibration workflow due to shared tensor addresses.
-    """
-    if tie_word_embeddings:
-        logger.debug(
-            "The tie_word_embeddings flag is by default set to False. "
-            "This guarantees that the one-shot algorithm saves the final "
-            "weights without errors. Detected tie_word_embeddings=True. "
-            "This may cause issues with the one-shot algorithm on save."
-        )
 
 
 def initialize_model_from_path(
