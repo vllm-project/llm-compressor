@@ -1013,7 +1013,7 @@ class DisableKVCache:
 @contextlib.contextmanager
 def DisableQuantization(module: torch.nn.Module):
     """
-    Disable quantization from QuantizationModifier
+    Disable quantization during forward passes after applying a quantization config
     """
     try:
         module.apply(disable_quantization)
@@ -1040,13 +1040,11 @@ def calibration_forward_context(model: PreTrainedModel):
 
     - Remove gradient calculations
     - Disable the KV cache
-    - Disable quantization during forward pass
     - Disable train mode and enable eval mode
     """
     with (
         torch.no_grad(),
         DisableKVCache(model),
-        DisableQuantization(model),
         eval_context(model),
     ):
         yield
