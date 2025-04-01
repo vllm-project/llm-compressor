@@ -6,6 +6,7 @@ from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationStrategy,
+    FP8_E4M3_DATA
 )
 from compressed_tensors.quantization.utils import is_fp4
 from compressed_tensors.registry.registry import RegistryMixin
@@ -30,7 +31,6 @@ class Observer(Module, RegistryMixin):
         global_scale: Optional[torch.Tensor] = None,
     ):
         self.quantization_args: QuantizationArgs = quantization_args
-        self.global_scale: torch.Tensor = global_scale
         super().__init__()
         self.global_scale: Optional[torch.Tensor] = global_scale
         self._scale = None
