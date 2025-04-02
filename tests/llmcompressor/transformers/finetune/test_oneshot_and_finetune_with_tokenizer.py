@@ -73,7 +73,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
             "cuda"
         )
-        output = finetune_model.generate(input_ids, max_new_tokens=10)
+        output = finetune_model.generate(input_ids, max_new_tokens=20)
         print(tokenizer.decode(output[0]))
 
     def tearDown(self):
