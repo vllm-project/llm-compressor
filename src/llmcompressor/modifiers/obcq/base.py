@@ -116,13 +116,6 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._num_samples[module],
             )
 
-    def on_event(self, state: State, event: Event, **kwargs):
-        if event.type_ in (
-            EventType.SEQUENTIAL_EPOCH_END,
-            EventType.CALIBRATION_EPOCH_END,
-        ):
-            self.compress_modules()
-
     def compress_modules(self):
         """
         Sparsify modules which have been calibrated

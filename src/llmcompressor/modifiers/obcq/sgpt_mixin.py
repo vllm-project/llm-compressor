@@ -9,8 +9,8 @@ import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.core import State
-from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.core import State, Event, EventType
+from llmcompressor.modifiers import Modifier
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.utils.pytorch.module import (
     get_layers,
@@ -20,7 +20,7 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 
-class SparsityModifierMixin(HooksMixin):
+class SparsityModifierMixin(Modifier):
     # modifier arguments
     sparsity: Optional[Union[float, List[float]]]
     sparsity_profile: Optional[str] = None
@@ -92,6 +92,10 @@ class SparsityModifierMixin(HooksMixin):
         _output: torch.Tensor,
     ):
         raise NotImplementedError()
+    
+    @abstractmethod
+    def compress_modules():
+        raise NotImplementedError()
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
@@ -155,6 +159,16 @@ class SparsityModifierMixin(HooksMixin):
                 self._module_names[module] = name
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
+            self.compress_modules()
+
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.on_finalize(state)
 
     def _infer_sequential_targets(
         self, model: torch.nn.Module

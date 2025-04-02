@@ -73,6 +73,7 @@ class ModuleSparsificationInfo:
         """
         :return: total number of sparse (0) trainable parameters in the model
         """
+        return 0
         return sum(
             round(tensor_sparsity(param).item() * torch.numel(param))
             for param in tqdm(

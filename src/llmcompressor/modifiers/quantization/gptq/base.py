@@ -186,6 +186,9 @@ class GPTQModifier(Modifier, HooksMixin):
         ):
             self.compress_modules()
 
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.on_finalize(state)
+
     def on_finalize(self, state: State) -> bool:
         """
         disable the quantization observers used by the OBCQ algorithm

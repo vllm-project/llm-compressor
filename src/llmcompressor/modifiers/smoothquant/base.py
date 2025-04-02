@@ -144,6 +144,9 @@ class SmoothQuantModifier(Modifier):
         ):
             self._apply_smoothing(state.model)
 
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.on_finalize(state)
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         Clean up by clearing the scale and mapping data

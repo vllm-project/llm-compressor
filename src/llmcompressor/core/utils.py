@@ -149,7 +149,7 @@ def initialize_model_from_path(
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
         "torch_dtype": parse_dtype(model_args.precision),
-        "device_map": model_args.oneshot_device or "auto",
+        "device_map": "auto",  # default to load on cpu
         "trust_remote_code": model_args.trust_remote_code_model,
     }
 

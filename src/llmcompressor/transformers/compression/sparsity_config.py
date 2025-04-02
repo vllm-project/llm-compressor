@@ -62,17 +62,18 @@ class SparsityConfigMetadata:
 
         :return: sparsity structure as a string
         """
-        compressor = get_compressor()
-        modifiers = compressor.modifiers
+        # compressor = get_compressor()
+        # modifiers = compressor.modifiers
 
-        if modifiers:
-            sparsity_structure = infer_sparsity_structure_from_modifiers(modifiers)
+        # if modifiers:
+        #     sparsity_structure = infer_sparsity_structure_from_modifiers(modifiers)
 
-        elif model and sparsity_structure is None:
-            sparsity_structure = infer_sparsity_structure_from_model(model)
+        # elif model and sparsity_structure is None:
+        #     sparsity_structure = infer_sparsity_structure_from_model(model)
 
-        else:
-            sparsity_structure = None
+        # else:
+        #     sparsity_structure = None
+        sparsity_structure = None
 
         return SparsityStructure(sparsity_structure).value
 

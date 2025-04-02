@@ -49,4 +49,4 @@ def run_pipeline(
             batch = tensors_to_device(batch, model.device)
             model(**batch)
 
-    compressor.calibration_epoch_end()
+    compressor.finalize()
