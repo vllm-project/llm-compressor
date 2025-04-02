@@ -81,29 +81,23 @@ def run_pipeline(
 
             with align_modules(subgraph.modules, oneshot_device):
                 # do an preliminary pass to trigger calibration hooks
-                # with HooksMixin.disable_hooks(keep_group="calibration"):
                 with DisableQuantization(model):
-                #if True:
                     for batch_index in tqdm.tqdm(range(num_batches), desc=calib_desc):
+                        inputs = intermediates.fetch(batch_index, subgraph.input_names)
+                        subgraph.forward(model, **inputs)
+
+                # trigger compression
+                compressor.sequential_epoch_end()
+
+                # do another pass to capture outputs from newly compressed modules
+                with HooksMixin.disable_hooks():
+                    for batch_index in tqdm.tqdm(range(num_batches), desc=prop_desc):
                         inputs = intermediates.fetch(batch_index, subgraph.input_names)
                         output = subgraph.forward(model, **inputs)
 
                         if subgraph_index < num_subgraphs - 1:
                             intermediates.update(batch_index, output)
                             intermediates.delete(batch_index, subgraph.consumed_names)
-
-                # trigger compression
-                compressor.sequential_epoch_end()
-
-                # # do another pass to capture outputs from newly compressed modules
-                # with HooksMixin.disable_hooks(keep_group="execution"):
-                #     for batch_index in tqdm.tqdm(range(num_batches), desc=prop_desc):
-                #         inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                #         output = subgraph.forward(model, **inputs)
-
-                #         if subgraph_index < num_subgraphs - 1:
-                #             intermediates.update(batch_index, output)
-                #             intermediates.delete(batch_index, subgraph.consumed_names)
 
         # redudant, finish any remaining compression
         compressor.calibration_epoch_end()
