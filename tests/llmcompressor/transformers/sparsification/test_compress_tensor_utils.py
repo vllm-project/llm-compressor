@@ -351,6 +351,7 @@ def test_model_shared_tensors_gpu(
     )
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires gpu")
 @pytest.mark.parametrize(
     "model_stub, recipe, sparse_format, quant_format",
     [
