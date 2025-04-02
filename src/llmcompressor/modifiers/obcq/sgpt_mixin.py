@@ -9,7 +9,7 @@ import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.core import State, Event, EventType
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.utils.pytorch.module import (
@@ -92,7 +92,7 @@ class SparsityModifierMixin(Modifier):
         _output: torch.Tensor,
     ):
         raise NotImplementedError()
-    
+
     @abstractmethod
     def compress_modules():
         raise NotImplementedError()

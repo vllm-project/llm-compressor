@@ -72,16 +72,6 @@ class QuantizationModifier(Modifier):
 
         return value
 
-    @field_validator("end", mode="before")
-    def validate_end(cls, value: Optional[int]) -> Optional[int]:
-        if value not in (None, -1):
-            raise ValueError(
-                "end_epoch is disabled for QuantizationModifier and can only be set to"
-                " -1 or None. Given {}".format(value)
-            )
-
-        return value
-
     def on_initialize(self, state: State) -> bool:
         # apply config to model
         config = resolve_modifier_quantization_config(self)
@@ -93,17 +83,17 @@ class QuantizationModifier(Modifier):
         state.model.apply(lambda mod: initialize_observer(mod, base_name="output"))
         state.model.apply(initialize_quantized_kv_cache)
 
-        # register hooks to use observers
-        state.model.apply(lambda mod: register_calibration_hooks(self, mod))
-
         return True
 
     def on_start(self, state: State):
         super().on_start(state)
-        state.model.apply(apply_calibration_status)
+
+        # register hooks to use observers
+        state.model.apply(lambda mod: register_calibration_hooks(self, mod))
 
         # do an initial calibration of the weights
         # TODO: shouldn't this also be done whenever weights are updated?
+        state.model.apply(apply_calibration_status)
         state.model.apply(update_weight_zp_scale)
 
     def on_end(self, state: State, event: Event, **kwargs):

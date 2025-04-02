@@ -10,7 +10,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.obcq.sgpt_sparsify import (
