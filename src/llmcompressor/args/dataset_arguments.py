@@ -16,7 +16,8 @@ class DatasetArguments:
     arguments to be able to specify them on the command line
     """
 
-    dataset: Union[str, DatasetType] = field(
+    dataset: Union[str, DatasetType, None] = field(
+        default=None,
         metadata={
             "help": (
                 "The name of the dataset to use (via the datasets library). "

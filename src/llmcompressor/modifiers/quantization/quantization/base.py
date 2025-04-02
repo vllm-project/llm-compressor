@@ -8,6 +8,7 @@ from compressed_tensors.quantization import (
 )
 from pydantic import Field, field_validator
 from torch.nn import Module
+from tqdm import tqdm
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -91,16 +92,18 @@ class QuantizationModifier(Modifier):
         # register hooks to use observers
         state.model.apply(lambda mod: register_calibration_hooks(self, mod))
 
-        # do an initial calibration of the weights
-        # TODO: shouldn't this also be done whenever weights are updated?
-        state.model.apply(apply_calibration_status)
-        state.model.apply(update_weight_zp_scale)
+        # do initial calibration of weights
+        for module in tqdm(list(state.model.modules())):
+            update_weight_zp_scale(module)
 
-    def on_end(self, state: State, event: Event, **kwargs):
-        super().on_end(state, event)
+        # set calibration status
+        state.model.apply(apply_calibration_status)
+
+    def on_end(self, state: State):
+        super().on_end(state)
         self.remove_hooks()  # disable observer calibration
         state.model.apply(remove_quantized_kv_cache)  # equivalent to disable kv quant
         state.model.apply(freeze_module_quantization)
 
-    def on_finalize(self, state: State):
+    def on_finalize(self, state: State, **kwargs):
         super().on_finalize(state)

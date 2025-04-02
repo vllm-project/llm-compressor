@@ -22,5 +22,6 @@ def post_train(**kwargs):
         }
 
     compressor = LLMCompressor(**to_dict(model_args))
-    compressor.set_calibration_dataset(**to_dict(dataset_args))
+    if dataset_args.dataset is not None:
+        compressor.set_calibration_dataset(**to_dict(dataset_args))
     compressor.post_train(**to_dict(training_args))

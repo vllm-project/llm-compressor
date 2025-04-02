@@ -176,16 +176,18 @@ def initialize_model_from_path(
 def error_if_requires_calibration_data(
     modifiers: List["Modifier"], calibration_loader: Optional[DataLoader]
 ):
-    requires_data = False
-    for modifier in modifiers:
-        if hasattr(modifier, "scheme"):
-            config = resolve_modifier_quantization_config(modifier)
-            if config.requires_calibration_data():
-                requires_data = True
-                break
-
-    if requires_data and calibration_loader is None:
+    if recipe_requires_data(modifiers) and calibration_loader is None:
         raise ValueError(
             "Recipe requries calibration data, but none was provided. Please call "
             "LLMCompressor.set_calibration_dataset with a calibration dataset"
         )
+
+
+def recipe_requires_data(modifiers: List["Modifier"]) -> bool:
+    for modifier in modifiers:
+        if hasattr(modifier, "scheme"):
+            config = resolve_modifier_quantization_config(modifier)
+            if config.requires_calibration_data():
+                return True
+
+    return False
