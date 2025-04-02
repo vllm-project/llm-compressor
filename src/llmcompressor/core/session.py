@@ -115,7 +115,6 @@ class CompressionSession:
         :param kwargs: additional kwargs to pass to the lifecycle's initialize method
         :return: the modified state of the session after initializing
         """
-
         mod_data = self._lifecycle.initialize(
             recipe=recipe,
             recipe_stage=recipe_stage,

@@ -14,7 +14,7 @@ from llmcompressor.typing import Processor
 
 def get_processed_dataset(
     dataset_args: DatasetArguments,
-    processor: Processor,
+    processor: Optional[Processor] = None,
     do_oneshot: bool = False,
     do_train: bool = True,
 ) -> Optional[Dict[str, Dataset]]:
