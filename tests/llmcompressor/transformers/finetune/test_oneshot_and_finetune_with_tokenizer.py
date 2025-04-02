@@ -18,7 +18,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
     dataset_config_name = None
 
     def setUp(self):
-        self.output = "./finetune_output"
+        self.output = "./sparsity_finetune_output"
         # finetune workflows in general seem to have trouble with multi-gpus
         # use just one atm
 
@@ -26,7 +26,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         from datasets import load_dataset
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        from llmcompressor.transformers import compress
+        from llmcompressor import oneshot, train
 
         recipe_str = (
             "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"
@@ -47,23 +47,33 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         max_steps = 50
         splits = {"train": "train[:50%]", "calibration": "train[50%:60%]"}
 
-        compress(
-            model=model_loaded,
+        model_and_data_kwargs = dict(
             dataset=dataset_loaded,
             dataset_config_name=self.dataset_config_name,
-            run_stages=run_stages,
-            output_dir=self.output,
             recipe=recipe_str,
-            max_steps=max_steps,
             concatenate_data=concatenate_data,
             splits=splits,
             tokenizer=tokenizer,
+            output_dir=self.output,
+        )
+
+        oneshot_model = oneshot(
+            model=model_loaded,
+            **model_and_data_kwargs,
+            stage="test_oneshot_stage",
+        )
+        finetune_model = train(
+            run_stages=run_stages,
+            model=oneshot_model,
+            max_steps=max_steps,
+            stage="test_train_stage",
+            **model_and_data_kwargs,
         )
 
         input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
             "cuda"
         )
-        output = model_loaded.generate(input_ids, max_new_tokens=100)
+        output = finetune_model.generate(input_ids, max_new_tokens=20)
         print(tokenizer.decode(output[0]))
 
     def tearDown(self):
