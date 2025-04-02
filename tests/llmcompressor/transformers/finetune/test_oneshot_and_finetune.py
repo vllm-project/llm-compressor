@@ -75,24 +75,24 @@ class TestOneshotAndFinetune(unittest.TestCase):
         shutil.rmtree(self.output)
 
 
-# @pytest.mark.integration
-# @parameterized_class(parse_params(CONFIGS_DIRECTORY))
-# class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
-#     model = None
-#     dataset = None
-#     recipe = None
-#     dataset_config_name = None
-#     num_train_epochs = None
-#     concat_txt = None
+@pytest.mark.integration
+@parameterized_class(parse_params(CONFIGS_DIRECTORY))
+class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
+    model = None
+    dataset = None
+    recipe = None
+    dataset_config_name = None
+    num_train_epochs = None
+    concat_txt = None
 
-#     def setUp(self):
-#         import torch
+    def setUp(self):
+        import torch
 
-#         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-#         self.output = "./finetune_output"
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.output = "./finetune_output"
 
-#     def test_oneshot_then_finetune_small(self):
-#         self._test_oneshot_and_finetune()
+    def test_oneshot_then_finetune_small(self):
+        self._test_oneshot_and_finetune()
 
 
 @requires_gpu
