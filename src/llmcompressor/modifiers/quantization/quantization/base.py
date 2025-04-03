@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Set
 
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -9,6 +9,11 @@ from compressed_tensors.quantization import (
     is_attention_module,
     is_preset_scheme,
     preset_name_to_scheme,
+)
+from compressed_tensors.quantization.lifecycle import (
+    post_forward_quantize,
+    pre_forward_quantize,
+    register_quantization_hooks,
 )
 from compressed_tensors.transforms.transform_config import TransformationConfig
 from loguru import logger
@@ -85,6 +90,7 @@ class QuantizationModifier(Modifier):
 
     calibration_dataloader_: Any = None
     calibration_function_: Any = None
+    _handles: Set = set()
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
@@ -213,7 +219,10 @@ class QuantizationModifier(Modifier):
         modifier_as_config = self.create_init_config()
         # Add step to attach kv_cache to the model, if present within the config
         apply_quantization_config(
-            model, modifier_as_config, transforms_config=self.transforms_config
+            model,
+            modifier_as_config,
+            transforms_config=self.transforms_config,
+            delay_forward_quantize=True,
         )
         model.apply(set_unset_kv_cache)
         return modifier_as_config
@@ -262,6 +271,9 @@ class QuantizationModifier(Modifier):
             )
 
         elif not self.calibration_dataloader_:
+            # TODO: should just use HooksMixin
+            # hooks should have been delayed 
+            module.apply(lambda model: register_quantization_hooks(model))
             return
 
         module.apply(lambda model: initialize_observer(model, base_name="input"))
@@ -269,7 +281,7 @@ class QuantizationModifier(Modifier):
         module.apply(self.register_calibration_hooks)
         self._calibrate(module)
         module.apply(set_unset_kv_cache)
-        self.remove_hooks()
+        self.remove_hooks(self._handles)
 
     def register_calibration_hooks(self, module: Module):
         """
@@ -289,23 +301,39 @@ class QuantizationModifier(Modifier):
 
         # Calibrate inputs if an input_quant is provided and not running dynamic quant
         if calibrate_inputs:
-            self.register_hook(module, calibrate_input_hook, "forward_pre")
+            self._handles.add(
+                self.register_hook(module, calibrate_input_hook, "forward_pre")
+            )
+
+        if not is_attention_module_:
+            self.register_hook(module, pre_forward_quantize, "forward_pre")
 
         if output_quant:
             # hooks for attn modules if running kv_cache quant
             if is_attention_module_:
-                self.register_hook(
-                    module,
-                    calibrate_kv_cache_input_hook,
-                    "forward_pre",
-                    with_kwargs=True,
+                self._handles.add(
+                    self.register_hook(
+                        module,
+                        calibrate_kv_cache_input_hook,
+                        "forward_pre",
+                        with_kwargs=True,
+                    )
                 )
 
-                self.register_hook(module, calibrate_kv_cache_output_hook, "forward")
+                self._handles.add(
+                    self.register_hook(
+                        module, calibrate_kv_cache_output_hook, "forward"
+                    )
+                )
 
             # hooks for output quant if not running dynamic quant
             elif not output_quant.dynamic:
-                self.register_hook(module, calibrate_output_hook, "forward")
+                self._handles.add(
+                    self.register_hook(module, calibrate_output_hook, "forward")
+                )
+        
+        if not is_attention_module_:
+            self.register_hook(module, post_forward_quantize, "forward")
 
     def _calibrate(self, module: Module):
         class_name = self.__class__.__name__.replace("PyTorch", "")

@@ -2,9 +2,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import QuantizationStatus, is_attention_module
-from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.transforms.apply import apply_transforms_to_parameter
+from compressed_tensors.transforms.apply import apply_transforms_to_activations_or_parameter
 from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
 from loguru import logger
 from torch.nn import Module
@@ -125,9 +124,9 @@ def update_weight_zp_scale(module: Module):
         transform_data = getattr(module, "transform_data", None)
         if transform_data is not None:
             untransformed_weight = module.weight.data.clone()
-            apply_transforms_to_parameter(
+            apply_transforms_to_activations_or_parameter(
                 module=module,
-                module_parameter=module.weight,
+                module_activation_or_parameter=module.weight,
                 transform_data=transform_data,
             )
 
@@ -152,11 +151,22 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     if value.numel() == 0:
         return
 
+    transform_data = getattr(module, "transform_data", None)
+    if transform_data is not None:
+        value = apply_transforms_to_activations_or_parameter(
+            module=module,
+            module_activation_or_parameter=value,
+            transform_data=transform_data,
+            update_in_place=False
+        )
+
     call_observer(
         module=module,
         base_name=base_name,
         value=value,
     )
+    breakpoint()
+    # validate value is correct
 
 
 def calibrate_input_hook(module: Module, args: Any):
@@ -179,12 +189,6 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
         module,
         value=output,
         base_name="output",
-    )
-    output = forward_quantize(
-        module=module,
-        value=output,
-        base_name="output",
-        args=module.quantization_scheme.output_activations,
     )
     return output
 
@@ -210,7 +214,6 @@ def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Te
     kv_cache = getattr(module, "kv_cache")
     update_parameter_data(module, kv_cache.k_scales[module.layer_idx], "k_scale")
     update_parameter_data(module, kv_cache.v_scales[module.layer_idx], "v_scale")
-
 
 def set_unset_kv_cache(module: Module):
     """

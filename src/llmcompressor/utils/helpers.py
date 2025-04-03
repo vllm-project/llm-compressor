@@ -1125,7 +1125,6 @@ def calibration_forward_context(model: PreTrainedModel):
     with (
         torch.no_grad(),
         DisableKVCache(model),
-        DisableQuantization(model),
         eval_context(model),
     ):
         yield
