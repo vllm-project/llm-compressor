@@ -39,6 +39,9 @@ TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
+@pytest.mark.parametrize(
+    "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
+)
 @pytest.mark.skipif(
     not lm_eval_installed, reason="lm eval is not installed, skipping test"
 )
@@ -58,8 +61,8 @@ class TestLMEval:
     be used for quantization. Otherwise, the recipe will always be used if given.
     """  # noqa: E501
 
-    def set_up(self):
-        eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
+    def set_up(self, test_data_file: str):
+        eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
@@ -88,9 +91,9 @@ class TestLMEval:
         self.num_calibration_samples = 512
         self.max_seq_length = 2048
 
-    def test_lm_eval(self):
+    def test_lm_eval(self, test_data_file: str):
         # Run vLLM with saved model
-        self.set_up()
+        self.set_up(test_data_file)
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, processor = run_oneshot_for_e2e_testing(

@@ -4,7 +4,7 @@ SUCCESS=0
 
 while getopts "c:t:" OPT; do
   case ${OPT} in
-    c ) 
+    c )
         CONFIG="$OPTARG"
         ;;
     t )
@@ -25,9 +25,7 @@ do
 
     export TEST_DATA_FILE="$MODEL_CONFIG"
     pytest \
-        -r a \
         --capture=tee-sys \
-        --junitxml="test-results/e2e-$(date +%s).xml" \
         "$TEST" || LOCAL_SUCCESS=$?
 
     if [[ $LOCAL_SUCCESS == 0 ]]; then
