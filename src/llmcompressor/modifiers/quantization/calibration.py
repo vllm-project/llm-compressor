@@ -4,6 +4,7 @@ import torch
 from compressed_tensors.quantization import (
     KVCacheScaleType,
     QuantizationStatus,
+    QuantizationType,
     is_attention_module,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
@@ -56,8 +57,15 @@ def initialize_observer(
     quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
     if quantization_args is not None and not quantization_args.dynamic:
+        global_scale = getattr(module, f"{base_name}_global_scale", None)
+        if global_scale is not None:
+            assert base_name == "weight"
+            assert quantization_args.num_bits == 4
+            assert quantization_args.type == QuantizationType.FLOAT
         observer = Observer.load_from_registry(
-            quantization_args.observer, quantization_args=quantization_args
+            quantization_args.observer,
+            quantization_args=quantization_args,
+            global_scale=global_scale,
         )
         module.register_module(f"{base_name}_observer", observer)
 
