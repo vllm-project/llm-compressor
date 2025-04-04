@@ -11,24 +11,12 @@ PyTorch and HuggingFace Transformers, allowing for quick experimentation.
 from .logger import LoggerConfig, configure_logger, logger
 from .version import (
     __version__,
-    build_type,
     version,
-    version_base,
-    version_build,
-    version_major,
-    version_minor,
-    version_patch,
 )
 
 __all__ = [
     "__version__",
-    "version_base",
-    "build_type",
     "version",
-    "version_major",
-    "version_minor",
-    "version_patch",
-    "version_build",
     "configure_logger",
     "logger",
     "LoggerConfig",
