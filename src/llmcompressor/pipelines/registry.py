@@ -14,7 +14,13 @@ __all__ = ["get_pipeline_fn", "get_sequential_modifiers"]
 def _get_pipelines() -> Dict[str, PipelineFn]:
     # avoid circular imports by avoiding dependency on
     # modifiers (which are imported by individual pipelines)
-    from llmcompressor.pipelines import basic, independent, layer_sequential, sequential, skip
+    from llmcompressor.pipelines import (
+        basic,
+        independent,
+        layer_sequential,
+        sequential,
+        skip,
+    )
 
     return {
         "sequential": sequential.run_pipeline,
@@ -51,7 +57,7 @@ def get_pipeline_fn(
 def infer_pipeline(modifiers: List["Modifier"]) -> str:
     if any(isinstance(modifier, get_sequential_modifiers()) for modifier in modifiers):
         return "sequential"
-    
+
     if not recipe_requires_data(modifiers):
         return "skip"
 
