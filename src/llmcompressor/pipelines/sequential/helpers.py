@@ -64,6 +64,7 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     # find modules
+    model.config._attn_implementation = "eager"
     sequential_targets = match_modules(model, sequential_targets)
     ignore = match_modules(model, ignore)
 
