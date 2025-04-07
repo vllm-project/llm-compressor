@@ -27,6 +27,7 @@ from llmcompressor.transformers.utils.helpers import (
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
+from llmcompressor.utils.pytorch import module_bfs, replace_llama_moe
 
 
 def pre_process(model_args: "ModelArguments"):
@@ -52,6 +53,9 @@ def pre_process(model_args: "ModelArguments"):
             )
         model_args.model = model
         model_args.distill_teacher = distill_teacher
+
+    # replace architecture
+    model_args.model = module_bfs(model_args.model, replace_llama_moe, progress=True)
 
     # Initialize processor
     if isinstance(model_args.processor, (str, type(None))):
@@ -84,6 +88,8 @@ def post_process(
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
+    #
+
     if model_args is not None and output_dir is not None:
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:
             output_dir = os.path.join(output_dir, recipe_args.stage)

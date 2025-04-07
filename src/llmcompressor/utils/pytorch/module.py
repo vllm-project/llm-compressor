@@ -4,15 +4,28 @@ Utility / helper functions
 
 import difflib
 import re
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
+import tqdm
+from accelerate.hooks import attach_align_device_hook
 from compressed_tensors.quantization.utils import is_module_quantized
+from compressed_tensors.utils import (
+    align_module_device,
+    delete_offload_parameter,
+    has_offloaded_params,
+    register_offload_parameter,
+)
 from packaging import version
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
+from transformers import PreTrainedModel
+from transformers.models.llama4.configuration_llama4 import Llama4Config
+from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
+from typing_extensions import Self
 
 from llmcompressor.core import ModelParameterizedLayer
+from llmcompressor.utils.dev import skip_weights_initialize
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
@@ -60,6 +73,8 @@ __all__ = [
     "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
+    "module_bfs",
+    "replace_llama_moe",
 ]
 
 
@@ -323,7 +338,7 @@ def get_matching_layer(
     return match
 
 
-def get_no_split_params(module: Module) -> Union[str, List[str]]:
+def get_no_split_params(module: PreTrainedModel) -> Union[str, List[str]]:
     """
     Get list of module classes that shouldn't be split when sharding. For
     Hugging Face Transformer models, this is the decoder layer type. For other
@@ -335,6 +350,126 @@ def get_no_split_params(module: Module) -> Union[str, List[str]]:
     from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
 
     model = maybe_get_wrapped(module)
-    if hasattr(model, "_no_split_modules"):
-        return model._no_split_modules
-    return ALL_TARGET
+    ret = model._get_no_split_modules("auto")
+    return ret or ALL_TARGET
+
+
+def module_bfs(
+    module: Module,
+    func: Callable[[Module], Module],
+    pre: bool = True,
+    progress: Union[bool, tqdm.tqdm] = False,
+) -> Module:
+    if progress is True:
+        total = len(list(module.modules()))
+        progress = tqdm.tqdm(total=total)
+
+    if pre:
+        module = func(module)
+
+    for name, child in module.named_children():
+        module.add_module(name, module_bfs(child, func, pre), progress)
+
+    if not pre:
+        module = func(module)
+
+    if isinstance(progress, tqdm.tqdm):
+        progress.update(1)
+
+    return module
+
+
+class Llama4TextMLP(torch.nn.Module):
+    def __init__(self, hidden_size, intermediate_size, act_fn):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.intermediate_size = intermediate_size
+        self.act_fn = act_fn
+
+        self.gate_up_proj = torch.nn.Linear(
+            self.hidden_size, 2 * self.intermediate_size, bias=False
+        )
+        self.down_proj = torch.nn.Linear(
+            self.intermediate_size, self.hidden_size, bias=False
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        gate_up = self.gate_up_proj(hidden_states)
+        gate, up = (
+            gate_up[:, : self.intermediate_size],
+            gate_up[:, self.intermediate_size :],
+        )
+        return self.down_proj(up * self.act_fn(gate))
+
+
+class Llama4TextExpertsLinear(torch.nn.Module):
+    def __init__(
+        self,
+        config: Llama4Config,
+        act_fn: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
+    ):
+        super().__init__()
+        self.num_experts = config.num_local_experts
+        self.intermediate_size = config.intermediate_size
+        self.hidden_size = config.hidden_size
+
+        self.experts = torch.nn.ModuleList(
+            [
+                Llama4TextMLP(self.hidden_size, self.intermediate_size, act_fn)
+                for _ in range(self.num_experts)
+            ]
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        outputs = [expert(hidden_states) for expert in self.experts]
+        return torch.cat(outputs)
+
+    @classmethod
+    def from_module(cls, module: Llama4TextExperts) -> Self:
+        config = Llama4Config(
+            num_local_experts=module.num_experts,
+            intermediate_size=module.intermediate_size,
+            hidden_size=module.hidden_size,
+        )
+        with skip_weights_initialize():
+            instance = cls(config, module.act_fn)
+
+        if has_offloaded_params(module):
+            weights_map = module._hf_hook.weights_map
+            for name, expert in instance.experts.named_children():
+                attach_align_device_hook(
+                    module=expert,
+                    execution_device=module._hf_hook.execution_device,
+                    offload=module._hf_hook.offload,
+                    weights_map=weights_map,
+                    module_name=f"experts.{name}",
+                    skip_keys=module._hf_hook.skip_keys,
+                )
+
+        with align_module_device(module):
+            gate_up_proj = module.gate_up_proj.data.transpose(-2, -1)
+            down_proj = module.down_proj.data.transpose(-2, -1)
+
+            for expert_index in range(module.num_experts):
+                register_offload_parameter(
+                    instance.experts[expert_index].gate_up_proj,
+                    "weight",
+                    torch.nn.Parameter(gate_up_proj[expert_index]),
+                )
+                register_offload_parameter(
+                    instance.experts[expert_index].down_proj,
+                    "weight",
+                    torch.nn.Parameter(down_proj[expert_index]),
+                )
+
+        for name, _ in module.named_parameters():
+            delete_offload_parameter(module, name)
+
+        return instance
+
+
+def replace_llama_moe(module: torch.nn.Module) -> torch.nn.Module:
+    if module.__class__.__name__ == "Llama4TextExperts":
+        return Llama4TextExpertsLinear.from_module(module)
+    else:
+        return module
