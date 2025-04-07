@@ -61,7 +61,7 @@ setup(
         "pynvml",
         "pillow",
         (
-            "compressed-tensors==0.9.3"
+            "compressed-tensors"
             if version_info.build_type == "release"
             else "compressed-tensors-nightly"
         ),
