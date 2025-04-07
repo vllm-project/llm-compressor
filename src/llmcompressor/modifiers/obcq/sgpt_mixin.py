@@ -170,7 +170,8 @@ class SparsityModifierMixin(HooksMixin):
                 state.data.calib,
                 self.sequential_targets,
                 self.ignore,
-                self,
+                None,  # TODO: pass in oneshot_device argument https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                self,  # TODO: use callbacks https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
             )
             return True
 
@@ -186,7 +187,8 @@ class SparsityModifierMixin(HooksMixin):
                     state.model,
                     state.data.calib,
                     self.sequential_targets,
-                    self,
+                    None,  # TODO: pass in oneshot_device argument https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                    self,  # TODO: use callbacks https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
                 )
                 return True
 
@@ -200,7 +202,12 @@ class SparsityModifierMixin(HooksMixin):
                     "Falling back to basic pipeline, which requires extra memory and "
                     "may result in decreased accuracy"
                 )
-                run_basic(state.model, state.data.calib, self)
+                run_basic(
+                    state.model,
+                    state.data.calib,
+                    None,  # TODO: pass in oneshot_device argument https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                    self,  # TODO: use callbacks https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                )
                 return True
 
     def _infer_sequential_targets(

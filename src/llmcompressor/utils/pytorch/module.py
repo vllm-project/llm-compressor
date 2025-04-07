@@ -367,8 +367,8 @@ def module_bfs(
     if pre:
         module = func(module)
 
-    for name, child in module.named_children():
-        module.add_module(name, module_bfs(child, func, pre), progress)
+    for name, child in list(module.named_children()):
+        module.add_module(name, module_bfs(child, func, pre, progress))
 
     if not pre:
         module = func(module)
@@ -377,6 +377,28 @@ def module_bfs(
         progress.update(1)
 
     return module
+
+
+class Hook:
+    def __call__(self, module, state_dict, prefix, local_metadata):
+        gate_up_proj = torch.empty(
+            module.num_experts, module.hidden_size, module.intermediate_size * 2
+        )
+        down_proj = torch.empty(
+            module.num_experts, module.intermediate_size, module.hidden_size
+        )
+        for expert_index in range(module.num_experts):
+            gate_up_key = f"{prefix}experts.{expert_index}.gate_up_proj.weight"
+            down_key = f"{prefix}experts.{expert_index}.down_proj.weight"
+
+            gate_up_proj[expert_index] = state_dict[gate_up_key].T
+            down_proj[expert_index] = state_dict[down_key].T
+
+            del state_dict[gate_up_key]
+            del state_dict[down_key]
+
+        state_dict[f"{prefix}gate_up_proj"] = gate_up_proj
+        state_dict[f"{prefix}down_proj"] = down_proj
 
 
 class Llama4TextMLP(torch.nn.Module):
@@ -420,6 +442,8 @@ class Llama4TextExpertsLinear(torch.nn.Module):
             ]
         )
 
+        self.register_state_dict_post_hook(Hook())
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         outputs = [expert(hidden_states) for expert in self.experts]
         return torch.cat(outputs)
@@ -462,7 +486,7 @@ class Llama4TextExpertsLinear(torch.nn.Module):
                     torch.nn.Parameter(down_proj[expert_index]),
                 )
 
-        for name, _ in module.named_parameters():
+        for name, _ in list(module.named_parameters()):
             delete_offload_parameter(module, name)
 
         return instance
