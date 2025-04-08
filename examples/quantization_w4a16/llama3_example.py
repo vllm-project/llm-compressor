@@ -5,11 +5,11 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    device_map="auto",
+    device_map="cpu",
     torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -20,7 +20,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
+NUM_CALIBRATION_SAMPLES = 1
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -69,7 +69,9 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
