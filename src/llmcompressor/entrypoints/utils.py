@@ -242,7 +242,7 @@ def initialize_processor_from_path(
             use_fast=True,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
-            trust_remote_code=True,
+            trust_remote_code=model_args.trust_remote_code_model,
         )
 
     except ValueError as exception:
