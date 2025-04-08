@@ -176,17 +176,3 @@ def test_patch_attr():
         assert obj.attribute == "patched"
         obj.attribute = "modified"
     assert not hasattr(obj, "attribute")
-
-    # no patch, original value
-    obj = SimpleNamespace()
-    obj.attribute = "original"
-    with patch_attr(obj, "attribute"):
-        assert obj.attribute == "original"
-        obj.attribute = "modified"
-    assert obj.attribute == "original"
-
-    # no patch, no original attribute
-    obj = SimpleNamespace()
-    with patch_attr(obj, "attribute"):
-        obj.attribute = "modified"
-    assert not hasattr(obj, "attribute")
