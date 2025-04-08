@@ -58,7 +58,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             quantization_format: Optional[str] = None,
             save_compressed: bool = True,
             safe_serialization: bool = True,
-            skip_sparsity_compression_stats: bool = False,
+            skip_sparsity_compression_stats: bool = True,
             disable_sparse_compression: bool = False,
             **kwargs,
         ):
