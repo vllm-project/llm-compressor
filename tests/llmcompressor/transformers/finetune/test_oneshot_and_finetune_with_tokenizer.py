@@ -54,6 +54,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             concatenate_data=concatenate_data,
             splits=splits,
             tokenizer=tokenizer,
+            output_dir=self.output,
         )
 
         oneshot_model = oneshot(
@@ -63,19 +64,12 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             stage="test_oneshot_stage",
         )
 
-        oneshot_model.save_pretrained(f"{self.output}/test_oneshot_stage")
-
         finetune_model = train(
             run_stages=run_stages,
             model=oneshot_model,
             max_steps=max_steps,
-            output_dir=self.output,
             stage="test_train_stage",
             **model_and_data_kwargs,
-        )
-
-        finetune_model.save_pretrained(
-            f"{self.output}/test_train_stage", skip_sparsity_compression_stats=False
         )
 
         input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(

@@ -31,6 +31,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
+            output_dir=self.output,
         )
 
         train_args = dict(
@@ -43,17 +44,13 @@ class TestOneshotAndFinetune(unittest.TestCase):
             **oneshot_args,
             stage="test_oneshot_stage",
         )
-        oneshot_model.save_pretrained(f"{self.output}/test_oneshot_stage")
 
-        trained_model = train(
+        train(
             model=oneshot_model,
             **oneshot_args,
             **train_args,
             output_dir=self.output,
             stage="test_train_stage",
-        )
-        trained_model.save_pretrained(
-            f"{self.output}/test_train_stage", skip_sparsity_compression_stats=False
         )
 
         config_sparse_applied = ModelCompressor.parse_sparsity_config(
