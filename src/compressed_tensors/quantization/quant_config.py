@@ -230,10 +230,6 @@ class QuantizationConfig(BaseModel):
             group_name = "group_" + str(idx)
             config_groups[group_name] = scheme
 
-        # TODO: this is incorrect in compressed mode, since we are overwriting the
-        # original weight we lose the uncompressed bit_depth indo
-        compression_ratio = calculate_compression_ratio(model)
-
         if format is None:
             if quantization_status == QuantizationStatus.COMPRESSED:
                 format = CompressionFormat.int_quantized.value
@@ -244,7 +240,7 @@ class QuantizationConfig(BaseModel):
             config_groups=config_groups,
             quantization_status=quantization_status,
             kv_cache_scheme=kv_cache_scheme,
-            global_compression_ratio=compression_ratio,
+            global_compression_ratio=None,
             format=format,
             ignore=consolidated_ignore,
         )

@@ -184,8 +184,9 @@ def test_serialize_config_tinyllama():
     assert serialized_config.format == CompressionFormat.dense.value
     assert serialized_config.quant_method == DEFAULT_QUANTIZATION_METHOD
     assert serialized_config.ignore == ["model.layers.1.mlp.down_proj"]
-    assert serialized_config.global_compression_ratio > 1.0
-    assert serialized_config.global_compression_ratio < 8.0
+    if serialized_config.global_compression_ratio is not None:
+        assert serialized_config.global_compression_ratio > 1.0
+        assert serialized_config.global_compression_ratio < 8.0
 
 
 def _test_layer_quantization_status(
