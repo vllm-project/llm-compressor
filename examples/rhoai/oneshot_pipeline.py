@@ -69,14 +69,14 @@ def eval_model(
     description="A demo pipeline to showcase how multiple recipes can be applied to a given model, followed by an eval step",
 )
 def pipeline(model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
-    recipe_map: Dict[str, str] = {
+    recipes: List[str] = [
         # TODO cannot pass in as type list annotation, do we need a more concrete base type for this to work?
         # "FP8_DYNAMIC": [
         #     QuantizationModifier(
         #         targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
         #     )
         # ],
-        "FP8_DYNAMIC": """
+        """
         quant_stage:
             quant_modifiers:
                 QuantizationModifier:
@@ -84,7 +84,7 @@ def pipeline(model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
                     targets: ["Linear"]
                     scheme: "FP8_DYNAMIC"
         """,
-        "W4A16": """
+        """
         quant_stage:
             quant_modifiers:
                 QuantizationModifier:
@@ -92,8 +92,8 @@ def pipeline(model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
                     targets: ["Linear"]
                     scheme: "W4A16"
         """,
-    }
-    for _recipe_id, recipe in recipe_map.items():
+    ]
+    for recipe in recipes:
         oneshot_task = run_oneshot_datafree(model_id=model_id, recipe=recipe)
         eval_model(
             input_model=oneshot_task.outputs["output_model"],  # noqa: F841
@@ -105,16 +105,16 @@ def pipeline(model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
 
 
 if __name__ == "__main__":
-    # # 1) compile to yaml, to upload to RHOAI
-    # kfp.compiler.Compiler().compile(
-    #     pipeline_func=pipeline, package_path=__file__.replace(".py", ".yaml")
-    # )
-
-    # 2) or run locally
-    #  - in Docker (requires `pip install docker` with Docker or Podman Desktop installed)
-    #  - or subprocess, using venv
-    kfp.local.init(
-        runner=kfp.local.DockerRunner()
-        # runner=kfp.local.SubprocessRunner(use_venv=True)
+    # 1) compile to yaml, to upload to RHOAI
+    kfp.compiler.Compiler().compile(
+        pipeline_func=pipeline, package_path=__file__.replace(".py", ".yaml")
     )
-    pipeline()
+
+    # # 2) or run locally
+    # #  - in Docker (requires `pip install docker` with Docker or Podman Desktop installed)
+    # #  - or subprocess, using venv
+    # kfp.local.init(
+    #     runner=kfp.local.DockerRunner()
+    #     # runner=kfp.local.SubprocessRunner(use_venv=True)
+    # )
+    # pipeline()
