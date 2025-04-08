@@ -108,10 +108,6 @@ class SparsityConfigMetadata:
             model, state_dict=state_dict
         )
 
-        # TODO: should not be required anymore
-        if global_sparsity < 0.05:
-            return None
-
         sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
             model=model
         )
