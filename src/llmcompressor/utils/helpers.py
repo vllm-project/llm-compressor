@@ -75,7 +75,6 @@ FROM_PARAM_TOKEN = "__FROM_PARAM__"
 RECIPE_METADATA_KEY = "__metadata__"
 FRAMEWORK_METADATA_KEY = "framework_metadata"
 ROOT_PATH = Path(__file__).resolve().parents[1]
-_sentinel = object()
 
 ##############################
 #
