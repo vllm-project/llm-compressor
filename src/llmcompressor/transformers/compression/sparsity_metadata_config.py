@@ -47,7 +47,9 @@ class SparsityConfigMetadata:
         return global_sparsity
 
     @staticmethod
-    def infer_sparsity_structure(model: Optional[Module] = None) -> str:
+    def infer_sparsity_structure(
+        model: Optional[Module] = None, check_only_modifiers: Optional[bool] = False
+    ) -> str:
         """
         Determines what sparsity structure, if any, was applied.
 
@@ -70,6 +72,9 @@ class SparsityConfigMetadata:
             sparsity_structure = infer_sparsity_structure_from_stage_modifiers(
                 stage_modifiers
             )
+
+        if check_only_modifiers:
+            return sparsity_structure
 
         if model and sparsity_structure is None:
             sparsity_structure = infer_sparsity_structure_from_model(model)
@@ -103,6 +108,7 @@ class SparsityConfigMetadata:
             model, state_dict=state_dict
         )
 
+        # TODO: should not be required anymore
         if global_sparsity < 0.05:
             return None
 
