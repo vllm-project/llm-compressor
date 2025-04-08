@@ -99,9 +99,9 @@ def post_process(
 
     else:
         logger.warning(
-            "Optimized model is not saved. To save, please provide",
-            "`output_dir` as input arg.",
-            "Ex. `oneshot(..., output_dir=...)`",
+            "Optimized model is not saved. To save, please provide"
+            "`output_dir` as input arg."
+            "Ex. `oneshot(..., output_dir=...)`"
         )
 
     # Reset the one-time-use session upon completion
@@ -242,7 +242,7 @@ def initialize_processor_from_path(
             use_fast=True,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
-            trust_remote_code=model_args.trust_remote_code_model,
+            trust_remote_code=True,
         )
 
     except ValueError as exception:
