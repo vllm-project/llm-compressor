@@ -17,50 +17,66 @@ from setuptools import setup, find_packages
 from typing import List, Dict, Tuple
 
 
-def get_release_and_version(package_path: str) -> Tuple[bool, bool, str, str, str, str]:
-    """
-    Load version and release info from compressed-tensors package
-    """
-    # compressed-tensors/src/compressed_tensors/version.py always exists, default source of truth
-    version_path = os.path.join(package_path, "version.py")
+# Set the build type using an environment variable to give us
+# different package names based on the reason for the build.
+VALID_BUILD_TYPES = {"release", "nightly", "dev"}
+BUILD_TYPE = os.environ.get("BUILD_TYPE", "dev")
+if BUILD_TYPE not in VALID_BUILD_TYPES:
+    raise ValueError(
+        f"Unsupported build type {BUILD_TYPE!r}, must be one of {VALID_BUILD_TYPES}"
+    )
 
-    # exec() cannot set local variables so need to manually
-    locals_dict = {}
-    exec(open(version_path).read(), globals(), locals_dict)
-    is_release = locals_dict.get("is_release", False)
-    version = locals_dict.get("version", "unknown")
-    version_major = locals_dict.get("version_major", "unknown")
-    version_minor = locals_dict.get("version_minor", "unknown")
-    version_bug = locals_dict.get("version_bug", "unknown")
+from setuptools_scm import ScmVersion
 
-    print(f"Loaded version {version} from {version_path}")
+def version_func(version: ScmVersion) -> str:
+    from setuptools_scm.version import guess_next_version
 
-    return (
-        is_release,
-        version,
-        version_major,
-        version_minor,
-        version_bug,
+    if BUILD_TYPE == "nightly":
+        # Nightly builds use alpha versions to ensure they are marked
+        # as pre-releases on pypi.org.
+        return version.format_next_version(
+            guess_next=guess_next_version,
+            fmt="{guessed}.a{node_date:%Y%m%d}",
+        )
+
+    if (
+        BUILD_TYPE == "release"
+        and not version.dirty
+        and (version.exact or version.node is None)
+    ):
+        # When we have a tagged version, use that without modification.
+        return version.format_with("{tag}")
+
+    # In development mode or when the local repository is dirty, treat
+    # it is as local development version.
+    return version.format_next_version(
+        guess_next=guess_next_version,
+        fmt="{guessed}.dev{distance}",
     )
 
 
-package_path = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)), "src", "compressed_tensors"
-)
-(
-    is_release,
-    version,
-    version_major,
-    version_minor,
-    version_bug,
-) = get_release_and_version(package_path)
+def localversion_func(version: ScmVersion) -> str:
+    from setuptools_scm.version import get_local_node_and_date
 
-version_nm_deps = f"{version_major}.{version_minor}.0"
+    # When we are building nightly versions, we guess the next release
+    # and add the date as an alpha version. We cannot publish packages
+    # with local versions, so we do not add one.
+    if BUILD_TYPE == "nightly":
+        return ""
 
-if is_release:
-    _PACKAGE_NAME = "compressed-tensors"
-else:
-    _PACKAGE_NAME = "compressed-tensors-nightly"
+    # When we have an exact tag, with no local changes, do not append
+    # anything to the local version field.
+    if (
+        BUILD_TYPE == "release"
+        and not version.dirty
+        and (version.exact or version.node is None)
+    ):
+        return ""
+
+    # In development mode or when the local repository is dirty,
+    # return a string that includes the git SHA (node) and a date,
+    # formatted as a local version tag.
+    return get_local_node_and_date(version)
 
 
 def _setup_long_description() -> Tuple[str, str]:
@@ -81,8 +97,11 @@ def _setup_extras() -> Dict:
     }
 
 setup(
-    name=_PACKAGE_NAME,
-    version=version,
+    name="compressed-tensors",
+    use_scm_version={
+        "version_scheme": version_func,
+        "local_scheme": localversion_func,
+    },
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",
     license="Apache 2.0",

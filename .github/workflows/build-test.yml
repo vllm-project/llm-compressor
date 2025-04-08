@@ -21,7 +21,7 @@ on:
       build_label:
         description: "requested runner label for build (specifies instance)"
         type: string
-        default: ubuntu-24.04
+        default: ubuntu-22.04
 
       # test related parameters
       test_configs:

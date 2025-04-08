@@ -70,11 +70,13 @@ jobs:
               id: checkout
               uses: actions/checkout@v4
               with:
+                  fetch-depth: 0
+                  fetch-tags: true
                   ref: ${{ inputs.gitref }}
 
             - name: build
               id: build
-              uses: neuralmagic/nm-actions/actions/build-ml-whl@v1.12.0
+              uses: neuralmagic/nm-actions/actions/build-ml-whl@v1.17.0
               with:
                   dev: false
                   release: ${{ inputs.wf_category == 'RELEASE' }}
