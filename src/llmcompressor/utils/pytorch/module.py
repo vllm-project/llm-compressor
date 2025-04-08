@@ -445,8 +445,13 @@ class Llama4TextExpertsLinear(torch.nn.Module):
         self.register_state_dict_post_hook(Hook())
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        outputs = [expert(hidden_states) for expert in self.experts]
-        return torch.cat(outputs)
+        output = torch.empty_like(hidden_states)
+        output = output.view(self.num_experts, -1, self.hidden_size)
+        hidden_states = hidden_states.view(self.num_experts, -1, self.hidden_size)
+        for expert_index, expert in enumerate(self.experts):
+            output[expert_index] = expert(hidden_states[expert_index])
+
+        return output.view(-1, self.hidden_size)
 
     @classmethod
     def from_module(cls, module: Llama4TextExperts) -> Self:
