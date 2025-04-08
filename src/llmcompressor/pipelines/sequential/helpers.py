@@ -1,11 +1,14 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
+import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
+from loguru import logger
 from torch.fx import Graph, GraphModule, Node
+from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
@@ -32,16 +35,26 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    modules: List[Module]
+    _code: Optional[PythonCode] = None
 
-    def compile_forward(self) -> Callable[[Any], Any]:
-        """
-        Generate and compile code for executing this subgraph
+    def forward(self, *args, **kwargs) -> Dict[str, Any]:
+        if self._code is None:
+            self._code = self.graph.python_code("self")
+            exec(self._code.src, self._code.globals)
 
-        :return: function which, when called, executes this subgraph
-        """
-        code = self.graph.python_code("self")
-        exec(code.src, code.globals)
-        return code.globals.get("forward")
+        forward_fn = self._code.globals.get("forward")
+        try:
+            outputs = forward_fn(*args, **kwargs)
+        except Exception as exception:
+            raise RuntimeError(
+                "Raised an exception during execution of the following code:\n"
+                f"```\n{add_line_numbers(self._code.src)}\n```\n"
+                "This is likely due to a violation of shape assumptions made when "
+                "tracing"
+            ) from exception
+
+        return outputs
 
 
 def trace_subgraphs(
@@ -64,10 +77,11 @@ def trace_subgraphs(
     """
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
+    sequential_target_ancestors = get_target_ancestors(model, sequential_targets)
     ignore = match_modules(model, ignore)
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets, ignore)
+    tracer = get_tracer(model, sequential_target_ancestors, ignore)
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
@@ -91,14 +105,34 @@ def trace_subgraphs(
 
     # perform subgraph partition
     partitions = topological_partition(graph, sequential_targets)
-    subgraphs = partition_graph(model, partitions)
+    subgraphs = partition_graph(model, partitions, graph)
     trace_consumed_names(subgraphs)
+
+    for subgraph in subgraphs:
+        subgraph.modules += list(sequential_target_ancestors)
 
     return subgraphs
 
 
+def get_target_ancestors(model: Module, sequential_targets: Set[Module]) -> Set[Module]:
+    ancestors = set()
+
+    def dfs(module: Module):
+        if module in sequential_targets:
+            return True
+
+        if any(dfs(child) for child in module.children()):
+            ancestors.add(module)
+            return True
+
+        return False
+
+    dfs(model)
+    return ancestors
+
+
 def get_tracer(
-    model: Module, sequential_targets: Set[Module], ignore: Set[Module]
+    model: Module, sequential_target_ancestors: Set[Module], ignore: Set[Module]
 ) -> HFTracer:
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
@@ -111,9 +145,6 @@ def get_tracer(
     :param sequential_targets: modules which are sequential targets
     :param ignore: modules which are ignored
     """
-    # TODO: redefine skip_trace_modules to all non-ancestors of sequential_targets
-    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
-    skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
     class SequentialTracer(HFTracer):
         def create_arg(self, a: Any) -> Argument:
@@ -126,7 +157,7 @@ def get_tracer(
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module in skip_trace_modules or super().is_leaf_module(
+            return module not in sequential_target_ancestors or super().is_leaf_module(
                 module, module_qualified_name
             )
 
@@ -261,7 +292,9 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     return partitions
 
 
-def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgraph]:
+def partition_graph(
+    model: Module, partitions: List[List[Node]], parent_graph: GraphModule
+) -> List[Subgraph]:
     """
     Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
     of output node names to their computed values. Note that the `consumed_names`
@@ -307,11 +340,13 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
         # save the subgraph for this partition
         graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
+        modules = get_subgraph_modules(graph, parent_graph)
         subgraphs.append(
             Subgraph(
                 graph=graph,
                 input_names=input_names,
                 consumed_names=set(),  # populated later
+                modules=modules,
             )
         )
 
@@ -377,3 +412,56 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
+    """
+    Get all submodules executed by `subgraph`
+
+    :param subgraph: subgraph of parent_graph
+    :param parent_graph: GraphModule describing the model,
+        used for `get_submodule` method
+    :return: all submodules executed by subgraph
+    """
+    modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
+    called_modules = [parent_graph.get_submodule(op.target) for op in modules_ops]
+    return list({m for module in called_modules for m in module.modules()})
+
+
+def infer_oneshot_device(
+    model: PreTrainedModel, oneshot_device: Optional[torch.device]
+) -> Optional[torch.device]:
+    if is_gpu_dispatched(model):
+        logger.warning(
+            "Calibrating a model dispatched to the gpu can potentially lead to OOM "
+            "errors. Consider loading the model without a `device_map` and instead "
+            "executing with `cuda:0` (set `oneshot_device` to override this default)"
+        )
+        return None
+
+    elif oneshot_device is None:
+        has_cuda = torch.cuda.is_available()
+        oneshot_device = torch.device("cuda:0") if has_cuda else torch.device("cpu")
+        logger.info(f"No oneshot_device passed, using {oneshot_device}")
+
+    return oneshot_device
+
+
+def is_gpu_dispatched(model: PreTrainedModel) -> bool:
+    for module in model.modules():
+        if any(
+            param.device not in (torch.device("meta"), torch.device("cpu"))
+            for param in module.parameters()
+        ):
+            return True
+
+        if has_offloaded_params(module) and module._hf_hook.execution_device != "cpu":
+            return True
+
+    return False
+
+
+def add_line_numbers(text: str) -> str:
+    lines = text.splitlines()
+    numbered_lines = [f"{i + 1} {line}" for i, line in enumerate(lines)]
+    return "\n".join(numbered_lines)

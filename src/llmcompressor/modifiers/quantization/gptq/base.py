@@ -236,11 +236,13 @@ class GPTQModifier(Modifier, HooksMixin):
                 state.data.calib,
                 self.sequential_targets,
                 self.ignore,
-                self,
+                None,  # TODO: pass in oneshot_device argument https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                self,  # TODO: use callbacks https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
             )
             return True
 
         except Exception as exception:
+            raise exception
             if isinstance(exception, torch.fx.proxy.TraceError):
                 warnings.warn(
                     f"Failed to trace {model_name} with inputs {input_names}. For more "
@@ -257,7 +259,8 @@ class GPTQModifier(Modifier, HooksMixin):
                     state.model,
                     state.data.calib,
                     self.sequential_targets,
-                    self,
+                    None,  # TODO: pass in oneshot_device argument https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                    self,  # TODO: use callbacks https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
                 )
                 return True
 
@@ -272,7 +275,12 @@ class GPTQModifier(Modifier, HooksMixin):
                     "may result in decreased accuracy. Consider using "
                     "`offload_hessians=True`"
                 )
-                run_basic(state.model, state.data.calib, self)
+                run_basic(
+                    state.model,
+                    state.data.calib,
+                    None,  # TODO: pass in oneshot_device argument https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                    self,  # TODO: use callbacks https://github.com/vllm-project/llm-compressor/pull/1279  # noqa: E501
+                )
                 return True
 
     def on_finalize(self, state: State, **kwargs) -> bool:

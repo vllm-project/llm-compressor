@@ -5,11 +5,11 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    device_map="auto",
+    device_map="cpu",
     torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -66,13 +66,15 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
+# # Confirm generations of the quantized model look sane.
+# print("\n\n")
+# print("========== SAMPLE GENERATION ==============")
+# input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+#     model.device
+# )
+# output = model.generate(input_ids, max_new_tokens=100)
+# print(tokenizer.decode(output[0]))
+# print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
