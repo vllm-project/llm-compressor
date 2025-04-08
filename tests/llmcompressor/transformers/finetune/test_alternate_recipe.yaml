@@ -15,6 +15,7 @@ test_train_stage:
         "re:.*self_attn.k_proj",
         "re:.*self_attn.v_proj",
         "re:.*self_attn.o_proj",
+        "re:.*mlp.down_proj",
         "re:.*mlp.gate_proj",
         "re:.*mlp.up_proj"
       ]

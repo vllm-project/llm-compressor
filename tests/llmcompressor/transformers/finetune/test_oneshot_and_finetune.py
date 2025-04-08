@@ -25,6 +25,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
 
         oneshot_args = dict(
             dataset=self.dataset,
+            splits=splits,
             output_dir=self.output,
             recipe=self.recipe,
             num_calibration_samples=64,
@@ -36,7 +37,6 @@ class TestOneshotAndFinetune(unittest.TestCase):
 
         train_args = dict(
             num_train_epochs=self.num_train_epochs,
-            splits=splits,
             precision="bfloat16",
             bf16=True,
         )
