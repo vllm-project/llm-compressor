@@ -18,6 +18,9 @@ GPU_CONFIGS_DIRECTORY = (
 class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
         from llmcompressor import oneshot, train
+        from llmcompressor.transformers.compression.sparsity_metadata_config import (
+            SparsityConfigMetadata,
+        )
 
         splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
         if self.dataset == "ultrachat-200k":
@@ -26,8 +29,8 @@ class TestOneshotAndFinetune(unittest.TestCase):
         oneshot_args = dict(
             dataset=self.dataset,
             splits=splits,
-            output_dir=self.output,
             recipe=self.recipe,
+            output_dir=self.output,
             num_calibration_samples=64,
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
@@ -46,10 +49,16 @@ class TestOneshotAndFinetune(unittest.TestCase):
             stage="test_oneshot_stage",
         )
 
+        # Pass in the sparsity config to ensure we're applying sparsity
+        # when compressing
+        sparsity_config = SparsityConfigMetadata.from_pretrained(
+            oneshot_model, sparsity_structure="0:0"
+        )
         train(
             model=oneshot_model,
             **oneshot_args,
             **train_args,
+            sparsity_config=sparsity_config,
             stage="test_train_stage",
         )
 
@@ -64,6 +73,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
             ).quantization_config
         )
         # model is first sparsified, then finetuned, both should have the same sparsity
+        # check for sparsity values
         assert (
             config_sparse_applied["global_sparsity"]
             >= config_finetune_applied["global_sparsity"]

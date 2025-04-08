@@ -391,6 +391,7 @@ class SessionManagerMixIn:
                 processor=processor,
                 save_safetensors=self.args.save_safetensors,
                 save_compressed=self.model_args.save_compressed,
+                sparsity_config=self.model_args.sparsity_config,
             )
         self.accelerator.wait_for_everyone()
 

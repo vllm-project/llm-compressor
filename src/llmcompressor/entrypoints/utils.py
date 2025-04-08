@@ -91,17 +91,18 @@ def post_process(
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
         model_args.model.save_pretrained(
-            output_dir, save_compressed=model_args.save_compressed
+            output_dir,
+            save_compressed=model_args.save_compressed,
+            sparsity_config=model_args.sparsity_config,
         )
 
         if model_args.processor is not None:
             model_args.processor.save_pretrained(output_dir)
 
     else:
-        logger.info(
-            "Optimized model is not saved. To save, please provide ",
-            "`output_dir` as input arg. ",
-            "Ex. `oneshot(..., output_dir=...)` ",
+        logger.warning(
+            "Optimized model is not saved. To save, please provide output_dir as an "
+            "input arg. Eg: `oneshot(..., output_dir=...)` ",
         )
 
     # Reset the one-time-use session upon completion
