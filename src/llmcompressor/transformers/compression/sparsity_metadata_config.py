@@ -85,7 +85,7 @@ class SparsityConfigMetadata:
     def from_pretrained(
         model: Module,
         state_dict: Optional[Dict[str, Tensor]] = None,
-        compress: bool = True,
+        compress: bool = False,
         quantization_format: Optional[CompressionFormat] = None,
         disable_sparse_compression: bool = False,
         sparsity_structure: Optional[str] = None,

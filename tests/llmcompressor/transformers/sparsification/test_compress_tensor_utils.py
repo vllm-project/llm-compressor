@@ -514,7 +514,8 @@ def test_disable_sparse_compression_flag(tmp_path):
 
     save_path = tmp_path / "no_sparse_compression_model"
     sparsity_config = SparsityConfigMetadata.from_pretrained(
-        two_four_sparse_model, sparsity_structure="2:4", compress=False
+        two_four_sparse_model,
+        sparsity_structure="2:4",
     )
     two_four_sparse_model.save_pretrained(
         save_path, disable_sparse_compression=True, sparsity_config=sparsity_config
@@ -684,7 +685,7 @@ def test_correct_compressor_inferred(
 
     if is_24:
         sparsity_config = SparsityConfigMetadata.from_pretrained(
-            model, sparsity_structure="2:4"
+            model, sparsity_structure="2:4", compress=True
         )
     else:
         sparsity_config = None

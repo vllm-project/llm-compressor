@@ -49,7 +49,6 @@ class TestOneshotAndFinetune(unittest.TestCase):
             model=oneshot_model,
             **oneshot_args,
             **train_args,
-            output_dir=self.output,
             stage="test_train_stage",
         )
 
