@@ -242,6 +242,7 @@ class GPTQModifier(Modifier, HooksMixin):
             return True
 
         except Exception as exception:
+            raise exception
             if isinstance(exception, torch.fx.proxy.TraceError):
                 warnings.warn(
                     f"Failed to trace {model_name} with inputs {input_names}. For more "
@@ -304,6 +305,7 @@ class GPTQModifier(Modifier, HooksMixin):
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
+        return
         """
         Quantize a module's weight according to the GPTQ algorithm
 
