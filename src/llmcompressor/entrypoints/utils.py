@@ -98,10 +98,10 @@ def post_process(
             model_args.processor.save_pretrained(output_dir)
 
     else:
-        logger.warning(
-            "Optimized model is not saved. To save, please provide",
-            "`output_dir` as input arg.",
-            "Ex. `oneshot(..., output_dir=...)`",
+        logger.info(
+            "Optimized model is not saved. To save, please provide ",
+            "`output_dir` as input arg. ",
+            "Ex. `oneshot(..., output_dir=...)` ",
         )
 
     # Reset the one-time-use session upon completion

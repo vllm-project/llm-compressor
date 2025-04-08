@@ -89,8 +89,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             # state_dict gets passed in as a kwarg for FSDP models
             state_dict = kwargs.pop("state_dict", None)
             if state_dict is None:
+                logger.info("Fetching state_dict - this may take some time")
                 state_dict = get_state_dict_offloaded_model(model)
 
+            logger.info("Fetching compressor")
             compressor = get_model_compressor(
                 model=model,
                 sparsity_config=sparsity_config,
@@ -114,6 +116,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
                 compressed_state_dict = compressor.compress(model, state_dict)
+                logger.info("Saving compressed model to disk")
                 original_save_pretrained.__get__(model, model_class)(
                     save_directory,
                     state_dict=compressed_state_dict,
@@ -229,8 +232,8 @@ def get_model_compressor(
 
         if skip_sparsity_compression_stats:
             logger.info(
-                "skip_sparsity_compression_stats set to True. Skipping sparsity"
-                "compression statistic calculations. No sparsity compressor will"
+                "skip_sparsity_compression_stats set to True. Skipping sparsity "
+                "compression statistic calculations. No sparsity compressor will "
                 "be applied."
             )
             sparsity_config = None
@@ -241,6 +244,7 @@ def get_model_compressor(
                 compress=save_compressed,
                 quantization_format=quantization_format,
                 disable_sparse_compression=disable_sparse_compression,
+                sparsity_structure=sparsity_structure,
             )
     else:
         """
@@ -250,11 +254,12 @@ def get_model_compressor(
             - Users should provide a SparsityConfig, conveying the model's
                 sparsity structure when saving the model
         """
-
-        sparsity_config.global_sparsity = SparsityConfigMetadata.infer_global_sparsity(
-            model, state_dict=state_dict
-        )
         if sparsity_config.sparsity_structure is None:
+            logger.info(
+                "SparsityConfigMetadata provided without indicating ",
+                "the sparsity structure. Sparisty will be inferred from the model. "
+                "Consider providing the structure to skip this step ",
+            )
             sparsity_config.sparsity_structure = (
                 SparsityConfigMetadata.infer_sparsity_structure(model)
             )
@@ -263,7 +268,9 @@ def get_model_compressor(
         model=model,
         quantization_format=quantization_format,
         save_compressed=save_compressed,
-        sparsity_structure=sparsity_structure,
+        sparsity_structure=None
+        if sparsity_config is None
+        else sparsity_config.sparsity_structure,
     )
 
     return ModelCompressor.from_pretrained_model(

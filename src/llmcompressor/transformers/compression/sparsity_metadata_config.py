@@ -88,6 +88,7 @@ class SparsityConfigMetadata:
         compress: bool = False,
         quantization_format: Optional[CompressionFormat] = None,
         disable_sparse_compression: bool = False,
+        sparsity_structure: Optional[str] = None,
     ) -> Optional["SparsityCompressionConfig"]:
         """
         Determines compression type and informational parameters for a given model
@@ -101,16 +102,20 @@ class SparsityConfigMetadata:
         :param disable_sparse_compression: whether or not to compress the model with
             sparse compressors, If True, the sparse compression format will
             be dense, default is False.
+        :param sparsity_structure: sparsity structure for the model. Providing it as
+            input will skip the step to infer it from the model directly
         :return: compression config inferred from the model
         """
-
+        # TODO: can we remove this? Do we need the state dict?
         global_sparsity = SparsityConfigMetadata.infer_global_sparsity(
             model, state_dict=state_dict
         )
 
-        sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
-            model=model
-        )
+        if sparsity_structure is None:
+            sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(
+                model=model
+            )
+
         if (
             disable_sparse_compression
             or quantization_format == CompressionFormat.marlin_24
@@ -126,6 +131,8 @@ class SparsityConfigMetadata:
         else:
             format = CompressionFormat.dense.value
 
+        # TODO: eventually should be done similar to quantization
+        # so we do not have to infer
         targets, ignores = infer_sparse_targets_and_ignores(
             model,
             sparsity_structure=sparsity_structure,
@@ -179,7 +186,6 @@ class SparsityConfigMetadata:
         :return: whether or not sparse 24 bitmask compression is supported
             in vLLM for the given model
         """
-
         if sparsity_structure is None:
             sparsity_structure = SparsityConfigMetadata.infer_sparsity_structure(model)
 
