@@ -11,7 +11,6 @@ from llmcompressor.utils import (
     flatten_iterable,
     getattr_chain,
     interpolate,
-    parse_kwarg_tuples,
     patch_attr,
     validate_str_iterable,
 )
@@ -100,12 +99,6 @@ def test_interpolate(x_cur, x0, x1, y0, y1, inter_func, out):
 
 
 @pytest.mark.unit
-def test_pass_kwargs_tuples():
-    kwargs = parse_kwarg_tuples(("--input_1", 1, "--input_2", "two", "--input_3", "2"))
-    assert kwargs == dict(input_1=1, input_2="two", input_3=2)
-
-
-@pytest.mark.unit
 def test_getattr_chain():
     base = SimpleNamespace()
     base.a = None
@@ -150,14 +143,15 @@ def test_calibration_forward_context():
     model = torch.nn.Linear(1, 1)
     model.config = SimpleNamespace()
     model.config.use_cache = True
+    model.train()
 
     with calibration_forward_context(model):
         assert not torch.is_grad_enabled()
-        assert not model.quantization_enabled
         assert not model.config.use_cache
+        assert not model.training
     assert torch.is_grad_enabled()
-    assert model.quantization_enabled
     assert model.config.use_cache
+    assert model.training
 
 
 @pytest.mark.unit

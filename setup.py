@@ -54,15 +54,14 @@ setup(
         "numpy>=1.17.0,<2.0",
         "requests>=2.0.0",
         "tqdm>=4.0.0",
-        "click>=7.1.2,!=8.0.0",  # 8.0.0 blocked due to reported bug
         "torch>=1.7.0",
-        "transformers>4.0,<5.0",
+        "transformers>4.0,<4.50",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
         "pillow",
         (
-            "compressed-tensors"
+            "compressed-tensors==0.9.3"
             if version_info.build_type == "release"
             else "compressed-tensors-nightly"
         ),
@@ -95,7 +94,7 @@ setup(
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",

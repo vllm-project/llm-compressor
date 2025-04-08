@@ -1,5 +1,4 @@
 sparsity_stage:
-  run_type: oneshot
   sparsity_modifiers:
     SparseGPTModifier:
       sparsity: 0.5
@@ -7,7 +6,6 @@ sparsity_stage:
       targets: ["Linear"]
       ignore: ["re:.*lm_head"]
 finetuning_stage:
-  run_type: train
   finetuning_modifiers:
     ConstantPruningModifier:
       targets: [
@@ -21,7 +19,6 @@ finetuning_stage:
       ]
       start: 0
 quantization_stage:
-  run_type: oneshot
   quantization_modifiers:
     GPTQModifier:
       ignore: ["lm_head"]
