@@ -1,4 +1,4 @@
-from typing import NamedTuple, List, Literal, Union, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 
 import kfp
 from kfp import dsl
@@ -11,7 +11,6 @@ from kfp import dsl
 def run_oneshot_datafree(
     model_id: str, recipe: str, output_model: dsl.Output[dsl.Artifact]
 ):
-    from collections import namedtuple
     from llmcompressor import oneshot
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -44,7 +43,6 @@ def eval_model(
         "add_bos_token": True,
         "dtype": "bfloat16",
         "device": "cpu",
-        # "gpu_memory_utilization": 0.5,
     },
     limit: Optional[int] = None,
     num_fewshot: int = 5,
@@ -72,31 +70,28 @@ def eval_model(
 )
 def pipeline(model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
     recipe_map: Dict[str, str] = {
-        "FP8_DYNAMIC": """
-quant_stage:
-  quant_modifiers:
-    QuantizationModifier:
-      ignore: ["lm_head"]
-      targets: ["Linear"]
-      scheme: "FP8_DYNAMIC"
-""",
         # TODO cannot pass in as type list annotation, do we need a more concrete base type for this to work?
-        # [
+        # "FP8_DYNAMIC": [
         #     QuantizationModifier(
         #         targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
         #     )
         # ],
+        "FP8_DYNAMIC": """
+        quant_stage:
+            quant_modifiers:
+                QuantizationModifier:
+                    ignore: ["lm_head"]
+                    targets: ["Linear"]
+                    scheme: "FP8_DYNAMIC"
+        """,
         "W4A16": """
-quant_stage:
-  quant_modifiers:
-    QuantizationModifier:
-      ignore: ["lm_head"]
-      targets: ["Linear"]
-      scheme: "W4A16"
-""",
-        # [
-        #     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
-        # ],
+        quant_stage:
+            quant_modifiers:
+                QuantizationModifier:
+                    ignore: ["lm_head"]
+                    targets: ["Linear"]
+                    scheme: "W4A16"
+        """,
     }
     for _recipe_id, recipe in recipe_map.items():
         oneshot_task = run_oneshot_datafree(model_id=model_id, recipe=recipe)
@@ -115,7 +110,9 @@ if __name__ == "__main__":
     #     pipeline_func=pipeline, package_path=__file__.replace(".py", ".yaml")
     # )
 
-    # 2) or run locally, in Docker or subprocess
+    # 2) or run locally
+    #  - in Docker (requires `pip install docker` with Docker or Podman Desktop installed)
+    #  - or subprocess, using venv
     kfp.local.init(
         runner=kfp.local.DockerRunner()
         # runner=kfp.local.SubprocessRunner(use_venv=True)
