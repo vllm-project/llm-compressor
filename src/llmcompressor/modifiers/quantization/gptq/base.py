@@ -305,7 +305,6 @@ class GPTQModifier(Modifier, HooksMixin):
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
-        return
         """
         Quantize a module's weight according to the GPTQ algorithm
 

@@ -20,7 +20,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 1
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -66,15 +66,15 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
-    model.device
-)
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
+# # Confirm generations of the quantized model look sane.
+# print("\n\n")
+# print("========== SAMPLE GENERATION ==============")
+# input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+#     model.device
+# )
+# output = model.generate(input_ids, max_new_tokens=100)
+# print(tokenizer.decode(output[0]))
+# print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
