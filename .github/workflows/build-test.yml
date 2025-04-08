@@ -67,6 +67,7 @@ jobs:
 
     REPORT:
         needs: [BUILD, TEST]
+        if: success() || failure()
         uses: ./.github/workflows/report.yml
         with:
             label: rh-reporter

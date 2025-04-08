@@ -31,7 +31,7 @@ pip install compressed-tensors
 
 Nightly release:
 ```bash
-pip install compressed-tensors-nightly
+pip install --pre compressed-tensors
 ```
 
 ### From Source
