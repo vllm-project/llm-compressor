@@ -4,10 +4,11 @@ import os
 import tempfile
 from typing import Type
 
+import torch
 from huggingface_hub import snapshot_download
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
-from transformers.modeling_utils import no_init_weights
+from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
 
 from llmcompressor.utils.helpers import patch_attr
@@ -32,6 +33,7 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         "*.pth",
         SAFE_WEIGHTS_INDEX_NAME,
         WEIGHTS_INDEX_NAME,
+        "*.msgpack",
     ]
 
     @classmethod
@@ -62,7 +64,21 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
 
     with tempfile.TemporaryDirectory() as tmp_dir, patch_attr(
         model_class, "from_pretrained", patched
-    ), no_init_weights(), patch_transformers_logger_level():
+    ), skip_weights_initialize(), patch_transformers_logger_level():
+        yield
+
+
+@contextlib.contextmanager
+def skip_weights_initialize(use_zeros: bool = False):
+    def skip(tensor: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        if use_zeros:
+            return tensor.fill_(0)
+        return tensor
+
+    with contextlib.ExitStack() as stack:
+        for name in TORCH_INIT_FUNCTIONS.keys():
+            stack.enter_context(patch_attr(torch.nn.init, name, skip))
+            stack.enter_context(patch_attr(torch.Tensor, name, skip))
         yield
 
 
