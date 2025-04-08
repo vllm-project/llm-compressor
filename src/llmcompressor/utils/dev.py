@@ -7,6 +7,7 @@ from typing import Type
 from huggingface_hub import snapshot_download
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers.modeling_utils import no_init_weights
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
 
 from llmcompressor.utils.helpers import patch_attr
@@ -61,7 +62,7 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
 
     with tempfile.TemporaryDirectory() as tmp_dir, patch_attr(
         model_class, "from_pretrained", patched
-    ), patch_transformers_logger_level():
+    ), no_init_weights(), patch_transformers_logger_level():
         yield
 
 
