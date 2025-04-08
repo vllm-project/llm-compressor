@@ -71,11 +71,9 @@ def eval_model(
 def pipeline(model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
     recipes: List[str] = [
         # TODO cannot pass in as type list annotation, do we need a more concrete base type for this to work?
-        # "FP8_DYNAMIC": [
-        #     QuantizationModifier(
-        #         targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
-        #     )
-        # ],
+        # QuantizationModifier(
+        #     targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
+        # ),
         """
         quant_stage:
             quant_modifiers:
