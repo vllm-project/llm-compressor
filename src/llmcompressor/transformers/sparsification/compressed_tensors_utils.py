@@ -208,6 +208,7 @@ def get_model_compressor(
     :param disable_sparse_compression: bool to skip sparse compression
     """
     # find offloaded state dict if none is provided
+    breakpoint()
     if state_dict is None:
         state_dict = get_state_dict_offloaded_model(model)
 

@@ -385,13 +385,14 @@ class SessionManagerMixIn:
         self.save_state()
         if self.accelerator.is_main_process:
             processor = getattr(self, "processing_class", self.tokenizer)
+            # TODO: need to port over all saving parameters so that all
+            # checkpoints are saved in the same way
             save_checkpoint(
                 output_dir,
                 model=self.model,
                 processor=processor,
                 save_safetensors=self.args.save_safetensors,
                 save_compressed=self.model_args.save_compressed,
-                sparsity_config=self.model_args.sparsity_config,
             )
         self.accelerator.wait_for_everyone()
 

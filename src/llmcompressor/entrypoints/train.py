@@ -116,6 +116,9 @@ def train(**kwargs) -> PreTrainedModel:
     trainer.save_metrics("train", metrics)
 
     # this includes saving the state, optimizer and scheduler
+    # TODO: Need to port saving arguments - otherwise,
+    # will be inconsistent if a user saves outside of train
+    # using save_pretrained.
     trainer.save_model(output_dir=training_args.output_dir)
 
     post_process(recipe_args=recipe_args)

@@ -39,13 +39,13 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         )
 
         dataset_loaded = load_dataset(
-            self.dataset, self.dataset_config_name, split="train[:50%]"
+            self.dataset, self.dataset_config_name, split="train[:2%]"
         )
 
         concatenate_data = True
         run_stages = True
         max_steps = 50
-        splits = {"train": "train[:50%]", "calibration": "train[50%:60%]"}
+        splits = {"train": "train[:2%]", "calibration": "train[1%:2%]"}
 
         model_and_data_kwargs = dict(
             dataset=dataset_loaded,
@@ -54,20 +54,28 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             concatenate_data=concatenate_data,
             splits=splits,
             tokenizer=tokenizer,
-            output_dir=self.output,
         )
 
         oneshot_model = oneshot(
             model=model_loaded,
+            num_calibration_samples=1,
             **model_and_data_kwargs,
             stage="test_oneshot_stage",
         )
+
+        oneshot_model.save_pretrained(f"{self.output}/test_oneshot_stage")
+
         finetune_model = train(
             run_stages=run_stages,
             model=oneshot_model,
             max_steps=max_steps,
+            output_dir=self.output,
             stage="test_train_stage",
             **model_and_data_kwargs,
+        )
+
+        finetune_model.save_pretrained(
+            f"{self.output}/test_train_stage", skip_sparsity_compression_stats=False
         )
 
         input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(

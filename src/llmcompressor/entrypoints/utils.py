@@ -90,10 +90,9 @@ def post_process(
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
+        # TODO: support general saving parameters, beyond save_compressed
         model_args.model.save_pretrained(
-            output_dir,
-            save_compressed=model_args.save_compressed,
-            sparsity_config=model_args.sparsity_config,
+            output_dir, save_compressed=model_args.save_compressed
         )
 
         if model_args.processor is not None:
@@ -105,6 +104,7 @@ def post_process(
             "input arg. Eg: `oneshot(..., output_dir=...)` ",
         )
 
+    breakpoint()
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
         reset_session()

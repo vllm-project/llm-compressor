@@ -18,9 +18,6 @@ GPU_CONFIGS_DIRECTORY = (
 class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
         from llmcompressor import oneshot, train
-        from llmcompressor.transformers.compression.sparsity_metadata_config import (
-            SparsityConfigMetadata,
-        )
 
         splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
         if self.dataset == "ultrachat-200k":
@@ -30,12 +27,10 @@ class TestOneshotAndFinetune(unittest.TestCase):
             dataset=self.dataset,
             splits=splits,
             recipe=self.recipe,
-            output_dir=self.output,
             num_calibration_samples=64,
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
-            clear_sparse_session=True,
         )
 
         train_args = dict(
@@ -48,18 +43,17 @@ class TestOneshotAndFinetune(unittest.TestCase):
             **oneshot_args,
             stage="test_oneshot_stage",
         )
+        oneshot_model.save_pretrained(f"{self.output}/test_oneshot_stage")
 
-        # Pass in the sparsity config to ensure we're applying sparsity
-        # when compressing
-        sparsity_config = SparsityConfigMetadata.from_pretrained(
-            oneshot_model, sparsity_structure="0:0"
-        )
-        train(
+        trained_model = train(
             model=oneshot_model,
             **oneshot_args,
             **train_args,
-            sparsity_config=sparsity_config,
+            output_dir=self.output,
             stage="test_train_stage",
+        )
+        trained_model.save_pretrained(
+            f"{self.output}/test_train_stage", skip_sparsity_compression_stats=False
         )
 
         config_sparse_applied = ModelCompressor.parse_sparsity_config(
@@ -81,7 +75,6 @@ class TestOneshotAndFinetune(unittest.TestCase):
 
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
-        # stored in results.json
         shutil.rmtree(self.output)
 
 

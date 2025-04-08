@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 
 @dataclass
@@ -75,15 +75,10 @@ class ModelArguments:
             "repositories you trust and in which you have read the code"
         },
     )
+    # TODO: potentialy separate out/expand to additional saving args
     save_compressed: Optional[bool] = field(
         default=True,
         metadata={"help": "Whether to compress sparse models during save"},
-    )
-    sparsity_config: Optional[Any] = field(
-        default=None,
-        metadata={
-            "help": "Config with sparsity parameters for models with existing sparsity"
-        },
     )
     oneshot_device: Optional[str] = field(
         default="cuda:0",
