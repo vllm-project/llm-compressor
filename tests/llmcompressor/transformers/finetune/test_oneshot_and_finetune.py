@@ -71,6 +71,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
 
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
+        # stored in results.json
         shutil.rmtree(self.output)
 
 

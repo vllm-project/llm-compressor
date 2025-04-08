@@ -39,13 +39,13 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         )
 
         dataset_loaded = load_dataset(
-            self.dataset, self.dataset_config_name, split="train[:2%]"
+            self.dataset, self.dataset_config_name, plit="train[:50%]"
         )
 
         concatenate_data = True
         run_stages = True
         max_steps = 50
-        splits = {"train": "train[:2%]", "calibration": "train[1%:2%]"}
+        splits = {"train": "train[:50%]", "calibration": "train[50%:60%]"}
 
         model_and_data_kwargs = dict(
             dataset=dataset_loaded,
@@ -59,7 +59,6 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
 
         oneshot_model = oneshot(
             model=model_loaded,
-            num_calibration_samples=1,
             **model_and_data_kwargs,
             stage="test_oneshot_stage",
         )
