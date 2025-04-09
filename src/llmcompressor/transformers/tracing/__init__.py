@@ -16,6 +16,13 @@ from .whisper import (
 from .qwen2_5_vl import (
     Qwen2_5_VLForConditionalGeneration as TraceableQwen2_5_VLForConditionalGeneration
 )
+from .mistral import (
+    MistralForCausalLM as TraceableMistralForCausalLM
+)
+from .mistral3 import (
+    Mistral3ForConditionalGeneration as TraceableMistral3ForConditionalGeneration
+)
+
 from .debug import get_model_class
 
 __all__ = [
@@ -26,4 +33,6 @@ __all__ = [
     "TraceableIdefics3ForConditionalGeneration",
     "TraceableWhisperForConditionalGeneration",
     "TraceableQwen2_5_VLForConditionalGeneration",
+    "TraceableMistralForCausalLM",
+    "TraceableMistral3ForConditionalGeneration",
 ]
