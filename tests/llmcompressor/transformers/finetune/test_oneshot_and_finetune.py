@@ -17,7 +17,7 @@ GPU_CONFIGS_DIRECTORY = (
 
 class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
-        import torch
+        import math
 
         from llmcompressor import oneshot, train
 
@@ -66,10 +66,10 @@ class TestOneshotAndFinetune(unittest.TestCase):
             ).quantization_config
         )
         # model is first sparsified, then finetuned, both should have the same sparsity
-        assert torch.isclose(
+        assert math.isclose(
             config_sparse_applied["global_sparsity"],
             config_finetune_applied["global_sparsity"],
-            atol=1e-05,
+            abs_tol=1e-05,
         )
 
     def tearDown(self):
