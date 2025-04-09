@@ -61,13 +61,10 @@ def run_pipeline(
             calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
             prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-            # compile subgraph forward function
-            forward_function = subgraph.compile_forward()
-
             # do an preliminary pass to trigger modifier hooks
             for batch_index in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                 inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                forward_function(model, **inputs)
+                subgraph.forward(model, **inputs)
 
             # TODO: replace with a lifecycle event
             if callback_modifier:
@@ -78,7 +75,7 @@ def run_pipeline(
             with HooksMixin.disable_hooks():
                 for batch_index in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
                     inputs = intermediates.fetch(batch_index, subgraph.input_names)
-                    output = forward_function(model, **inputs)
+                    output = subgraph.forward(model, **inputs)
 
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
