@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 import kfp
 from kfp import dsl
@@ -11,8 +11,9 @@ from kfp import dsl
 def run_oneshot_datafree(
     model_id: str, recipe: str, output_model: dsl.Output[dsl.Artifact]
 ):
-    from llmcompressor import oneshot
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from llmcompressor import oneshot
 
     model = AutoModelForCausalLM.from_pretrained(
         model_id, device_map="auto", torch_dtype="auto"
@@ -49,6 +50,7 @@ def eval_model(
     batch_size: Optional[int] = None,
 ) -> Dict[str, Any]:
     import lm_eval
+    from lm_eval.utils import make_table
 
     model_args["pretrained"] = input_model.path
 
@@ -60,7 +62,7 @@ def eval_model(
         num_fewshot=num_fewshot,
         batch_size=batch_size or "auto",
     )
-    print("lm_eval finished: ", results["results"])
+    print("lm_eval finished: ", make_table(results["results"]))
     return results["results"]
 
 
