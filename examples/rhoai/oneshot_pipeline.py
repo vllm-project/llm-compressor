@@ -27,7 +27,7 @@ def run_oneshot_datafree(
 
 
 # TODO
-# def run_oneshot_calibrated(model_id: str, dataset_id: str, recipe: str, output_path: OutputPath):
+# def run_oneshot_calibrated(model_id: str, dataset_id: str, recipe: str):
 
 
 @kfp.dsl.component(
@@ -66,11 +66,13 @@ def eval_model(
 
 @kfp.dsl.pipeline(
     name="llmcompressor-oneshot",
-    description="A demo pipeline to showcase how multiple recipes can be applied to a given model, followed by an eval step",
+    description="A demo pipeline to showcase how multiple recipes can be applied"
+    " to a given model, followed by an eval step",
 )
 def pipeline(model_id: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"):
     recipes: List[str] = [
-        # TODO cannot pass in as type list annotation, do we need a more concrete base type for this to work?
+        # TODO cannot pass in as type list annotation,
+        #  do we need a more concrete base type for this to work?
         # QuantizationModifier(
         #     targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
         # ),
@@ -109,7 +111,7 @@ if __name__ == "__main__":
     )
 
     # # 2) or run locally
-    # #  - in Docker (requires `pip install docker` with Docker or Podman Desktop installed)
+    # #  - in Docker (requires `pip install docker` & Docker or Podman installed)
     # #  - or subprocess, using venv
     # kfp.local.init(
     #     runner=kfp.local.DockerRunner()
