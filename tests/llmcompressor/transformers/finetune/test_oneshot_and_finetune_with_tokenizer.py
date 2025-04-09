@@ -39,7 +39,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
         )
 
         dataset_loaded = load_dataset(
-            self.dataset, self.dataset_config_name, plit="train[:50%]"
+            self.dataset, self.dataset_config_name, split="train[:50%]"
         )
 
         concatenate_data = True
