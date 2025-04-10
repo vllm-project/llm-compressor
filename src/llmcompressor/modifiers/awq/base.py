@@ -305,7 +305,7 @@ class AWQModifier(Modifier):
             fp16_output = self._forward_input_with_kwargs(
                 module=module2inspect,
                 inputs=inp,
-                input_kwargs=self._sanitize_kwargs(self._module_kwargs, module2inspect),
+                input_kwargs=_sanitize_kwargs(self._module_kwargs, module2inspect),
             )
             fp16_output = fp16_output.clip(
                 torch.finfo(fp16_output.dtype).min, torch.finfo(fp16_output.dtype).max
@@ -558,43 +558,44 @@ class AWQModifier(Modifier):
         :return: the first output tensor from the forward pass
         """
         kwargs = input_kwargs or self._module_kwargs
-        kwargs = self._sanitize_kwargs(kwargs, module)
+        kwargs = _sanitize_kwargs(kwargs, module)
         return tensor_forward_with_input_args(
             module=module,
             inputs=inputs,
             input_kwargs=kwargs,
         )[0]
 
-    def _sanitize_kwargs(self, inputs_kwargs, module):
-        """
-        Remove the arguments that are not supported in the module's
-        forward pass to avoid breaking behaviour between different versions
-        of transformers.
 
-        Args:
-            inputs_kwargs (`dict`):
-                The input dictionary to pass to the model layer
-            module (`torch.nn.Module`):
-                Target module to quantize.
-        """
-        params = inspect.signature(module.forward).parameters
-        sanitized_kwargs = {}
-        for k, v in inputs_kwargs.items():
-            if k in params and k != "use_cache":
-                sanitized_kwargs[k] = v
-        # In case forward pass has optional dependencies that don't default to None.
-        # This is the case for `LlamaAttention.forward` which has input
-        #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
-        # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L269
-        for k, v in params.items():
-            if (
-                k not in sanitized_kwargs
-                and k != "use_cache"
-                and getattr(v.annotation, "_name", "") == "Optional"
-            ):
-                sanitized_kwargs[k] = None
+def _sanitize_kwargs(inputs_kwargs, module):
+    """
+    Remove the arguments that are not supported in the module's
+    forward pass to avoid breaking behaviour between different versions
+    of transformers.
 
-        return sanitized_kwargs
+    Args:
+        inputs_kwargs (`dict`):
+            The input dictionary to pass to the model layer
+        module (`torch.nn.Module`):
+            Target module to quantize.
+    """
+    params = inspect.signature(module.forward).parameters
+    sanitized_kwargs = {}
+    for k, v in inputs_kwargs.items():
+        if k in params and k != "use_cache":
+            sanitized_kwargs[k] = v
+    # In case forward pass has optional dependencies that don't default to None.
+    # This is the case for `LlamaAttention.forward` which has input
+    #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
+    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L269
+    for k, v in params.items():
+        if (
+            k not in sanitized_kwargs
+            and k != "use_cache"
+            and getattr(v.annotation, "_name", "") == "Optional"
+        ):
+            sanitized_kwargs[k] = None
+
+    return sanitized_kwargs
 
 
 def _pseudo_quantize_tensor(
