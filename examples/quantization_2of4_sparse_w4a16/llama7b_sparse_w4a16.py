@@ -1,6 +1,6 @@
 import torch
 from loguru import logger
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot, train
 
@@ -9,6 +9,7 @@ model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
 model = AutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
+tokenizer = AutoTokenizer.from_pretrained(model_stub)
 
 # uses LLM Compressor's built-in preprocessing for ultra chat
 dataset = "ultrachat-200k"
@@ -42,7 +43,6 @@ oneshot_kwargs = dict(
     num_calibration_samples=num_calibration_samples,
     preprocessing_num_workers=preprocessing_num_workers,
     splits=splits,
-    output_dir=output_dir,
 )
 
 training_kwargs = dict(
@@ -68,6 +68,7 @@ oneshot_applied_model = oneshot(
     model=model,
     **oneshot_kwargs,
     stage="sparsity_stage",
+    output_dir=output_dir,
 )
 
 # Sparse finetune
@@ -75,15 +76,20 @@ finetune_applied_model = train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
     **training_kwargs,
+    output_dir=output_dir,
     stage="finetuning_stage",
 )
 
 # Oneshot quantization
-model = oneshot(
+quantized_model = oneshot(
     model=finetune_applied_model,
     **oneshot_kwargs,
     stage="quantization_stage",
 )
+quantized_model.save_pretrained(
+    f"{output_dir}/quantization_stage", skip_sparsity_compression_stats=False
+)
+tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
 logger.info(
     "llmcompressor does not currently support running ",

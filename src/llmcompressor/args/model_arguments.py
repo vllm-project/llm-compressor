@@ -75,6 +75,7 @@ class ModelArguments:
             "repositories you trust and in which you have read the code"
         },
     )
+    # TODO: potentialy separate out/expand to additional saving args
     save_compressed: Optional[bool] = field(
         default=True,
         metadata={"help": "Whether to compress sparse models during save"},

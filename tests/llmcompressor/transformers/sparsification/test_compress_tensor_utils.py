@@ -21,7 +21,7 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers.compression.sparsity_config import (
+from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
 )
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
@@ -513,7 +513,13 @@ def test_disable_sparse_compression_flag(tmp_path):
     modify_save_pretrained(two_four_sparse_model)
 
     save_path = tmp_path / "no_sparse_compression_model"
-    two_four_sparse_model.save_pretrained(save_path, disable_sparse_compression=True)
+    sparsity_config = SparsityConfigMetadata.from_pretrained(
+        two_four_sparse_model,
+        sparsity_structure="2:4",
+    )
+    two_four_sparse_model.save_pretrained(
+        save_path, disable_sparse_compression=True, sparsity_config=sparsity_config
+    )
 
     config = AutoConfig.from_pretrained(save_path)
     quantization_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
@@ -537,7 +543,7 @@ class DummyLinearModel(nn.Module):
 
         # Linear layer without bias
         self.linear = nn.Linear(in_features, out_features, bias=False)
-        self.linear.weight = nn.Parameter(weights, requires_grad=False)
+        self.linear.weight = nn.Parameter(weights, requires_grad=True)
 
         # Attach scale and zero-point if provided
         if weight_scale is not None:
@@ -677,7 +683,13 @@ def test_correct_compressor_inferred(
     model.linear.quantization_scheme = quantization_config.config_groups["group_0"]
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
-    compressor = get_model_compressor(model)
+    if is_24:
+        sparsity_config = SparsityConfigMetadata.from_pretrained(
+            model, sparsity_structure="2:4", compress=True
+        )
+    else:
+        sparsity_config = None
+    compressor = get_model_compressor(model, sparsity_config=sparsity_config)
 
     assert compressor.quantization_config.format == expected_quant_compressor
 

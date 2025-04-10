@@ -90,6 +90,7 @@ def post_process(
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
+        # TODO: support general saving parameters, beyond save_compressed
         model_args.model.save_pretrained(
             output_dir, save_compressed=model_args.save_compressed
         )
