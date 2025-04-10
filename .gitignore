@@ -23,6 +23,8 @@ llmcompressor/pruned
 tensorboard/*
 onnx/*
 repos/*
+# managed by setuptools-scm
+/src/llmcompressor/version.py
 
 ### Python template
 # Byte-compiled / optimized / DLL files
