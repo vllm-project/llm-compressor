@@ -19,9 +19,12 @@ class MinMaxObserver(Observer):
     """
 
     def __init__(
-        self, quantization_args: QuantizationArgs, averaging_constant: float = 0.01
+        self,
+        quantization_args: QuantizationArgs,
+        averaging_constant: float = 0.01,
+        global_scale: Optional[torch.Tensor] = None,
     ):
-        super().__init__(quantization_args=quantization_args)
+        super().__init__(quantization_args=quantization_args, global_scale=global_scale)
 
         self.min_val = {}
         self.max_val = {}
@@ -55,7 +58,12 @@ class MinMaxObserver(Observer):
 
         # early stopping, save some computation and memory
         if self.averaging_constant == 1.0:
-            return calculate_qparams(min_val, max_val, self.quantization_args)
+            return calculate_qparams(
+                min_vals=min_val,
+                max_vals=max_val,
+                quantization_args=self.quantization_args,
+                global_scale=self.global_scale,
+            )
 
         running_min_val = self.min_val.get(tensor_id, None)
         running_max_val = self.max_val.get(tensor_id, None)
@@ -75,7 +83,10 @@ class MinMaxObserver(Observer):
         self.max_val[tensor_id] = updated_max_val
 
         return calculate_qparams(
-            updated_min_val, updated_max_val, self.quantization_args
+            min_vals=updated_min_val,
+            max_vals=updated_max_val,
+            quantization_args=self.quantization_args,
+            global_scale=self.global_scale,
         )
 
     def get_qparams_along_dim(
