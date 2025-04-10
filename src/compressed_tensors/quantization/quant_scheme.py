@@ -142,6 +142,18 @@ W4A16 = dict(
     ),
 )
 
+# 4 bit integer weights only asymmetric quantization
+W4A16_ASYM = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=128,
+        symmetric=False,
+        dynamic=False,
+    ),
+)
+
 # 4 bit integer weights and 8 bit activations quantization
 INT8_W4A8 = dict(
     weights=QuantizationArgs(
@@ -205,6 +217,7 @@ PRESET_SCHEMES = {
     # Integer weight only schemes
     "W8A16": W8A16,
     "W4A16": W4A16,
+    "W4A16_ASYM": W4A16_ASYM,
     # Integer weight and activation schemes
     "W8A8": INT8_W8A8,
     "INT8": INT8_W8A8,  # alias for W8A8
