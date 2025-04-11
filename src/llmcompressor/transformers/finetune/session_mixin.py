@@ -55,8 +55,8 @@ class SessionManagerMixIn:
     def __init__(
         self,
         recipe: str,
-        dataset_args: "DatasetArguments",
         model_args: "ModelArguments",
+        dataset_args: Optional["DatasetArguments"] = None,
         teacher: Optional[Union[Module, str]] = None,
         recipe_args: Optional[Union[Dict[str, Any], str]] = None,
         **kwargs,
@@ -358,19 +358,24 @@ class SessionManagerMixIn:
 
         return output
 
-    def save_model(self, output_dir: str, _internal_call=False, _is_oneshot=False):
+    def save_model(self, output_dir: str, _internal_call: bool = False):
         """
         Override of the save_model function and expects it to exist in the parent.
         Calls into super() to save the model and additionally saves any recipes
         that were used with the model within the model folder.
 
         :param output_dir: the path to save the recipes into
+        :param _internal_call: True if this is an internal call from
+            the trainer in super(). Called from
+            self.save_model(output_dir, _internal_call=True)
+            in transformers/trainer/Trainer::_save_checkpoint
+
         """
         if active_session() is None:
-            return  # nothing to save
-
-        if output_dir is None:
-            output_dir = self.args.output_dir
+            logger.warning(
+                "No active session found, skipping saving of recipes and model."
+            )
+            return
 
         # knowledge distillation requires making wrappers transparent during
         if isinstance(self.model, KDModelWrapper):

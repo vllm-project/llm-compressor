@@ -119,11 +119,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with (
-                torch.no_grad(),
-                align_module_device(module),
-                CompressionLogger(module) as comp_logger,
-            ):
+            with torch.no_grad(), align_module_device(module), CompressionLogger(
+                module
+            ) as comp_logger:
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
                     hessians_dict=self._hessians,
