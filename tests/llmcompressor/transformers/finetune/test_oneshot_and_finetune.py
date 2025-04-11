@@ -17,6 +17,8 @@ GPU_CONFIGS_DIRECTORY = (
 
 class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
+        import math
+
         from llmcompressor import oneshot, train
 
         splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
@@ -64,9 +66,10 @@ class TestOneshotAndFinetune(unittest.TestCase):
             ).quantization_config
         )
         # model is first sparsified, then finetuned, both should have the same sparsity
-        assert (
-            config_sparse_applied["global_sparsity"]
-            >= config_finetune_applied["global_sparsity"]
+        assert math.isclose(
+            config_sparse_applied["global_sparsity"],
+            config_finetune_applied["global_sparsity"],
+            abs_tol=1e-05,
         )
 
     def tearDown(self):

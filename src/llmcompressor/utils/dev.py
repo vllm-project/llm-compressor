@@ -70,6 +70,12 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
 
 @contextlib.contextmanager
 def skip_weights_initialize(use_zeros: bool = False):
+    """
+    Very similar to `transformers.model_utils.no_init_weights`, except that torch.Tensor
+    initialization functions are also patched to account for tensors which are
+    initialized not on the meta device
+    """
+
     def skip(tensor: torch.Tensor, *args, **kwargs) -> torch.Tensor:
         if use_zeros:
             return tensor.fill_(0)
