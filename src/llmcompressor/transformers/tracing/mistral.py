@@ -13,7 +13,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache, SlidingWindowCache, StaticCache
 from transformers.generation import GenerationMixin
-from transformers.integrations import use_kernel_forward_from_hub
+from transformers.integrations.hub_kernels import use_kernel_forward_from_hub
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import (
