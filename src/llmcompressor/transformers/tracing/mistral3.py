@@ -25,20 +25,20 @@ from typing import List, Optional, Tuple, Union
 import torch
 from torch import nn
 
-from ...activations import ACT2FN
-from ...generation import GenerationMixin
-from ...integrations import use_kernel_forward_from_hub
-from ...modeling_outputs import ModelOutput
-from ...modeling_utils import PreTrainedModel
-from ...utils import (
+from transformers.activations import ACT2FN
+from transformers.generation import GenerationMixin
+from transformers.integrations import use_kernel_forward_from_hub
+from transformers.modeling_outputs import ModelOutput
+from transformers.modeling_utils import PreTrainedModel
+from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     is_torchdynamo_compiling,
     replace_return_docstrings,
 )
-from ...utils.deprecation import deprecate_kwarg
-from ..auto import AutoModel, AutoModelForCausalLM
-from .configuration_mistral3 import Mistral3Config
+from transformers.utils.deprecation import deprecate_kwarg
+from transformers.auto import AutoModel, AutoModelForCausalLM
+from transformers.models.mistral3.configuration_mistral3 import Mistral3Config
 
 
 _CONFIG_FOR_DOC = "Mistral3Config"
