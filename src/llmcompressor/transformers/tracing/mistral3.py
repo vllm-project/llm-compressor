@@ -39,6 +39,7 @@ from transformers.utils import (
 from transformers.utils.deprecation import deprecate_kwarg
 from transformers.models.auto import AutoModel, AutoModelForCausalLM
 from transformers.models.mistral3.configuration_mistral3 import Mistral3Config
+from llmcompressor.transformers.tracing import TraceableMistralForCausalLM
 
 
 _CONFIG_FOR_DOC = "Mistral3Config"
@@ -313,8 +314,10 @@ class Mistral3ForConditionalGeneration(Mistral3PreTrainedModel, GenerationMixin)
 
         self.multi_modal_projector = Mistral3MultiModalProjector(config)
         self.vocab_size = config.text_config.vocab_size
-        self.language_model = AutoModelForCausalLM.from_config(config.text_config)
-
+        #
+        # TRACING: Set language_model to tracing-enabled version of MistralForCausalLM
+        # 
+        self.language_model = TraceableMistralForCausalLM(config.text_config)
         if self.language_model._tied_weights_keys is not None:
             self._tied_weights_keys = [f"language_model.{k}" for k in self.language_model._tied_weights_keys]
 
@@ -465,6 +468,9 @@ class Mistral3ForConditionalGeneration(Mistral3PreTrainedModel, GenerationMixin)
 
             special_image_mask = (input_ids == self.config.image_token_index).unsqueeze(-1)
             special_image_mask = special_image_mask.expand_as(inputs_embeds).to(inputs_embeds.device)
+            #
+            # TRACING: Skip check to enable tracing
+            #
             # if not is_torchdynamo_compiling() and inputs_embeds[special_image_mask].numel() != image_features.numel():
             #     n_image_tokens = (input_ids == self.config.image_token_index).sum()
             #     n_image_features = image_features.shape[0] * image_features.shape[1]
