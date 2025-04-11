@@ -12,6 +12,8 @@ from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.args import DatasetArguments
 
+from llmcompressor.utils.dev import skip_weights_download
+
 __all__ = [
     "get_model_class"
 ]
@@ -24,6 +26,7 @@ def parse_args():
     parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing")  # noqa: E501
     parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
     parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
+    parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
     return parser.parse_args()
 
 
@@ -33,6 +36,7 @@ def trace(
     sequential_targets: Optional[Union[List[str], str]] = None,
     ignore: Union[List[str], str] = [],
     modality: str = "text",
+    trust_remote_code: bool = True
 ):
     """
     Debug traceability by tracing a pre-trained model into subgraphs
@@ -44,6 +48,7 @@ def trace(
         inference
     :param ignore: patterns to ignore during tracing
     :param modality: data modality for dummy tracing data, defaults to 'text'
+    :param trust_remote_code: trust remote model code
 
     Example usage from CLI
     llmcompressor.trace \
@@ -54,12 +59,16 @@ def trace(
         --modality text
     """
     # Load model
-    model = model_class.from_pretrained(
-        model_id,
-        device_map="auto",
-        torch_dtype="auto",
+    with skip_weights_download(model_class):
+        model = model_class.from_pretrained(
+            model_id,
+            device_map="cpu",
+            torch_dtype="auto",
+            trust_remote_code=trust_remote_code,
+        )
+    processor = AutoProcessor.from_pretrained(
+        model_id, trust_remote_code=trust_remote_code
     )
-    processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
     print("Loaded model")
 
     # Prepare sample data
@@ -138,6 +147,7 @@ def main():
         sequential_targets=args.sequential_targets,
         ignore=args.ignore,
         modality=args.modality,
+        trust_remote_code=args.trust_remote_code
     )
 
 
