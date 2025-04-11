@@ -37,7 +37,7 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from transformers.utils.deprecation import deprecate_kwarg
-from transformers.auto import AutoModel, AutoModelForCausalLM
+from transformers.models.auto import AutoModel, AutoModelForCausalLM
 from transformers.models.mistral3.configuration_mistral3 import Mistral3Config
 
 
