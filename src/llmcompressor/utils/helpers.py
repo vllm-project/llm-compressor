@@ -65,7 +65,7 @@ __all__ = [
     "DisableQuantization",
     "eval_context",
     "calibration_forward_context",
-    "preserve_attr",
+    "patch_attr",
 ]
 
 
@@ -1051,9 +1051,29 @@ def calibration_forward_context(model: PreTrainedModel):
 
 
 @contextlib.contextmanager
-def preserve_attr(base: object, attr: str):
-    value = getattr(base, attr)
+def patch_attr(base: object, attr: str, value: Any):
+    """
+    Patch the value of an object attribute. Original value is restored upon exit
+
+    :param base: object which has the attribute to patch
+    :param attr: name of the the attribute to patch
+    :param value: used to replace original value
+
+    Usage:
+    >>> from types import SimpleNamespace
+    >>> obj = SimpleNamespace()
+    >>> with patch_attr(obj, "attribute", "value"):
+    ...     assert obj.attribute == "value"
+    >>> assert not hasattr(obj, "attribute")
+    """
+    _sentinel = object()
+    original_value = getattr(base, attr, _sentinel)
+
+    setattr(base, attr, value)
     try:
         yield
     finally:
-        setattr(base, attr, value)
+        if original_value is not _sentinel:
+            setattr(base, attr, original_value)
+        else:
+            delattr(base, attr)
