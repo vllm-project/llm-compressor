@@ -56,6 +56,21 @@ class AWQModifier(Modifier):
       ignore: ["model.decoder.final_layer_norm"]
     ```
 
+    Lifecycle:
+        - on_initialize
+            - resolve mappings
+            - capture input activations to balance layers
+                - register hook to capture inputs and offload to cpu
+                - run calibration dataset through, to capture inputs
+                - clear hooks
+            - concatenate activations across all batches
+            - apply smooothing
+                - find best smoothing scale for each smoothing layer
+                - apply
+                - move to next smoothing layer
+        - on_finalize
+            - clear resolved mappings and captured activations
+
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -66,15 +81,12 @@ class AWQModifier(Modifier):
     :param ignore: list of layers to ignore, even if they match a regex in mappings.
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
-    :param num_calibration_steps: number of samples to use for calibration, or None to
-        use the whole dataset
     :param group_size: number of weights to group together for scaling
     :param max_chunk_memory: maximum memory to use for each chunk of input activations
     :param bits: number of bits to quantize the weights to
     :param symmetric: whether to use symmetric quantization
     :param duo_scaling: whether to use duo scaling, which uses both input activations
         and weights to determine the scaling factor
-    :param apply_clip: whether to apply clipping to the weights after scaling
     """
 
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
@@ -82,7 +94,6 @@ class AWQModifier(Modifier):
 
     mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
     ignore: List[str] = []
-    num_calibration_steps: Optional[int] = None
     group_size: int = 128
     max_chunk_memory: int = 1024 * 1024 * 1024
     num_bits: int = 4
