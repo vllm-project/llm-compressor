@@ -335,6 +335,9 @@ def get_no_split_params(module: Module) -> Union[str, List[str]]:
     from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
 
     model = maybe_get_wrapped(module)
-    if hasattr(model, "_no_split_modules"):
+    if hasattr(model, "_no_split_modules") and len(model._no_split_modules) > 0:
         return model._no_split_modules
+    for module in model.modules():
+        if hasattr(module, "_no_split_modules") and len(module._no_split_modules) > 0:
+            return module._no_split_modules
     return ALL_TARGET
