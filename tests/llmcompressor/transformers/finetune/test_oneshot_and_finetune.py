@@ -28,13 +28,12 @@ class TestOneshotAndFinetune(unittest.TestCase):
         oneshot_args = dict(
             dataset=self.dataset,
             splits=splits,
-            output_dir=self.output,
             recipe=self.recipe,
             num_calibration_samples=64,
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
-            clear_sparse_session=True,
+            output_dir=self.output,
         )
 
         train_args = dict(
@@ -66,6 +65,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
             ).quantization_config
         )
         # model is first sparsified, then finetuned, both should have the same sparsity
+        # check for sparsity values
         assert math.isclose(
             config_sparse_applied["global_sparsity"],
             config_finetune_applied["global_sparsity"],
