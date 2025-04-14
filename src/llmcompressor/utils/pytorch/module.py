@@ -324,7 +324,7 @@ def get_matching_layer(
     return match
 
 
-def get_no_split_params(module: PreTrainedModel) -> Union[str, List[str]]:
+def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
     """
     Get list of module classes that shouldn't be split when sharding. For
     Hugging Face Transformer models, this is the decoder layer type. For other
@@ -335,10 +335,9 @@ def get_no_split_params(module: PreTrainedModel) -> Union[str, List[str]]:
     # importing here to avoid circular import
     from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
 
-    model = maybe_get_wrapped(module)
-    if hasattr(model, "_no_split_modules") and len(model._no_split_modules) > 0:
-        return model._no_split_modules
-    for module in model.modules():
-        if hasattr(module, "_no_split_modules") and len(module._no_split_modules) > 0:
-            return module._no_split_modules
-    return ALL_TARGET
+    model = maybe_get_wrapped(model)
+    no_split_modules = model._get_no_split_modules("auto")
+    if len(no_split_modules) <= 0:
+        return ALL_TARGET
+
+    return no_split_modules
