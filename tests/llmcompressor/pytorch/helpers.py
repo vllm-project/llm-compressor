@@ -101,6 +101,9 @@ class LinearNet(Module):
 
     def forward(self, inp: Tensor):
         return self.seq(inp)
+    
+    def _get_no_split_modules(self, device_map):
+        return []
 
 
 class MLPNet(Module):
