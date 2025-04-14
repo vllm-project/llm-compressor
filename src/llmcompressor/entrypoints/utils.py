@@ -90,6 +90,7 @@ def post_process(
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
+        # TODO: support general saving parameters, beyond save_compressed
         model_args.model.save_pretrained(
             output_dir, save_compressed=model_args.save_compressed
         )
@@ -99,9 +100,9 @@ def post_process(
 
     else:
         logger.warning(
-            "Optimized model is not saved. To save, please provide",
-            "`output_dir` as input arg.",
-            "Ex. `oneshot(..., output_dir=...)`",
+            "Optimized model is not saved. To save, please provide"
+            "`output_dir` as input arg."
+            "Ex. `oneshot(..., output_dir=...)`"
         )
 
     # Reset the one-time-use session upon completion

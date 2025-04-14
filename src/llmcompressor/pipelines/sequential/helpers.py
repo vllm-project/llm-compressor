@@ -13,7 +13,7 @@ from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
+from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
 
 __all__ = ["trace_subgraphs", "Subgraph"]
 
@@ -71,10 +71,7 @@ def trace_subgraphs(
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
-    with (
-        calibration_forward_context(model),
-        HooksMixin.disable_hooks(),
-    ):
+    with calibration_forward_context(model), HooksMixin.disable_hooks():
         graph = GraphModule(
             model,
             tracer.trace(
@@ -135,15 +132,14 @@ def get_tracer(
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
             if isinstance(root, Module):
-                with preserve_attr(type(root), "forward"):
-                    # due to a bug in Tracer.create_args_for_root (_patch_function),
-                    # we must unwrap function wrappers prior to tracing, for example
-                    # the `deprecate_kwarg` by transformers which wraps forward
+                # due to a bug in Tracer.create_args_for_root (_patch_function),
+                # we must unwrap function wrappers prior to tracing, for example
+                # the `deprecate_kwarg` by transformers which wraps forward
+                unwrapped_forward = inspect.unwrap(type(root).forward)
 
-                    # we override the class method because the
-                    # class method is the one being traced
-                    type(root).forward = inspect.unwrap(type(root).forward)
-
+                # we override the class method because the
+                # class method is the one being traced
+                with patch_attr(type(root), "forward", unwrapped_forward):
                     return super().trace(root, *args, **kwargs)
 
             else:

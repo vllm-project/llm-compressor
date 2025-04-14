@@ -76,7 +76,7 @@ def configure_logger(config: Optional[LoggerConfig] = None) -> None:
     if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
         logger_config.log_file = log_file
     if (log_file_level := os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL")) is not None:
-        logger_config.log_file_level = log_file_level
+        logger_config.log_file_level = log_file_level.upper()
 
     if logger_config.disabled:
         logger.disable("llmcompressor")
