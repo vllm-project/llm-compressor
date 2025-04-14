@@ -1,5 +1,3 @@
-import unittest
-
 import pytest
 
 from llmcompressor.modifiers.awq import AWQModifier
@@ -8,21 +6,15 @@ from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 
 @pytest.mark.unit
-class TestAWQIsRegistered(unittest.TestCase):
-    def setUp(self):
-        self.kwargs = {}
-        setup_modifier_factory()
+class test_awq_is_registered:
+    """Ensure AWQModifier is registered in ModifierFactory"""
 
-    def test_awq_is_registered(self):
-        modifier = ModifierFactory.create(
-            type_="AWQModifier",
-            allow_experimental=False,
-            allow_registered=True,
-            **self.kwargs,
-        )
+    setup_modifier_factory()
 
-        self.assertIsInstance(
-            modifier,
-            AWQModifier,
-            "AWQModifier not registered",
-        )
+    modifier = ModifierFactory.create(
+        type_="AWQModifier",
+        allow_experimental=False,
+        allow_registered=True,
+    )
+
+    assert isinstance(modifier, AWQModifier), "AWQModifier not registered"
