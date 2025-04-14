@@ -90,6 +90,7 @@ class QuantizedKVParameterCache(DynamicCache):
             self.k_observers.append(k_observer)
             self.v_observers.append(v_observer)
 
+        # batch x heads x seq_len x head_dim
         q_key_states = self._quantize(
             key_states.contiguous(), KVCacheScaleType.KEY, layer_idx
         )
@@ -150,6 +151,7 @@ class QuantizedKVParameterCache(DynamicCache):
             scales = self.v_scales
             zps = self.v_zps
 
+        # tensor
         scale, zp = observer(tensor)
         if len(scales) <= layer_idx:
             scales.append(scale)
