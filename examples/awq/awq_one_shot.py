@@ -29,7 +29,7 @@ OUTPUT_DIR = MODEL_ID.split("/")[-1] + f"-awq-{NUM_CALIBRATION_SAMPLES}"
 #
 
 recipe = [
-    AWQModifier(bits=4, apply_clip=False, symmetric=False),
+    AWQModifier(bits=4, symmetric=False),
     QuantizationModifier(
         ignore=["lm_head"],
         config_groups={
