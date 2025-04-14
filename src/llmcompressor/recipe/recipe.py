@@ -535,18 +535,20 @@ class Recipe(RecipeBase):
 
         :return: A dictionary representation of the recipe compatible with model_validate
         """
-        # The simplest approach is to use the same structure as the yaml() method
-        # which is known to work with model_validate
-        yaml_dict = self._get_yaml_dict()
+        # Get the base dictionary from parent class
+        base_dict = super().model_dump(*args, **kwargs)
+        
+        # Transform stages into the expected format
+        if "stages" in base_dict:
+            stages_dict = {}
+            for stage in base_dict["stages"]:
+                group = stage["group"]
+                if group not in stages_dict:
+                    stages_dict[group] = []
+                stages_dict[group].append(stage)
+            base_dict["stages"] = stages_dict
 
-        # Add any missing top-level fields from the original data
-        # but exclude the 'stages' field which is already properly formatted in yaml_dict
-        original_data = super().model_dump(*args, **kwargs)
-        for key, value in original_data.items():
-            if key not in yaml_dict and key != "stages" and value is not None:
-                yaml_dict[key] = value
-
-        return yaml_dict
+        return base_dict
 
     def yaml(self, file_path: Optional[str] = None) -> str:
         """
