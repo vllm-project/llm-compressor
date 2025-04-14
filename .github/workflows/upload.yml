@@ -99,7 +99,7 @@ jobs:
 
             - name: check if whl is new
               id: check-whl
-              uses: neuralmagic/nm-actions/actions/check-whl-on-pypi@v1.18.0
+              uses: neuralmagic/nm-actions/actions/check-whl-on-pypi@v1.19.0
               with:
                 whl: ${{ steps.find-asset-whl.outputs.asset }}
 
