@@ -33,11 +33,11 @@ class AWQModifier(Modifier):
     significantly reduces quantization error by protecting only 1%
     of the most salient weight channels.
 
-    Instead of focusing on the weight values directly, AWQ identifies
-    salient channels based on the activation distribution.
-    To further minimize quantization error, the algorithm scales up these
-    salient channels using an equivalent transformation. The scaling factor
-    is determined offline by collecting activation statistics
+    Instead of relying on raw weight values, AWQ identifies important channels by
+    analyzing activation patterns, focusing on the channels in the weight tensor that
+    are most responsive to the input. To reduce quantization error, it scales these
+    channels in a way that preserves the model's original behavior, using scaling
+    factors computed offline from activation statistics.
 
     Because this modifier manipulates the weights of the model, it can only be used in
     in one-shot and not during training. Activation ranges are determined by running a
