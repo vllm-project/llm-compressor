@@ -12,7 +12,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr, field_validator
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
@@ -24,13 +24,7 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import get_no_split_params
 
 __all__ = ["GPTQModifier"]
 
@@ -112,7 +106,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    quantize: Union[bool, Dict] = True
     offload_hessians: bool = False
 
     # private variables
@@ -165,64 +158,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # prepare for calibration
         state.model.apply(apply_calibration_status)
 
-        # infer sequential targets
-        if self.sequential_targets is None:
-            self.sequential_targets = get_no_split_params(state.model)
-        if isinstance(self.sequential_targets, str):
-            self.sequential_targets = [self.sequential_targets]
-
-        # infer pipeline
-        model_name = state.model.__class__.__name__
-        input_names = state.data.calib.dataset.column_names
-        unfixable_errors = (
-            torch.OutOfMemoryError,
-            torch._C._LinAlgError,
-            KeyboardInterrupt,
-        )
-        try:
-            run_sequential(
-                state.model,
-                state.data.calib,
-                self.sequential_targets,
-                self.ignore,
-                self,
-            )
-            return True
-
-        except Exception as exception:
-            if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(
-                    f"Failed to trace {model_name} with inputs {input_names}. For more "
-                    "information on tracing with the sequential pipeline, see "
-                    "https://github.com/vllm-project/llm-compressor/blob/main/"
-                    "src/llmcompressor/transformers/tracing/GUIDE.md"
-                )
-            if isinstance(exception, unfixable_errors):
-                raise exception
-
-            warnings.warn("Falling back to layer_sequential pipeline")
-            try:
-                run_layer_sequential(
-                    state.model,
-                    state.data.calib,
-                    self.sequential_targets,
-                    self,
-                )
-                return True
-
-            except Exception as exception:
-                if isinstance(exception, TypeError):
-                    warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, unfixable_errors):
-                    raise exception
-
-                warnings.warn(
-                    "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy. Consider using "
-                    "`offload_hessians=True`"
-                )
-                run_basic(state.model, state.data.calib, self)
-                return True
+        return True
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -230,6 +166,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
         self._hessians = dict()
         self._num_samples = dict()
 
@@ -245,13 +184,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
         _output: torch.Tensor,
     ):
         """
-        Quantize a module's weight according to the GPTQ algorithm
+        Calibration hook used to accumulate the hessian of the input to the module
 
-        :param name: name of module being quantized
-        :param module: module being quantized
-        :param args: input arguments for module forward pass
-
-        :return: total loss from applying weight quantization to this module
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
         """
         # Assume that first argument is the input
         inp = args[0]
@@ -273,10 +211,16 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ in (
+            EventType.SEQUENTIAL_EPOCH_END,
+            EventType.CALIBRATION_EPOCH_END,
+        ):
+            self.compress_modules()
+
+    def compress_modules(self):
         """
-        Quantize modules.
-        TODO: implement with event callback
+        Quantize modules which have been calibrated
         """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]

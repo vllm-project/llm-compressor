@@ -81,10 +81,6 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         for module in tqdm.tqdm(modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
 
-        # FUTURE: below will be removed after pipeline extraction
-        if self.calculate_start() == -1:  # one shot
-            self._calibrate_if_possible(state)
-
     def on_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
