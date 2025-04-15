@@ -1,7 +1,5 @@
-import torch
 import tqdm
 from compressed_tensors.quantization import disable_quantization, enable_quantization
-from loguru import logger
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -11,8 +9,6 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_weight_zp_scale,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
-from llmcompressor.utils.helpers import calibration_forward_context
 
 __all__ = ["QuantizationModifier"]
 
@@ -100,35 +96,3 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         # TODO: modify lifecycle so modifiers end on finalize
         if not self.ended_:
             self.on_end(state, None)
-
-    def _calibrate_if_possible(self, state: State):
-        model = state.model
-        calibration_dataloader = state.data.calib
-        config = QuantizationMixin.resolve_quantization_config(self)
-
-        has_calibration_data = calibration_dataloader is not None
-        requires_calibration = config.requires_calibration_data()
-        if requires_calibration and not has_calibration_data:
-            raise ValueError(
-                "The provided quantization configuration requires calibration data "
-                "but none was provided. Calibration data is required for static "
-                "quantization of input or output activations."
-            )
-        if not requires_calibration and has_calibration_data:
-            logger.info(
-                "Skipping QuantizationModifier calibration, it is not required for "
-                "the provided quantization config."
-            )
-            return
-
-        if not requires_calibration:
-            return
-
-        self._calibrate(model, calibration_dataloader)
-
-    def _calibrate(self, module: torch.nn.Module, data: torch.utils.data.DataLoader):
-        class_name = self.__class__.__name__.replace("PyTorch", "")
-        logger.info(f"Running {class_name} calibration with {len(data)} samples...")
-
-        with calibration_forward_context(module):
-            run_calibration_forward(module, data)
