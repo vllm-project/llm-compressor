@@ -507,7 +507,6 @@ class AWQModifier(Modifier):
 
         best_device = "cuda"
         modules[0] = modules[0].to(best_device)
-        # self.awq_model.move_embed(self.model, best_device)
 
         # get input and kwargs to layer 0
         # with_kwargs is only supported in PyTorch 2.0
