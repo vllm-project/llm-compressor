@@ -10,7 +10,7 @@ Here are some details to get started.
 **Development Installation**
 
 ```bash
-git https://github.com/vllm-project/llm-compressor
+git clone https://github.com/vllm-project/llm-compressor
 cd llm-compressor
 python3 -m pip install -e "./[dev]"
 ```
@@ -39,20 +39,20 @@ File any error found before changes as an Issue and fix any errors found after m
 
 ## GitHub Workflow
 
-1. Fork the `llmcompressor` repository into your GitHub account: https://github.com/vllm-project/llm-compressor.
+1. Fork the `llm-compressor` repository into your GitHub account: https://github.com/vllm-project/llm-compressor.
 
 2. Clone your fork of the GitHub repository, replacing `<username>` with your GitHub username.
 
    Use ssh (recommended):
 
    ```bash
-   git clone git@github.com:<username>/llmcompressor.git
+   git clone git@github.com:<username>/llm-compressor.git
    ```
 
    Or https:
 
    ```bash
-   git clone https://github.com/<username>/llmcompressor.git
+   git clone https://github.com/<username>/llm-compressor.git
    ```
 
 3. Add a remote to keep up with upstream changes.
@@ -70,7 +70,7 @@ File any error found before changes as an Issue and fix any errors found after m
 4. Create a feature branch to work in.
 
    ```bash
-   git checkout -b feature-xxx remotes/upstream/main
+   git checkout -b feature-xxx upstream/main
    ```
 
 5. Work in your feature branch.
@@ -104,10 +104,10 @@ File any error found before changes as an Issue and fix any errors found after m
    Go to your fork main page
 
    ```bash
-   https://github.com/<username>/llmcompressor
+   https://github.com/<username>/llm-compressor
    ```
 
-   If you recently pushed your changes GitHub will automatically pop up a `Compare & pull request` button for any branches you recently pushed to. If you click that button it will automatically offer you to submit your pull-request to the `TODO/llmcompressor` repository.
+   If you recently pushed your changes GitHub will automatically pop up a `Compare & pull request` button for any branches you recently pushed to. If you click that button it will automatically offer you to submit your pull-request to the `vllm-project/llm-compressor` repository.
 
    - Give your pull-request a meaningful title.
      You'll know your title is properly formatted once the `Semantic Pull Request` GitHub check

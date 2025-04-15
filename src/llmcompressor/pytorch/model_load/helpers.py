@@ -30,12 +30,14 @@ def save_checkpoint(
     processor: Processor,
     save_safetensors: bool = True,
     save_compressed: bool = True,
+    skip_sparsity_compression_stats: bool = False,
 ):
     # saving the model also saves the recipe
     model.save_pretrained(
         save_path,
         save_safetensors=save_safetensors,
         save_compressed=save_compressed,
+        skip_sparsity_compression_stats=skip_sparsity_compression_stats,
     )
     if processor is not None:
         processor.save_pretrained(save_path)

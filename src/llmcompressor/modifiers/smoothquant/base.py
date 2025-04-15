@@ -4,7 +4,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors.utils import align_module_device
 from loguru import logger
-from pydantic import ConfigDict
+from pydantic import Field, ConfigDict
 from torch.nn import Module
 
 from llmcompressor.core import State
@@ -106,8 +106,8 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    resolved_mappings_: Optional[List[SmoothQuantMapping]] = None
-    scales_: Optional[Dict] = None
+    resolved_mappings_: Optional[List[SmoothQuantMapping]] = Field(default=None, repr=False)
+    scales_: Optional[Dict] = Field(default=None, repr=False)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

@@ -8,7 +8,7 @@ from compressed_tensors.utils import get_execution_device
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
     from llmcompressor.modifiers import Modifier
@@ -50,7 +50,7 @@ def run_pipeline(
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
-    with calibration_forward_context(model):
+    with calibration_forward_context(model), DisableQuantization(model):
         # prepare intermediates cache
         model_device = get_execution_device(model)
         intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
