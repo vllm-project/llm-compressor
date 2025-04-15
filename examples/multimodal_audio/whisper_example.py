@@ -1,15 +1,14 @@
 import torch
 from datasets import load_dataset
-from transformers import WhisperProcessor
+from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
 # Select model and load it.
 MODEL_ID = "openai/whisper-large-v3"
 
-model = TraceableWhisperForConditionalGeneration.from_pretrained(
+model = WhisperForConditionalGeneration.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",

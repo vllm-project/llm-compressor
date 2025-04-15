@@ -21,7 +21,7 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers.compression.sparsity_config import (
+from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
 )
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
@@ -178,8 +178,8 @@ def test_quant_model_reload(format, dtype, tmp_path):
         concatenate_data=concatenate_data,
         splits=splits,
         oneshot_device=device,
-        clear_sparse_session=False,
         precision=dtype,
+        clear_sparse_session=False,
     )
 
     # Fetch the oneshot model
@@ -449,8 +449,6 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     ],
 )
 def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp_path):
-    from llmcompressor.pytorch.model_load.helpers import get_session_model
-
     device = "cuda"
     if not torch.cuda.is_available():
         device = "cpu"
@@ -460,7 +458,7 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
     splits = {"calibration": "train[:10%]"}
     empty_model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype="auto")
 
-    oneshot(
+    model = oneshot(
         model=model_stub,
         dataset=dataset,
         num_calibration_samples=num_calibration_samples,
@@ -471,8 +469,6 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
         clear_sparse_session=False,
     )
 
-    # Fetch the oneshot model
-    model = get_session_model()
     og_state_dict = model.state_dict()
     path = tmp_path / "compressed"
 
@@ -518,7 +514,13 @@ def test_disable_sparse_compression_flag(tmp_path):
     modify_save_pretrained(two_four_sparse_model)
 
     save_path = tmp_path / "no_sparse_compression_model"
-    two_four_sparse_model.save_pretrained(save_path, disable_sparse_compression=True)
+    sparsity_config = SparsityConfigMetadata.from_pretrained(
+        two_four_sparse_model,
+        sparsity_structure="2:4",
+    )
+    two_four_sparse_model.save_pretrained(
+        save_path, disable_sparse_compression=True, sparsity_config=sparsity_config
+    )
 
     config = AutoConfig.from_pretrained(save_path)
     quantization_config = getattr(config, QUANTIZATION_CONFIG_NAME, None)
@@ -542,7 +544,7 @@ class DummyLinearModel(nn.Module):
 
         # Linear layer without bias
         self.linear = nn.Linear(in_features, out_features, bias=False)
-        self.linear.weight = nn.Parameter(weights, requires_grad=False)
+        self.linear.weight = nn.Parameter(weights, requires_grad=True)
 
         # Attach scale and zero-point if provided
         if weight_scale is not None:
@@ -682,7 +684,13 @@ def test_correct_compressor_inferred(
     model.linear.quantization_scheme = quantization_config.config_groups["group_0"]
     model.linear.quantization_status = QuantizationStatus.FROZEN
 
-    compressor = get_model_compressor(model)
+    if is_24:
+        sparsity_config = SparsityConfigMetadata.from_pretrained(
+            model, sparsity_structure="2:4", compress=True
+        )
+    else:
+        sparsity_config = None
+    compressor = get_model_compressor(model, sparsity_config=sparsity_config)
 
     assert compressor.quantization_config.format == expected_quant_compressor
 
