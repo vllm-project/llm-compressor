@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
       - name: Get changed files
         id: changed-files
-        uses: neuralmagic/nm-actions/actions/changed-files@57598f52d308d41e054b11ce9a52fc32a068ffc5 # v1.14.0
+        uses: neuralmagic/nm-actions/actions/changed-files@14cecb6bf54cc9919b1d3f64881a364401b2ae62 # v1.16.0
         with:
           include-patterns: |-
             ^src/
