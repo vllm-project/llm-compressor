@@ -67,8 +67,8 @@ def infer_pipeline_fn(modifiers: List[Modifier]) -> str:
             return "basic"
         else:
             return "skip"
-        
+
     if any(isinstance(modifier, SmoothQuantModifier) for modifier in modifiers):
         return "basic"
-    
+
     return "skip"
