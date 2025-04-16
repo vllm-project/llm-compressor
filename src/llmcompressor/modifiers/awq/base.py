@@ -120,6 +120,7 @@ class AWQModifier(Modifier):
             self._set_module_kwargs(state.model, calibration_dataloader)
             self._setup_scale_hooks()
             self._calibrate(state.model, calibration_dataloader)
+            self.remove_hooks()
             self._concat_collected_activations()
             self._apply_smoothing(state.model)
 
@@ -239,9 +240,6 @@ class AWQModifier(Modifier):
             calibration_dataloader,
             self.num_calibration_steps,
         )
-
-        # remove the hooks now that we are done calibrating
-        self.remove_hooks()
 
     def _concat_collected_activations(self):
         """
