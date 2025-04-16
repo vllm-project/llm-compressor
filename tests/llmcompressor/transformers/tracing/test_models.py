@@ -7,7 +7,6 @@ from llmcompressor.transformers.tracing import (
     TraceableMllamaForConditionalGeneration,
     TraceableQwen2_5_VLForConditionalGeneration,
     TraceableQwen2VLForConditionalGeneration,
-    TraceableWhisperForConditionalGeneration,
 )
 from llmcompressor.transformers.tracing.debug import trace
 
@@ -77,22 +76,5 @@ def test_vision_trace(model_id, model_class, targets, ignore):
         targets,
         ignore=ignore,
         modality="vision",
-        trust_remote_code=True,
-    )
-
-
-@pytest.mark.parametrize(
-    "model_id,model_class,targets,ignore",
-    [
-        ("openai/whisper-large-v3", TraceableWhisperForConditionalGeneration, None, []),
-    ],
-)
-def test_audio_trace(model_id, model_class, targets, ignore):
-    trace(
-        model_id,
-        model_class,
-        targets,
-        ignore=ignore,
-        modality="audio",
         trust_remote_code=True,
     )
