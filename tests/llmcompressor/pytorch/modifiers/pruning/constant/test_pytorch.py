@@ -74,7 +74,6 @@ def test_constant_pruning_modifier_e2e(model, optimizer):
     state.update(
         model=model,
         optimizer=optimizer(model.parameters(), lr=0.1),
-        start=0,
     )
     modifier = ConstantPruningModifier(
         targets="__ALL_PRUNABLE__",

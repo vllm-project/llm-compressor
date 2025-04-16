@@ -12,7 +12,7 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     maybe_inject_pos_embeddings,
     to_next_layer_kwargs,
 )
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
     from llmcompressor.modifiers import Modifier
@@ -51,7 +51,7 @@ def run_pipeline(
     # find layers
     layers = match_modules(model, sequential_targets)
 
-    with calibration_forward_context(model):
+    with calibration_forward_context(model), DisableQuantization(model):
         # prepare intermediates cache
         intermediates: IntermediatesCache = capture_first_layer_intermediates(
             model, layers[0], dataloader

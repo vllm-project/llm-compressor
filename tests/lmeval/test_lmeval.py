@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 import numpy
+import pandas as pd
 import pytest
 import torch
 import yaml
@@ -13,6 +14,7 @@ from pydantic import BaseModel
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
+from tests.test_timer.timer_utils import get_singleton_manager, log_time
 
 
 class LmEvalConfig(BaseModel):
@@ -34,11 +36,15 @@ except ImportError:
     logger.warning("lm_eval is not installed. This test will be skipped")
 
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
+@pytest.mark.parametrize(
+    "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
+)
 @pytest.mark.skipif(
     not lm_eval_installed, reason="lm eval is not installed, skipping test"
 )
@@ -58,8 +64,8 @@ class TestLMEval:
     be used for quantization. Otherwise, the recipe will always be used if given.
     """  # noqa: E501
 
-    def set_up(self):
-        eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
+    def set_up(self, test_data_file: str):
+        eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
@@ -88,9 +94,10 @@ class TestLMEval:
         self.num_calibration_samples = 512
         self.max_seq_length = 2048
 
-    def test_lm_eval(self):
+    def test_lm_eval(self, test_data_file: str):
         # Run vLLM with saved model
-        self.set_up()
+        self.set_up(test_data_file)
+
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, processor = run_oneshot_for_e2e_testing(
@@ -108,20 +115,33 @@ class TestLMEval:
         )
 
         logger.info("================= SAVING TO DISK ======================")
-        oneshot_model.save_pretrained(self.save_dir)
-        processor.save_pretrained(self.save_dir)
-        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+        self._save_compressed_model(oneshot_model, processor)
 
         # Use the session to fetch the recipe;
         # Reset session for next test case
+        self._handle_recipe()
+
+        logger.info("================= Running LM Eval ======================")
+        self._run_lm_eval()
+
+        self.tear_down()
+
+    @log_time
+    def _save_compressed_model(self, oneshot_model, processor):
+        oneshot_model.save_pretrained(self.save_dir)
+        processor.save_pretrained(self.save_dir)
+
+    @log_time
+    def _handle_recipe(self):
+        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
         session = active_session()
         recipe_yaml_str = session.get_serialized_recipe()
         with open(recipe_path, "w") as fp:
             fp.write(recipe_yaml_str)
         session.reset()
 
-        logger.info("================= Running LM Eval ======================")
-
+    @log_time
+    def _run_lm_eval(self):
         model_args = {"pretrained": self.save_dir}
         model_args.update(self.lmeval.model_args)
         results = lm_eval.simple_evaluate(
@@ -142,8 +162,18 @@ class TestLMEval:
             )
             assert numpy.isclose(expected_val, actual_val, rtol=0.05)
 
-        self.tear_down()
-
     def tear_down(self):
+        timer = get_singleton_manager()
+        # fetch dictionary of measurements, where keys are func names
+        # and values are the time it took to run the method, each
+        # time it was called
+        measurements = timer.measurements
+        if measurements:
+            p = Path(TIMINGS_DIR)
+            p.mkdir(parents=True, exist_ok=True)
+
+            df = pd.DataFrame(measurements)
+            df.to_csv(p / f"{self.save_dir}.csv", index=False)
+
         if self.save_dir is not None:
             shutil.rmtree(self.save_dir)
