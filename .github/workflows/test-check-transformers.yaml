@@ -8,6 +8,8 @@ on:
 
 env:
   CADENCE: "commit"
+  HF_HOME: /model-cache
+  HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
 
 jobs:
   detect-changes:
