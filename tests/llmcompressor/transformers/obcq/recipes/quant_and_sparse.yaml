@@ -14,4 +14,4 @@ test_stage:
       block_size: 128
       percdamp: 0.01
       mask_structure: "0:0"
-      targets: ["model.layers.0"]
+      targets: ["re:.*model.layers.0$"]
