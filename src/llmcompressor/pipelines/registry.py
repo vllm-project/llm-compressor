@@ -5,6 +5,7 @@ from loguru import logger
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationMixin
+from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.pipelines import (
     basic,
     independent,
@@ -66,5 +67,8 @@ def infer_pipeline_fn(modifiers: List[Modifier]) -> str:
             return "basic"
         else:
             return "skip"
-
-    raise ValueError(f"Unable to infer pipeline from modifiers ({modifiers})")
+        
+    if any(isinstance(modifier, SmoothQuantModifier) for modifier in modifiers):
+        return "basic"
+    
+    return "skip"
