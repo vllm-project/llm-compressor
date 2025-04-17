@@ -62,6 +62,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             **model_and_data_kwargs,
             stage="test_oneshot_stage",
         )
+
         finetune_model = train(
             run_stages=run_stages,
             model=oneshot_model,
