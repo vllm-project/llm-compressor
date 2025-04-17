@@ -3,6 +3,7 @@ from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization.quant_args import (
+    FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationStrategy,
 )
@@ -22,9 +23,14 @@ class Observer(Module, RegistryMixin):
     pair
     """
 
-    def __init__(self, quantization_args: QuantizationArgs):
+    def __init__(
+        self,
+        quantization_args: QuantizationArgs,
+        global_scale: Optional[torch.Tensor] = None,
+    ):
         self.quantization_args: QuantizationArgs = quantization_args
         super().__init__()
+        self.global_scale: torch.Tensor = global_scale
         self._scale = None
         self._zero_point = None
         self._num_observed_tokens = None
@@ -91,7 +97,9 @@ class Observer(Module, RegistryMixin):
                 self._scale = torch.empty(
                     (rows, num_groups), dtype=observed.dtype, device=observed.device
                 )
-                zp_dtype = self.quantization_args.pytorch_dtype()
+                # TODO: update
+                # zp_dtype = self.quantization_args.pytorch_dtype()
+                zp_dtype = FP8_E4M3_DATA.dtype
                 self._zero_point = torch.empty(
                     (rows, num_groups), dtype=zp_dtype, device=observed.device
                 )
