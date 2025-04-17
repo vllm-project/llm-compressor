@@ -89,7 +89,7 @@ class Modifier(ModifierInterface, HooksMixin):
 
         self.initialized_ = self.on_initialize(state=state, **kwargs)
 
-        # trigger start
+        # trigger starts
         fake_start_event = Event(type_=EventType.BATCH_START, global_step=0)
         if self.should_start(fake_start_event):
             self.on_start(state, fake_start_event, **kwargs)
