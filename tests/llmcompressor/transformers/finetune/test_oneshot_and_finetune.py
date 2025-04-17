@@ -26,13 +26,12 @@ class TestOneshotAndFinetune(unittest.TestCase):
         oneshot_args = dict(
             dataset=self.dataset,
             splits=splits,
-            output_dir=self.output,
             recipe=self.recipe,
             num_calibration_samples=64,
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
-            clear_sparse_session=True,
+            output_dir=self.output,
         )
 
         train_args = dict(

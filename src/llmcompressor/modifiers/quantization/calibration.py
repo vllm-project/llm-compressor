@@ -8,7 +8,7 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils.offload import is_module_offloaded, update_parameter_data
+from compressed_tensors.utils import align_module_device, update_parameter_data
 from loguru import logger
 from torch.nn import Module
 
@@ -72,27 +72,23 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
     :param value: torch.Tensor to be passed to the observer for activations. If
         base_name is "weight", then the module's weight tensor will be used
     """
-    offloaded = is_module_offloaded(module)
-    if offloaded:
-        module._hf_hook.pre_forward(module)
+    with align_module_device(module):
+        if base_name == "weight":
+            value = module.weight
+            g_idx = getattr(module, "weight_g_idx", None)
+        elif value is not None:
+            g_idx = None
+        else:
+            raise ValueError(
+                "Must provide a value to observe if not using weight observer"
+            )
 
-    if base_name == "weight":
-        value = module.weight
-        g_idx = getattr(module, "weight_g_idx", None)
-    elif value is not None:
-        g_idx = None
-    else:
-        raise ValueError("Must provide a value to observe if not using weight observer")
+        observer = getattr(module, f"{base_name}_observer")
+        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
 
-    observer = getattr(module, f"{base_name}_observer")
-    updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
-
-    # update scale and zero point
-    update_parameter_data(module, updated_scale, f"{base_name}_scale")
-    update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
-
-    if offloaded:
-        module._hf_hook.post_forward(module, None)
+        # update scale and zero point
+        update_parameter_data(module, updated_scale, f"{base_name}_scale")
+        update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
 def update_weight_zp_scale(module: Module):
