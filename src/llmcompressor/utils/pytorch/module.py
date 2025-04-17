@@ -343,6 +343,7 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
 
     return no_split_modules
 
+
 def get_parent_by_name(layer_name: str, model: Module) -> Tuple[str, Module]:
     """
     Get the parent layer of a layer by name.

@@ -1,12 +1,13 @@
 import lm_eval
-from lm_eval.utils import make_table
-from transformers import AutoModelForCausalLM, AutoTokenizer
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
     QuantizationStrategy,
     QuantizationType,
 )
+from lm_eval.utils import make_table
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier

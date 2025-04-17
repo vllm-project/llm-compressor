@@ -1,5 +1,4 @@
 import pytest
-
 import torch.nn as nn
 
 from llmcompressor.utils.pytorch import get_parent_by_name
@@ -17,7 +16,6 @@ def example_nested_module() -> str:
 
 @pytest.mark.unit
 def test_get_parent_by_name(example_nested_module):
-
     # Test getting the parent of the first layer
     name, parent = get_parent_by_name("0", example_nested_module)
     assert parent == example_nested_module
