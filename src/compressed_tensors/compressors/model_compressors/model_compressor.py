@@ -382,6 +382,7 @@ class ModelCompressor:
             compressed_state_dict = self.quantization_compressor.compress(
                 state_dict, names_to_scheme=quantized_modules_to_args
             )
+
             if self.quantization_config.format != CompressionFormat.dense.value:
                 self.quantization_config.quantization_status = (
                     QuantizationStatus.COMPRESSED
