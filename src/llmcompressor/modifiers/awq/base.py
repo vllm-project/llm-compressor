@@ -59,6 +59,7 @@ class AWQModifier(Modifier):
     Lifecycle:
         - on_initialize
             - resolve mappings
+            - capture kwargs needed for forward passes into modules
             - capture input activations to balance layers
                 - register hook to capture inputs and offload to cpu
                 - run calibration dataset through, to capture inputs
@@ -114,14 +115,16 @@ class AWQModifier(Modifier):
 
         self._set_resolved_mappings(state.model)
 
-        calibration_dataloader = state.data.calib
+        with calibration_forward_context(state.model):
+            self._set_module_kwargs(state.model, state.data.calib)
+
+        self._setup_scale_hooks()
+        with calibration_forward_context(state.model):
+            self._calibrate(state.model, state.data.calib)
+        self.remove_hooks()
+        self._concat_collected_activations()
 
         with calibration_forward_context(state.model):
-            self._set_module_kwargs(state.model, calibration_dataloader)
-            self._setup_scale_hooks()
-            self._calibrate(state.model, calibration_dataloader)
-            self.remove_hooks()
-            self._concat_collected_activations()
             self._apply_smoothing(state.model)
 
         return True
@@ -234,11 +237,9 @@ class AWQModifier(Modifier):
                 " CompressionSession to run the AWQ modifier"
             )
 
-        # with calibration_forward_context(model):
         run_calibration_forward(
             model,
             calibration_dataloader,
-            self.num_calibration_steps,
         )
 
     def _concat_collected_activations(self):

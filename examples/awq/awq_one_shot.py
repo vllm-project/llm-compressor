@@ -14,16 +14,14 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # This example demonstrates how to:
 # 1) Run the `llm-compressor` implementation of AWQ
-# 2) Compare it against the original AutoAWQ implementation available
-#     at https://github.com/casper-hansen/AutoAWQ
-# 3) Evaluate the compressed model with the lm_eval framework
+# 2) Evaluate the compressed model with the lm_eval framework
 
-MODEL_ID = "meta-llama/Llama-2-7b-hf"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 DATASET_ID = "mit-han-lab/pile-val-backup"
 DATASET_SPLIT = "validation"
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
-OUTPUT_DIR = MODEL_ID.split("/")[-1] + f"-awq-{NUM_CALIBRATION_SAMPLES}"
+OUTPUT_DIR = MODEL_ID.split("/")[-1] + "-awq-asym"
 
 #
 # 1) Run LLM Compressor AWQ implementation
@@ -89,38 +87,8 @@ oneshot(
 
 print("Done! model saved to", OUTPUT_DIR)
 
-
 #
-# 2) Or run original AutoAWQ implementation (requires `pip install autoawq`)
-#
-# OUTPUT_DIR = (
-#     MODEL_ID.split("/")[-1] + f"-auto-awq-{NUM_CALIBRATION_SAMPLES}-quant-only"
-# )
-# from awq import AutoAWQForCausalLM
-
-# # Load model
-# model = AutoAWQForCausalLM.from_pretrained(MODEL_ID, device_map="cuda:0")
-# tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
-
-# # Quantize
-# model.quantize(
-#     tokenizer,
-#     apply_clip=False,
-#     quant_config={
-#         "zero_point": True,
-#         "q_group_size": 128,
-#         "w_bit": 4,
-#         "version": "GEMM",
-#     },
-# )
-# model = model.model.to("cuda:0")
-
-# # Save quantized model
-# model.save_quantized(OUTPUT_DIR)
-
-
-#
-# 3) Evaluate model on wikitext perplexity
+# 2) Evaluate model on wikitext perplexity
 #
 
 results = lm_eval.simple_evaluate(
@@ -133,6 +101,6 @@ results = lm_eval.simple_evaluate(
     },
     tasks=["wikitext"],
     num_fewshot=5,
-    batch_size=8,
+    batch_size="auto",
 )
 print(make_table(results))
