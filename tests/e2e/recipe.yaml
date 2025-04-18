@@ -15,13 +15,4 @@ quant_stage:
           weights: {num_bits: 8, type: int, symmetric: true, strategy: channel}
           input_activations: {num_bits: 8, symmetric: false}
           targets: [Linear]
-        # Dynamic asymmetric W8A8-Int8 configuration
-        group_1:
-          weights: {num_bits: 8, type: int, symmetric: true, strategy: channel}
-          input_activations: {num_bits: 8, symmetric: false, dynamic: true}
-          targets: [Linear]
-        # Static asymmetric W8A8-Int8 configuration
-        group_2:
-          weights: {num_bits: 8, type: int, symmetric: true, strategy: channel}
-          input_activations: {num_bits: 8, symmetric: false, dynamic: false}
-          targets: [Linear]
+       
