@@ -26,6 +26,7 @@ __all__ = [
     "initialize_quantized_kv_cache",
     "freeze_module_quantization",
     "apply_calibration_status",
+    "reset_quantization_status",
 ]
 
 
@@ -246,3 +247,9 @@ def freeze_module_quantization(module: Module):
         delattr(module, "kv_cache")
 
     module.quantization_status = QuantizationStatus.FROZEN
+
+
+def reset_quantization_status(model: Module):
+    for module in model.modules():
+        if hasattr(module, "quantization_status"):
+            delattr(module, "quantization_status")

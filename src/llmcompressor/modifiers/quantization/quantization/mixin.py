@@ -20,6 +20,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_output_hook,
     initialize_observer,
     initialize_quantized_kv_cache,
+    reset_quantization_status,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 
@@ -106,8 +107,11 @@ class QuantizationMixin(HooksMixin):
         Apply this modifier as a quantization config to the model. Attach observers
         according to the schemes attached to each module
         """
+        reset_quantization_status(model)  # reset any previously applied qconfigs
+
         config = self.resolve_quantization_config()
         apply_quantization_config(model, config)
+
         model.apply(self._initialize_observers)
 
     def register_calibration_hooks(self, model: torch.nn.Module):
