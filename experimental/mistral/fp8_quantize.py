@@ -68,7 +68,32 @@ def update_config(config_file_path):
     with open(config_file_path, 'r') as f:
         config = json.load(f)
 
-    config["quantization"] = {"qformat_weight": "fp8_e4m3", "activation_scheme": "dynamic"}
+    config["quantization"] = {
+        "config_groups": {
+        "group_0": {
+            "input_activations": {
+                "dynamic": True,
+                "num_bits": 8,
+                "observer": None,
+                "strategy": "token",
+                "symmetric": True,
+                "type": "float"
+            },
+            "targets": ["Linear"],
+            "weights": {
+                "dynamic": False,
+                "num_bits": 8,
+                "observer": "minmax",
+                "strategy": "tensor",
+                "symmetric": True,
+                "type": "float"
+            }
+        }},
+        "format": "float-quantized",
+        "ignore": ["lm_head", "output"],
+        "quant_method": "compressed-tensors",
+        "quantization_status": "compressed"
+    }
     
     with open(config_file_path, 'w') as f:
         json.dump(config, f, indent=2)
