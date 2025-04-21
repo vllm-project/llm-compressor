@@ -49,7 +49,8 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
+        if os.path.isdir(cls.test_dir):
+            shutil.rmtree(cls.test_dir)
         del cls.model
         torch.cuda.empty_cache()
 

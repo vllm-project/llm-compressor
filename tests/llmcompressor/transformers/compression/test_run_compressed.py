@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 import unittest
@@ -87,7 +88,8 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
+        if os.path.isdir(cls.test_dir):
+            shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.uncompressed_model
         torch.cuda.empty_cache()
@@ -176,7 +178,8 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
+        if os.path.isdir(cls.test_dir):
+            shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.compressed_model
         torch.cuda.empty_cache()
