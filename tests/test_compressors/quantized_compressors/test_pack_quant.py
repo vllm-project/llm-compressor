@@ -188,7 +188,7 @@ def test_reload_match(tmp_path, num_bits):
         args=quantized_modules_to_args["dummy"],
     )
     assert torch.equal(
-        fake_quant_dummy, reconstructed_dense["dummy.weight"].to(torch.float32)
+        fake_quant_dummy, reconstructed_dense["dummy"].get("weight").to(torch.float32)
     )
 
     fake_quant_dummy2 = fake_quantize(
@@ -198,7 +198,7 @@ def test_reload_match(tmp_path, num_bits):
         args=quantized_modules_to_args["dummy2"],
     )
     assert torch.equal(
-        fake_quant_dummy2, reconstructed_dense["dummy2.weight"].to(torch.float32)
+        fake_quant_dummy2, reconstructed_dense["dummy2"].get("weight").to(torch.float32)
     )
 
     shutil.rmtree(tmp_path)
@@ -312,7 +312,7 @@ def test_actorder_reload_match(actorder, tmp_path, mock_per_group_calibration):
         g_idx=getattr(model.dummy, "weight_g_idx", None),
         args=quantized_modules_to_args["dummy"],
     )
-    assert torch.equal(fake_quant_dummy, reconstructed_dense["dummy.weight"])
+    assert torch.equal(fake_quant_dummy, reconstructed_dense["dummy"].get("weight"))
 
     shutil.rmtree(tmp_path)
 

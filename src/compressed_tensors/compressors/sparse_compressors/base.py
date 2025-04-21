@@ -98,7 +98,11 @@ class BaseSparseCompressor(BaseCompressor):
         return compressed_dict
 
     def decompress(
-        self, path_to_model_or_tensors: str, device: str = "cpu", **kwargs
+        self,
+        path_to_model_or_tensors: str,
+        device: str = "cpu",
+        params_to_skip_load: Optional[Tuple] = None,
+        **kwargs,
     ) -> Generator[Tuple[str, Tensor], None, None]:
         """
         Reads a bitmask compressed state dict located
@@ -108,6 +112,11 @@ class BaseSparseCompressor(BaseCompressor):
         :param model_path: path to compressed safetensors model (directory with
             one or more safetensors files) or compressed tensors file
         :param device: device to load decompressed weights onto
+        :param params_to_skip_load: a list of non-sparsity parameters (e.g quantization
+            parameters) that we want to skip loading. As the sparsity compresssor does
+            not handle quantized decompression, this should contain any quantization
+            parameters when decompressing stacked compressors. We want these parameters
+            to be handled by the quantization decompressor
         :return: iterator for generating decompressed weights
         """
         weight_mappings, ignored_params = get_nested_weight_mappings(
@@ -121,13 +130,21 @@ class BaseSparseCompressor(BaseCompressor):
                 full_name = merge_names(weight_name, param_name)
                 with safe_open(safe_path, framework="pt", device=device) as f:
                     weight_data[param_name] = f.get_tensor(full_name)
+
             decompressed = self.decompress_weight(weight_data)
             yield merge_names(weight_name, "weight"), decompressed
 
         for ignored_param_name, safe_path in ignored_params.items():
-            with safe_open(safe_path, framework="pt", device=device) as f:
-                value = f.get_tensor(ignored_param_name)
-            yield ignored_param_name, value
+            should_skip = False
+            if params_to_skip_load is not None:
+                for param_to_skip in params_to_skip_load:
+                    if param_to_skip in ignored_param_name:
+                        should_skip = True
+
+            if not should_skip:
+                with safe_open(safe_path, framework="pt", device=device) as f:
+                    value = f.get_tensor(ignored_param_name)
+                yield ignored_param_name, value
 
     @staticmethod
     def should_compress(name: str, expanded_targets: Optional[Set[str]] = None) -> bool:

@@ -146,7 +146,7 @@ def test_reload_match(strategy, group_size, sc, zp, tmp_path):
         args=quantized_modules_to_args["dummy"],
     )
     assert torch.equal(
-        fake_quant_dummy, reconstructed_dense["dummy.weight"].to(torch.float32)
+        fake_quant_dummy, reconstructed_dense["dummy"].get("weight").to(torch.float32)
     )
 
     fake_quant_dummy2 = fake_quantize(
@@ -156,7 +156,7 @@ def test_reload_match(strategy, group_size, sc, zp, tmp_path):
         args=quantized_modules_to_args["dummy2"],
     )
     assert torch.equal(
-        fake_quant_dummy2, reconstructed_dense["dummy2.weight"].to(torch.float32)
+        fake_quant_dummy2, reconstructed_dense["dummy2"].get("weight").to(torch.float32)
     )
 
     shutil.rmtree(tmp_path)

@@ -160,6 +160,6 @@ def test_reload_match(
         zero_point=model.dummy.weight_zero_point,
         args=quantized_modules_to_args["dummy"],
     )
-    assert torch.equal(fake_quant_dummy, reconstructed_dense["dummy.weight"])
+    assert torch.equal(fake_quant_dummy, reconstructed_dense["dummy"].get("weight"))
 
     shutil.rmtree(tmp_path)

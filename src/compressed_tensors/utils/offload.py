@@ -200,7 +200,6 @@ def update_offload_parameter(
         provided, then infer device from parameters on module
     """
     param = getattr(module, name)
-    data = data.to(param.dtype)
     if param.data.shape != data.shape:
         warnings.warn(
             f"Shape of parameter being updated {param.data.shape} does not match shape "

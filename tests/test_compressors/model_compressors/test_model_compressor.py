@@ -178,6 +178,7 @@ def test_composability(tmp_path, sparsity_config, quantization_config):
     fake_oneshot_model: DummyLinearModel = _get_fake_oneshot_sparse_quantized_model(
         sparsity_config=sparsity_config, quantization_config=quantization_config
     )
+    fake_oneshot_model = fake_oneshot_model.to(torch.float32)
     # does both sparse and quantization compression
     compressed_state_dict = model_compressor.compress(fake_oneshot_model)
 
@@ -189,6 +190,7 @@ def test_composability(tmp_path, sparsity_config, quantization_config):
     decompressed_model = DummyLinearModel(
         torch.zeros_like(fake_oneshot_model.linear.weight)
     )
+    decompressed_model = decompressed_model.float()
     model_compressor.decompress(model=decompressed_model, model_path=save_dir)
 
     # check that the decompressed model is the same as the original model

@@ -31,7 +31,7 @@ __all__ = [
     "get_weight_mappings",
     "get_nested_weight_mappings",
     "get_nested_mappings_from_state_dict",
-    "get_quantization_state_dict",
+    "get_quantization_parameter_to_path_mapping",
     "is_quantization_param",
 ]
 
@@ -279,16 +279,18 @@ def get_nested_mappings_from_state_dict(
     return nested_weight_mappings
 
 
-def get_quantization_state_dict(model_path: str) -> Dict[str, Tensor]:
+def get_quantization_parameter_to_path_mapping(model_path: str) -> Dict[str, str]:
+    """
+    Given a model path, return a mapping between a parameter and its path
+    on disk
+    """
     weight_mappings = get_weight_mappings(model_path)
-    state_dict = {}
+    mapping = {}
     for weight_name, safe_path in weight_mappings.items():
-        if not is_quantization_param(weight_name):
+        if is_quantization_param(weight_name):
+            mapping[weight_name] = safe_path
             continue
-        with safe_open(safe_path, framework="pt", device="cpu") as f:
-            state_dict[weight_name] = f.get_tensor(weight_name)
-
-    return state_dict
+    return mapping
 
 
 def is_quantization_param(name: str) -> bool:
