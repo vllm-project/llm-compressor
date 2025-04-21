@@ -160,4 +160,4 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         self.output_second = Path(self.output) / "test_2"
 
     def test_consecutive_runs_gpu(self):
-        self._test_consecutive_runs(tolerance=1e-0, num_calibration_samples=1)
+        self._test_consecutive_runs(tolerance=1e-0)
