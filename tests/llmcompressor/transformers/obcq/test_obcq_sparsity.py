@@ -1,4 +1,5 @@
 import math
+import os
 import shutil
 import unittest
 
@@ -48,7 +49,8 @@ class TestSparsities(unittest.TestCase):
     def tearDown(self):
         import torch
 
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
         torch.cuda.empty_cache()
 
 
@@ -97,5 +99,6 @@ class TestSparsitiesGPU(unittest.TestCase):
     def tearDown(self):
         import torch
 
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
         torch.cuda.empty_cache()
