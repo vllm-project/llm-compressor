@@ -53,7 +53,7 @@ def infer_pipeline_fn(modifiers: List[Modifier]) -> str:
     if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
         return "sequential"
 
-    quant_modifiers = [mod for mod in modifiers if isinstance(mod, QuantizationMixin)]
+    quant_modifiers = _get_quantization_modifiers(modifiers)
     if len(quant_modifiers) > 1:
         raise ValueError(
             f"Recipe contains more than one quantization modifier ({quant_modifiers})."
@@ -72,3 +72,11 @@ def infer_pipeline_fn(modifiers: List[Modifier]) -> str:
         return "basic"
 
     return "data_free"
+
+
+def _get_quantization_modifiers(modifiers: List[Modifier]) -> List[QuantizationMixin]:
+    return [
+        modifier
+        for modifier in modifiers
+        if isinstance(modifier, QuantizationMixin) and modifier.has_config()
+    ]
