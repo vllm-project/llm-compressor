@@ -6,5 +6,5 @@ test_stage:
       percdamp: 0.01
       mask_structure: "2:4"
       targets: [
-        "model.layers.0",
+        "re:.*model.layers.0$",
       ]
