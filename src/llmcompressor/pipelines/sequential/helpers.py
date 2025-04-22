@@ -36,11 +36,19 @@ class Subgraph:
     _code: Optional[PythonCode] = None
 
     def forward(self, *args, **kwargs) -> Dict[str, Any]:
+        """
+        Execute the operations within the subgraph
+
+        :param \*args: argument inputs to subgraph forward function
+        :param \**kwargs: keyword inputs to subgraph forward function
+        :return keyword outputs of subgraph forward function (non-consumed variables):
+        """
         if self._code is None:
             self._code = self.graph.python_code("self")
             exec(self._code.src, self._code.globals)
 
         forward_fn = self._code.globals.get("forward")
+
         try:
             outputs = forward_fn(*args, **kwargs)
         except Exception as exception:
