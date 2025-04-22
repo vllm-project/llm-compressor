@@ -1,4 +1,5 @@
 import math
+import os
 import shutil
 import unittest
 
@@ -37,7 +38,6 @@ class TestSparsities(unittest.TestCase):
             max_seq_length=128,
             num_calibration_samples=64,
             pad_to_max_length=False,
-            clear_sparse_session=False,
             output_dir=self.output,
         )
 
@@ -49,7 +49,8 @@ class TestSparsities(unittest.TestCase):
     def tearDown(self):
         import torch
 
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
         torch.cuda.empty_cache()
 
 
@@ -86,7 +87,6 @@ class TestSparsitiesGPU(unittest.TestCase):
             max_seq_length=128,
             num_calibration_samples=64,
             pad_to_max_length=False,
-            clear_sparse_session=False,
             output_dir=self.output,
             precision="bfloat16",
         )
@@ -99,5 +99,6 @@ class TestSparsitiesGPU(unittest.TestCase):
     def tearDown(self):
         import torch
 
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
         torch.cuda.empty_cache()

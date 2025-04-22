@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 
@@ -60,7 +61,6 @@ class TestOBCQCompletion(unittest.TestCase):
             num_calibration_samples=self.num_samples,
             pad_to_max_length=False,
             output_dir=self.output,
-            clear_sparse_session=False,
             precision="bfloat16",
         )
 
@@ -91,7 +91,8 @@ class TestOBCQCompletion(unittest.TestCase):
         self.assertLess(avg_new_ppl, self.perplexity)
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
 
 
 @requires_gpu
