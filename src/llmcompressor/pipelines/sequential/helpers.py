@@ -39,8 +39,8 @@ class Subgraph:
         """
         Execute the operations within the subgraph
 
-        :param \*args: argument inputs to subgraph forward function  # noqa: W605
-        :param \**kwargs: keyword inputs to subgraph forward function  # noqa: W605
+        :param \\*args: argument inputs to subgraph forward function
+        :param \\**kwargs: keyword inputs to subgraph forward function
         :return keyword outputs of subgraph forward function (non-consumed variables):
         """
         if self._code is None:
