@@ -51,12 +51,17 @@ jobs:
         with:
           python-version: '3.9'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         id: install
         run: |

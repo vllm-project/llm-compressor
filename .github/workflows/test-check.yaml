@@ -4,7 +4,7 @@ on:
 
 env:
   CADENCE: "commit"
-  
+
 jobs:
 
   base-tests:
@@ -14,12 +14,17 @@ jobs:
         with:
           python-version: '3.12'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
           pip3 uninstall -y compressed-tensors compressed-tensors-nightly
@@ -36,12 +41,17 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
           pip3 uninstall -y compressed-tensors compressed-tensors-nightly
@@ -59,12 +69,17 @@ jobs:
         with:
           python-version: '3.10'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
           pip3 uninstall -y compressed-tensors compressed-tensors-nightly
