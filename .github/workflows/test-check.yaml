@@ -27,8 +27,10 @@ jobs:
           fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running base tests"
@@ -54,8 +56,10 @@ jobs:
           fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running pytorch tests"
@@ -82,8 +86,10 @@ jobs:
           fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running pytorch tests"
