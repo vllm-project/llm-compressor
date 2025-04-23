@@ -166,9 +166,23 @@ class AWQModifier(Modifier):
                         balance_name, balance_layer = get_matching_layer(
                             balance_suffix, layer_name, model
                         )
-                        if balance_layer:
-                            balance_layers.append(balance_layer)
-                            balance_names.append(balance_name)
+                        if not (balance_layer):
+                            continue
+
+                        # exclude balance layers whose shapes are incompatible
+                        if (
+                            isinstance(smooth_layer, torch.nn.Linear)
+                            and isinstance(balance_layer, torch.nn.Linear)
+                            and smooth_layer.out_features != balance_layer.in_features
+                        ):
+                            logger.info(
+                                f"Excluding {layer_name} -> {balance_name} "
+                                + "due to shape mismatch"
+                            )
+                            continue
+
+                        balance_layers.append(balance_layer)
+                        balance_names.append(balance_name)
 
                     # each mapping can contain multiple layers to balance, but only
                     # one layer to smooth
