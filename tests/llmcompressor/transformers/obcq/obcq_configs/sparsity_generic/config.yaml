@@ -1,5 +1,4 @@
 cadence: "nightly"
 test_type: "regression"
 model: "nm-testing/llama2.c-stories15M"
-dataset_config_name: wikitext-2-raw-v1
-dataset: wikitext
+dataset: open_platypus

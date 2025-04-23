@@ -64,8 +64,7 @@ class TestOneshotAndFinetune(unittest.TestCase):
         )
         # model is first sparsified, then finetuned, both should have the same sparsity
         assert config_sparse_applied["global_sparsity"] == pytest.approx(
-            config_finetune_applied["global_sparsity"],
-            abs=1e-5
+            config_finetune_applied["global_sparsity"], abs=1e-5
         )
 
     def tearDown(self):
