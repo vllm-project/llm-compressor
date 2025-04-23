@@ -27,31 +27,24 @@ from typing import List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
 
-from transformers import AutoModelForCausalLM
+# TRACING: imports
 from transformers.cache_utils import Cache, StaticCache, HybridCache
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.utils import (
     add_start_docstrings,
-    add_start_docstrings_to_model_forward,
-    can_return_tuple,
-    is_torchdynamo_compiling,
     logging,
-    replace_return_docstrings,
     is_torch_flex_attn_available,
 )
 from transformers.processing_utils import Unpack
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
-
-# TRACING: imports
 from transformers.models.gemma3.modeling_gemma3 import (
-    GEMMA3_INPUTS_DOCSTRING,
     GEMMA3_START_DOCSTRING,
     Gemma3ForConditionalGeneration,
     Gemma3CausalLMOutputWithPast,
     CausalLMOutputWithPast,
-    Gemma3ForCausalLM,
     BaseModelOutputWithPast,
     Gemma3TextModel,
+    Gemma3Config
 )
 
 if is_torch_flex_attn_available():
@@ -60,8 +53,6 @@ if is_torch_flex_attn_available():
     from transformers.integrations.flex_attention import make_flex_block_causal_mask
 
 logger = logging.get_logger(__name__)
-
-_CONFIG_FOR_DOC = "Gemma3Config"
 
 # TRACING: cannot condition on mask shape
 @torch.fx.wrap
@@ -261,14 +252,19 @@ class Gemma3TextModel(Gemma3TextModel):
 
 # TRACING: cannot condition on sequence_length
 @torch.fx.wrap
-def triu_causal_mask(sequence_length: int, causal_mask: torch.Tensor):
+def triu_causal_mask(sequence_length: int, 
+                     causal_mask: torch.Tensor
+) -> torch.Tensor:
     if sequence_length != 1:
         causal_mask = torch.triu(causal_mask, diagonal=1)
     return causal_mask
 
 # TRACING: cannot condition on sequence_length
 @torch.fx.wrap
-def bidirectional_mask(token_type_ids: torch.Tensor, sequence_length: int, causal_mask: torch.Tensor):
+def bidirectional_mask(token_type_ids: torch.Tensor, 
+                       sequence_length: int, 
+                       causal_mask: torch.Tensor
+) -> torch.Tensor:
     if token_type_ids is not None and sequence_length != 1:
         token_type_mask = token_type_ids.unsqueeze(1) == token_type_ids.unsqueeze(2)
         token_type_mask[token_type_ids == 0] = False  # if text token do not change anything
@@ -281,7 +277,11 @@ def bidirectional_mask(token_type_ids: torch.Tensor, sequence_length: int, causa
 
 # TRACING: cannot condition on sequence_length
 @torch.fx.wrap
-def mask_pad_token_id(labels: torch.Tensor, input_ids: torch.Tensor, pad_token_id: int, config):
+def mask_pad_token_id(labels: torch.Tensor, 
+                      input_ids: torch.Tensor, 
+                      pad_token_id: int, 
+                      config: Gemma3Config
+) -> torch.Tensor:
     if labels is not None and pad_token_id in labels:
         logger.warning_once(
             "`labels` contains `pad_token_id` which will be masked with `config.ignore_index`. "
@@ -392,10 +392,14 @@ class Gemma3ForConditionalGeneration(Gemma3ForConditionalGeneration):
 
         is_training = token_type_ids is not None and labels is not None
 
+        # Resolve version differences. Older versions use image_token_index, new versions use image_token_id.
+        image_token_id = getattr(self.config, "image_token_id", None)
+        if image_token_id is None:
+            image_token_id = getattr(self.config, "image_token_index", None)
+
         # Replace image id woth PAD if the image token if OOV, to avoid index-errors
-        #TODO: update the attribute to be image_token_id once transformers is updated
-        if input_ids is not None and self.config.image_token_index >= self.vocab_size: 
-            special_image_mask = input_ids == self.config.image_token_index
+        if input_ids is not None and image_token_id >= self.vocab_size: 
+            special_image_mask = input_ids == image_token_id
             llm_input_ids = input_ids.clone()
             llm_input_ids[special_image_mask] = 0
         else:
@@ -416,10 +420,10 @@ class Gemma3ForConditionalGeneration(Gemma3ForConditionalGeneration):
 
             if input_ids is None:
                 special_image_mask = inputs_embeds == self.get_input_embeddings()(
-                    torch.tensor(self.config.image_token_index, dtype=torch.long, device=inputs_embeds.device)
+                    torch.tensor(image_token_id, dtype=torch.long, device=inputs_embeds.device)
                 )
             else:
-                special_image_mask = (input_ids == self.config.image_token_index).unsqueeze(-1)
+                special_image_mask = (input_ids == image_token_id).unsqueeze(-1)
                 special_image_mask = special_image_mask.expand_as(inputs_embeds).to(inputs_embeds.device)
 
             # TRACING: Assume that processing and tokenization was done correctly
