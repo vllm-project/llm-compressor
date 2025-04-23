@@ -43,7 +43,7 @@ def modify_save_pretrained(model: PreTrainedModel) -> None:
     2. Saves the recipe, appending any current recipes to existing recipe files
     3. Copies any necessary python files from the model cache
 
-    For more information on the compression parameterrs and model saving in
+    For more information on the compression parameters and model saving in
     llmcompressor, refer to docs/save_pretrained.md
 
     :param model: The model whose save_pretrained method will be modified
