@@ -169,11 +169,14 @@ class AWQModifier(Modifier):
                         if not (balance_layer):
                             continue
 
-                        # exclude balance layers whose shapes are incompatible
+                        # exclude v_proj/o_proj mappings whose shapes are incompatible
+                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                         if (
-                            isinstance(smooth_layer, torch.nn.Linear)
+                            ".v_proj" in layer_name
+                            and ".o_proj" in balance_name
+                            and isinstance(smooth_layer, torch.nn.Linear)
                             and isinstance(balance_layer, torch.nn.Linear)
-                            and smooth_layer.out_features != balance_layer.in_features
+                            and smooth_layer.weight.shape != balance_layer.weight.shape
                         ):
                             logger.info(
                                 f"Excluding {layer_name} -> {balance_name} "
@@ -184,11 +187,12 @@ class AWQModifier(Modifier):
                         balance_layers.append(balance_layer)
                         balance_names.append(balance_name)
 
-                    # each mapping can contain multiple layers to balance, but only
-                    # one layer to smooth
                     if len(balance_layers) == 0:
                         continue
-                    elif len(balance_layers) == 1:
+
+                    # each mapping can contain multiple layers to balance, but only
+                    # one layer to smooth
+                    if len(balance_layers) == 1:
                         # for single balance layer, parent is the balance layer
                         parent_name, parent = balance_name, balance_layer
                     else:
