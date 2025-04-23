@@ -46,7 +46,7 @@ class Recipe(RecipeBase):
 
         (Note: all modifiers are wrapped into a single stage
         with the modifier_group_name as the stage name. If modifier_group_name is None,
-        the default run type is `oneshot`)
+        the default run_type is `oneshot`)
 
         Lfecycle:
         | - Validate Modifiers
@@ -523,6 +523,33 @@ class Recipe(RecipeBase):
         dict_["stages"] = stages
 
         return dict_
+
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
+        """
+        Override the model_dump method to provide a dictionary representation that
+        is compatible with model_validate.
+
+        Unlike the standard model_dump, this transforms the stages list to a format
+        expected by the validation logic, ensuring round-trip compatibility with
+        model_validate.
+
+        :return: A dictionary representation of the recipe compatible with
+            model_validate
+        """
+        # Get the base dictionary from parent class
+        base_dict = super().model_dump(*args, **kwargs)
+
+        # Transform stages into the expected format
+        if "stages" in base_dict:
+            stages_dict = {}
+            for stage in base_dict["stages"]:
+                group = stage["group"]
+                if group not in stages_dict:
+                    stages_dict[group] = []
+                stages_dict[group].append(stage)
+            base_dict["stages"] = stages_dict
+
+        return base_dict
 
     def yaml(self, file_path: Optional[str] = None) -> str:
         """
