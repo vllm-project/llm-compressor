@@ -533,11 +533,12 @@ class Recipe(RecipeBase):
         expected by the validation logic, ensuring round-trip compatibility with
         model_validate.
 
-        :return: A dictionary representation of the recipe compatible with model_validate
+        :return: A dictionary representation of the recipe compatible with
+            model_validate
         """
         # Get the base dictionary from parent class
         base_dict = super().model_dump(*args, **kwargs)
-        
+
         # Transform stages into the expected format
         if "stages" in base_dict:
             stages_dict = {}
