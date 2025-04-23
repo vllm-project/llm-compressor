@@ -51,17 +51,24 @@ jobs:
         with:
           python-version: '3.9'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         id: install
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running transformers tests"
@@ -88,3 +95,7 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/obcq
+      - name: Running KV Cache Tests
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        run: |
+          pytest -v tests/llmcompressor/transformers/kv_cache

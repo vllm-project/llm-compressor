@@ -1,25 +1,21 @@
 test_stage:
   obcq_modifiers:
-    QuantizationModifier:
-      config_groups:
-        group_0:
-          weights:
-            num_bits: 8
-          targets: [
-            "Linear",
-          ]
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128
       percdamp: 0.01
       mask_structure: "0:0"
       targets: [
-        "model.layers.0",
+        "re:.*model.layers.0$",
       ]
       preserve_sparsity_mask: True
     GPTQModifier:
-      dampening_frac: 0.01
-      targets: [
-        "model.layers.0",
-      ]
-      block_size: 128
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 8
+            type: "int"
+            strategy: "channel"
+          targets: [
+            "re:.*model.layers.0.self_attn.q_proj",
+          ]
