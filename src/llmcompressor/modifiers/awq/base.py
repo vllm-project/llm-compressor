@@ -186,8 +186,9 @@ class AWQModifier(Modifier):
 
                     # each mapping can contain multiple layers to balance, but only
                     # one layer to smooth
-
-                    if len(balance_layers) == 1:
+                    if len(balance_layers) == 0:
+                        continue
+                    elif len(balance_layers) == 1:
                         # for single balance layer, parent is the balance layer
                         parent_name, parent = balance_name, balance_layer
                     else:
