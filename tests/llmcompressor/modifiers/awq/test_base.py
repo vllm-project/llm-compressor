@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from llmcompressor.modifiers.awq import AWQModifier, AWQMapping
+from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.factory import ModifierFactory
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
