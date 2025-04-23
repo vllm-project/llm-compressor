@@ -180,7 +180,7 @@ class AWQModifier(Modifier):
                         ):
                             logger.info(
                                 f"Excluding {layer_name} -> {balance_name} "
-                                + "due to shape mismatch"
+                                "due to shape mismatch"
                             )
                             continue
 
