@@ -1,5 +1,6 @@
 from src.llmcompressor.recipe import Recipe
 
+
 def test_recipe_model_dump():
     """Test that model_dump produces a format compatible with model_validate."""
     # Create a recipe with multiple stages and modifiers
