@@ -1,11 +1,12 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from torch.fx import Graph, GraphModule, Node
+from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
@@ -32,16 +33,33 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    _code: Optional[PythonCode] = None
 
-    def compile_forward(self) -> Callable[[Any], Any]:
+    def forward(self, *args, **kwargs) -> Dict[str, Any]:
         """
-        Generate and compile code for executing this subgraph
+        Execute the operations within the subgraph
 
-        :return: function which, when called, executes this subgraph
+        :param \\*args: argument inputs to subgraph forward function
+        :param \\**kwargs: keyword inputs to subgraph forward function
+        :return keyword outputs of subgraph forward function (non-consumed variables):
         """
-        code = self.graph.python_code("self")
-        exec(code.src, code.globals)
-        return code.globals.get("forward")
+        if self._code is None:
+            self._code = self.graph.python_code("self")
+            exec(self._code.src, self._code.globals)
+
+        forward_fn = self._code.globals.get("forward")
+
+        try:
+            outputs = forward_fn(*args, **kwargs)
+        except Exception as exception:
+            raise RuntimeError(
+                "Raised an exception during execution of the following code:\n"
+                f"```\n{add_line_numbers(self._code.src)}\n```\n"
+                "This is likely due to a violation of shape assumptions made when "
+                "tracing"
+            ) from exception
+
+        return outputs
 
 
 def trace_subgraphs(
@@ -376,3 +394,9 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def add_line_numbers(text: str) -> str:
+    lines = text.splitlines()
+    numbered_lines = [f"{i + 1} {line}" for i, line in enumerate(lines)]
+    return "\n".join(numbered_lines)
