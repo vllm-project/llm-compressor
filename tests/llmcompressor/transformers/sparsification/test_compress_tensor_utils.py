@@ -739,7 +739,7 @@ def test_modify_save_pretrained(sparse_uncompressed_model, save_compressed, tmp_
     # Check that the method was properly modified
     assert hasattr(model, "save_pretrained")
     assert callable(model.save_pretrained)
-    assert getattr(modified_func, "_overridden", True)
+    assert getattr(modified_func, "_overridden", False) is True
 
     # Verify the signature contains expected compression parameters
     expected_params = {
