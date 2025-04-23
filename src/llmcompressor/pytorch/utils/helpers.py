@@ -2,6 +2,8 @@
 Utility / helper functions
 """
 
+import functools
+import inspect
 import random
 from typing import Any, Dict, Iterable, List, Mapping, OrderedDict, Tuple, Union
 
@@ -24,6 +26,8 @@ __all__ = [
     "tensors_to_precision",
     "tensors_module_forward",
     "tensor_sparsity",
+    "tensor_forward_with_input_args",
+    "sanitize_kwargs_for_module",
     "get_linear_layers",
     "get_quantized_layers",
     "set_deterministic_seeds",
@@ -198,6 +202,43 @@ def tensor_sparsity(
         zeros = zeros.permute(*permute).contiguous()
 
     return zeros.float() / float(total)
+
+
+def sanitize_kwargs_for_module(
+    kwargs: Dict[str, Any], module: Module
+) -> Dict[str, Any]:
+    """
+    Sanitize the kwargs for a Module by removing any keys that are not
+    in the signature of the forward method.
+    :param kwargs: the kwargs to sanitize
+    :param module: the Module to sanitize the kwargs for
+    :return: the sanitized kwargs for the callable object
+    """
+    if not isinstance(kwargs, dict):
+        raise TypeError(f"Expected a dictionary as kwargs, but got {kwargs}")
+
+    allowed_params = inspect.signature(module.forward).parameters
+    return {key: value for key, value in kwargs.items() if key in allowed_params}
+
+
+def tensor_forward_with_input_args(
+    module: Module, inputs: Tensor, input_kwargs: Dict[str, Any]
+) -> Tensor:
+    """
+    Forward the given inputs through the given module with the given input_kwargs.
+    This function is a wrapper around tensors_module_forward that ensures that the
+    input_kwargs are sanitized and passed to the module as keyword arguments during
+    the forward pass.
+    :param module: the module to forward the inputs through
+    :param inputs: the inputs to forward through the module
+    :param input_kwargs: the keyword arguments to pass to the
+        module during the forward pass
+    :return: the output of the module after forwarding the inputs through it
+    """
+    inputs = inputs.to(next(module.parameters()).device)
+    input_kwargs = sanitize_kwargs_for_module(input_kwargs, module)
+
+    return tensors_module_forward(inputs, functools.partial(module, **input_kwargs))
 
 
 ##############################
