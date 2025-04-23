@@ -1,3 +1,4 @@
+import inspect
 import math
 import os
 import shutil
@@ -8,7 +9,11 @@ from accelerate import cpu_offload
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import QUANTIZATION_CONFIG_NAME, CompressionFormat
 from compressed_tensors.compressors import ModelCompressor
-from compressed_tensors.config import BitmaskConfig, DenseSparsityConfig
+from compressed_tensors.config import (
+    BitmaskConfig,
+    DenseSparsityConfig,
+    SparsityCompressionConfig,
+)
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationStatus,
@@ -708,3 +713,64 @@ def test_correct_compressor_inferred(
         )
     else:
         assert compressor.sparsity_config.format == expected_sparsity_compressor
+
+
+@pytest.mark.parametrize(
+    "sparse_uncompressed_model",
+    ["nm-testing/llama2.c-stories15M-pruned_50.2of4-uncompressed"],
+)
+@pytest.mark.parametrize("save_compressed", [True, False])
+def test_modify_save_pretrained(sparse_uncompressed_model, save_compressed, tmp_path):
+    """
+    Test if the `modify_save_pretrained` function correctly modifies the model's
+    `save_pretrained` method.
+    """
+    model = AutoModelForCausalLM.from_pretrained(sparse_uncompressed_model)
+
+    modify_save_pretrained(model)
+
+    # Get the actual function object (handle both bound and unbound methods)
+    modified_func = getattr(
+        model.save_pretrained,
+        "__func__",
+        model.save_pretrained,
+    )
+
+    # Check that the method was properly modified
+    assert hasattr(model, "save_pretrained")
+    assert callable(model.save_pretrained)
+    assert getattr(modified_func, "_overridden", True)
+
+    # Verify the signature contains expected compression parameters
+    expected_params = {
+        "sparsity_config",
+        "quantization_format",
+        "save_compressed",
+        "skip_sparsity_compression_stats",
+        "disable_sparse_compression",
+    }
+    sig = inspect.signature(model.save_pretrained)
+    actual_params = set(sig.parameters.keys())
+
+    # Check that all expected parameters are present
+    assert expected_params.issubset(
+        actual_params
+    ), f"Missing parameters: {expected_params - actual_params}"
+
+    # Test the actual functionality
+    save_dir = tmp_path / "compressed_model"
+    model.save_pretrained(
+        save_dir,
+        save_compressed=save_compressed,
+        skip_sparsity_compression_stats=not save_compressed,
+    )
+
+    # Verify the model was saved correctly
+    assert (save_dir / "recipe.yaml").exists()
+
+    # Additional checks when saving in compressed format
+    if save_compressed:
+        # Verify we can load a compressor from the saved model config
+        compressor = ModelCompressor.from_pretrained(save_dir)
+        assert compressor is not None
+        assert isinstance(compressor.sparsity_config, SparsityCompressionConfig)
