@@ -156,6 +156,7 @@ class AWQModifier(Modifier):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
+        num_skipped_oproj_mappings = 0
         for mapping in self.mappings:
             to_smooth_layers = get_layers(mapping.smooth_layer, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
@@ -166,7 +167,7 @@ class AWQModifier(Modifier):
                         balance_name, balance_layer = get_matching_layer(
                             balance_suffix, layer_name, model
                         )
-                        if not (balance_layer):
+                        if not balance_layer:
                             continue
 
                         # exclude v_proj/o_proj mappings whose shapes are incompatible
@@ -178,10 +179,7 @@ class AWQModifier(Modifier):
                             and isinstance(balance_layer, torch.nn.Linear)
                             and smooth_layer.weight.shape != balance_layer.weight.shape
                         ):
-                            logger.info(
-                                f"Excluding {layer_name} -> {balance_name} "
-                                "due to shape mismatch"
-                            )
+                            num_skipped_oproj_mappings += 1
                             continue
 
                         balance_layers.append(balance_layer)
@@ -211,6 +209,11 @@ class AWQModifier(Modifier):
                             parent_name=parent_name,
                         )
                     )
+        if num_skipped_oproj_mappings > 0:
+            logger.info(
+                f"Excluded {num_skipped_oproj_mappings} from resolved "
+                "mappings due to shape mismatch"
+            )
         self._resolved_mappings = resolved_mappings
         return
 
