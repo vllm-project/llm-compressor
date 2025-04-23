@@ -3,3 +3,4 @@ test_type: "regression"
 model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 scheme: W8A8
 activation_scheme: dynamic_asymmetric
+recipe: tests/e2e/vLLM/recipes/INT8/recipe_w8a8_dynamic_asym.yaml
