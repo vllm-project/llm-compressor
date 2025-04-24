@@ -14,7 +14,6 @@ from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
 
-"""
 try:
     from vllm import LLM, SamplingParams
 
@@ -22,12 +21,12 @@ try:
 except ImportError:
     vllm_installed = False
     logger.warning("vllm is not installed. This test will be skipped")
-"""
+
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get(
-    "TEST_DATA_FILE", "tests/e2e/vLLM/configs/w4a16_grouped_quant_asym_awq.yaml"
+    "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
@@ -46,7 +45,7 @@ EXPECTED_SAVED_FILES = [
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
-#@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
+@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
     The following test quantizes a model using a preset scheme or recipe,
@@ -80,6 +79,8 @@ class TestvLLM:
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
         self.save_compressed = eval_config.get("save_compressed", True)
+        self.num_calibration_samples = eval_config.get("num_calibration_samples", 256)
+        self.max_seq_length = eval_config.get("max_seq_length", 2048)
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -88,8 +89,6 @@ class TestvLLM:
         logger.info(self.save_dir)
 
         self.device = "cuda:0"
-        self.num_calibration_samples = 256
-        self.max_seq_length = 2048
         self.prompts = [
             "The capital of France is",
             "The president of the US is",
@@ -153,7 +152,6 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-        """
         logger.info("================= RUNNING vLLM =========================")
 
         outputs = self._run_vllm()
@@ -169,13 +167,11 @@ class TestvLLM:
             logger.info("GENERATED TEXT")
             logger.info(generated_text)
 
-        """
         self.tear_down()
-      
 
     def tear_down(self):
-        #if self.save_dir is not None and os.path.isdir(self.save_dir):
-        #    shutil.rmtree(self.save_dir)
+        if self.save_dir is not None and os.path.isdir(self.save_dir):
+            shutil.rmtree(self.save_dir)
 
         timer = get_singleton_manager()
         # fetch dictionary of measurements, where keys are func names
