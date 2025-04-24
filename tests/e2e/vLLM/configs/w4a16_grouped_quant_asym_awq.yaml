@@ -1,0 +1,9 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+recipe: tests/e2e/vLLM/recipes/WNA16/recipe_w4a16_group_quant_asym_awq.yaml
+dataset_id: "mit-han-lab/pile-val-backup"
+dataset_split: validation
+num_calibration_samples: 2000
+scheme: W4A16_weight_asym_awq
+save_dir: TinyLlama-1.1B-Chat-v1.0-w4a16-asym-awq
