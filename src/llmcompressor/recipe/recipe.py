@@ -35,6 +35,12 @@ class Recipe(RecipeBase):
     when serializing a recipe, yaml will be used by default.
     """
 
+    version: Optional[str] = Field(default=None)
+    args: RecipeArgs = Field(default_factory=RecipeArgs)
+    stages: List[RecipeStage] = Field(default_factory=list)
+    metadata: Optional[RecipeMetaData] = Field(default=None)
+    args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
+
     @classmethod
     def from_modifiers(
         cls,
@@ -280,12 +286,6 @@ class Recipe(RecipeBase):
 
         return combined
 
-    version: Optional[str] = None
-    args: RecipeArgs = Field(default_factory=RecipeArgs)
-    stages: List[RecipeStage] = Field(default_factory=list)
-    metadata: Optional[RecipeMetaData] = None
-    args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
-
     def calculate_start(self) -> int:
         """
         Calculate and return the start epoch of the recipe.
@@ -507,52 +507,60 @@ class Recipe(RecipeBase):
 
     def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
         """
-        :return: A dictionary representation of the recipe
+        Generate a serializable dictionary representation of this recipe.
+
+        This method transforms the internal recipe structure into a format
+        suitable for YAML serialization while preserving all necessary
+        information for round-trip deserialization.
+
+        :param args: Additional positional arguments for parent method
+        :param kwargs: Additional keyword arguments for parent method
+        :return: Dictionary ready for YAML serialization
         """
-        dict_ = super().model_dump(*args, **kwargs)
-        stages = {}
+        # Retrieve base representation from parent class
+        raw_dict = super().model_dump(*args, **kwargs)
 
-        for stage in dict_["stages"]:
-            name = f"{stage['group']}_stage"
-            del stage["group"]
+        # Initialize clean output dictionary
+        serializable_dict = {}
 
-            if name not in stages:
-                stages[name] = []
+        # Copy recipe metadata attributes
+        metadata_keys = ["version", "args", "metadata"]
+        for key in metadata_keys:
+            if value := raw_dict.get(key):
+                serializable_dict[key] = value
 
-            stages[name].append(stage)
-
-        dict_["stages"] = stages
-
-        yaml_recipe_dict = {}
-
-        # populate recipe level attributes
-        recipe_level_attributes = ["version", "args", "metadata"]
-
-        for attribute in recipe_level_attributes:
-            if attribute_value := dict_.get(attribute):
-                yaml_recipe_dict[attribute] = attribute_value
-
-        # populate stages
-        stages = dict_.pop("stages", {})
-        for stage_name, stage_list in stages.items():
-            for idx, stage in enumerate(stage_list):
-                if len(stage_list) > 1:
-                    # resolve name clashes caused by combining recipes with
-                    # duplicate stage names
-                    final_stage_name = f"{stage_name}_{idx}"
-                else:
-                    final_stage_name = stage_name
-                stage_dict = get_yaml_serializable_stage_dict(
-                    modifiers=stage["modifiers"]
+        # Process and organize stages by group
+        if "stages" in raw_dict:
+            # Group stages by their type (e.g., "train", "eval")
+            grouped_stages = {}
+            for stage in raw_dict["stages"]:
+                group_id = (
+                    f"{stage.pop('group')}_stage"  # Remove group field and use as key
                 )
 
-                # infer run_type from stage
-                if run_type := stage.get("run_type"):
-                    stage_dict["run_type"] = run_type
+                if group_id not in grouped_stages:
+                    grouped_stages[group_id] = []
 
-                yaml_recipe_dict[final_stage_name] = stage_dict
+                grouped_stages[group_id].append(stage)
 
-        return yaml_recipe_dict
+            # Format each stage for YAML output
+            for group_id, stages in grouped_stages.items():
+                for idx, stage_data in enumerate(stages):
+                    # Create unique identifiers for multiple stages of same type
+                    final_id = f"{group_id}_{idx}" if len(stages) > 1 else group_id
+
+                    # Create clean stage representation
+                    stage_yaml = get_yaml_serializable_stage_dict(
+                        modifiers=stage_data["modifiers"]
+                    )
+
+                    # Preserve run type if specified
+                    if run_type := stage_data.get("run_type"):
+                        stage_yaml["run_type"] = run_type
+
+                    serializable_dict[final_id] = stage_yaml
+
+        return serializable_dict
 
     def yaml(self, file_path: Optional[str] = None) -> str:
         """
