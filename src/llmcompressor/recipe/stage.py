@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import ConfigDict, Field, model_validator
@@ -8,12 +7,7 @@ from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.modifier import RecipeModifier
 
-__all__ = ["RecipeStage", "StageRunType"]
-
-
-class StageRunType(Enum):
-    TRAIN = "train"
-    ONESHOT = "oneshot"
+__all__ = ["RecipeStage"]
 
 
 class RecipeStage(RecipeBase):
@@ -33,27 +27,11 @@ class RecipeStage(RecipeBase):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     group: Optional[str] = None
-    run_type: Optional[StageRunType] = None
     args: Optional[RecipeArgs] = None
     enabled: bool = True
     modifiers: List[RecipeModifier] = Field(default_factory=list)
     exclude_default: bool = False
     args_evaluated: Optional[RecipeArgs] = None
-
-    def infer_run_type(self) -> Optional[StageRunType]:
-        """
-        Infers the stage type from the type attribute or stage name, falls back to None
-
-        :return: string representing stage type, either train or oneshot, or None if
-        stage cannot be inferred
-        """
-        if self.run_type == StageRunType.TRAIN or self.run_type == StageRunType.ONESHOT:
-            return self.run_type
-        if StageRunType.TRAIN.value in self.group:
-            return StageRunType.TRAIN
-        if StageRunType.ONESHOT.value in self.group:
-            return StageRunType.ONESHOT
-        return None
 
     def calculate_start(self) -> int:
         """
@@ -161,26 +139,26 @@ class RecipeStage(RecipeBase):
         """
 
         modifiers = []
-        remove_keys = []
 
-        if "modifiers" in values and values["modifiers"]:
-            remove_keys.append("modifiers")
-            for mod_key, mod_value in values["stages"].items():
-                modifier = {mod_key: mod_value}
-                modifier["group"] = "default"
-                modifiers.append(modifier)
+        if "modifiers" in values:
+            modifier_values = values.pop("modifiers")
+            if "stages" in values:
+                for mod_key, mod_value in values.pop("stages").items():
+                    modifiers.append({mod_key: mod_value, "group": "default"})
+            else:
+                values["default_stage"] = {
+                    "default_modifiers": {mod.type: mod.args for mod in modifier_values}
+                }
+                modifiers.extend(
+                    {mod.type: mod.args, "group": "default"} for mod in modifier_values
+                )
 
-        for key, value in list(values.items()):
-            if key.endswith("_modifiers"):
-                remove_keys.append(key)
-                group = key.rsplit("_modifiers", 1)[0]
-                for mod_key, mod_value in value.items():
-                    modifier = {mod_key: mod_value}
-                    modifier["group"] = group
-                    modifiers.append(modifier)
-
-        for key in remove_keys:
-            del values[key]
+        for key in [k for k in values if k.endswith("_modifiers")]:
+            group = key.rsplit("_modifiers", 1)[0]
+            modifiers.extend(
+                {mod_key: mod_value, "group": group}
+                for mod_key, mod_value in values.pop(key).items()
+            )
 
         return modifiers
 

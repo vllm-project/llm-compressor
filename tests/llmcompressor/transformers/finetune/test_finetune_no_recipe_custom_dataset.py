@@ -107,7 +107,8 @@ class TestFinetuneNoRecipeCustomDataset(unittest.TestCase):
         return mock_filepath  # Return the file path
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
 
 
 @pytest.mark.integration

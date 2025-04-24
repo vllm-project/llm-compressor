@@ -30,3 +30,7 @@ class RecipeArguments:
             )
         },
     )
+    stage: Optional[str] = field(
+        default=None,
+        metadata={"help": ("The stage of the recipe to use for oneshot / train.",)},
+    )

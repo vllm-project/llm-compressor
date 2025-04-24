@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 import unittest
@@ -27,7 +28,6 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
         AutoModelForCausalLM decompression
 
     AutoModelForCausalLM decompression diagram flow https://tinyurl.com/2ynb6wbu
-
     """
 
     compressed_model_stub = None
@@ -68,10 +68,6 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
         decompressed_device = self.decompressed_model.device
         uncompressed_device = self.uncompressed_model.device
 
-        # overwrite weights in cpu to cuda
-        self.decompressed_model = self.decompressed_model.to(decompressed_device)
-        self.uncompressed_model = self.uncompressed_model.to(uncompressed_device)
-
         inputs = self.tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
             decompressed_device
         )
@@ -87,7 +83,8 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
+        if os.path.isdir(cls.test_dir):
+            shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.uncompressed_model
         torch.cuda.empty_cache()
@@ -154,10 +151,6 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         decompressed_device = self.decompressed_model.device
         compressed_device = self.compressed_model.device
 
-        # overwrite weights in cpu to cuda
-        self.decompressed_model = self.decompressed_model.to(decompressed_device)
-        self.compressed_model = self.compressed_model.to(compressed_device)
-
         inputs = self.tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
             decompressed_device
         )
@@ -176,7 +169,8 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
+        if os.path.isdir(cls.test_dir):
+            shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.compressed_model
         torch.cuda.empty_cache()

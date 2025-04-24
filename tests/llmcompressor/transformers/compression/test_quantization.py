@@ -49,7 +49,8 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
+        if os.path.isdir(cls.test_dir):
+            shutil.rmtree(cls.test_dir)
         del cls.model
         torch.cuda.empty_cache()
 
@@ -67,7 +68,6 @@ class TestQuantizationMatches(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=recipe,
             pad_to_max_length=pad_to_max_length,
-            clear_sparse_session=False,
             splits={"calibration": "train_gen[:1%]"},
             save_compressed=False,
         )

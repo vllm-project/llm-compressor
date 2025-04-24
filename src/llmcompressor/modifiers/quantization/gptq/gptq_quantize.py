@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
+from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.observers.base import Observer
@@ -161,11 +162,13 @@ def quantize_weight(
         H = torch.linalg.cholesky(H, upper=True)
         Hinv = H
     except torch._C._LinAlgError:
-        raise torch._C._LinAlgError(
+        logger.warning(
             "Failed to invert hessian due to numerical instability. Consider "
             "increasing GPTQModifier.dampening_frac, increasing the number "
-            "of calibration samples, or shuffling the calibration dataset"
+            "of calibration samples, or shuffling the calibration dataset. "
+            "Falling back to round-to-nearest for this module."
         )
+        Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):

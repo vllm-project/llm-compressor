@@ -1,4 +1,5 @@
 import copy
+import os
 import shutil
 import tempfile
 import unittest
@@ -128,7 +129,8 @@ class TestDecompression(unittest.TestCase):
 
     @classmethod
     def tearDownClass(self):
-        shutil.rmtree(self.test_dir)
+        if os.path.isdir(self.test_dir):
+            shutil.rmtree(self.test_dir)
         del self.dense_model
         del self.decompressed_model_hf_quantizer
         del self.decompressed_model_manual

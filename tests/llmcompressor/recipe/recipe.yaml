@@ -1,0 +1,13 @@
+quant_stage:
+  quant_modifiers:
+    SmoothQuantModifier:
+      smoothing_strength: 0.8
+      mappings:
+      - - ['re:.*q_proj', 're:.*k_proj', 're:.*v_proj']
+        - re:.*input_layernorm
+      - - ['re:.*gate_proj', 're:.*up_proj']
+        - re:.*post_attention_layernorm
+    GPTQModifier:
+      targets: ["Linear"]
+      ignore: [lm_head]
+      scheme: W8A8

@@ -1,8 +1,12 @@
 BUILDDIR := $(PWD)
-CHECKDIRS := src tests utils examples setup.py
+CHECKDIRS := src tests examples setup.py
 DOCDIR := docs
 
 BUILD_ARGS :=  # set nightly to build nightly release
+
+# refer to setup.py for allowed values for BUILD_TYPE
+BUILD_TYPE?=dev
+export BUILD_TYPE
 
 TARGETS := ""  # targets for running pytests: deepsparse,keras,onnx,pytorch,pytorch_models,export,pytorch_datasets,tensorflow_v1,tensorflow_v1_models,tensorflow_v1_datasets
 PYTEST_ARGS ?= ""
@@ -37,6 +41,7 @@ test:
 	pytest tests $(PYTEST_ARGS)
 
 # creates wheel file
+.PHONY: build
 build:
 	python3 setup.py sdist bdist_wheel $(BUILD_ARGS)
 

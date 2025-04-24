@@ -83,13 +83,20 @@ class RecipeModifier(RecipeBase):
     @model_validator(mode="before")
     @classmethod
     def extract_modifier_type(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        modifier = {"group": values.pop("group")}
-        assert len(values) == 1, "multiple key pairs found for modifier"
-        modifier_type, args = list(values.items())[0]
+        if len(values) == 2:
+            if "group" not in values:
+                raise ValueError(
+                    "Invalid format: expected keys 'group' and one modifier "
+                    f"type, but got keys: {list(values.keys())}"
+                )
 
-        modifier["type"] = modifier_type
-        modifier["args"] = args
-        return modifier
+            # values contains only group and the Modifier type as keys
+            group = values.pop("group")
+            modifier_type, args = values.popitem()
+            return {"group": group, "type": modifier_type, "args": args}
+
+        # values already in the correct format
+        return values
 
     def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """

@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 from pathlib import Path
@@ -7,7 +8,9 @@ from parameterized import parameterized_class
 
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_generic"
+CONFIGS_DIRECTORY = (
+    "tests/llmcompressor/transformers/obcq/obcq_configs/sparsity_generic"
+)
 
 
 @pytest.mark.integration
@@ -46,4 +49,5 @@ class TestOneshotWithModifierObject(unittest.TestCase):
         )
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)

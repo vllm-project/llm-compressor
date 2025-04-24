@@ -1,6 +1,9 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools", "wheel", "setuptools_scm>8"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+version_file = "src/llmcompressor/version.py"
 
 [tool.black]
 line-length = 88
@@ -8,7 +11,7 @@ target-version = ['py38']
 
 [tool.isort]
 profile = "black"
-skip = ["src/llmcompressor/transformers/tracing/"]
+skip = ["src/llmcompressor/transformers/tracing/", "src/llmcompressor/version.py"]
 
 [tool.mypy]
 files = "src/guidellm"
