@@ -12,6 +12,6 @@ quant_stage:
       ignore: [lm_head]
       config_groups:
         group_0:
-          weights: {num_bits: 8, type: int, symmetric: false, strategy: channel}
+          weights: {num_bits: 8, type: int, symmetric: true, strategy: channel}
           input_activations: {num_bits: 8, symmetric: false, dynamic: false}
           targets: [Linear] 

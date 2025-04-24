@@ -1,0 +1,11 @@
+quant_stage:
+  quant_modifiers:
+    SmoothQuantModifier:
+      smoothing_strength: 0.8
+    GPTQModifier:
+      ignore: [lm_head]
+      config_groups:
+        group_0:
+          weights: {num_bits: 8, type: int, symmetric: true, strategy: channel}
+          input_activations: {num_bits: 8, type: int, symmetric: true, strategy: tensor}
+          targets: [Linear]
