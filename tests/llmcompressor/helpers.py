@@ -65,4 +65,25 @@ def valid_recipe_strings():
                         [["re:.*gate_proj", "re:.*up_proj"], "re:.*post_attention_layernorm"]
                     ]
         """,
+        """
+            version: 1.0
+            args:
+                learning_rate: 0.001
+            train_stage:
+                pruning_modifiers:
+                    ConstantPruningModifier:
+                        start: 0.0
+                        end: 2.0
+                        targets: ['re:.*weight']
+                quantization_modifiers:
+                    QuantizationModifier:
+                        bits: 8
+                        targets: ['re:.*weight']
+            eval_stage:
+                pruning_modifiers:
+                    ConstantPruningModifier:
+                        start: 2.0
+                        end: 4.0
+                        targets: ['re:.*weight']
+            """,
     ]

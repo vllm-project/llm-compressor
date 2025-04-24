@@ -24,15 +24,24 @@ def test_recipe_create_instance_accepts_valid_recipe_file(recipe_str):
 
 
 @pytest.mark.parametrize("recipe_str", valid_recipe_strings())
-def test_serialization(recipe_str):
+def test_yaml_serialization(recipe_str):
     recipe_instance = Recipe.create_instance(recipe_str)
     serialized_recipe = recipe_instance.yaml()
     recipe_from_serialized = Recipe.create_instance(serialized_recipe)
 
-    expected_dict = recipe_instance.dict()
-    actual_dict = recipe_from_serialized.dict()
+    expected_dict = recipe_instance.model_dump()
+    actual_dict = recipe_from_serialized.model_dump()
 
     assert expected_dict == actual_dict
+
+
+@pytest.mark.parametrize("recipe_str", valid_recipe_strings())
+def test_model_dump_and_validate(recipe_str):
+    recipe_instance = Recipe.create_instance(recipe_str)
+    validated_recipe = Recipe.model_validate(recipe_instance.model_dump())
+    assert (
+        recipe_instance == validated_recipe
+    ), "Recipe instance and validated recipe do not match"
 
 
 def test_recipe_creates_correct_modifier():

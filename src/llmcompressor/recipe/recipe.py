@@ -280,10 +280,10 @@ class Recipe(RecipeBase):
 
         return combined
 
-    version: str = None
+    version: Optional[str] = None
     args: RecipeArgs = Field(default_factory=RecipeArgs)
     stages: List[RecipeStage] = Field(default_factory=list)
-    metadata: RecipeMetaData = None
+    metadata: Optional[RecipeMetaData] = None
     args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
 
     def calculate_start(self) -> int:
@@ -399,11 +399,12 @@ class Recipe(RecipeBase):
         formatted_values["stages"] = stages
 
         # fill out any default argument values
-        args = {}
+        args = {**values.pop("args", {})}
         for key, val in values.items():
-            args[key] = val
+            # avoid nesting the args in the recipe
+            if key not in cls.__pydantic_fields__:
+                args[key] = val
         formatted_values["args"] = RecipeArgs(args)
-
         return formatted_values
 
     @staticmethod
@@ -504,7 +505,7 @@ class Recipe(RecipeBase):
         else:
             self.metadata.update_missing_metadata(metadata)
 
-    def dict(self, *args, **kwargs) -> Dict[str, Any]:
+    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
         """
         :return: A dictionary representation of the recipe
         """
@@ -522,80 +523,17 @@ class Recipe(RecipeBase):
 
         dict_["stages"] = stages
 
-        return dict_
-
-    def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
-        """
-        Override the model_dump method to provide a dictionary representation that
-        is compatible with model_validate.
-
-        Unlike the standard model_dump, this transforms the stages list to a format
-        expected by the validation logic, ensuring round-trip compatibility with
-        model_validate.
-
-        :return: A dictionary representation of the recipe compatible with
-            model_validate
-        """
-        # Get the base dictionary from parent class
-        base_dict = super().model_dump(*args, **kwargs)
-
-        # Transform stages into the expected format
-        if "stages" in base_dict:
-            stages_dict = {}
-            for stage in base_dict["stages"]:
-                group = stage["group"]
-                if group not in stages_dict:
-                    stages_dict[group] = []
-                stages_dict[group].append(stage)
-            base_dict["stages"] = stages_dict
-
-        return base_dict
-
-    def yaml(self, file_path: Optional[str] = None) -> str:
-        """
-        Return a yaml string representation of the recipe.
-
-        :param file_path: optional file path to save yaml to
-        :return: The yaml string representation of the recipe
-        """
-        file_stream = None if file_path is None else open(file_path, "w")
-        yaml_dict = self._get_yaml_dict()
-
-        ret = yaml.dump(
-            yaml_dict,
-            stream=file_stream,
-            allow_unicode=True,
-            sort_keys=False,
-            default_flow_style=None,
-            width=88,
-        )
-
-        if file_stream is not None:
-            file_stream.close()
-
-        return ret
-
-    def _get_yaml_dict(self) -> Dict[str, Any]:
-        """
-        Get a dictionary representation of the recipe for yaml serialization
-        The returned dict will only contain information necessary for yaml
-        serialization and must not be used in place of the dict method
-
-        :return: A dictionary representation of the recipe for yaml serialization
-        """
-
-        original_recipe_dict = self.dict()
         yaml_recipe_dict = {}
 
         # populate recipe level attributes
         recipe_level_attributes = ["version", "args", "metadata"]
 
         for attribute in recipe_level_attributes:
-            if attribute_value := original_recipe_dict.get(attribute):
+            if attribute_value := dict_.get(attribute):
                 yaml_recipe_dict[attribute] = attribute_value
 
         # populate stages
-        stages = original_recipe_dict["stages"]
+        stages = dict_.pop("stages", {})
         for stage_name, stage_list in stages.items():
             for idx, stage in enumerate(stage_list):
                 if len(stage_list) > 1:
@@ -615,6 +553,29 @@ class Recipe(RecipeBase):
                 yaml_recipe_dict[final_stage_name] = stage_dict
 
         return yaml_recipe_dict
+
+    def yaml(self, file_path: Optional[str] = None) -> str:
+        """
+        Return a yaml string representation of the recipe.
+
+        :param file_path: optional file path to save yaml to
+        :return: The yaml string representation of the recipe
+        """
+        file_stream = None if file_path is None else open(file_path, "w")
+
+        ret = yaml.dump(
+            self.model_dump(),
+            stream=file_stream,
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=None,
+            width=88,
+        )
+
+        if file_stream is not None:
+            file_stream.close()
+
+        return ret
 
 
 RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
