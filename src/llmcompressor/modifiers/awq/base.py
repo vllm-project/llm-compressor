@@ -622,7 +622,7 @@ def _sanitize_kwargs(inputs_kwargs, module):
         if (
             k not in sanitized_kwargs
             and k != "use_cache"
-            and getattr(v.annotation, "_name", "") == "Optional"
+            and v.default is inspect.Parameter.empty
         ):
             sanitized_kwargs[k] = None
 
