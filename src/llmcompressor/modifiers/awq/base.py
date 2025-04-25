@@ -617,12 +617,12 @@ def _sanitize_kwargs(inputs_kwargs, module):
     # In case forward pass has optional dependencies that don't default to None.
     # This is the case for `LlamaAttention.forward` which has input
     #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
-    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L269
+    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L246
     for k, v in params.items():
         if (
             k not in sanitized_kwargs
             and k != "use_cache"
-            and getattr(v.annotation, "_name", "") == "Optional"
+            and v.default is inspect.Parameter.empty
         ):
             sanitized_kwargs[k] = None
 
