@@ -101,6 +101,7 @@ setup(
     use_scm_version={
         "version_scheme": version_func,
         "local_scheme": localversion_func,
+        "version_file": "src/compressed_tensors/version.py",
     },
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",
