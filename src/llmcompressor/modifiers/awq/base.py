@@ -620,8 +620,7 @@ def _sanitize_kwargs(inputs_kwargs, module):
         sanitized_kwargs = {}
         
     # Handle special case for use_cache if needed
-    if 'use_cache' in sanitized_kwargs:
-        del sanitized_kwargs['use_cache']
+    sanitized_kwargs.pop("use_cache", None)
         
     return sanitized_kwargs
 
