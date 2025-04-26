@@ -599,33 +599,30 @@ class AWQModifier(Modifier):
 
 def _sanitize_kwargs(inputs_kwargs, module):
     """
-    Remove the arguments that are not supported in the module's
-    forward pass to avoid breaking behaviour between different versions
-    of transformers.
-
+    Sanitize input keyword arguments to match the module's forward method signature
+    using inspect.bind_partial.
+    
     Args:
         inputs_kwargs (`dict`):
             The input dictionary to pass to the model layer
         module (`torch.nn.Module`):
             Target module to quantize.
     """
-    params = inspect.signature(module.forward).parameters
-    sanitized_kwargs = {}
-    for k, v in inputs_kwargs.items():
-        if k in params and k != "use_cache":
-            sanitized_kwargs[k] = v
-    # In case forward pass has optional dependencies that don't default to None.
-    # This is the case for `LlamaAttention.forward` which has input
-    #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
-    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L246
-    for k, v in params.items():
-        if (
-            k not in sanitized_kwargs
-            and k != "use_cache"
-            and v.default is inspect.Parameter.empty
-        ):
-            sanitized_kwargs[k] = None
-
+    signature = inspect.signature(module.forward)
+    
+    try:
+        # Use bind_partial to allow partial binding of arguments
+        bound_args = signature.bind_partial(**inputs_kwargs)
+        # Convert bound arguments to a dictionary
+        sanitized_kwargs = bound_args.arguments
+    except TypeError:
+        # If binding fails, fall back to empty dict
+        sanitized_kwargs = {}
+        
+    # Handle special case for use_cache if needed
+    if 'use_cache' in sanitized_kwargs:
+        del sanitized_kwargs['use_cache']
+        
     return sanitized_kwargs
 
 
