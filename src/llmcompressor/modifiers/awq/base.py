@@ -599,9 +599,8 @@ class AWQModifier(Modifier):
 
 def _sanitize_kwargs(inputs_kwargs, module):
     """
-    Remove the arguments that are not supported in the module's
-    forward pass to avoid breaking behaviour between different versions
-    of transformers.
+    Sanitize input keyword arguments to match the module's forward method signature
+    using inspect.bind_partial.
 
     Args:
         inputs_kwargs (`dict`):
