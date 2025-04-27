@@ -3,12 +3,14 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
+from loguru import logger
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
+from torch.fx import _symbolic_trace
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
@@ -82,7 +84,7 @@ def trace_subgraphs(
     """
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
-    ignore = match_modules(model, ignore)
+    ignore = ["MistralModel._update_causal_mask"]
 
     # initialize arguments
     tracer = get_tracer(model, sequential_targets, ignore)
@@ -90,8 +92,7 @@ def trace_subgraphs(
 
     from torch import compiler
 
-    #MistralModel._update_causal_mask
-    #_prepare_4d_causal_attention_mask_with_cache_position
+    wrap_module_methods(model, ignore)
 
     # trace
     with calibration_forward_context(model), HooksMixin.disable_hooks(), patch_attr(compiler, "_is_compiling_flag", True):
@@ -143,7 +144,44 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     return ancestors
         
-    
+
+def wrap_module_methods(model: Module, ignore: List[str]):
+    module_classes = set(type(module) for module in model.modules())
+
+    for ignore_pattern in ignore:
+        num_dots = ignore_pattern.count(".")
+        
+        if num_dots == 0:
+            method_name = ignore_pattern
+            num_match = 0
+            for cls in module_classes:
+                if hasattr(cls, method_name):
+                    _symbolic_trace._wrapped_methods_to_patch.append((cls, method_name))
+                    num_match += 1
+
+            if num_match <= 0:
+                raise ValueError()
+            
+            if num_match >= 2:
+                logger.warning()
+
+        elif num_dots == 1:
+            cls_name, method_name = ignore_pattern.split(".")
+            num_match = 0
+            for cls in module_classes:
+                if cls.__name__ == cls_name and hasattr(cls, method_name):
+                    _symbolic_trace._wrapped_methods_to_patch.append((cls, method_name))
+                    print(f"wrapped {(cls, method_name)}")
+                    num_match += 1
+
+            if num_match <= 0:
+                raise ValueError()
+            
+            if num_match >= 2:
+                logger.warning()
+
+        else:
+            raise ValueError()
 
 
 def get_tracer(
@@ -192,7 +230,10 @@ def get_tracer(
             return module not in sequential_ancestors
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
-            print(f"trace: {root}")
+            print(f"trace: {root.__class__.__name__}")
+
+            # todo; if has ignored function name as method, add to list of methods to patch
+
             if isinstance(root, Module):
                 # due to a bug in Tracer.create_args_for_root (_patch_function),
                 # we must unwrap function wrappers prior to tracing, for example
