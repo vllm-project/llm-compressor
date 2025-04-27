@@ -77,6 +77,15 @@ class CompressionLifecycle:
         self.__init__()
         logger.info("Compression lifecycle reset")
 
+    def initialize_recipe(
+        self,
+        recipe: Optional[RecipeInput] = None,
+        recipe_stage: Optional[RecipeStageInput] = None,
+        recipe_args: Optional[RecipeArgsInput] = None,
+    ):
+        self.recipe_container.append(recipe, recipe_stage, recipe_args)
+        self.modifiers = self.recipe_container.get_modifiers()
+
     def initialize(
         self,
         recipe: Optional[RecipeInput] = None,
@@ -92,12 +101,10 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
         self.state.update(**kwargs)
-        if self.initialized_:  # TODO: do not initialize twice
-            return
 
         logger.debug("Initializing compression lifecycle")
-        self.recipe_container.append(recipe, recipe_stage, recipe_args)
-        self.modifiers = self.recipe_container.get_modifiers()
+        if not (recipe is recipe_stage is recipe_args is None):
+            self.initialize_recipe(recipe, recipe_stage, recipe_args)
         self._set_model_layer_prefix()
 
         mod_data = []

@@ -3,6 +3,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from transformers import DefaultDataCollator
 
+from llmcompressor.pipelines.registry import PIPELINES
+
 
 @dataclass
 class DVCDatasetArguments:
@@ -169,5 +171,19 @@ class DatasetArguments(CustomDatasetArguments):
             "a dataset script. This option should only be set to True for "
             "repositories you trust and in which you have read the code, as it "
             "will execute code present on the Hub on your local machine."
+        },
+    )
+    pipeline: Optional[str] = field(
+        default="independent",
+        metadata={
+            "help": "Calibration pipeline used to calibrate model. "
+            f"Options: {PIPELINES.keys()}"
+        },
+    )
+    tracing_ignore: List[str] = field(
+        default_factory=lambda: ["_update_causal_mask"],
+        metadata={
+            "help": "List of functions to ignore during tracing, either "
+            "{module}.{method_name} or {function_name}"
         },
     )

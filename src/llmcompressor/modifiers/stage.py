@@ -80,7 +80,8 @@ class StageModifiers(ModifierInterface, BaseModel):
 
         accelerator = kwargs.get("accelerator", None)
         for modifier in self.modifiers:
-            modifier.initialize(state, **kwargs)
+            if not modifier.initialized:
+                modifier.initialize(state, **kwargs)
             if accelerator:
                 accelerator.wait_for_everyone()
         state.loggers.system.info(tag="stage", string="Modifiers initialized")

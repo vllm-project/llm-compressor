@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Union
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from loguru import logger
-from torch.fx import Graph, GraphModule, Node
+from torch.fx import Graph, GraphModule, Node, _symbolic_trace
 from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
@@ -14,10 +14,12 @@ from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
-__all__ = ["trace_subgraphs", "Subgraph"]
+__all__ = ["trace_subgraphs", "Subgraph", "get_targets_from_modifiers"]
 
 
 @dataclass
@@ -78,12 +80,12 @@ def trace_subgraphs(
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
     :param sequential_targets: list of patterns matching sequential targets
-    :param ignore: TODO: unused, in the future will specify functions and methods to
-        skip during tracing
+    :param ignore: list of module method patterns to skip during tracing
     :return: a list of Subgraphs in order of execution
     """
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
+    add_autowrap_methods(model, ignore)
 
     # initialize arguments
     tracer = get_tracer(model, sequential_targets)
@@ -403,6 +405,44 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
     )
 
 
+def get_targets_from_modifiers(
+    modifiers: List[Modifier], model: PreTrainedModel
+) -> List[str]:
+    """
+    Infer sequential targets and ignore list from modifiers list
+
+    :param model: model being calibrated
+    :param modifiers: list of modifiers being applied during calibration
+    :return: list of sequential targets
+    """
+    # avoid circular import
+    from llmcompressor.pipelines.registry import SEQUENTIAL_MODIFIERS
+
+    sequential_modifiers = [
+        modifier for modifier in modifiers if isinstance(modifier, SEQUENTIAL_MODIFIERS)
+    ]
+
+    if len(sequential_modifiers) >= 2:
+        types = [type(modifier) for modifier in sequential_modifiers]
+        logger.warning(
+            "Cannot infer sequential targets from multiple sequential modifiers "
+            f"({types}). Defaulting to {types[0]}"
+        )
+    elif len(sequential_modifiers) <= 0:
+        types = [type(modifier) for modifier in modifiers]
+        raise ValueError(f"Cannot infer sequential targets from list of {types}")
+
+    modifier = sequential_modifiers[0]
+
+    # infer sequential targets
+    if modifier.sequential_targets is None:
+        sequential_targets = get_no_split_params(model)
+    if isinstance(modifier.sequential_targets, str):
+        sequential_targets = [modifier.sequential_targets]
+
+    return sequential_targets
+
+
 def add_line_numbers(text: str) -> str:
     lines = text.splitlines()
     numbered_lines = [f"{i + 1} {line}" for i, line in enumerate(lines)]
@@ -432,3 +472,52 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     is_ancestor(model)
     return ancestors
+
+
+def add_autowrap_methods(model: Module, ignore: List[str]):
+    """
+    Find wrap module methods which should be skipped during tracing
+
+    Commonly used to wrap Model._update_causal_mask which contains complex masking logic
+    which is often untraceable
+
+    :param model: model containing modules whose methods should be wrapped
+    :param ignore: list of module method patterns to skip during tracing
+    """
+    module_classes = set(type(module) for module in model.modules())
+
+    for pattern in ignore:
+        num_dots = pattern.count(".")
+        matched_modules = []
+
+        if num_dots == 0:
+            method_name = pattern
+            for cls in module_classes:
+                if hasattr(cls, method_name):
+                    _symbolic_trace._wrapped_methods_to_patch.append((cls, method_name))
+                    matched_modules.append(cls)
+
+        elif num_dots == 1:
+            cls_name, method_name = pattern.split(".")
+            for cls in module_classes:
+                if cls.__name__ == cls_name and hasattr(cls, method_name):
+                    _symbolic_trace._wrapped_methods_to_patch.append((cls, method_name))
+                    matched_modules.append(cls)
+
+        else:
+            raise ValueError()
+
+        if len(matched_modules) <= 0:
+            raise ValueError(
+                f"Unable to match {pattern} to any of the following module classes: "
+                f"{module_classes}\nPlease make sure that the method you'd like to "
+                "ignore exists within the model to trace. Auto-wrapping functions "
+                "which are not module methods is not yet supported"
+            )
+
+        if len(matched_modules) >= 2:
+            logger.warning(
+                f"Matched {pattern} to multiple module classes {matched_modules}. If "
+                "this is not intended, please ignore using the following pattern: "
+                "{module}.{method}"
+            )

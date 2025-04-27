@@ -9,13 +9,10 @@ import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
+from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -24,7 +21,7 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 
-class SparsityModifierMixin(HooksMixin):
+class SparsityModifierMixin(Modifier):
     # modifier arguments
     sparsity: Optional[Union[float, List[float]]]
     sparsity_profile: Optional[str] = None
@@ -97,6 +94,10 @@ class SparsityModifierMixin(HooksMixin):
     ):
         raise NotImplementedError()
 
+    @abstractmethod
+    def compress_modules(self):
+        raise NotImplementedError()
+
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
         Initialize and run the OBCQ algorithm on the current state
@@ -160,48 +161,22 @@ class SparsityModifierMixin(HooksMixin):
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")
 
-        # infer and run pipeline
-        model_name = state.model.__class__.__name__
-        input_names = dataloader.dataset.column_names
-        unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
-        try:
-            run_sequential(
-                state.model,
-                state.data.calib,
-                self.sequential_targets,
-                self.ignore,
-                self,
-            )
-            return True
+        return True
 
-        except Exception as exception:
-            if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(f"Failed to trace {model_name} with inputs {input_names}")
-            if isinstance(exception, unfixable_errors):
-                raise exception
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            self.compress_modules()
 
-            warnings.warn("Falling back to layer_sequential pipeline")
-            try:
-                run_layer_sequential(
-                    state.model,
-                    state.data.calib,
-                    self.sequential_targets,
-                    self,
-                )
-                return True
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.compress_modules()
 
-            except Exception as exception:
-                if isinstance(exception, TypeError):
-                    warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, unfixable_errors):
-                    raise exception
+            # TODO: modify lifecycle to end on calibration epoch end
+            if not self.ended_:
+                self.on_end(state, None)
 
-                warnings.warn(
-                    "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy"
-                )
-                run_basic(state.model, state.data.calib, self)
-                return True
+    def on_end(self, state: State, event: Event, **kwargs):
+        self.ended_ = True  # TODO: move to super call
+        self.remove_hooks()
 
     def _infer_sequential_targets(
         self, model: torch.nn.Module
