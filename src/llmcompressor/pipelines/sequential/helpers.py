@@ -82,7 +82,6 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    model.config._attn_implementation = "eager"
     sequential_targets = match_modules(model, sequential_targets)
     ignore = match_modules(model, ignore)
 
@@ -167,7 +166,7 @@ def get_tracer(
 
         def iter(self, obj: Proxy) -> Iterator:
             # special extension which allows torch.Sizes to be iterated, but keeps
-            # their values are dynamic
+            # their values as dynamic
             #
             # input_shape = hidden_states.shape[:-1]
             # hidden_shape = (*input_shape, -1, self.head_dim)  # iterate shape
