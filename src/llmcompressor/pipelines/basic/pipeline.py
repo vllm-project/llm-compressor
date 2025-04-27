@@ -31,7 +31,7 @@ def run_pipeline(
 
     :param model: model being calibrated
     :param dataloader: loads data for calibration
-    :param modifiers: list of modifiers, only included to match PipelineFn signature
+    :param dataset_args: dataset arguments relevant to pipelines
     """
     session = active_session()
     model_device = get_execution_device(model)

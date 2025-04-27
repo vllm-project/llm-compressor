@@ -43,8 +43,7 @@ def run_pipeline(
 
     :param model: model being calibrated
     :param dataloader: loads data for calibration
-    :param sequential_targets: patterns which match to the layer modules of the model
-    :param ignore: list of module method patterns to skip during tracing
+    :param dataset_args: dataset arguments relevant to pipelines
     """
     session = active_session()
 

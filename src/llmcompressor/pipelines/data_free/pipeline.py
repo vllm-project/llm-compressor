@@ -18,6 +18,10 @@ def run_pipeline(
 ):
     """
     A pipeline for data-free calibration
+
+    :param model: model being calibrated
+    :param dataloader: loads data for calibration
+    :param dataset_args: dataset arguments relevant to pipelines
     """
     session = active_session()
     session.initialize()

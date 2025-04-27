@@ -45,8 +45,7 @@ def run_pipeline(
 
     :param model: model being calibrated
     :param dataloader: loads data for calibration
-    :param sequential_targets: patterns which match to the layer modules of the model
-    :param callback_modifier: Temporary HACK which should be replaced by event callback
+    :param dataset_args: dataset arguments relevant to pipelines
     """
     session = active_session()
 
