@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import torch
 import tqdm
 from compressed_tensors.utils import get_execution_device
@@ -12,12 +14,14 @@ from llmcompressor.pipelines.sequential.helpers import (
 )
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
+if TYPE_CHECKING:
+    from llmcompressor.args.dataset_arguments import DatasetArguments
+
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
-    model: torch.nn.Module,
-    dataloader: DataLoader,
+    model: torch.nn.Module, dataloader: DataLoader, dataset_args: "DatasetArguments"
 ):
     """
     Run a sequential data pipeline according to the following steps:
@@ -40,7 +44,7 @@ def run_pipeline(
     :param model: model being calibrated
     :param dataloader: loads data for calibration
     :param sequential_targets: patterns which match to the layer modules of the model
-    :param ignore: patterns which match to modules which should be ignored by tracing
+    :param ignore: list of module method patterns to skip during tracing
     """
     session = active_session()
 

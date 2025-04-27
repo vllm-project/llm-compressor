@@ -169,7 +169,7 @@ class Oneshot:
 
         modifiers = session.get_modifiers()
         _, pipeline_fn = get_pipeline_fn(self.dataset_args.pipeline, modifiers)
-        pipeline_fn(self.model, calibration_dataloader)
+        pipeline_fn(self.model, calibration_dataloader, self.dataset_args)
 
         session.finalize()
 

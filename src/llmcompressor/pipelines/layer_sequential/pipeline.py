@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import torch
 import tqdm
 from torch.utils.data.dataloader import DataLoader
@@ -14,12 +16,15 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
 from llmcompressor.pipelines.sequential.helpers import get_targets_from_modifiers
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
+if TYPE_CHECKING:
+    from llmcompressor.args.dataset_arguments import DatasetArguments
+
+
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
-    model: torch.nn.Module,
-    dataloader: DataLoader,
+    model: torch.nn.Module, dataloader: DataLoader, dataset_args: "DatasetArguments"
 ):
     """
     Run a layer-wise sequential data pipeline according to the following steps:
