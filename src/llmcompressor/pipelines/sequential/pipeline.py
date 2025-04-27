@@ -56,7 +56,8 @@ def run_pipeline(
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
-    session.initialize()
+    LifecycleCallbacks.calibration_epoch_start()
+
     with calibration_forward_context(model), DisableQuantization(model):
         # prepare intermediates cache
         model_device = get_execution_device(model)

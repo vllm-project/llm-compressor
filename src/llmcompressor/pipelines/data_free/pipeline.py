@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 import torch
 from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.core.session_functions import LifecycleCallbacks, active_session
+from llmcompressor.core.session_functions import LifecycleCallbacks
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -19,6 +19,5 @@ def run_pipeline(
     """
     A pipeline for data-free calibration
     """
-    session = active_session()
-    session.initialize()
+    LifecycleCallbacks.calibration_epoch_start()
     LifecycleCallbacks.calibration_epoch_end()

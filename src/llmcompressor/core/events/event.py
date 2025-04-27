@@ -44,6 +44,9 @@ class EventType(Enum):
     BATCH_START = "batch_start"
     LOSS_CALCULATED = "loss_calculated"
     BATCH_END = "batch_end"
+
+    # calibration lifecycle (TODO: support batched lifecyled)
+    CALIBRATION_EPOCH_START = "calibration_epoch_start"
     SEQUENTIAL_EPOCH_END = "sequential_epoch_end"
     CALIBRATION_EPOCH_END = "calibration_epoch_end"
 

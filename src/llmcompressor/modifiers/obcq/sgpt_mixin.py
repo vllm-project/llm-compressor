@@ -39,6 +39,7 @@ class SparsityModifierMixin(Modifier):
     _prune_n: Optional[int] = PrivateAttr(default=None)
     _prune_m: Optional[int] = PrivateAttr(default=None)
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _target_layers: Dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
     _module_sparsities: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
@@ -110,7 +111,9 @@ class SparsityModifierMixin(Modifier):
         # infer module and sequential targets
         self.sequential_targets = self._infer_sequential_targets(model)
         layers = get_layers(self.sequential_targets, model)
-        target_layers = get_layers(self.targets, model)  # layers containing targets
+        self._target_layers = get_layers(
+            self.targets, model
+        )  # layers containing targets
 
         # infer layer sparsities
         if self.sparsity_profile == "owl":
@@ -121,7 +124,7 @@ class SparsityModifierMixin(Modifier):
             self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
 
         # get layers and validate sparsity
-        if isinstance(self.sparsity, (list, dict)) and len(target_layers) != len(
+        if isinstance(self.sparsity, (list, dict)) and len(self._target_layers) != len(
             self.sparsity
         ):
             raise ValueError(
@@ -129,8 +132,9 @@ class SparsityModifierMixin(Modifier):
                 f"sparsities values, but model has {len(layers)} target layers"
             )
 
+    def on_start(self, state: State, event: Event, **kwargs):
         # register hooks
-        for index, (layer_name, layer) in enumerate(target_layers.items()):
+        for index, (layer_name, layer) in enumerate(self._target_layers.items()):
             if isinstance(self.sparsity, dict):
                 layer_sparsity = self.sparsity[layer_name]
             elif isinstance(self.sparsity, list):
@@ -164,6 +168,10 @@ class SparsityModifierMixin(Modifier):
         return True
 
     def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.CALIBRATION_EPOCH_START:
+            # TODO: modify lifecycle to start on calibration epoch start
+            self.on_start(state, None)
+
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self.compress_modules()
 

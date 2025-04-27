@@ -55,7 +55,8 @@ def run_pipeline(
     sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
     layers = match_modules(model, sequential_targets)
 
-    session.initialize()
+    LifecycleCallbacks.calibration_epoch_start()
+
     with calibration_forward_context(model), DisableQuantization(model):
         # prepare intermediates cache
         intermediates: IntermediatesCache = capture_first_layer_intermediates(

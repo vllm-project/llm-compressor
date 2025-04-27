@@ -138,6 +138,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # prepare module names
         self._module_names = {m: name for name, m in state.model.named_modules()}
 
+    def on_start(self, state: State, event: Event, **kwargs):
         # register hooks
         added_hook = False
         for module in state.model.modules():
@@ -161,6 +162,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return True
 
     def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.CALIBRATION_EPOCH_START:
+            # TODO: modify lifecycle to start on calibration epoch start
+            self.on_start(state, None)
+
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self.compress_modules()
 

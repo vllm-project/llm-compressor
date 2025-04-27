@@ -160,8 +160,9 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        session.lifecycle.state.update(model=self.model, start=-1)
-        session.lifecycle.initialize_recipe(
+        session.initialize(
+            model=self.model,
+            start=-1,
             recipe=self.recipe,
             recipe_stage=recipe_stage,
             recipe_args=self.recipe_args.recipe_args,

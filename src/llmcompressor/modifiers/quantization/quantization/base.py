@@ -57,15 +57,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         if not QuantizationMixin.has_config(self):
             raise ValueError(
-                "QuantizationModifier requires that quantization fields to be specified"
+                "QuantizationModifier requires that quantization fields be specified"
             )
 
         QuantizationMixin.attach_scheme_and_observers(self, state.model)
         state.model.apply(disable_quantization)  # disable quantization until start
-
-        # FUTURE: modify oneshot lifecycle to trigger on_start for on initialize
-        if self.calculate_start() == -1:  # one shot
-            self.on_start(state)
 
         return True
 
@@ -82,6 +78,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             update_weight_zp_scale(module)
 
     def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.CALIBRATION_EPOCH_START:
+            # TODO: modify lifecycle to start on calibration epoch start
+            self.on_start(state, None)
+
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             # TODO: modify lifecycle to end on calibration epoch end
             if not self.ended_:
