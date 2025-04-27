@@ -381,7 +381,6 @@ class Gemma3ForConditionalGeneration(Gemma3ForConditionalGeneration):
         logits_to_keep: Union[int, torch.Tensor] = 0,
         **lm_kwargs,
     ) -> Union[Tuple, Gemma3CausalLMOutputWithPast]:
-        print("Tracing started")
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
