@@ -222,7 +222,6 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
                     dynamic: {dynamic}
                     symmetric: {symmetric}
             GPTQModifier:
-                sequential_update: false
                 ignore: ["lm_head"]
                 config_groups:
                     group_0:

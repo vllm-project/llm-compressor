@@ -1,27 +1,27 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 import torch
-import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
+from torch.utils.data.dataloader import DataLoader
 
+from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
+from llmcompressor.pipelines.sequential.helpers import (
+    get_targets_from_modifiers,
+    trace_subgraphs,
+)
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
+    from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
-    model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    sequential_targets: List[str],
-    ignore: List[str],
-    callback_modifier: Optional["Modifier"] = None,
+    model: torch.nn.Module, dataloader: DataLoader, dataset_args: "DatasetArguments"
 ):
     """
     Run a sequential data pipeline according to the following steps:
@@ -46,10 +46,18 @@ def run_pipeline(
     :param sequential_targets: patterns which match to the layer modules of the model
     :param ignore: list of module method patterns to skip during tracing
     """
+    session = active_session()
+
+    # infer sequential targets
+    modifiers = session.get_modifiers()
+    sequential_targets = get_targets_from_modifiers(modifiers, model)
+    ignore = dataset_args.tracing_ignore
+
     # trace subgraphs
     sample_input = next(iter(dataloader))
     subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
+    session.initialize()
     with calibration_forward_context(model), DisableQuantization(model):
         # prepare intermediates cache
         model_device = get_execution_device(model)
@@ -66,9 +74,8 @@ def run_pipeline(
                 inputs = intermediates.fetch(batch_index, subgraph.input_names)
                 subgraph.forward(model, **inputs)
 
-            # TODO: replace with a lifecycle event
-            if callback_modifier:
-                callback_modifier.on_sequential_batch_end()
+            # trigger compression
+            LifecycleCallbacks.sequential_epoch_end()
 
             # this pass does not trigger modifier hooks
             # and is only used for capturing outputs from the newly compressed modules
@@ -80,3 +87,6 @@ def run_pipeline(
                     if subgraph_index < num_subgraphs - 1:
                         intermediates.update(batch_index, output)
                         intermediates.delete(batch_index, subgraph.consumed_names)
+
+        # redudant, finish any remaining compression
+        LifecycleCallbacks.calibration_epoch_end()

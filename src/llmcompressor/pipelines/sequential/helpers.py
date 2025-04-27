@@ -14,10 +14,12 @@ from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
-__all__ = ["trace_subgraphs", "Subgraph"]
+__all__ = ["trace_subgraphs", "Subgraph", "get_targets_from_modifiers"]
 
 
 @dataclass
@@ -401,6 +403,44 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def get_targets_from_modifiers(
+    modifiers: List[Modifier], model: PreTrainedModel
+) -> List[str]:
+    """
+    Infer sequential targets and ignore list from modifiers list
+
+    :param model: model being calibrated
+    :param modifiers: list of modifiers being applied during calibration
+    :return: list of sequential targets
+    """
+    # avoid circular import
+    from llmcompressor.pipelines.registry import SEQUENTIAL_MODIFIERS
+
+    sequential_modifiers = [
+        modifier for modifier in modifiers if isinstance(modifier, SEQUENTIAL_MODIFIERS)
+    ]
+
+    if len(sequential_modifiers) >= 2:
+        types = [type(modifier) for modifier in sequential_modifiers]
+        logger.warning(
+            "Cannot infer sequential targets from multiple sequential modifiers "
+            f"({types}). Defaulting to {types[0]}"
+        )
+    elif len(sequential_modifiers) <= 0:
+        types = [type(modifier) for modifier in modifiers]
+        raise ValueError(f"Cannot infer sequential targets from list of {types}")
+
+    modifier = sequential_modifiers[0]
+
+    # infer sequential targets
+    if modifier.sequential_targets is None:
+        sequential_targets = get_no_split_params(model)
+    if isinstance(modifier.sequential_targets, str):
+        sequential_targets = [modifier.sequential_targets]
+
+    return sequential_targets
 
 
 def add_line_numbers(text: str) -> str:
