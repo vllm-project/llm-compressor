@@ -9,7 +9,6 @@ import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.args import DatasetArguments
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -245,6 +244,8 @@ class SparsityModifierMixin(Modifier):
         return sparsities
 
     def _get_activations(self, model, dataloader, nsamples=128) -> Dict[str, int]:
+        from llmcompressor.args import DatasetArguments
+
         acts = defaultdict(int)
 
         def save_acts(_module, input: Union[Tuple[Any, ...], torch.Tensor], name: str):
