@@ -131,7 +131,7 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
     sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
 
-    # check unlikely case that sequential targets have direct params which are offloaded
+    # check unlikely case that ancestors have direct params which are offloaded
     offloaded_ancestors = offloaded_modules & sequential_ancestors
     if offloaded_ancestors:
         names = set(module.__class__.__name__ for module in offloaded_ancestors)
