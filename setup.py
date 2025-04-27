@@ -121,9 +121,9 @@ setup(
         "pynvml",
         "pillow",
         (
-            "compressed-tensors==0.9.3"
+            "compressed-tensors==0.9.4"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.9.4a2"
+            else "compressed-tensors>=0.9.5a2"
         ),
     ],
     extras_require={

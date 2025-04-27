@@ -19,6 +19,14 @@ def run_pipeline(
     dataloader: DataLoader,
     dataset_args: "DatasetArguments",
 ):
+    """
+    Data pipeline where each modifier is assigned its own calibration epoch and data
+    pipeline
+
+    :param model: model being calibrated
+    :param dataloader: loads data for calibration
+    :param dataset_args: dataset arguments relevant to pipelines
+    """
     # avoid circular import
     from llmcompressor.pipelines.registry import get_pipeline_fn
 

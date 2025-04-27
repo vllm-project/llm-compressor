@@ -9,6 +9,7 @@ import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
+from llmcompressor.args import DatasetArguments
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -258,7 +259,7 @@ class SparsityModifierMixin(Modifier):
             if isinstance(mod, torch.nn.Linear) and "lm_head" not in name
         )
         with HooksMixin.disable_hooks(keep=hooks):
-            run_basic(model, dataloader)
+            run_basic(model, dataloader, DatasetArguments())
         self.remove_hooks(hooks)
 
         return acts

@@ -156,6 +156,7 @@ class AWQModifier(Modifier):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
+        num_skipped_oproj_mappings = 0
         for mapping in self.mappings:
             to_smooth_layers = get_layers(mapping.smooth_layer, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
@@ -166,13 +167,29 @@ class AWQModifier(Modifier):
                         balance_name, balance_layer = get_matching_layer(
                             balance_suffix, layer_name, model
                         )
-                        if balance_layer:
-                            balance_layers.append(balance_layer)
-                            balance_names.append(balance_name)
+                        if not balance_layer:
+                            continue
+
+                        # exclude v_proj/o_proj mappings whose shapes are incompatible
+                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+                        if (
+                            ".v_proj" in layer_name
+                            and ".o_proj" in balance_name
+                            and isinstance(smooth_layer, torch.nn.Linear)
+                            and isinstance(balance_layer, torch.nn.Linear)
+                            and smooth_layer.weight.shape != balance_layer.weight.shape
+                        ):
+                            num_skipped_oproj_mappings += 1
+                            continue
+
+                        balance_layers.append(balance_layer)
+                        balance_names.append(balance_name)
+
+                    if len(balance_layers) == 0:
+                        continue
 
                     # each mapping can contain multiple layers to balance, but only
                     # one layer to smooth
-
                     if len(balance_layers) == 1:
                         # for single balance layer, parent is the balance layer
                         parent_name, parent = balance_name, balance_layer
@@ -192,6 +209,11 @@ class AWQModifier(Modifier):
                             parent_name=parent_name,
                         )
                     )
+        if num_skipped_oproj_mappings > 0:
+            logger.info(
+                f"Excluded {num_skipped_oproj_mappings} from resolved "
+                "mappings due to shape mismatch"
+            )
         self._resolved_mappings = resolved_mappings
         return
 
@@ -595,12 +617,12 @@ def _sanitize_kwargs(inputs_kwargs, module):
     # In case forward pass has optional dependencies that don't default to None.
     # This is the case for `LlamaAttention.forward` which has input
     #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
-    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L269
+    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L246
     for k, v in params.items():
         if (
             k not in sanitized_kwargs
             and k != "use_cache"
-            and getattr(v.annotation, "_name", "") == "Optional"
+            and v.default is inspect.Parameter.empty
         ):
             sanitized_kwargs[k] = None
 
