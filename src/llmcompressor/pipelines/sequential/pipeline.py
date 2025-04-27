@@ -44,7 +44,7 @@ def run_pipeline(
     :param model: model being calibrated
     :param dataloader: loads data for calibration
     :param sequential_targets: patterns which match to the layer modules of the model
-    :param ignore: patterns which match to modules which should be ignored by tracing
+    :param ignore: list of module method patterns to skip during tracing
     """
     # trace subgraphs
     sample_input = next(iter(dataloader))
