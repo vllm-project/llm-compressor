@@ -88,8 +88,13 @@ def trace_subgraphs(
     tracer = get_tracer(model, sequential_targets, ignore)
     concrete_args = populate_concrete_args(model, sample_input)
 
+    from torch import compiler
+
+    #MistralModel._update_causal_mask
+    #_prepare_4d_causal_attention_mask_with_cache_position
+
     # trace
-    with calibration_forward_context(model), HooksMixin.disable_hooks():
+    with calibration_forward_context(model), HooksMixin.disable_hooks(), patch_attr(compiler, "_is_compiling_flag", True):
         graph = GraphModule(
             model,
             tracer.trace(
@@ -115,6 +120,32 @@ def trace_subgraphs(
     return subgraphs
 
 
+def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]:
+    ancestors = set()
+    def dfs(module: Module) -> bool:
+        if module in ancestors:
+            return True
+        
+        if module in targets:
+            return True
+        
+        # search all children (do not early stop)
+        is_ancestor = False
+        for child in module.children():
+            is_ancestor |= dfs(child)
+
+        if is_ancestor:
+            ancestors.add(module)
+
+        return is_ancestor
+
+    dfs(model)
+
+    return ancestors
+        
+    
+
+
 def get_tracer(
     model: Module, sequential_targets: Set[Module], ignore: Set[Module]
 ) -> HFTracer:
@@ -131,7 +162,18 @@ def get_tracer(
     """
     # TODO: redefine skip_trace_modules to all non-ancestors of sequential_targets
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
-    skip_trace_modules = sequential_targets | offloaded_modules | ignore
+    sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
+    print([ancestor.__class__.__name__ for ancestor in sequential_ancestors])
+    #skip_trace_modules = sequential_targets | offloaded_modules | ignore
+
+
+    from torch.fx import _symbolic_trace
+
+    from transformers import MistralModel
+
+    print(_symbolic_trace._wrapped_methods_to_patch)
+    _symbolic_trace._wrapped_methods_to_patch.append((MistralModel, "_update_causal_mask"))
+    print(_symbolic_trace._wrapped_methods_to_patch)
 
     class SequentialTracer(HFTracer):
         def create_arg(self, a: Any) -> Argument:
@@ -144,11 +186,13 @@ def get_tracer(
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module in skip_trace_modules or super().is_leaf_module(
-                module, module_qualified_name
-            )
+            #return module in skip_trace_modules or super().is_leaf_module(
+            #     module, module_qualified_name
+            # )
+            return module not in sequential_ancestors
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
+            print(f"trace: {root}")
             if isinstance(root, Module):
                 # due to a bug in Tracer.create_args_for_root (_patch_function),
                 # we must unwrap function wrappers prior to tracing, for example
