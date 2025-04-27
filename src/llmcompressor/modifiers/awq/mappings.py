@@ -28,8 +28,6 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
             "re:.*input_layernorm",
             ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
         ),
-        # TODO (Brian INFERENG-530) when resolving, only add
-        # if v_proj/o_proj shapes match up
         AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
         AWQMapping(
             "re:.*post_attention_layernorm",
