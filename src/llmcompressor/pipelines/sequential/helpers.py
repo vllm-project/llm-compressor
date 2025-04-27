@@ -412,6 +412,7 @@ def add_line_numbers(text: str) -> str:
 def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]:
     """
     Find modules which are call graph ancestors of the given sequential targets
+
     :param model: model containing sequential targets
     :param targets: sequential targets to find ancestors of
     :return: call graph ancestors of sequential targets
