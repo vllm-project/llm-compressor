@@ -20,6 +20,7 @@
 ### Supported Algorithms
 * Simple PTQ
 * GPTQ
+* AWQ
 * SmoothQuant
 * SparseGPT
 
@@ -41,7 +42,8 @@ pip install llmcompressor
 Applying quantization with `llmcompressor`:
 * [Activation quantization to `int8`](examples/quantization_w8a8_int8/README.md)
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
-* [Weight only quantization to `int4`](examples/quantization_w4a16/README.md)
+* [Weight only quantization to `int4` using GPTQ](examples/quantization_w4a16/README.md)
+* [Weight only quantization to `int4` using AWQ](examples/awq/awq_one_shot.py)
 * [Quantizing MoE LLMs](examples/quantizing_moe/README.md)
 * [Quantizing Vision-Language Models](examples/multimodal_vision/README.md)
 * [Quantizing Audio-Language Models](examples/multimodal_audio/README.md)

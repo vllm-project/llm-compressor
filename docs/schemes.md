@@ -5,6 +5,7 @@ PTQ is performed to reduce the precision of quantizable weights (e.g., linear la
 
 ### [W4A16](../examples/quantization_w4a16/README.md)
 - Uses GPTQ to compress weights to 4 bits. Requires calibration dataset.
+- Optionally, [AWQ can also be leveraged for W4A16 quantization](../examples/awq/awq_one_shot.py)
 - Useful speed ups in low QPS regimes with more weight compression. 
 - Recommended for any GPUs types.
 

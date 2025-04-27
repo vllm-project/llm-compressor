@@ -11,6 +11,7 @@ from compressed_tensors.quantization.utils import is_module_quantized
 from packaging import version
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
+from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
 from llmcompressor.utils.fsdp.context import (
@@ -60,6 +61,7 @@ __all__ = [
     "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
+    "get_parent_by_name",
 ]
 
 
@@ -323,7 +325,7 @@ def get_matching_layer(
     return match
 
 
-def get_no_split_params(module: Module) -> Union[str, List[str]]:
+def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
     """
     Get list of module classes that shouldn't be split when sharding. For
     Hugging Face Transformer models, this is the decoder layer type. For other
@@ -334,10 +336,28 @@ def get_no_split_params(module: Module) -> Union[str, List[str]]:
     # importing here to avoid circular import
     from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
 
-    model = maybe_get_wrapped(module)
-    if hasattr(model, "_no_split_modules") and len(model._no_split_modules) > 0:
-        return model._no_split_modules
-    for module in model.modules():
-        if hasattr(module, "_no_split_modules") and len(module._no_split_modules) > 0:
-            return module._no_split_modules
-    return ALL_TARGET
+    model = maybe_get_wrapped(model)
+    no_split_modules = model._get_no_split_modules("auto")
+    if len(no_split_modules) <= 0:
+        return ALL_TARGET
+
+    return no_split_modules
+
+
+def get_parent_by_name(layer_name: str, model: Module) -> Tuple[str, Module]:
+    """
+    Get the parent layer of a layer by name.
+    :param layer_name: Name of the layer to find the parent of.
+    :param model: Model to search for the parent layer.
+    :return: Tuple containing the name of the parent layer
+        and the parent layer itself.
+    """
+    if not any(layer_name == name for name, _ in model.named_modules()):
+        raise ValueError(f"Layer '{layer_name}' not found in model")
+
+    parent_name_parts = layer_name.split(".")[:-1]
+    if not parent_name_parts:
+        return "", model
+
+    parent_name = ".".join(parent_name_parts)
+    return get_layer(parent_name, model)

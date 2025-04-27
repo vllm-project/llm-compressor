@@ -1,12 +1,13 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterator, List, Set, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Union
 
 import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from torch.fx import Graph, GraphModule, Node
+from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument, Proxy
 from torch.nn import Module
 from transformers import PreTrainedModel
@@ -14,7 +15,7 @@ from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
+from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
 
 __all__ = ["trace_subgraphs", "Subgraph"]
 
@@ -33,16 +34,33 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    _code: Optional[PythonCode] = None
 
-    def compile_forward(self) -> Callable[[Any], Any]:
+    def forward(self, *args, **kwargs) -> Dict[str, Any]:
         """
-        Generate and compile code for executing this subgraph
+        Execute the operations within the subgraph
 
-        :return: function which, when called, executes this subgraph
+        :param \\*args: argument inputs to subgraph forward function
+        :param \\**kwargs: keyword inputs to subgraph forward function
+        :return keyword outputs of subgraph forward function (non-consumed variables):
         """
-        code = self.graph.python_code("self")
-        exec(code.src, code.globals)
-        return code.globals.get("forward")
+        if self._code is None:
+            self._code = self.graph.python_code("self")
+            exec(self._code.src, self._code.globals)
+
+        forward_fn = self._code.globals.get("forward")
+
+        try:
+            outputs = forward_fn(*args, **kwargs)
+        except Exception as exception:
+            raise RuntimeError(
+                "Raised an exception during execution of the following code:\n"
+                f"```\n{add_line_numbers(self._code.src)}\n```\n"
+                "This is likely due to a violation of shape assumptions made when "
+                "tracing"
+            ) from exception
+
+        return outputs
 
 
 def trace_subgraphs(
@@ -73,10 +91,7 @@ def trace_subgraphs(
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
-    with (
-        calibration_forward_context(model),
-        HooksMixin.disable_hooks(),
-    ):
+    with calibration_forward_context(model), HooksMixin.disable_hooks():
         graph = GraphModule(
             model,
             tracer.trace(
@@ -128,15 +143,14 @@ def get_tracer(
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
             if isinstance(root, Module):
-                with preserve_attr(type(root), "forward"):
-                    # due to a bug in Tracer.create_args_for_root (_patch_function),
-                    # we must unwrap function wrappers prior to tracing, for example
-                    # the `deprecate_kwarg` by transformers which wraps forward
+                # due to a bug in Tracer.create_args_for_root (_patch_function),
+                # we must unwrap function wrappers prior to tracing, for example
+                # the `deprecate_kwarg` by transformers which wraps forward
+                unwrapped_forward = inspect.unwrap(type(root).forward)
 
-                    # we override the class method because the
-                    # class method is the one being traced
-                    type(root).forward = inspect.unwrap(type(root).forward)
-
+                # we override the class method because the
+                # class method is the one being traced
+                with patch_attr(type(root), "forward", unwrapped_forward):
                     return super().trace(root, *args, **kwargs)
 
             else:
@@ -393,3 +407,9 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def add_line_numbers(text: str) -> str:
+    lines = text.splitlines()
+    numbered_lines = [f"{i + 1} {line}" for i, line in enumerate(lines)]
+    return "\n".join(numbered_lines)
