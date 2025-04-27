@@ -92,6 +92,8 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
         self.state.update(**kwargs)
+        if self.initialized_:  # TODO: do not initialize twice
+            return
 
         logger.debug("Initializing compression lifecycle")
         if not (recipe is recipe_stage is recipe_args is None):
