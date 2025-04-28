@@ -15,6 +15,7 @@ import pytest
 import torch
 from compressed_tensors.utils import (
     align_module_device,
+    align_modules,
     delete_offload_parameter,
     disable_hf_hook,
     get_execution_device,
@@ -246,6 +247,35 @@ def test_disable_hf_hook_model_recurse():
     assert hasattr(module0, "_hf_hook")
     assert hasattr(module1, "_hf_hook")
     assert hasattr(module2, "_hf_hook")
+
+
+@requires_accelerate()
+def test_align_modules():
+    from accelerate.hooks import attach_align_device_hook
+
+    module0 = ExampleModule()
+    module1 = ExampleModule()
+    module2 = ExampleModule()
+    model = torch.nn.Sequential(module0, torch.nn.Sequential(module1, module2))
+    attach_align_device_hook(
+        model,
+        execution_device=torch.device("cpu"),
+        offload=True,
+        weights_map=model.state_dict(),
+    )
+
+    assert module0.a.device == torch.device("meta")
+    assert module1.a.device == torch.device("meta")
+    assert module2.a.device == torch.device("meta")
+
+    with align_modules((module0, module1)):
+        assert module0.a.device != torch.device("meta")
+        assert module1.a.device != torch.device("meta")
+        assert module2.a.device == torch.device("meta")
+
+    assert module0.a.device == torch.device("meta")
+    assert module1.a.device == torch.device("meta")
+    assert module2.a.device == torch.device("meta")
 
 
 @requires_accelerate()

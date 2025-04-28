@@ -28,7 +28,7 @@ Utilities associated with offloading functionality provided by `accelerate`.
 import contextlib
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, Literal, Optional, Union
+from typing import Any, Callable, Dict, Iterable, Literal, Optional, Union
 
 import torch
 
@@ -67,6 +67,8 @@ __all__ = [
     "delete_offload_parameter",
     "has_offloaded_params",
     "disable_hf_hook",
+    "disable_offload",
+    "align_modules",
     "align_module_device",
 ]
 
@@ -342,6 +344,43 @@ def delete_from_weights_map(
             "Updating offload data not implemented for weights_map of type "
             f"{type(weights_map)}"
         )
+
+
+@contextlib.contextmanager
+def disable_offload(module: torch.nn.Module):
+    """
+    Context manager to disable module onloading and offloading. Parameters will stay on
+    their current device
+
+    :param module: module to disable offloading for
+    """
+    if has_offloaded_params(module):
+        module._hf_hook.offload = False
+        yield
+        module._hf_hook.offload = True
+    else:
+        yield
+
+
+@contextlib.contextmanager
+def align_modules(
+    modules: Union[torch.nn.Module, Iterable[torch.nn.Module]],
+    execution_device: Optional[torch.device] = None,
+):
+    """
+    Context manager for onloading modules to a device, and disabling onload and offload
+    attempts triggered by forward calls. Used for sequential onloading of layers
+
+    :param modules: `torch.nn.Module` or iterable of `torch.nn.Module`s to onload
+    :param execution_device: device to onload to
+    """
+    modules = (modules,) if isinstance(modules, torch.nn.Module) else modules
+
+    with contextlib.ExitStack() as stack:
+        for module in modules:
+            stack.enter_context(align_module_device(module, execution_device))
+            stack.enter_context(disable_offload(module))  # disable redundant onloading
+        yield
 
 
 """ Upstreamed Functions """
