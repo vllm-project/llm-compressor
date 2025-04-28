@@ -31,7 +31,7 @@ from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils import (
     disable_hf_hook,
-    has_offloaded_params,
+    get_execution_device,
     register_offload_parameter,
 )
 from torch.nn import Module, Parameter
@@ -148,11 +148,8 @@ def _initialize_scale_zero_point(
     if quantization_args.dynamic:
         return
 
-    # begin on the same device as other parameters or cpu if offloaded.
-    # in the offloaded case, there's no point moving tensors to the execution device
-    # if they're going to be immediately offloaded by `register_offload_parameter`
-    params_device = next(module.parameters()).device
-    device = "cpu" if has_offloaded_params(module) else params_device
+    # initialize on execution device to avoid performing quantized ops on cpu
+    device = get_execution_device(module)
 
     # infer expected scale/zero point shape
     if quantization_args.strategy == QuantizationStrategy.TOKEN:
