@@ -14,16 +14,15 @@
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Generator, Tuple, Union
+from typing import Any, Dict, Generator, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
-from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.utils import (
     get_nested_mappings_from_state_dict,
     get_nested_weight_mappings,
     merge_names,
-    remove_suffix,
 )
 from safetensors import safe_open
 from torch import Tensor
@@ -70,7 +69,7 @@ class BaseQuantizationCompressor(BaseCompressor):
     def compress(
         self,
         model_state: Dict[str, Tensor],
-        names_to_scheme: Dict[str, QuantizationScheme],
+        names_to_scheme: Dict[str, QuantizationArgs],
         **kwargs,
     ) -> Dict[str, Tensor]:
         """
@@ -82,87 +81,87 @@ class BaseQuantizationCompressor(BaseCompressor):
         :return: compressed state dict
         """
         compressed_dict = {}
-        save_device = "cpu"
+        weight_suffix = ".weight"
+        input_zp_suffix = ".input_zero_point"
+        weight_zp_suffix = ".weight_zero_point"
+        _LOGGER.debug(
+            f"Compressing model with {len(model_state)} parameterized layers..."
+        )
 
-        uncompressed_names = list(model_state.keys())
-        for name in tqdm(uncompressed_names, desc="Compressing with quantization"):
-            value = model_state[name]
+        for name, value in tqdm(model_state.items(), desc="Quantized Compression"):
+            # check if the parameter we're compressing is the weight zp
+            # or the input zp
+            is_weight_zp = name.endswith(weight_zp_suffix)
+            is_input_zp = name.endswith(input_zp_suffix)
 
-            # compress weights
-            if name.endswith("weight"):
-                prefix = remove_suffix(name, "weight")
+            # if we're saving the weight zp, fetch weight quant args
+            if is_weight_zp:
+                quant_args_zp = names_to_scheme.get(name[: -(len(weight_zp_suffix))])
+                if isinstance(quant_args_zp, tuple):
+                    # If tuple, first value is weight args, second is input args
+                    quant_args_zp = quant_args_zp[0]
 
-                # gather qparams
-                scale = model_state.get(prefix + "weight_scale", None)
-                g_idx = model_state.get(prefix + "weight_g_idx", None)
-                zp = model_state.get(prefix + "weight_zero_point", None)
+            # if we're saving the input zp, fetch input quant args
+            if is_input_zp:
+                input_args_zp = names_to_scheme.get(name[: -(len(input_zp_suffix))])
+                if isinstance(input_args_zp, tuple):
+                    # If tuple, first value is weight args, second is input args
+                    input_args_zp = input_args_zp[-1]
 
-                # is scale does not exist, then weight cannot be compressed
-                if scale is None:
-                    compressed_dict[name] = value.to(save_device)
-                    continue
+            if name.endswith(weight_suffix):
+                prefix = name[: -(len(weight_suffix))]
+                scale = model_state.get(merge_names(prefix, "weight_scale"), None)
+                zp = model_state.get(merge_names(prefix, "weight_zero_point"), None)
+                g_idx = model_state.get(merge_names(prefix, "weight_g_idx"), None)
+                if scale is not None:
+                    # weight is quantized, compress it
+                    if isinstance(names_to_scheme[prefix], tuple):
+                        quant_args = names_to_scheme[prefix][0]
+                    else:
+                        quant_args = names_to_scheme[prefix]
 
-                # compress values on cpu (memory movement too expensive)
-                module_path = prefix[:-1] if prefix.endswith(".") else prefix
-                quant_args = names_to_scheme[module_path].weights
-                compressed_values = self.compress_weight(
-                    weight=value,
-                    scale=scale,
-                    zero_point=zp,
-                    g_idx=g_idx,
-                    quantization_args=quant_args,
-                    device="cpu",
-                )
-
-                # update state dict
-                for key, value in compressed_values.items():
-                    compressed_dict[prefix + key] = value.to(save_device)
-
+                    compressed_data = self.compress_weight(
+                        weight=value,
+                        scale=scale,
+                        zero_point=zp,
+                        g_idx=g_idx,
+                        quantization_args=quant_args,
+                        device="cpu",
+                    )
+                    for key, value in compressed_data.items():
+                        compressed_dict[merge_names(prefix, key)] = value
+                else:
+                    compressed_dict[name] = value.to("cpu")
+            # only save zp if asym and not packed zp
+            elif is_weight_zp and (
+                quant_args_zp.symmetric or self._check_if_zp_pack_quantized(quant_args)
+            ):
+                continue
+            # only save if asym
+            elif is_input_zp and input_args_zp.symmetric:
+                continue
+            elif name.endswith("g_idx") and torch.any(value <= -1):
+                continue
             else:
-                # omit saving zero points for symmetric or packed quantization
-                if name.endswith("zero_point") and self._skip_zp(name, names_to_scheme):
-                    continue
-
-                # omit saving for g_idx if uninitialized
-                # TODO: does this case actually occur?
-                elif name.endswith("g_idx") and torch.any(value <= -1):
-                    continue
-
-                compressed_dict[name] = value.to(save_device)
+                compressed_dict[name] = value.to("cpu")
 
         return compressed_dict
 
-    def _skip_zp(
-        self, name: str, names_to_scheme: Dict[str, QuantizationScheme]
-    ) -> bool:
+    def _check_if_zp_pack_quantized(self, quant_args):
         from compressed_tensors.compressors import PackedQuantizationCompressor
 
-        module_name, zp_name = name.rsplit(".", 1) if "." in name else ("", name)
-        scheme = names_to_scheme[module_name]
-
-        if zp_name == "weight_zero_point":
-            args = scheme.weights
-        if zp_name == "input_zero_point":
-            args = scheme.input_activations
-        if zp_name == "output_zero_point":
-            args = scheme.output_activations
-
-        symmetric = args.symmetric
-        packable_strategies = [
-            QuantizationStrategy.GROUP.value,
-            QuantizationStrategy.CHANNEL.value,
-        ]
-        packed = (
-            isinstance(self, PackedQuantizationCompressor)
-            and args.strategy in packable_strategies
-        )
-
-        return symmetric or packed
+        if isinstance(self, PackedQuantizationCompressor):
+            if not quant_args.symmetric and quant_args.strategy in [
+                QuantizationStrategy.GROUP.value,
+                QuantizationStrategy.CHANNEL.value,
+            ]:
+                return True
+        return False
 
     def decompress(
         self,
         path_to_model_or_tensors: Union[str, Path, Dict[str, Any]],
-        names_to_scheme: Dict[str, QuantizationScheme],
+        names_to_scheme: Dict[str, QuantizationArgs],
         device: str = "cpu",
     ) -> Generator[Tuple[str, Tensor], None, None]:
         """
@@ -171,9 +170,8 @@ class BaseQuantizationCompressor(BaseCompressor):
         dense state dict
         :param path_to_model_or_tensors: path to compressed safetensors model (directory
             with one or more safetensors files) or compressed tensors file
-        :param names_to_scheme: quantization scheme for each quantized weight
-        :param device: optional device to load intermediate weights into (must be `str`,
-            not `torch.device`)
+        :param names_to_scheme: quantization args for each quantized weight
+        :param device: optional device to load intermediate weights into
         :return: compressed state dict
         """
         if isinstance(path_to_model_or_tensors, (str, Path)):
@@ -186,12 +184,7 @@ class BaseQuantizationCompressor(BaseCompressor):
                 path_to_model_or_tensors, names_to_scheme
             )
 
-    def _decompress_from_path(
-        self,
-        path_to_model: Union[str, Path, Dict[str, Any]],
-        names_to_scheme: Dict[str, QuantizationScheme],
-        device: str,
-    ):
+    def _decompress_from_path(self, path_to_model, names_to_scheme, device):
         weight_mappings = get_nested_weight_mappings(
             path_to_model, self.compression_param_names
         )
@@ -202,7 +195,7 @@ class BaseQuantizationCompressor(BaseCompressor):
                 with safe_open(safe_path, framework="pt", device=device) as f:
                     weight_data[param_name] = f.get_tensor(full_name)
             if "weight_scale" in weight_data:
-                quant_args = names_to_scheme[weight_name].weights
+                quant_args = names_to_scheme[weight_name]
                 decompressed = self.decompress_weight(
                     compressed_data=weight_data, quantization_args=quant_args
                 )

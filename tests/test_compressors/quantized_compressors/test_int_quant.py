@@ -76,9 +76,9 @@ def test_quant_format(strategy, symmetric, group_size, sc, zp):
     )
 
     compressor = IntQuantizationCompressor(config=quant_config)
-    quantized_modules_to_scheme = {"dummy": quant_config.config_groups["group_1"]}
+    quantized_modules_to_args = {"dummy": quant_config.config_groups["group_1"].weights}
     compressed_state_dict = compressor.compress(
-        dense_state_dict, names_to_scheme=quantized_modules_to_scheme
+        dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
 
     # state_dict params should be the same, minus the zero_point if symmetric
@@ -124,16 +124,16 @@ def test_reload_match(strategy, group_size, sc, zp, tmp_path):
     quant_config = get_dummy_quant_config(strategy=strategy, group_size=group_size)
 
     compressor = IntQuantizationCompressor(config=quant_config)
-    module_name_to_scheme = {
-        "dummy": quant_config.config_groups["group_1"],
-        "dummy2": quant_config.config_groups["group_1"],
+    quantized_modules_to_args = {
+        "dummy": quant_config.config_groups["group_1"].weights,
+        "dummy2": quant_config.config_groups["group_1"].weights,
     }
     compressed_state_dict = compressor.compress(
-        dense_state_dict, names_to_scheme=module_name_to_scheme
+        dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
     reconstructed_dense_gen = compressor.decompress(
-        tmp_path, names_to_scheme=module_name_to_scheme
+        tmp_path, names_to_scheme=quantized_modules_to_args
     )
     reconstructed_dense = {}
     for name, value in reconstructed_dense_gen:
@@ -143,7 +143,7 @@ def test_reload_match(strategy, group_size, sc, zp, tmp_path):
         dense_state_dict["dummy.weight"],
         scale=dense_state_dict["dummy.weight_scale"],
         zero_point=dense_state_dict["dummy.weight_zero_point"],
-        args=module_name_to_scheme["dummy"].weights,
+        args=quantized_modules_to_args["dummy"],
     )
     assert torch.equal(
         fake_quant_dummy, reconstructed_dense["dummy"].get("weight").to(torch.float32)
@@ -153,7 +153,7 @@ def test_reload_match(strategy, group_size, sc, zp, tmp_path):
         dense_state_dict["dummy2.weight"],
         scale=dense_state_dict["dummy2.weight_scale"],
         zero_point=dense_state_dict["dummy2.weight_zero_point"],
-        args=module_name_to_scheme["dummy2"].weights,
+        args=quantized_modules_to_args["dummy2"],
     )
     assert torch.equal(
         fake_quant_dummy2, reconstructed_dense["dummy2"].get("weight").to(torch.float32)

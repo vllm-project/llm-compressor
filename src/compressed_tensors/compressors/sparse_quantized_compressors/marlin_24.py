@@ -19,11 +19,7 @@ import numpy as np
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationScheme,
-    QuantizationStrategy,
-)
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.lifecycle.forward import quantize
 from compressed_tensors.utils import (
     get_permutations_24,
@@ -48,25 +44,19 @@ class Marlin24Compressor(BaseCompressor):
 
     @staticmethod
     def validate_quant_compatability(
-        names_to_scheme: Dict[str, QuantizationScheme]
+        model_quant_args: Dict[str, QuantizationArgs]
     ) -> bool:
         """
         Checks if every quantized module in the model is compatible with Marlin24
         compression. Quantization must be channel or group strategy with group_size
         of 128. Only symmetric quantization is supported
 
-        :param names_to_scheme: dictionary of mapping module names to their
-            quantization schemes
+        :param model_quant_args: dictionary of mapping module names to their
+            quantization configuration
         :return: True if all modules are compatible with Marlin24 compression, raises
             a ValueError otherwise
         """
-        for name, scheme in names_to_scheme.items():
-            quant_args = scheme.weights
-            if quant_args is None:
-                raise ValueError(
-                    "Marlin24 Compressor is only valid for weight quantization schemes"
-                )
-
+        for name, quant_args in model_quant_args.items():
             strategy = quant_args.strategy
             group_size = quant_args.group_size
             symmetric = quant_args.symmetric
@@ -124,7 +114,7 @@ class Marlin24Compressor(BaseCompressor):
     def compress(
         self,
         model_state: Dict[str, Tensor],
-        names_to_scheme: Dict[str, QuantizationScheme],
+        names_to_scheme: Dict[str, QuantizationArgs],
         **kwargs,
     ) -> Dict[str, Tensor]:
         """
@@ -132,8 +122,8 @@ class Marlin24Compressor(BaseCompressor):
         with the Marlin24 kernel
 
         :param model_state: state dict of uncompressed model
-        :param names_to_scheme: quantization scheme for each quantized weight, needed
-            for quantize function to calculate bit depth
+        :param names_to_scheme: quantization args for each quantized weight, needed for
+           quantize function to calculate bit depth
         :return: compressed state dict
         """
         self.validate_quant_compatability(names_to_scheme)
@@ -156,7 +146,7 @@ class Marlin24Compressor(BaseCompressor):
                     value = value.to(torch.float16)
 
                     # quantize weight, keeping it as a float16 for now
-                    quant_args = names_to_scheme[prefix].weights
+                    quant_args = names_to_scheme[prefix]
                     value = quantize(
                         x=value, scale=scale, zero_point=zp, args=quant_args
                     )
@@ -225,7 +215,7 @@ def pack_weight_24(
     weight: Tensor,
     quantization_args: QuantizationArgs,
     tile: int = 16,
-) -> torch.Tensor:
+):
     size_k = weight.shape[0]
     size_n = weight.shape[1]
     num_bits = quantization_args.num_bits
@@ -246,9 +236,7 @@ def pack_weight_24(
     return q_packed
 
 
-def pack_scales_24(
-    scales: torch.Tensor, quantization_args: QuantizationArgs, w_shape: torch.Size
-) -> torch.Tensor:
+def pack_scales_24(scales, quantization_args, w_shape):
     size_k = w_shape[0]
     size_n = w_shape[1]
     num_bits = quantization_args.num_bits

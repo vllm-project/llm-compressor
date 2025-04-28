@@ -38,7 +38,6 @@ __all__ = [
     "shard_tensor",
     "pack_bitmasks",
     "unpack_bitmasks",
-    "remove_suffix",
 ]
 
 FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
@@ -329,9 +328,3 @@ def unpack_bitmasks(
     )
 
     return unpacked_bitmasks_torch
-
-
-def remove_suffix(value: str, suffix: str) -> str:
-    # can replace with str.removesuffix in python3.9+
-    assert value.endswith(suffix)
-    return value[: -len(suffix)]

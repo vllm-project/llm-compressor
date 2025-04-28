@@ -19,7 +19,7 @@ import torch
 from compressed_tensors.compressors import (
     BaseCompressor,
     Marlin24Compressor,
-    map_module_to_scheme,
+    map_modules_to_quant_args,
 )
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization import (
@@ -92,9 +92,9 @@ def test_marlin24_format(
     assert f"{NOT_QUANT_NAME}.weight_scale" not in state_dict
     assert f"{QUANT_NAME}.weight_scale" in state_dict
 
-    module_to_scheme = map_module_to_scheme(model)
+    model_to_quant_args = map_modules_to_quant_args(model)
     compressor = Marlin24Compressor()
-    compressor.validate_quant_compatability(module_to_scheme)
+    compressor.validate_quant_compatability(model_to_quant_args)
     compressor.validate_sparsity_structure(
         QUANT_NAME, state_dict[f"{QUANT_NAME}.weight"]
     )
@@ -104,7 +104,7 @@ def test_marlin24_format(
         )
 
     compressor = Marlin24Compressor()
-    compressed_state_dict = compressor.compress(state_dict, module_to_scheme)
+    compressed_state_dict = compressor.compress(state_dict, model_to_quant_args)
 
     assert len(compressed_state_dict) == 4
     assert torch.equal(

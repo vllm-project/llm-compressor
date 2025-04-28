@@ -40,7 +40,7 @@ from torch.nn.modules import Linear, Sequential
 
 def get_dummy_quant_config(
     num_bits=4, strategy=None, group_size=None, actorder=None, symmetric=True
-) -> QuantizationConfig:
+):
     config_groups = {
         "group_1": QuantizationScheme(
             targets=["Linear"],
@@ -82,9 +82,9 @@ def test_quant_format(shape):
     quant_config = get_dummy_quant_config()
 
     compressor = PackedQuantizationCompressor(config=quant_config)
-    quantized_modules_to_scheme = {"dummy": quant_config.config_groups["group_1"]}
+    quantized_modules_to_args = {"dummy": quant_config.config_groups["group_1"].weights}
     compressed_state_dict = compressor.compress(
-        dense_state_dict, names_to_scheme=quantized_modules_to_scheme
+        dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
 
     # compressed state_dict adds one entry for shape
@@ -157,21 +157,25 @@ def test_reload_match(tmp_path, num_bits):
 
     # pack-compressor only needs the number of bits from the quant-args to decompress
     # all other information is extracted from the compressed data directly
+    names_to_scheme = {
+        "dummy": QuantizationArgs(num_bits=num_bits),
+        "dummy2": QuantizationArgs(num_bits=num_bits),
+    }
     quant_config = get_dummy_quant_config(num_bits, symmetric=False)
 
     compressor = PackedQuantizationCompressor(config=quant_config)
-    quantized_modules_to_scheme = {
-        "dummy": quant_config.config_groups["group_1"],
-        "dummy2": quant_config.config_groups["group_1"],
+    quantized_modules_to_args = {
+        "dummy": quant_config.config_groups["group_1"].weights,
+        "dummy2": quant_config.config_groups["group_1"].weights,
     }
 
     compressed_state_dict = compressor.compress(
-        dense_state_dict.copy(), names_to_scheme=quantized_modules_to_scheme
+        dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
 
     reconstructed_dense_gen = compressor.decompress(
-        tmp_path, names_to_scheme=quantized_modules_to_scheme
+        tmp_path, names_to_scheme=names_to_scheme
     )
     reconstructed_dense = {}
     for name, value in reconstructed_dense_gen:
@@ -181,7 +185,7 @@ def test_reload_match(tmp_path, num_bits):
         dense_state_dict["dummy.weight"],
         scale=dense_state_dict["dummy.weight_scale"],
         zero_point=dense_state_dict["dummy.weight_zero_point"],
-        args=quantized_modules_to_scheme["dummy"].weights,
+        args=quantized_modules_to_args["dummy"],
     )
     assert torch.equal(
         fake_quant_dummy, reconstructed_dense["dummy"].get("weight").to(torch.float32)
@@ -191,7 +195,7 @@ def test_reload_match(tmp_path, num_bits):
         dense_state_dict["dummy2.weight"],
         scale=dense_state_dict["dummy2.weight_scale"],
         zero_point=dense_state_dict["dummy2.weight_zero_point"],
-        args=quantized_modules_to_scheme["dummy2"].weights,
+        args=quantized_modules_to_args["dummy2"],
     )
     assert torch.equal(
         fake_quant_dummy2, reconstructed_dense["dummy2"].get("weight").to(torch.float32)
@@ -228,9 +232,9 @@ def test_asymmetric_packed_support(strategy):
     )
 
     compressor = PackedQuantizationCompressor(config=quant_config)
-    quantized_modules_to_scheme = {"dummy": quant_config.config_groups["group_1"]}
+    quantized_modules_to_args = {"dummy": quant_config.config_groups["group_1"].weights}
     compressed_state_dict = compressor.compress(
-        dense_state_dict, names_to_scheme=quantized_modules_to_scheme
+        dense_state_dict, names_to_scheme=quantized_modules_to_args
     )
 
     # compressed state_dict adds one entry for shape
@@ -285,17 +289,17 @@ def test_actorder_reload_match(actorder, tmp_path, mock_per_group_calibration):
 
     # compress
     compressor = PackedQuantizationCompressor(config=quant_config)
-    quantized_modules_to_scheme = {
-        "dummy": quant_config.config_groups["group_1"],
+    quantized_modules_to_args = {
+        "dummy": quant_config.config_groups["group_1"].weights,
     }
     compressed_state_dict = compressor.compress(
-        model.state_dict(), names_to_scheme=quantized_modules_to_scheme
+        model.state_dict(), names_to_scheme=quantized_modules_to_args
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
 
     # decompress
     reconstructed_dense_gen = compressor.decompress(
-        tmp_path, names_to_scheme=quantized_modules_to_scheme
+        tmp_path, names_to_scheme=quantized_modules_to_args
     )
     reconstructed_dense = {}
     for name, value in reconstructed_dense_gen:
@@ -306,7 +310,7 @@ def test_actorder_reload_match(actorder, tmp_path, mock_per_group_calibration):
         scale=model.dummy.weight_scale,
         zero_point=model.dummy.weight_zero_point,
         g_idx=getattr(model.dummy, "weight_g_idx", None),
-        args=quantized_modules_to_scheme["dummy"].weights,
+        args=quantized_modules_to_args["dummy"],
     )
     assert torch.equal(fake_quant_dummy, reconstructed_dense["dummy"].get("weight"))
 
