@@ -623,6 +623,7 @@ def _sanitize_kwargs(inputs_kwargs, module):
             k not in sanitized_kwargs
             and k != "use_cache"
             and v.default is inspect.Parameter.empty
+            and str(v.annotation).startswith("typing.Optional")
         ):
             sanitized_kwargs[k] = None
 
