@@ -79,6 +79,8 @@ class TestvLLM:
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
         self.save_compressed = eval_config.get("save_compressed", True)
+        self.num_calibration_samples = eval_config.get("num_calibration_samples", 256)
+        self.max_seq_length = eval_config.get("max_seq_length", 2048)
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -87,8 +89,6 @@ class TestvLLM:
         logger.info(self.save_dir)
 
         self.device = "cuda:0"
-        self.num_calibration_samples = 256
-        self.max_seq_length = 2048
         self.prompts = [
             "The capital of France is",
             "The president of the US is",
@@ -170,7 +170,7 @@ class TestvLLM:
         self.tear_down()
 
     def tear_down(self):
-        if self.save_dir is not None:
+        if self.save_dir is not None and os.path.isdir(self.save_dir):
             shutil.rmtree(self.save_dir)
 
         timer = get_singleton_manager()

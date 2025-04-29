@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 
@@ -62,4 +63,5 @@ class TestOneShotInputs(unittest.TestCase):
         )
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)

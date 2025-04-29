@@ -102,7 +102,7 @@ setup(
         "sparsity, optimization, model optimization, model compression, "
     ),
     license="Apache",
-    url="https://github.com/neuralmagic/llm-compressor",
+    url="https://github.com/vllm-project/llm-compressor",
     include_package_data=True,
     package_dir={"": "src"},
     packages=find_packages(
@@ -115,15 +115,15 @@ setup(
         "requests>=2.0.0",
         "tqdm>=4.0.0",
         "torch>=1.7.0",
-        "transformers>4.0,<4.50",
+        "transformers>4.0,<5.0",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
         "pillow",
         (
-            "compressed-tensors==0.9.3"
+            "compressed-tensors==0.9.4"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.9.4a2"
+            else "compressed-tensors>=0.9.5a2"
         ),
     ],
     extras_require={
