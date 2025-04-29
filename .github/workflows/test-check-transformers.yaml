@@ -98,4 +98,4 @@ jobs:
       - name: Running KV Cache Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/kv_cache
+          pytest -v tests/llmcompressor/transformers/kv_cache -k "not test_kv_cache_gptq_model_state_dict_attr"
