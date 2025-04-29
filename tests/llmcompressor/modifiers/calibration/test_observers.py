@@ -10,21 +10,27 @@ from llmcompressor.modifiers.quantization.calibration import initialize_observer
 
 
 @pytest.mark.parametrize(
-    "shape,group_size",
+    "shape,group_size,actorder",
     [
-        ((64, 64), None),
-        ((64, 64), 128),
-        ((1792, 4096), None),
-        ((1792, 4096), 128),
-        ((3420, 64), None),
-        ((3420, 64), 128),
+        ((1, 1), None, False),
+        ((1, 1), 128, False),
+        ((1, 1), 128, True),
+        ((64, 64), None, False),
+        ((64, 64), 128, False),
+        ((64, 64), 128, True),
+        ((1792, 4096), None, False),
+        ((1792, 4096), 128, False),
+        ((1792, 4096), 128, True),
+        ((3420, 64), None, False),
+        ((3420, 64), 128, False),
+        ((3420, 64), 128, True),
     ],
 )
-def test_observers_update(shape, group_size):
+def test_observers_update(shape, group_size, actorder):
     module = torch.nn.Linear(*shape)
     scheme = QuantizationScheme(
         targets=["Linear"],
-        weights=QuantizationArgs(group_size=group_size),
+        weights=QuantizationArgs(group_size=group_size, actorder=actorder),
         input_activations=QuantizationArgs(),
         output_activations=QuantizationArgs(),
     )
