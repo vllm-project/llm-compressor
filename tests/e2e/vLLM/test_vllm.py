@@ -19,8 +19,9 @@ try:
 
     vllm_installed = True
 except ImportError:
+    LLM, SamplingParams = None, None
     vllm_installed = False
-    logger.warning("vllm is not installed. This test will be skipped")
+    # logger.warning("vllm is not installed. This test will be skipped")
 
 
 HF_MODEL_HUB_NAME = "nm-testing"
@@ -45,7 +46,7 @@ EXPECTED_SAVED_FILES = [
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
-@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
+# @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
     The following test quantizes a model using a preset scheme or recipe,
