@@ -22,12 +22,11 @@ from llmcompressor.modifiers.quantization.calibration import initialize_observer
 )
 def test_observers_update(shape, group_size):
     module = torch.nn.Linear(*shape)
-    args = QuantizationArgs(group_size=group_size)
     scheme = QuantizationScheme(
         targets=["Linear"],
-        weights=args,
-        input_activations=args,
-        output_activations=args,
+        weights=QuantizationArgs(group_size=group_size),
+        input_activations=QuantizationArgs(),
+        output_activations=QuantizationArgs(),
     )
 
     input = torch.empty(module.in_features, dtype=module.weight.dtype)
