@@ -276,21 +276,6 @@ def bidirectional_mask(token_type_ids: torch.Tensor,
         )
     return causal_mask
 
-# TRACING: cannot condition on sequence_length
-@torch.fx.wrap
-def mask_pad_token_id(labels: torch.Tensor, 
-                      input_ids: torch.Tensor, 
-                      pad_token_id: int, 
-                      config: Gemma3Config
-) -> torch.Tensor:
-    if labels is not None and pad_token_id in labels:
-        logger.warning_once(
-            "`labels` contains `pad_token_id` which will be masked with `config.ignore_index`. "
-            "You have to mask out `pad_token_id` when preparing `labels`, this behavior will be removed in v.4.46.",
-        )
-        labels = torch.where(input_ids == pad_token_id, config.ignore_index, labels)
-    return labels
-
 @add_start_docstrings(
     """The GEMMA3 model which consists of a vision backbone and a language model.""",
     GEMMA3_START_DOCSTRING,
@@ -439,7 +424,12 @@ class Gemma3ForConditionalGeneration(Gemma3ForConditionalGeneration):
             inputs_embeds = inputs_embeds.masked_scatter(special_image_mask, image_features)
 
         # mask out pad-token-ids in labels for BC
-        labels = mask_pad_token_id(labels, input_ids, self.pad_token_id, self.config)
+        if labels is not None and self.pad_token_id in labels:
+            logger.warning_once(
+                "`labels` contains `pad_token_id` which will be masked with `config.ignore_index`. "
+                "You have to mask out `pad_token_id` when preparing `labels`, this behavior will be removed in v.4.46.",
+            )
+            labels = torch.where(input_ids == self.pad_token_id, self.config.ignore_index, labels)
 
         causal_mask = self._update_causal_mask(
             attention_mask, token_type_ids, past_key_values, cache_position, inputs_embeds, is_training
