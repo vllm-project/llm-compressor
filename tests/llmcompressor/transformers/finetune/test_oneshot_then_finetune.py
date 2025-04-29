@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 from pathlib import Path
@@ -175,4 +176,5 @@ class TestOneshotThenFinetune(unittest.TestCase):
             )
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
