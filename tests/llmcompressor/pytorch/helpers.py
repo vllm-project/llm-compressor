@@ -25,6 +25,7 @@ __all__ = [
     "LinearNet",
     "MLPNet",
     "FlatMLPNet",
+    "DummyNetwork",
     "ConvNet",
     "QATMatMulTestNet",
     "MLPDataset",
@@ -104,6 +105,25 @@ class LinearNet(Module):
 
     def _get_no_split_modules(self, device_map):
         return []
+
+
+class DummyNetwork(Linear):
+    def __init__(
+        self,
+        p: int,
+        init_sparsity: float = 0.0,
+    ):
+        super().__init__(p, p, bias=False)
+        self.weight.requires_grad = False
+        if init_sparsity > 0:
+            k = int(init_sparsity * (p**2)) + 1
+            idx = torch.randperm(p**2)[:k]
+            W = self.weight.detach().clone().reshape(-1)
+            W[idx] = torch.zeros_like(W[idx])
+            W = W.reshape(p, p)
+            state_dict = self.state_dict()
+            state_dict["weight"] = W.detach().clone()
+            self.load_state_dict(state_dict)
 
 
 class MLPNet(Module):
