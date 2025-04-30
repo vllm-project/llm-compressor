@@ -217,7 +217,7 @@ class AWQModifier(Modifier):
         self._resolved_mappings = resolved_mappings
         return
 
-    def _setup_scale_hooks(self):
+    def _setup_scale_hooks(self) -> None:
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -243,7 +243,7 @@ class AWQModifier(Modifier):
             self.register_hook(layer, create_hook_fn(name), "forward")
 
     @torch.no_grad()
-    def _calibrate(self, model: Module, calibration_dataloader: List):
+    def _calibrate(self, model: Module, calibration_dataloader: List) -> None:
         """
         Catch the output dynamic ranges of each layer that will be smoothed by running
         forward passes with calibration_dataloader
@@ -264,7 +264,7 @@ class AWQModifier(Modifier):
             calibration_dataloader,
         )
 
-    def _concat_collected_activations(self):
+    def _concat_collected_activations(self) -> None:
         """
         Concatenate the collected activation values from each forward pass into a single
         tensor for each layer
@@ -277,7 +277,7 @@ class AWQModifier(Modifier):
             self._scales[name] = torch.cat(self._scales[name], dim=0)
 
     @torch.no_grad()
-    def _apply_smoothing(self, model: Module):
+    def _apply_smoothing(self, model: Module) -> None:
         """
         Calculate the best scaling factors for each layer to smooth activations and
         apply the scaling factors to the weights of the next layer to offset the
@@ -484,7 +484,7 @@ class AWQModifier(Modifier):
         fp16_output: torch.Tensor,
         int_w_output: torch.Tensor,
         device: torch.device,
-    ):
+    ) -> torch.Tensor:
         loss = 0.0
         fp16_output_flat = fp16_output.view(-1)
         int_w_output_flat = int_w_output.view(-1)
@@ -579,7 +579,7 @@ class AWQModifier(Modifier):
         module: Module,
         inputs: torch.Tensor,
         input_kwargs: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> torch.Tensor:
         """
         Forward pass with input arguments
 
@@ -597,10 +597,10 @@ class AWQModifier(Modifier):
         )[0]
 
 
-def _sanitize_kwargs(inputs_kwargs, module):
+def _sanitize_kwargs(input_kwargs: Dict[str, Any], module: Module) -> Dict[str, Any]:
     """
-    Sanitize input keyword arguments to match the module's forward method signature
-    using inspect.bind_partial.
+    Sanitize input keyword arguments to match the module's forward method signature,
+    excluding `use_cache` which is not desired to be passed into module.
 
     Args:
         inputs_kwargs (`dict`):
@@ -608,23 +608,26 @@ def _sanitize_kwargs(inputs_kwargs, module):
         module (`torch.nn.Module`):
             Target module to quantize.
     """
+
     params = inspect.signature(module.forward).parameters
-    sanitized_kwargs = {}
-    for k, v in inputs_kwargs.items():
-        if k in params and k != "use_cache":
-            sanitized_kwargs[k] = v
-    # In case forward pass has optional dependencies that don't default to None.
+
+    # Filter out any kwargs not in module.forward signature
+    sanitized_kwargs = {k: v for k, v in input_kwargs.items() if k in params}
+
+    # Edge Case: forward pass has optional dependencies that don't default to None.
     # This is the case for `LlamaAttention.forward` which has input
     #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
     # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L246
     for k, v in params.items():
         if (
             k not in sanitized_kwargs
-            and k != "use_cache"
             and v.default is inspect.Parameter.empty
             and str(v.annotation).startswith("typing.Optional")
         ):
             sanitized_kwargs[k] = None
+
+    # Exclude `use_cache` entirely
+    sanitized_kwargs.pop("use_cache", None)
 
     return sanitized_kwargs
 
