@@ -36,11 +36,11 @@ Usage:
 import os
 import sys
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from loguru import logger
 
-__all__ = ["LoggerConfig", "configure_logger", "logger"]
+__all__ = ["LoggerConfig", "configure_logger", "logger", "loguru_once"]
 
 
 @dataclass
@@ -130,3 +130,14 @@ configure_logger(
         log_file_level=None,
     )
 )
+
+
+_logged_once = set()
+
+
+def loguru_once(func: Callable, message: str, *args, **kwargs):
+    if message in _logged_once:
+        return
+
+    _logged_once.add(message)
+    func(message, *args, **kwargs)
