@@ -7,7 +7,6 @@ from torch import Tensor
 from torch.nn import Linear, Module, ReLU, Sequential
 
 from llmcompressor.pytorch.utils import (
-    sanitize_kwargs_for_module,
     tensor_sparsity,
     tensors_module_forward,
     tensors_to_device,
