@@ -5,7 +5,7 @@ quant_stage:
         {num_bits: 8, type: float, symmetric: true, strategy: tensor}
     GPTQModifier:
       sequential_update: false
-      ignore: ["lm_head"]
+      ignore: ["lm_head", "re:vision_tower.*", "re:multi_modal_projector.*", "re:visual.*", "re:vision_model.*"]
       config_groups:
           group_0:
               weights:
