@@ -599,9 +599,8 @@ class AWQModifier(Modifier):
 
 def _sanitize_kwargs(inputs_kwargs, module):
     """
-    Remove the arguments that are not supported in the module's
-    forward pass to avoid breaking behaviour between different versions
-    of transformers.
+    Sanitize input keyword arguments to match the module's forward method signature
+    using inspect.bind_partial.
 
     Args:
         inputs_kwargs (`dict`):
@@ -609,23 +608,32 @@ def _sanitize_kwargs(inputs_kwargs, module):
         module (`torch.nn.Module`):
             Target module to quantize.
     """
-    params = inspect.signature(module.forward).parameters
-    sanitized_kwargs = {}
-    for k, v in inputs_kwargs.items():
-        if k in params and k != "use_cache":
-            sanitized_kwargs[k] = v
-    # In case forward pass has optional dependencies that don't default to None.
-    # This is the case for `LlamaAttention.forward` which has input
-    #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
-    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L246
-    for k, v in params.items():
-        if (
-            k not in sanitized_kwargs
-            and k != "use_cache"
-            and v.default is inspect.Parameter.empty
-            and str(v.annotation).startswith("typing.Optional")
-        ):
-            sanitized_kwargs[k] = None
+
+    # params = inspect.signature(module.forward).parameters
+    # sanitized_kwargs = {}
+    # for k, v in inputs_kwargs.items():
+    #     if k in params and k != "use_cache":
+    #         sanitized_kwargs[k] = v
+    # # In case forward pass has optional dependencies that don't default to None.
+    # # This is the case for `LlamaAttention.forward` which has input
+    # #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
+    # # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L246
+    # for k, v in params.items():
+    #     if (
+    #         k not in sanitized_kwargs
+    #         and k != "use_cache"
+    #         and v.default is inspect.Parameter.empty
+    #         and str(v.annotation).startswith("typing.Optional")
+    #     ):
+    #         sanitized_kwargs[k] = None
+
+    signature = inspect.signature(module.forward)
+
+    # Use bind_partial to allow partial binding of arguments
+    sanitized_kwargs = signature.bind_partial(**inputs_kwargs).arguments
+
+    # Handle special case for use_cache if needed
+    sanitized_kwargs.pop("use_cache", None)
 
     return sanitized_kwargs
 
