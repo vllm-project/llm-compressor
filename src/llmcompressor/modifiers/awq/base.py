@@ -11,7 +11,6 @@ from tqdm import tqdm
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
-from llmcompressor.pytorch.utils import tensor_forward_with_input_args
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
@@ -590,11 +589,10 @@ class AWQModifier(Modifier):
         """
         kwargs = input_kwargs or self._module_kwargs
         kwargs = _sanitize_kwargs(kwargs, module)
-        return tensor_forward_with_input_args(
-            module=module,
-            inputs=inputs,
-            input_kwargs=kwargs,
-        )[0]
+
+        inputs = inputs.to(next(module.parameters()).device)
+
+        return module(inputs, **kwargs)[0]
 
 
 def _sanitize_kwargs(input_kwargs: Dict[str, Any], module: Module) -> Dict[str, Any]:
