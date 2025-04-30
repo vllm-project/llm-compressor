@@ -93,6 +93,9 @@ def test_vision_trace(model_id, model_class, targets, ignore):
     ],
 )
 def test_audio_trace(model_id, model_class, targets, ignore):
+    pytest.importorskip("librosa")
+    pytest.importorskip("soundfile")
+
     trace(
         model_id,
         model_class,
