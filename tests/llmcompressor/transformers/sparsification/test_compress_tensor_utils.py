@@ -30,6 +30,7 @@ from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
 )
+from tests.testing_utils import requires_gpu
 
 
 @pytest.mark.parametrize(
@@ -275,7 +276,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         assert torch.equal(model_dict[key].cpu(), reloaded_dict[key].cpu())
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires gpu")
+@requires_gpu
 @pytest.mark.parametrize(
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
@@ -340,7 +341,7 @@ def test_model_shared_tensors(
         assert not torch.equal(lm_head, embed_tokens)
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires gpu")
+@requires_gpu
 @pytest.mark.parametrize(
     "offload,torch_dtype,tie_word_embeddings,device_map",
     [
@@ -356,6 +357,7 @@ def test_model_shared_tensors_gpu(
     )
 
 
+@requires_gpu
 @pytest.mark.parametrize(
     "model_stub, recipe, sparse_format, quant_format",
     [

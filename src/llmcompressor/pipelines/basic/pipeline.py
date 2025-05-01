@@ -1,24 +1,25 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import torch
-import torch.utils.data.dataloader
 import tqdm
 from compressed_tensors.utils import get_execution_device
+from torch.utils.data.dataloader import DataLoader
 
+from llmcompressor.core import LifecycleCallbacks
 from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.helpers import calibration_forward_context
 
 if TYPE_CHECKING:
-    from llmcompressor.modifiers import Modifier
+    from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["run_pipeline"]
 
 
 def run_pipeline(
     model: torch.nn.Module,
-    dataloader: torch.utils.data.DataLoader,
-    callback_modifier: Optional["Modifier"] = None,
+    dataloader: DataLoader,
+    dataset_args: "DatasetArguments",
 ):
     """
     Run a basic data pipeline.
@@ -30,9 +31,11 @@ def run_pipeline(
 
     :param model: model being calibrated
     :param dataloader: loads data for calibration
-    :param callback_modifier: Temporary HACK which should be replaced by event callback
+    :param dataset_args: dataset arguments relevant to pipelines
     """
     model_device = get_execution_device(model)
+
+    LifecycleCallbacks.calibration_epoch_start()
 
     with calibration_forward_context(model):
         for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
@@ -40,6 +43,4 @@ def run_pipeline(
             batch = tensors_to_device(batch, model_device)
             model(**batch)
 
-        # TODO: replace with a lifecycle event
-        if callback_modifier:
-            callback_modifier.on_sequential_batch_end()
+    LifecycleCallbacks.calibration_epoch_end()
