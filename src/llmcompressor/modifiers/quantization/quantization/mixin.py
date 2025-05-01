@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
 from compressed_tensors.quantization import (
@@ -81,7 +81,7 @@ class QuantizationMixin(HooksMixin):
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
 
-    _calibration_hooks: List[RemovableHandle] = PrivateAttr(default_factory=list)
+    _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set())
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
@@ -230,8 +230,8 @@ class QuantizationMixin(HooksMixin):
         elif output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, model: torch.nn.Module) -> List[RemovableHandle]:
-        hooks = []
+    def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
+        hooks = set()
         for module in model.modules():
             if not hasattr(module, "quantization_scheme"):
                 continue
@@ -243,14 +243,14 @@ class QuantizationMixin(HooksMixin):
 
             # input activations
             if input:
-                hooks.append(
+                hooks.add(
                     self.register_hook(module, calibrate_input_hook, "forward_pre")
                 )
 
             # kv_cache activations. Within `apply_quantization_config`, the config is
             # modified to use attention output quantization if a kv_cache_scheme exists
             if is_attention and output:
-                hooks.append(
+                hooks.add(
                     self.register_hook(
                         module,
                         calibrate_kv_cache_input_hook,
@@ -258,7 +258,7 @@ class QuantizationMixin(HooksMixin):
                         with_kwargs=True,
                     )
                 )
-                hooks.append(
+                hooks.add(
                     self.register_hook(
                         module, calibrate_kv_cache_output_hook, "forward"
                     )
@@ -266,8 +266,6 @@ class QuantizationMixin(HooksMixin):
 
             # output activations
             elif output:
-                hooks.append(
-                    self.register_hook(module, calibrate_output_hook, "forward")
-                )
+                hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks
