@@ -81,7 +81,7 @@ class QuantizationMixin(HooksMixin):
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
 
-    _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set())
+    _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
