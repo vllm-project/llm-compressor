@@ -3,6 +3,7 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -14,10 +15,6 @@ from pydantic import PrivateAttr, field_validator
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import (
-    apply_calibration_status,
-    freeze_module_quantization,
-)
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
@@ -139,8 +136,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.attach_scheme_and_observers(self, state.model)
-            QuantizationMixin.register_calibration_hooks(self, state.model)
+            QuantizationMixin.initialize_quantization(self, state.model)
+
+        # assume quantization has been initialized by this modifier or one before it
+        QuantizationMixin.start_calibration(self, state.model)
+        # Unlike qmod, do not quantize as we calibrate
+        # This choice does not seem to have a meaningful impact on accuracy
+        state.model.apply(disable_quantization)
 
         # prepare module names
         self._module_names = {m: name for name, m in state.model.named_modules()}
@@ -161,9 +163,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "GPTQModifier requires a quantization config be specified by this "
                 "modifier or a modifier preceding it"
             )
-
-        # prepare for calibration
-        state.model.apply(apply_calibration_status)
 
         # infer sequential targets
         if self.sequential_targets is None:
@@ -233,8 +232,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self._hessians = dict()
         self._num_samples = dict()
 
-        state.model.apply(freeze_module_quantization)  # remove observers
-        self.remove_hooks()  # remove hooks
+        QuantizationMixin.end_calibration(self, state.model)
+        self.remove_hooks()  # remove gptq hooks
 
         return True
 

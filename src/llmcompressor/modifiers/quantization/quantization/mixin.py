@@ -7,17 +7,22 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
     apply_quantization_config,
+    disable_quantization,
+    enable_quantization,
     is_attention_module,
     is_preset_scheme,
     preset_name_to_scheme,
 )
-from pydantic import Field, field_validator
+from pydantic import Field, PrivateAttr, field_validator
+from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.quantization.calibration import (
+    apply_calibration_status,
     calibrate_input_hook,
     calibrate_kv_cache_input_hook,
     calibrate_kv_cache_output_hook,
     calibrate_output_hook,
+    freeze_module_quantization,
     initialize_observer,
     initialize_quantized_kv_cache,
     reset_quantization_status,
@@ -33,18 +38,18 @@ class QuantizationMixin(HooksMixin):
     calibration hooks, and compression wrappers to modifiers
 
     Lifecycle:
-        - QuantizationMixin.attach_scheme_and_observers(model)
-            - Wraps model forward and attaches quantization scheme and observers
-        - QuantizationMixin.register_calibration_hooks(model)
-            - Registers calibration hooks which utilize observers to calibrate qparams
-        - model.apply(apply_calibration_status)
-        - [ Calibrate model ]
-        - model.apply(freeze_module_quantization)
-            - Remove observers
-        - self.remove_hooks()
+        - on_initialize: QuantizationMixin.initialize_quantization
+            - Attach schemes to modules
+            - Attach observers to modules
+            - Disable quantization until calibration starts/finishes
+        - on_start: QuantizationMixin.start_calibration
+            - Attach calibration hooks
+            - Apply calibration status
+            - Enable quantization during calibration
+        - on_end: QuantizationMixin.end_calibration
             - Remove calibration hooks
-
-        Scheme is left attached to modules after PTQ finishes
+            - Apply freeze status
+            - Keep quantization enabled for future steps
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -76,6 +81,8 @@ class QuantizationMixin(HooksMixin):
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
 
+    _calibration_hooks: List[RemovableHandle] = PrivateAttr(default_factory=list)
+
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
         if isinstance(value, str):
@@ -102,25 +109,49 @@ class QuantizationMixin(HooksMixin):
 
         return value
 
-    def attach_scheme_and_observers(self, model: torch.nn.Module):
+    def initialize_quantization(self, model: torch.nn.Module):
         """
-        Apply this modifier as a quantization config to the model. Attach observers
-        according to the schemes attached to each module
+        Attach quantization schemes and observers to modules in the model according to
+        the quantization config specified on this modifier
+
+        :param model: model to attach schemes and observers to
         """
         reset_quantization_status(model)  # reset any previously applied qconfigs
 
+        # apply scheme and status to model
         config = self.resolve_quantization_config()
         apply_quantization_config(model, config)
 
+        # apply observers, disable quantization until calibration
         model.apply(self._initialize_observers)
+        model.apply(disable_quantization)
 
-    def register_calibration_hooks(self, model: torch.nn.Module):
+    def start_calibration(self, model: torch.nn.Module):
         """
-        Register activation calibration hooks (including kv_cache quantization)
+        Register activation calibration hooks (including kv_cache quantization) and
+        enable quantization as we calibrate
+
+        :param model: model to prepare for calibration
         """
-        model.apply(self._initialize_hooks)
+        self._calibration_hooks = self._initialize_hooks(model)
+        model.apply(apply_calibration_status)
+        model.apply(enable_quantization)  # quantize at the same time as calibrate
+
+    def end_calibration(self, model: torch.nn.Module):
+        """
+        Remove calibration hooks and set the model status to frozen. Keep quantization
+        enabled for future operations
+
+        :param model: model to end calibration for
+        """
+        self.remove_hooks(self._calibration_hooks)
+        model.apply(freeze_module_quantization)  # remove observers
+        model.apply(enable_quantization)  # keep quantization enabled
 
     def has_config(self) -> bool:
+        """
+        Determine if the user has specified a quantization config on this modifier
+        """
         return not (
             self.config_groups is None
             and self.targets == ["Linear"]
@@ -199,27 +230,44 @@ class QuantizationMixin(HooksMixin):
         elif output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, module: torch.nn.Module):
-        if not hasattr(module, "quantization_scheme"):
-            return
+    def _initialize_hooks(self, model: torch.nn.Module) -> List[RemovableHandle]:
+        hooks = []
+        for module in model.modules():
+            if not hasattr(module, "quantization_scheme"):
+                continue
 
-        scheme: QuantizationScheme = module.quantization_scheme
-        input = scheme.input_activations and not scheme.input_activations.dynamic
-        output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+            scheme: QuantizationScheme = module.quantization_scheme
+            input = scheme.input_activations and not scheme.input_activations.dynamic
+            output = scheme.output_activations and not scheme.output_activations.dynamic
+            is_attention = is_attention_module(module)
 
-        # input activations
-        if input:
-            self.register_hook(module, calibrate_input_hook, "forward_pre")
+            # input activations
+            if input:
+                hooks.append(
+                    self.register_hook(module, calibrate_input_hook, "forward_pre")
+                )
 
-        # kv_cache activations. Within `apply_quantization_config`, the config is
-        # modified to use attention output quantization if a kv_cache_scheme exists
-        if is_attention and output:
-            self.register_hook(
-                module, calibrate_kv_cache_input_hook, "forward_pre", with_kwargs=True
-            )
-            self.register_hook(module, calibrate_kv_cache_output_hook, "forward")
+            # kv_cache activations. Within `apply_quantization_config`, the config is
+            # modified to use attention output quantization if a kv_cache_scheme exists
+            if is_attention and output:
+                hooks.append(
+                    self.register_hook(
+                        module,
+                        calibrate_kv_cache_input_hook,
+                        "forward_pre",
+                        with_kwargs=True,
+                    )
+                )
+                hooks.append(
+                    self.register_hook(
+                        module, calibrate_kv_cache_output_hook, "forward"
+                    )
+                )
 
-        # output activations
-        elif output:
-            self.register_hook(module, calibrate_output_hook, "forward")
+            # output activations
+            elif output:
+                hooks.append(
+                    self.register_hook(module, calibrate_output_hook, "forward")
+                )
+
+        return hooks

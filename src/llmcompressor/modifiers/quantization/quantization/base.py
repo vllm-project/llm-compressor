@@ -1,15 +1,10 @@
 import torch
 import tqdm
-from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.calibration import (
-    apply_calibration_status,
-    freeze_module_quantization,
-    update_weight_zp_scale,
-)
+from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.helpers import calibration_forward_context
@@ -64,8 +59,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
                 "QuantizationModifier requires that quantization fields to be specified"
             )
 
-        QuantizationMixin.attach_scheme_and_observers(self, state.model)
-        state.model.apply(disable_quantization)  # disable quantization until start
+        QuantizationMixin.initialize_quantization(self, state.model)
 
         # FUTURE: modify oneshot lifecycle to trigger on_start for on initialize
         if self.calculate_start() == -1:  # one shot
@@ -77,9 +71,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Begin calibrating activations and weights. Calibrate weights only once on start
         """
-        QuantizationMixin.register_calibration_hooks(self, state.model)
-        state.model.apply(apply_calibration_status)
-        state.model.apply(enable_quantization)
+        QuantizationMixin.start_calibration(self, state.model)
 
         modules = list(state.model.modules())
         for module in tqdm.tqdm(modules, desc="Calibrating weights"):
@@ -93,8 +85,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        state.model.apply(freeze_module_quantization)  # remove observers
-        self.remove_hooks()  # remove hooks
+        QuantizationMixin.end_calibration(
+            self, state.model
+        )  # keep quantization enabled
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         # TODO: modify lifecycle so modifiers end on finalize
