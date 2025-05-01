@@ -75,16 +75,19 @@ class RecipeModifier(RecipeBase):
             ModifierFactory.refresh()
 
         modifier_class = ModifierFactory.get_class(self.type)
-    
+        valid_fields = set()
+        
         if hasattr(modifier_class, "model_fields"):
             valid_fields = set(modifier_class.model_fields.keys())
-        
+
         provided_args = set(self.args_evaluated.keys() if self.args_evaluated else {})
-        
+
         invalid_keys = provided_args - valid_fields
-        
+
         if invalid_keys:
-            error_msg = f"Invalid arguments found for {self.type}: {', '.join(invalid_keys)}"
+            error_msg = (
+                f"Invalid arguments found for {self.type}: {', '.join(invalid_keys)}"
+            )
             error_msg += f"\nValid arguments are: {', '.join(sorted(valid_fields))}"
             raise ValueError(error_msg)
 
