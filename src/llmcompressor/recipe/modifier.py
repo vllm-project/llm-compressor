@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional
 
-from pydantic import model_validator
+from pydantic import model_validator, BaseModel, ConfigDict, ValidationError
 
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.args import RecipeArgs
@@ -75,27 +75,35 @@ class RecipeModifier(RecipeBase):
             ModifierFactory.refresh()
 
         modifier_class = ModifierFactory.get_class(self.type)
-        valid_fields = set()
         
         if hasattr(modifier_class, "model_fields"):
-            valid_fields = set(modifier_class.model_fields.keys())
+            field_definitions = {
+                field_name: (field_info.annotation, field_info.default)
+                for field_name, field_info in modifier_class.model_fields.items()
+            }
+            
+            class TempModel(BaseModel):
+                model_config = ConfigDict(extra="forbid")
+                
+                __annotations__ = {
+                    field_name: field_type
+                    for field_name, (field_type, _) in field_definitions.items()
+                }
 
-        provided_args = set(self.args_evaluated.keys() if self.args_evaluated else {})
-
-        invalid_keys = provided_args - valid_fields
-
-        if invalid_keys:
-            error_msg = (
-                f"Invalid arguments found for {self.type}: {', '.join(invalid_keys)}"
-            )
-            error_msg += f"\nValid arguments are: {', '.join(sorted(valid_fields))}"
-            raise ValueError(error_msg)
+            for field_name, (_, default) in field_definitions.items():
+                if default is not Ellipsis:  # Ellipsis is used for required fields
+                    setattr(TempModel, field_name, default)
+            try:
+                TempModel(**self.args_evaluated) if self.args_evaluated else None
+            except ValidationError as e:
+                error_msg = f"Invalid arguments found for {self.type}: {str(e)}"
+                raise ValueError(error_msg)
 
         return ModifierFactory.create(
             self.type,
             allow_registered=True,
             allow_experimental=True,
-            **self.args_evaluated,
+            **self.args_evaluated if self.args_evaluated else {}
         )
 
     @model_validator(mode="before")
