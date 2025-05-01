@@ -5,7 +5,6 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-MODEL_ID = "nickypro/tinyllama-15M"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
