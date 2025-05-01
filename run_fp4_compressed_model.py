@@ -4,7 +4,7 @@ import torch
 
 config = CompressedTensorsConfig(run_compressed=False)
 
-MODEL_ID = "/home/dsikka/llm-compressor/examples/quantization_w4a16_fp4/tinyllama-15M-FP4"
+MODEL_ID = "nm-testing/llama2.c-stories110M-FP4"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, device_map="auto", torch_dtype="auto", quantization_config=config)
