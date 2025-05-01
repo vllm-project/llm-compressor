@@ -22,24 +22,25 @@ class AWQMapping:
     balance_layers: list[str]
 
 
+_default_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm",
+        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+    ),
+    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm",
+        ["re:.*gate_proj", "re:.*up_proj"],
+    ),
+    AWQMapping(
+        "re:.*up_proj",
+        ["re:.*down_proj"],
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
-    "Llama": [
-        AWQMapping(
-            "re:.*input_layernorm",
-            ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-        ),
-        AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
-        AWQMapping(
-            "re:.*post_attention_layernorm",
-            ["re:.*gate_proj", "re:.*up_proj"],
-        ),
-        AWQMapping(
-            "re:.*up_proj",
-            ["re:.*down_proj"],
-        ),
-    ],
-    # TODO (Brian INFERENG-529) Add Qwen mappings
-    # "Qwen": [ ],
+    "Llama": _default_mappings,
+    "Qwen": _default_mappings,
 }
 
 
