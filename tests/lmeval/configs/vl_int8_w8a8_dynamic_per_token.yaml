@@ -16,4 +16,4 @@ lmeval:
   batch_size: 8
   # dense model achieves 0.9 accuracy
   metrics:
-    acc,none: 0.667
+    acc,none: 0.833
