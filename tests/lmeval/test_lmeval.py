@@ -59,8 +59,9 @@ class TestLMEval:
     W4N16 with channel quantization). To add a new test case, a new config has to be
     added to the lm_eval_configs folder. The tests run on a cadence defined by the
     `cadence` field. Each config defines the model to quantize. Optionally, a dataset
-    id and split can be provided for calibration. Finally, all config files must list
-    a scheme. The scheme can be a preset scheme from
+    id and split can be provided for calibration.
+    Either a recipe or a scheme should be provided. If a recipe is not provided, the
+    config file must list a scheme. The scheme can be a preset scheme from
     https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py
     or another identifier which can be used for the particular test case. If a recipe
     is not provided, it is assumed that the scheme provided is a preset scheme and will
