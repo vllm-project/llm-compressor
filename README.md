@@ -105,6 +105,14 @@ model = LLM("TinyLlama-1.1B-Chat-v1.0-INT8")
 output = model.generate("My name is")
 ```
 
+## New Features
+
+We've recently added several exciting features to LLM Compressor:
+
+* **Axolotl Sparse Finetuning Integration:** Easily finetune sparse LLMs through our integration with Axolotl. [Learn more here](https://docs.axolotl.ai/docs/custom_integrations.html#llmcompressor).
+* **AutoAWQ Integration:** Perform low-bit weight-only quantization efficiently using AutoAWQ, now part of LLM Compressor. [See the details](https://github.com/vllm-project/llm-compressor/pull/1177).
+* **Day 0 Llama 4 Support:** Meta utilized LLM Compressor to create the [FP8-quantized Llama-4-Maverick-17B-128E](https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8), optimized for vLLM inference using our compressed-tensors format.
+
 ## Questions / Contribution
 
 - If you have any questions or requests open an [issue](https://github.com/vllm-project/llm-compressor/issues) and we will add an example or documentation.
