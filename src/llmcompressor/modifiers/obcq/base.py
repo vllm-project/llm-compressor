@@ -138,7 +138,6 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 )
                 comp_logger.set_loss(loss)
 
-            print(sparsified_weight)
             update_offload_parameter(module, "weight", sparsified_weight)
 
             # self._hessians[module] already deleted by sparsify_weight
