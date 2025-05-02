@@ -163,7 +163,6 @@ class TestLMEval:
             logger.info(
                 f"Comparing {metric}: Expected {expected_val}, Got {actual_val}"
             )
-            breakpoint()
             if self.lmeval.use_stderr_atol:
                 std_err = metrics.get(metric.replace(",none", "_stderr,none"))
                 assert numpy.isclose(expected_val, actual_val, atol=std_err)
