@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+import math
+
 import pytest
 from compressed_tensors.quantization import (
     ActivationOrdering,
@@ -183,7 +185,7 @@ def test_initialize_quantization_parameters(weights, input_activations):
             expected_shape = (layer.weight.shape[0], 1)
 
         elif args.strategy == QuantizationStrategy.GROUP:  # only weight
-            num_groups = layer.weight.shape[1] // args.group_size
+            num_groups = math.ceil(layer.weight.shape[1] / args.group_size)
             expected_shape = (layer.weight.shape[0], max(num_groups, 1))
 
         elif args.strategy == QuantizationStrategy.BLOCK:
