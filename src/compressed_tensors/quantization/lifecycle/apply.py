@@ -119,7 +119,7 @@ def load_pretrained_quantization_parameters(
 
 def apply_quantization_config(
     model: Module, config: Union[QuantizationConfig, None], run_compressed: bool = False
-) -> OrderedDict:
+) -> Dict[str, QuantizationScheme]:
     """
     Initializes the model for quantization in-place based on the given config.
     Optionally coverts quantizable modules to compressed_linear modules
@@ -131,7 +131,7 @@ def apply_quantization_config(
     """
     # Workaround for when HF Quantizer passes None, see PR #180
     if config is None:
-        return OrderedDict()
+        return dict()
 
     # remove reference to the original `config`
     # argument. This function can mutate it, and we'd
@@ -141,7 +141,7 @@ def apply_quantization_config(
     # use ordered dict to preserve target ordering in config
     target_to_scheme = OrderedDict()
     config = process_quantization_config(config)
-    names_to_scheme = OrderedDict()
+    names_to_scheme = dict()
     for scheme in config.config_groups.values():
         for target in scheme.targets:
             target_to_scheme[target] = scheme
@@ -187,7 +187,7 @@ def apply_quantization_config(
                 target_to_scheme, targets, name
             )
 
-            names_to_scheme[name] = submodule.quantization_scheme.weights
+            names_to_scheme[name] = submodule.quantization_scheme
 
     if config.ignore is not None and ignored_submodules is not None:
         if set(config.ignore) - set(ignored_submodules):

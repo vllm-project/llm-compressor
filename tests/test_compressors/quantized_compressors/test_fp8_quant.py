@@ -84,9 +84,9 @@ def test_quant_format(strategy, group_size, sc, zp):
     quant_config = get_dummy_quant_config(strategy=strategy, group_size=group_size)
 
     compressor = FloatQuantizationCompressor(config=quant_config)
-    quantized_modules_to_args = {"dummy": quant_config.config_groups["group_1"].weights}
+    module_name_to_scheme = {"dummy": quant_config.config_groups["group_1"]}
     compressed_state_dict = compressor.compress(
-        dense_state_dict, names_to_scheme=quantized_modules_to_args
+        dense_state_dict, names_to_scheme=module_name_to_scheme
     )
 
     # state_dict params should be the same, minus the zero_point if symmetric
@@ -140,15 +140,15 @@ def test_reload_match(
         )
 
     compressor = FloatQuantizationCompressor(config=quant_config)
-    quantized_modules_to_args = {
-        "dummy": quant_config.config_groups["group_1"].weights,
+    module_name_to_scheme = {
+        "dummy": quant_config.config_groups["group_1"],
     }
     compressed_state_dict = compressor.compress(
-        model.state_dict(), names_to_scheme=quantized_modules_to_args
+        model.state_dict(), names_to_scheme=module_name_to_scheme
     )
     save_file(compressed_state_dict, tmp_path / "model.safetensors")
     reconstructed_dense_gen = compressor.decompress(
-        tmp_path, names_to_scheme=quantized_modules_to_args
+        tmp_path, names_to_scheme=module_name_to_scheme
     )
     reconstructed_dense = {}
     for name, value in reconstructed_dense_gen:
@@ -158,7 +158,7 @@ def test_reload_match(
         model.dummy.weight,
         scale=model.dummy.weight_scale,
         zero_point=model.dummy.weight_zero_point,
-        args=quantized_modules_to_args["dummy"],
+        args=module_name_to_scheme["dummy"].weights,
     )
     assert torch.equal(fake_quant_dummy, reconstructed_dense["dummy"].get("weight"))
 
