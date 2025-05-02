@@ -14,6 +14,7 @@ from llmcompressor.pytorch.utils import (
     tensors_to_device,
     tensors_to_precision,
 )
+from tests.testing_utils import requires_gpu
 
 
 @pytest.mark.unit
@@ -55,6 +56,7 @@ def test_tensors_to_device_cpu(tensors):
     os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
     reason="Skipping pytorch tests",
 )
+@requires_gpu
 @pytest.mark.parametrize(
     "tensors",
     [
@@ -69,7 +71,6 @@ def test_tensors_to_device_cpu(tensors):
         [[torch.randn(1, 8)], torch.randn(8, 8)],
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
 def test_tensors_to_device_cuda(tensors):
     out = tensors_to_device(tensors, "cuda")
 
@@ -364,6 +365,7 @@ def test_tensors_module_forward(module, tensors, check_feat_lab_inp):
     os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
     reason="Skipping pytorch tests",
 )
+@requires_gpu
 @pytest.mark.parametrize(
     "module,tensors,check_feat_lab_inp",
     [
@@ -417,7 +419,6 @@ def test_tensors_module_forward(module, tensors, check_feat_lab_inp):
         ),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
 def test_tensors_module_forward_cuda(module, tensors, check_feat_lab_inp):
     module = module.to("cuda")
     tensors = tensors_to_device(tensors, "cuda")
@@ -471,6 +472,7 @@ def test_tensor_sparsity(tensor, dim, expected_sparsity):
     os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
     reason="Skipping pytorch tests",
 )
+@requires_gpu
 @pytest.mark.parametrize(
     "tensor,dim,expected_sparsity",
     [
@@ -490,7 +492,6 @@ def test_tensor_sparsity(tensor, dim, expected_sparsity):
         ),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
 def test_tensor_sparsity_cuda(tensor, dim, expected_sparsity):
     tensor = tensor.to("cuda")
     sparsity = tensor_sparsity(tensor, dim)
