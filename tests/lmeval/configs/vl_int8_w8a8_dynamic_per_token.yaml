@@ -1,7 +1,7 @@
 cadence: "weekly"
 model: Qwen/Qwen2.5-VL-7B-Instruct
 model_class: TraceableQwen2_5_VLForConditionalGeneration
-recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_tensor_weight_static_per_tensor_act.yaml
+recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
 dataset_id: lmms-lab/flickr30k
 dataset_split: "test[:512]"
 lmeval:
