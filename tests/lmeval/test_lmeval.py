@@ -23,6 +23,9 @@ class LmEvalConfig(BaseModel):
     task: str = "gsm8k"
     num_fewshot: int = 5
     limit: int = 1000
+    # If True, use stderr as absolute tolerance
+    # If False, use a 5% relative tolerance
+    use_stderr_atol: bool = False
     metrics: dict
     batch_size: int = 100
 
@@ -160,7 +163,12 @@ class TestLMEval:
             logger.info(
                 f"Comparing {metric}: Expected {expected_val}, Got {actual_val}"
             )
-            assert numpy.isclose(expected_val, actual_val, rtol=0.05)
+            breakpoint()
+            if self.lmeval.use_stderr_atol:
+                std_err = metrics.get(metric.replace(",none", "_stderr,none"))
+                assert numpy.isclose(expected_val, actual_val, atol=std_err)
+            else:
+                assert numpy.isclose(expected_val, actual_val, rtol=0.05)
 
     def tear_down(self):
         timer = get_singleton_manager()
