@@ -8,7 +8,7 @@ lmeval:
     dtype: bfloat16
     add_bos_token: True
     convert_img_format: True
-  task: mmmu_val_economics
+  task: mmmu_val_literature
   num_fewshot: 0
   batch_size: 8
   # dense model achieves 0.4 accuracy
@@ -16,4 +16,4 @@ lmeval:
   #  "quantization_config": CompressedTensorsConfig(run_compressed=False)
   #  in model_args
   metrics:
-    acc,none: 0.333
+    acc,none: 0.9
