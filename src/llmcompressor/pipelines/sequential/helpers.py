@@ -17,7 +17,7 @@ from transformers.utils.fx import HFTracer
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
 
-from .ast_helpers import autowrap_forward
+from .ast_helpers import autowrap_forwards
 
 __all__ = ["trace_subgraphs", "Subgraph"]
 
@@ -91,8 +91,12 @@ def trace_subgraphs(
     tracer = get_tracer(model, sequential_targets)
     concrete_args = populate_concrete_args(model, sample_input)
 
+    sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
+
     # trace
-    with calibration_forward_context(model), HooksMixin.disable_hooks():
+    with calibration_forward_context(
+        model
+    ), HooksMixin.disable_hooks(), autowrap_forwards(sequential_ancestors):
         graph = GraphModule(
             model,
             tracer.trace(
