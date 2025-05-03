@@ -23,8 +23,11 @@ def autowrap_forward(module: torch.nn.Module):
     breakpoint()
 
     code = compile(tree, filename="<autowrapped>", mode="exec")
-    defining_module = sys.modules[module.__class__.__module__].__dict__
+    defining_module = sys.modules[module.__class__.__module__]
     namespace = defining_module.__dict__  # original module context
+    namespace.update({
+        "torch.fx.wrap": torch.fx.wrap
+    })
     exec(code, namespace)
     new_forward = namespace["forward"]
     breakpoint()
@@ -39,7 +42,7 @@ class AutoWrapper(ast.NodeTransformer):
         
     def visit_If(self, node):
         return self._wrap(node)
-        #return super().visit_If(node)
+        #return super().generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
         """
@@ -70,14 +73,13 @@ class AutoWrapper(ast.NodeTransformer):
         )
 
         # Build return statement
-        return_tuple = ast.Tuple(
+        return_stmt = ast.Return(value=ast.Tuple(
             elts=[ast.Name(id=name, ctx=ast.Load()) for name in sorted(returns)],
             ctx=ast.Load()
-        )
-        return_stmt = ast.Return(value=return_tuple)
+        ))
 
         # Build body with return at the end
-        body = [ast.Expr(node) for node in nodes] + [return_stmt]
+        body = [node for node in nodes] + [return_stmt]
 
         fn_name = f"wrapped_{hash(node)}"
         fn_def = ast.FunctionDef(
@@ -89,8 +91,13 @@ class AutoWrapper(ast.NodeTransformer):
         )
         fn_call = ast.Call(
             func=ast.Name(id=fn_name, ctx=ast.Load()),
-            args=args_ast,
+            args=[ast.Name(id=name, ctx=ast.Load()) for name in args],
             keywords=list()
+        )
+
+        return_tuple = ast.Tuple(
+            elts=[ast.Name(id=name, ctx=ast.Store()) for name in sorted(returns)],
+            ctx=ast.Store()
         )
         fn_call_expr = ast.Assign(
             targets=[return_tuple],
