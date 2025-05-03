@@ -85,18 +85,18 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    sequential_targets = match_modules(model, sequential_targets)
+    ignore = ["_update_causal_mask"]
+    targets = match_modules(model, sequential_targets)
+    ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets)
+    tracer = get_tracer(model, ancestors)
     concrete_args = populate_concrete_args(model, sample_input)
-
-    sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
 
     # trace
     with calibration_forward_context(
         model
-    ), HooksMixin.disable_hooks(), autowrap_forwards(sequential_ancestors):
+    ), HooksMixin.disable_hooks(), autowrap_forwards(ancestors, ignore):
         graph = GraphModule(
             model,
             tracer.trace(
@@ -115,14 +115,17 @@ def trace_subgraphs(
     graph.device = model.device
 
     # perform subgraph partition
-    partitions = topological_partition(graph, sequential_targets)
+    partitions = topological_partition(graph, targets)
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
+
+    if len(subgraphs) != len(targets) + 1:
+        breakpoint()
 
     return subgraphs
 
 
-def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
+def get_tracer(model: Module, ancestors: Set[Module]) -> HFTracer:
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
@@ -134,11 +137,10 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
     :param model: model being traced
     :param sequential_targets: modules which are sequential targets
     """
-    sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
 
     # check unlikely case that ancestors have direct params which are offloaded
-    offloaded_ancestors = offloaded_modules & sequential_ancestors
+    offloaded_ancestors = offloaded_modules & ancestors
     if offloaded_ancestors:
         names = set(module.__class__.__name__ for module in offloaded_ancestors)
         logger.warning(
@@ -159,7 +161,7 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module not in sequential_ancestors or module in offloaded_modules
+            return module not in ancestors or module in offloaded_modules
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
             if isinstance(root, Module):

@@ -14,7 +14,7 @@ from llmcompressor.transformers.tracing.debug import trace
 @pytest.mark.parametrize(
     "model_id,model_class,targets",
     [
-        ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, None),
+        ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, ["Linear"]),
     ],
 )
 def test_text_trace(model_id, model_class, targets):
