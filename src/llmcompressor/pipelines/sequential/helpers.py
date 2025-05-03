@@ -17,6 +17,8 @@ from transformers.utils.fx import HFTracer
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
 
+from .ast_helpers import autowrap_forward
+
 __all__ = ["trace_subgraphs", "Subgraph"]
 
 
