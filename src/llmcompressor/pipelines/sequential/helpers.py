@@ -3,6 +3,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
+import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from loguru import logger
@@ -96,7 +97,9 @@ def trace_subgraphs(
     # trace
     with calibration_forward_context(
         model
-    ), HooksMixin.disable_hooks(), autowrap_forwards(ancestors, ignore):
+    ), HooksMixin.disable_hooks(), autowrap_forwards(ancestors, ignore), patch_attr(
+        torch.compiler, "_is_compiling_flag", True
+    ):
         graph = GraphModule(
             model,
             tracer.trace(

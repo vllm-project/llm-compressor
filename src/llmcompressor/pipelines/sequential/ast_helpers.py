@@ -150,17 +150,18 @@ class AutoWrapper(ast.NodeTransformer):
         for node in nodes:
             analyzer.visit(node)
 
-        args = analyzer.unbound_names
+        args = analyzer.unbound_names - analyzer.conditionally_assigned_names
+        kwargs = analyzer.conditionally_assigned_names
         returns = analyzer.assigned_names
 
         # Create function arguments
-        args_ast = [ast.arg(arg=name) for name in args]
+        args_ast = [ast.arg(arg=name) for name in args] + [ast.arg(arg=name) for name in kwargs]  # ensure defaults last
         args_obj = ast.arguments(
             args=args_ast,
             posonlyargs=[],
             kwonlyargs=[],
             kw_defaults=[],
-            defaults=[],
+            defaults=[ast.Constant(value=None) for _ in range(len(kwargs))],
             vararg=None,
             kwarg=None,
         )
@@ -205,6 +206,7 @@ class NameAnalyzer(ast.NodeVisitor):
     def __init__(self, globals):
         self.unbound_names = set()
         self.assigned_names = set()
+        self.conditionally_assigned_names = set()
         self._omit_names = builtins.__dict__.keys() | globals
 
     def generic_visit(self, node):
@@ -216,6 +218,24 @@ class NameAnalyzer(ast.NodeVisitor):
                         self.visit(item)
             elif isinstance(value, ast.AST):
                 self.visit(value)
+
+    def visit_If(self, node: ast.If):
+        self.visit(node.test)
+        pre_assigned_names = self.assigned_names.copy()
+
+        for statement in node.body:
+            self.visit(statement)
+
+        if_true_assigned_names = self.assigned_names - pre_assigned_names
+        self.assigned_names = pre_assigned_names.copy()
+
+        for statement in node.orelse:
+            self.visit(statement)
+
+        if_false_assigned_names = self.assigned_names - pre_assigned_names
+
+        self.conditionally_assigned_names |= if_true_assigned_names ^ if_false_assigned_names
+        self.assigned_names |= if_true_assigned_names | if_false_assigned_names
 
     def visit_Name(self, node: ast.Name) -> ast.Name:
         name = node.id
