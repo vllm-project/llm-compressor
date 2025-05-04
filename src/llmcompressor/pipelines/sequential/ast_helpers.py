@@ -5,7 +5,7 @@ import inspect
 import sys
 import textwrap
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Type, Union
 
 import torch
 
@@ -35,9 +35,7 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
 
     # autowrap untraceable code
     auto_wrapper = AutoWrapper(namespace, ignore)
-    tree = ast.fix_missing_locations(auto_wrapper.autowrap(tree))
-    # print(type(module))
-    # print(ast.unparse(ast.fix_missing_locations(tree)))
+    tree = auto_wrapper.autowrap(tree)
 
     # compile new forward function from autowrapped code
     filename = f"{module.__class__.__name__}_{hash(module)}_autowrapped"
@@ -70,13 +68,12 @@ class AutoWrapper(ast.NodeTransformer):
 
     def autowrap(self, tree: ast.Module) -> ast.Module:
         tree = self.visit(tree)
-
         for fn_def in self._wrapped_fn_defs:
             tree.body.insert(0, fn_def)
 
-        return tree
+        return ast.fix_missing_locations(tree)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """
         Remove decorators which prevent forward function recompilation
         For example, add_start_docstrings_to_model_forward
@@ -94,8 +91,8 @@ class AutoWrapper(ast.NodeTransformer):
         try:
             value = bool(self._eval_expr(node.test))
 
-        except:
-            return self._wrap(node)
+        except Exception:
+            return self._wrap_if_possible(node)
 
         else:
             node.test = ast.Constant(value=value)
@@ -110,7 +107,7 @@ class AutoWrapper(ast.NodeTransformer):
             try:
                 caller = self._eval_expr(func)
 
-            except:
+            except Exception:
                 pass
 
             else:
@@ -118,22 +115,25 @@ class AutoWrapper(ast.NodeTransformer):
                     isinstance(caller, (FunctionType, MethodType))
                     and caller.__name__ in self.ignore
                 ):
-                    return self._wrap(node)
+                    return self._wrap_if_possible(node)
 
         return super().generic_visit(node)
 
-    def visit_Starred(self, node: ast.Starred):
+    def visit_Starred(self, node: ast.Starred) -> Union[ast.Starred, ast.Assign]:
         """
         Note that args is represented as ast.arugments(..., vararg=ast.arg(arg="args")),
         so starred only represents iterations
         """
-        wrap_assign = self._wrap(
-            ast.Assign(
-                targets=[ast.Name(id="unpacked", ctx=ast.Store())],
-                value=ast.Tuple(elts=[node], ctx=ast.Load()),
-            )
+        assign = ast.Assign(
+            targets=[ast.Name(id="unpacked", ctx=ast.Store())],
+            value=ast.Tuple(elts=[node], ctx=ast.Load()),
         )
-        return wrap_assign.value
+        wrapped_assign = self._wrap_if_possible(assign)
+        if wrapped_assign is assign:
+            # wrapping failed (although it really shouldn't)
+            return node
+
+        return wrapped_assign.value
 
     def visit_Name(self, node: ast.Name):
         if isinstance(node.ctx, ast.Store):
@@ -159,40 +159,26 @@ class AutoWrapper(ast.NodeTransformer):
         compiled = compile(module, filename="<ast>", mode="eval")
         return eval(compiled, {}, self.eval_context)
 
-    def _wrap(self, nodes: Union[List[ast.AST], ast.AST]) -> ast.Assign:
-        nodes = nodes if isinstance(nodes, List) else [nodes]
+    def _wrap_if_possible(self, node: ast.AST) -> ast.Assign:
+        if not self._can_wrap(node):
+            return node
 
         analyzer = NameAnalyzer(self.eval_context.keys())
-        for node in nodes:
-            analyzer.visit(node)
+        analyzer.visit(node)
 
-        # one limitation is that tracing does not support wrapped nodes which input or return callable types
-        # which is annoying for cases like
-        # attention_interface: Callable = eager_attention_forward
-        # if self.config._attn_implementation != "eager":
-        #     if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-        #         logger.warning_once(
-        #             "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
-        #             'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-        #         )
-        #     else:
-        #         attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
         args = (
             analyzer.unbound_names | analyzer.conditionally_assigned_names
         ) & self._local_names
-        kwargs = []  # analyzer.conditionally_assigned_names  # TODO: may require tracking local namespace
         returns = analyzer.assigned_names
 
         # Create function arguments
-        args_ast = [ast.arg(arg=name) for name in args] + [
-            ast.arg(arg=name) for name in kwargs
-        ]  # ensure defaults last
+        args_ast = [ast.arg(arg=name) for name in args]
         args_obj = ast.arguments(
             args=args_ast,
             posonlyargs=[],
             kwonlyargs=[],
             kw_defaults=[],
-            defaults=[ast.Constant(value=None) for _ in range(len(kwargs))],
+            defaults=[],
             vararg=None,
             kwarg=None,
         )
@@ -205,15 +191,11 @@ class AutoWrapper(ast.NodeTransformer):
             )
         )
 
-        # Build body with return at the end
-        body = [node for node in nodes] + [return_stmt]
-
         fn_name = f"wrapped_{hash(node)}"
         fn_def = ast.FunctionDef(
             name=fn_name,
             args=args_obj,
-            body=body,
-            # decorator_list=[],
+            body=[node, return_stmt],
             decorator_list=[ast.Name(id="torch.fx.wrap", ctx=ast.Load())],
         )
         fn_call = ast.Call(
@@ -231,6 +213,62 @@ class AutoWrapper(ast.NodeTransformer):
         self._wrapped_fn_defs.append(fn_def)
 
         return fn_call_expr
+
+    def _can_wrap(self, node: ast.AST) -> bool:
+        analyzer = ControlFlowAnalyzer()
+        return analyzer.is_valid(node)
+
+
+class ControlFlowAnalyzer(ast.NodeVisitor):
+    _contexts: List[Type]
+    _is_valid: bool
+    _context_types = (ast.For, ast.While, ast.FunctionDef, ast.AsyncFunctionDef)
+
+    def is_valid(self, node: ast.AST) -> bool:
+        self._contexts = []
+        self._is_valid = True
+        self.visit(node)
+        return self._is_valid
+
+    def generic_visit(self, node: ast.AST):
+        node_type = type(node)
+        is_context = node_type in self._context_types
+
+        if is_context:
+            self._contexts.append(node_type)
+
+        super().generic_visit(node)
+
+        if is_context:
+            self._contexts.pop()
+
+    def visit_Return(self, node: ast.Return):
+        if (
+            ast.FunctionDef not in self._contexts
+            and ast.AsyncFunctionDef not in self._contexts
+        ):
+            self._is_valid = False
+        return super().generic_visit(node)
+
+    def visit_Continue(self, node: ast.Continue):
+        if ast.For not in self._contexts and ast.While not in self._contexts:
+            self._is_valid = False
+        return super().generic_visit(node)
+
+    def visit_Break(self, node: ast.Break):
+        if ast.For not in self._contexts and ast.While not in self._contexts:
+            self._is_valid = False
+        return super().generic_visit(node)
+
+    def visit_Await(self, node: ast.Await):
+        if ast.AsyncFunctionDef not in self._contexts:
+            self._is_valid = False
+        return super().generic_visit(node)
+
+    def visit_Yield(self, node: ast.Yield):
+        if ast.FunctionDef not in self._contexts:
+            self._is_valid = False
+        return super().generic_visit(node)
 
 
 class NameAnalyzer(ast.NodeVisitor):

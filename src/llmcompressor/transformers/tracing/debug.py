@@ -8,7 +8,7 @@ from transformers import AutoProcessor, PreTrainedModel
 
 from llmcompressor.transformers import tracing
 from llmcompressor.utils.pytorch.module import get_no_split_params
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
 from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.args import DatasetArguments
 
@@ -37,7 +37,7 @@ def trace(
     ignore: Union[List[str], str] = [],
     modality: str = "text",
     trust_remote_code: bool = True
-):
+) -> List[Subgraph]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
 
@@ -104,8 +104,12 @@ def trace(
         f"    sequential_targets={sequential_targets}\n"
         f"    ignore={ignore}\n"
     )
-    subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+    subgraphs = trace_subgraphs(
+        model, sample_input, sequential_targets, ignore
+    )
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
+
+    return subgraphs
 
 
 def get_model_class(model_class: str) -> Type[PreTrainedModel]:

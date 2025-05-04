@@ -9,13 +9,6 @@ from transformers import (
     WhisperForConditionalGeneration,
 )
 
-from llmcompressor.transformers.tracing import (
-    TraceableIdefics3ForConditionalGeneration,
-    TraceableLlavaForConditionalGeneration,
-    TraceableMllamaForConditionalGeneration,
-    TraceableQwen2_5_VLForConditionalGeneration,
-    TraceableQwen2VLForConditionalGeneration,
-)
 from llmcompressor.transformers.tracing.debug import trace
 
 
@@ -51,12 +44,12 @@ def test_text_trace(model_id, model_class, targets):
             ["LlamaDecoderLayer"],
             [],
         ),
-        # (
-        #     "meta-llama/Llama-3.2-11B-Vision-Instruct",
-        #     MllamaForConditionalGeneration,
-        #     ["MllamaSelfAttentionDecoderLayer"],
-        #     [],
-        # ),
+        (
+            "meta-llama/Llama-3.2-11B-Vision-Instruct",
+            MllamaForConditionalGeneration,
+            ["MllamaSelfAttentionDecoderLayer"],
+            [],
+        ),
         # skip phi3_v because of its processor is annoying and requires special code
         (
             "mgoin/pixtral-12b",
@@ -89,26 +82,26 @@ def test_vision_trace(model_id, model_class, targets, ignore):
     )
 
 
-# @pytest.mark.parametrize(
-#     "model_id,model_class,targets,ignore",
-#     [
-#         (
-#             "openai/whisper-large-v3",
-#             WhisperForConditionalGeneration,
-#             None,
-#             [],
-#         ),
-#     ],
-# )
-# def test_audio_trace(model_id, model_class, targets, ignore):
-#     pytest.importorskip("librosa")
-#     pytest.importorskip("soundfile")
+@pytest.mark.parametrize(
+    "model_id,model_class,targets,ignore",
+    [
+        (
+            "openai/whisper-large-v3",
+            WhisperForConditionalGeneration,
+            ["WhisperDecoderLayer"],
+            [],
+        ),
+    ],
+)
+def test_audio_trace(model_id, model_class, targets, ignore):
+    pytest.importorskip("librosa")
+    pytest.importorskip("soundfile")
 
-#     trace(
-#         model_id,
-#         model_class,
-#         targets,
-#         ignore=ignore,
-#         modality="audio",
-#         trust_remote_code=True,
-#     )
+    trace(
+        model_id,
+        model_class,
+        targets,
+        ignore=ignore,
+        modality="audio",
+        trust_remote_code=True,
+    )
