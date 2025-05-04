@@ -1,3 +1,4 @@
+import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
@@ -94,12 +95,19 @@ def trace_subgraphs(
     tracer = get_tracer(model, ancestors)
     concrete_args = populate_concrete_args(model, sample_input)
 
-    # trace
-    with calibration_forward_context(
-        model
-    ), HooksMixin.disable_hooks(), autowrap_forwards(ancestors, ignore), patch_attr(
-        torch.compiler, "_is_compiling_flag", True
-    ):
+    with contextlib.ExitStack() as stack:
+        # calibration context
+        stack.enter_context(calibration_forward_context(model))
+        stack.enter_context(HooksMixin.disable_hooks())
+
+        # flags useful for tracing
+        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
+        stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
+
+        # autowrap forwards
+        stack.enter_context(autowrap_forwards(ancestors, ignore))
+        stack.enter_context(patch_attr(type(model), "forward", model.forward.__func__))
+
         graph = GraphModule(
             model,
             tracer.trace(

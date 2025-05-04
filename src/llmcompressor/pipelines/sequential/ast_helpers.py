@@ -36,11 +36,11 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     # autowrap untraceable code
     auto_wrapper = AutoWrapper(namespace, ignore)
     tree = ast.fix_missing_locations(auto_wrapper.autowrap(tree))
-    print(type(module))
-    print(ast.unparse(ast.fix_missing_locations(tree)))
+    # print(type(module))
+    # print(ast.unparse(ast.fix_missing_locations(tree)))
 
     # compile new forward function from autowrapped code
-    filename = f"{module.__class__.__name__}_autowrapped"
+    filename = f"{module.__class__.__name__}_{hash(module)}_autowrapped"
     code = compile(tree, filename=filename, mode="exec")
     exec(code, namespace)
     import linecache
@@ -56,6 +56,7 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     # some modules (such as ModuleList) do not implement a forward function
     new_forward = namespace.get("forward", module.forward.__func__)
     new_forward = new_forward.__get__(module)  # curry self
+
     with patch_attr(module, "forward", new_forward):
         yield
 
@@ -65,6 +66,7 @@ class AutoWrapper(ast.NodeTransformer):
         self.eval_context = eval_context
         self.ignore = ignore
         self._wrapped_fn_defs = list()
+        self._local_names = set()
 
     def autowrap(self, tree: ast.Module) -> ast.Module:
         tree = self.visit(tree)
@@ -80,6 +82,9 @@ class AutoWrapper(ast.NodeTransformer):
         For example, add_start_docstrings_to_model_forward
         """
         node.decorator_list = []
+        if node.name == "forward":
+            for arg in node.args.args:
+                self._local_names.add(arg.arg)
         return super().generic_visit(node)
 
     def visit_If(self, node: ast.If) -> Union[ast.If, ast.Assign]:
@@ -93,9 +98,6 @@ class AutoWrapper(ast.NodeTransformer):
             return self._wrap(node)
 
         else:
-            print(
-                f"successfully evaled {ast.unparse(ast.fix_missing_locations(node.test))} into {value}"
-            )
             node.test = ast.Constant(value=value)
             return super().generic_visit(node)
 
@@ -132,7 +134,21 @@ class AutoWrapper(ast.NodeTransformer):
             )
         )
         return wrap_assign.value
-        return super().visit_Starred(node)
+
+    def visit_Name(self, node: ast.Name):
+        if isinstance(node.ctx, ast.Store):
+            self._local_names.add(node.id)
+
+        return super().generic_visit(node)
+
+    def visit_Delete(self, node: ast.Delete):
+        ret = super().visit_Delete(node)
+
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                self._local_names.remove(target.id)
+
+        return ret
 
     def _eval_expr(self, node: ast.expr) -> Any:
         if not isinstance(node, ast.expr):
@@ -150,12 +166,27 @@ class AutoWrapper(ast.NodeTransformer):
         for node in nodes:
             analyzer.visit(node)
 
-        args = analyzer.unbound_names - analyzer.conditionally_assigned_names
-        kwargs = analyzer.conditionally_assigned_names
+        # one limitation is that tracing does not support wrapped nodes which input or return callable types
+        # which is annoying for cases like
+        # attention_interface: Callable = eager_attention_forward
+        # if self.config._attn_implementation != "eager":
+        #     if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
+        #         logger.warning_once(
+        #             "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
+        #             'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
+        #         )
+        #     else:
+        #         attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+        args = (
+            analyzer.unbound_names | analyzer.conditionally_assigned_names
+        ) & self._local_names
+        kwargs = []  # analyzer.conditionally_assigned_names  # TODO: may require tracking local namespace
         returns = analyzer.assigned_names
 
         # Create function arguments
-        args_ast = [ast.arg(arg=name) for name in args] + [ast.arg(arg=name) for name in kwargs]  # ensure defaults last
+        args_ast = [ast.arg(arg=name) for name in args] + [
+            ast.arg(arg=name) for name in kwargs
+        ]  # ensure defaults last
         args_obj = ast.arguments(
             args=args_ast,
             posonlyargs=[],
@@ -234,7 +265,9 @@ class NameAnalyzer(ast.NodeVisitor):
 
         if_false_assigned_names = self.assigned_names - pre_assigned_names
 
-        self.conditionally_assigned_names |= if_true_assigned_names ^ if_false_assigned_names
+        self.conditionally_assigned_names |= (
+            if_true_assigned_names ^ if_false_assigned_names
+        )
         self.assigned_names |= if_true_assigned_names | if_false_assigned_names
 
     def visit_Name(self, node: ast.Name) -> ast.Name:

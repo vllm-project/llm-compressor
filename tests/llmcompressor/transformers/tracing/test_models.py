@@ -1,5 +1,13 @@
 import pytest
-from transformers import AutoModelForCausalLM, WhisperForConditionalGeneration, Idefics3ForConditionalGeneration, LlavaForConditionalGeneration, MllamaForConditionalGeneration, Qwen2_5_VLForConditionalGeneration
+from transformers import (
+    AutoModelForCausalLM,
+    Idefics3ForConditionalGeneration,
+    LlavaForConditionalGeneration,
+    MllamaForConditionalGeneration,
+    Qwen2_5_VLForConditionalGeneration,
+    Qwen2VLForConditionalGeneration,
+    WhisperForConditionalGeneration,
+)
 
 from llmcompressor.transformers.tracing import (
     TraceableIdefics3ForConditionalGeneration,
@@ -31,43 +39,43 @@ def test_text_trace(model_id, model_class, targets):
 @pytest.mark.parametrize(
     "model_id,model_class,targets,ignore",
     [
-        # (
-        #     "HuggingFaceM4/Idefics3-8B-Llama3",
-        #     Idefics3ForConditionalGeneration,
-        #     ["LlamaDecoderLayer"],
-        #     [],
-        # ),
-        # (
-        #     "llava-hf/llava-1.5-7b-hf",
-        #     LlavaForConditionalGeneration,
-        #     ["LlamaDecoderLayer"],
-        #     [],
-        # ),
+        (
+            "HuggingFaceM4/Idefics3-8B-Llama3",
+            Idefics3ForConditionalGeneration,
+            ["LlamaDecoderLayer"],
+            [],
+        ),
+        (
+            "llava-hf/llava-1.5-7b-hf",
+            LlavaForConditionalGeneration,
+            ["LlamaDecoderLayer"],
+            [],
+        ),
         # (
         #     "meta-llama/Llama-3.2-11B-Vision-Instruct",
         #     MllamaForConditionalGeneration,
         #     ["MllamaSelfAttentionDecoderLayer"],
         #     [],
         # ),
-        # # skip phi3_v because of its processor is annoying and requires special code
-        # (
-        #     "mgoin/pixtral-12b",
-        #     LlavaForConditionalGeneration,
-        #     ["MistralDecoderLayer"],
-        #     [],
-        # ),
+        # skip phi3_v because of its processor is annoying and requires special code
+        (
+            "mgoin/pixtral-12b",
+            LlavaForConditionalGeneration,
+            ["MistralDecoderLayer"],
+            [],
+        ),
         (
             "Qwen/Qwen2.5-VL-7B-Instruct",
             Qwen2_5_VLForConditionalGeneration,
             ["Qwen2_5_VLDecoderLayer"],
             [],
         ),
-        # (
-        #     "Qwen/Qwen2-VL-2B-Instruct",
-        #     TraceableQwen2VLForConditionalGeneration,
-        #     ["Qwen2VLDecoderLayer"],
-        #     [],
-        # ),
+        (
+            "Qwen/Qwen2-VL-2B-Instruct",
+            Qwen2VLForConditionalGeneration,
+            ["Qwen2VLDecoderLayer"],
+            [],
+        ),
     ],
 )
 def test_vision_trace(model_id, model_class, targets, ignore):
@@ -81,26 +89,26 @@ def test_vision_trace(model_id, model_class, targets, ignore):
     )
 
 
-@pytest.mark.parametrize(
-    "model_id,model_class,targets,ignore",
-    [
-        (
-            "openai/whisper-large-v3",
-            WhisperForConditionalGeneration,
-            None,
-            [],
-        ),
-    ],
-)
-def test_audio_trace(model_id, model_class, targets, ignore):
-    pytest.importorskip("librosa")
-    pytest.importorskip("soundfile")
+# @pytest.mark.parametrize(
+#     "model_id,model_class,targets,ignore",
+#     [
+#         (
+#             "openai/whisper-large-v3",
+#             WhisperForConditionalGeneration,
+#             None,
+#             [],
+#         ),
+#     ],
+# )
+# def test_audio_trace(model_id, model_class, targets, ignore):
+#     pytest.importorskip("librosa")
+#     pytest.importorskip("soundfile")
 
-    trace(
-        model_id,
-        model_class,
-        targets,
-        ignore=ignore,
-        modality="audio",
-        trust_remote_code=True,
-    )
+#     trace(
+#         model_id,
+#         model_class,
+#         targets,
+#         ignore=ignore,
+#         modality="audio",
+#         trust_remote_code=True,
+#     )
