@@ -84,6 +84,7 @@ setup(
     use_scm_version={
         "version_scheme": version_func,
         "local_scheme": localversion_func,
+        "version_file": "src/llmcompressor/version.py",
     },
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",
@@ -115,15 +116,15 @@ setup(
         "requests>=2.0.0",
         "tqdm>=4.0.0",
         "torch>=1.7.0",
-        "transformers>4.0,<4.50",
+        "transformers>4.0,<5.0",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
         "pillow",
         (
-            "compressed-tensors==0.9.3"
+            "compressed-tensors==0.9.4"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.9.4a2"
+            else "compressed-tensors>=0.9.5a2"
         ),
     ],
     extras_require={

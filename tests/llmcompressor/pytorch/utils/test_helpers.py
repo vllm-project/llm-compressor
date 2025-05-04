@@ -7,11 +7,14 @@ from torch import Tensor
 from torch.nn import Linear, Module, ReLU, Sequential
 
 from llmcompressor.pytorch.utils import (
+    sanitize_kwargs_for_module,
+    tensor_forward_with_input_args,
     tensor_sparsity,
     tensors_module_forward,
     tensors_to_device,
     tensors_to_precision,
 )
+from tests.testing_utils import requires_gpu
 
 
 @pytest.mark.unit
@@ -53,6 +56,7 @@ def test_tensors_to_device_cpu(tensors):
     os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
     reason="Skipping pytorch tests",
 )
+@requires_gpu
 @pytest.mark.parametrize(
     "tensors",
     [
@@ -67,7 +71,6 @@ def test_tensors_to_device_cpu(tensors):
         [[torch.randn(1, 8)], torch.randn(8, 8)],
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
 def test_tensors_to_device_cuda(tensors):
     out = tensors_to_device(tensors, "cuda")
 
@@ -362,6 +365,7 @@ def test_tensors_module_forward(module, tensors, check_feat_lab_inp):
     os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
     reason="Skipping pytorch tests",
 )
+@requires_gpu
 @pytest.mark.parametrize(
     "module,tensors,check_feat_lab_inp",
     [
@@ -415,7 +419,6 @@ def test_tensors_module_forward(module, tensors, check_feat_lab_inp):
         ),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
 def test_tensors_module_forward_cuda(module, tensors, check_feat_lab_inp):
     module = module.to("cuda")
     tensors = tensors_to_device(tensors, "cuda")
@@ -469,6 +472,7 @@ def test_tensor_sparsity(tensor, dim, expected_sparsity):
     os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
     reason="Skipping pytorch tests",
 )
+@requires_gpu
 @pytest.mark.parametrize(
     "tensor,dim,expected_sparsity",
     [
@@ -488,9 +492,48 @@ def test_tensor_sparsity(tensor, dim, expected_sparsity):
         ),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires cuda availability")
 def test_tensor_sparsity_cuda(tensor, dim, expected_sparsity):
     tensor = tensor.to("cuda")
     sparsity = tensor_sparsity(tensor, dim)
     assert expected_sparsity.shape == sparsity.shape
     assert torch.sum((sparsity.detach().cpu() - expected_sparsity).abs()) < 0.001
+
+
+class TestSanitizeKwargsForModule:
+    @pytest.fixture
+    def module(self):
+        return Linear(10, 20)
+
+    def test_sanitize_kwargs_for_module_not_dict(self, module):
+        # Test with kwargs that are not a dictionary
+        with pytest.raises(TypeError):
+            sanitize_kwargs_for_module("not a dictionary", module)
+
+    def test_sanitize_kwargs_for_module_not_in_signature(self, module):
+        # Test with kwargs that are not in the signature of the forward method
+        kwargs = {"not_in_signature": 123}
+        sanitized_kwargs = sanitize_kwargs_for_module(kwargs, module)
+        assert sanitized_kwargs == {}
+
+    def test_sanitize_kwargs_for_module_in_signature(self, module):
+        # Test with kwargs that are in the signature of the forward method
+        kwargs = {"input": torch.randn(1, 10)}
+        sanitized_kwargs = sanitize_kwargs_for_module(kwargs, module)
+        assert sanitized_kwargs == kwargs
+
+
+class TestTensorForwardWithInputArgs:
+    @pytest.fixture
+    def module(self):
+        return Linear(10, 20)
+
+    def test_tensor_forward_with_input_args(self, module):
+        # Test with valid inputs and input_kwargs
+        inputs = torch.randn(1, 10)
+        input_kwargs = {}
+        output = tensor_forward_with_input_args(module, inputs, input_kwargs)
+        assert output.shape == (1, 20)
+
+        # Test with input_kwargs that are not in the signature of the forward method
+        input_kwargs = {"not_in_signature": 123}
+        tensor_forward_with_input_args(module, inputs, input_kwargs)

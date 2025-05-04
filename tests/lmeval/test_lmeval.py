@@ -175,5 +175,5 @@ class TestLMEval:
             df = pd.DataFrame(measurements)
             df.to_csv(p / f"{self.save_dir}.csv", index=False)
 
-        if self.save_dir is not None:
+        if self.save_dir is not None and os.path.isdir(self.save_dir):
             shutil.rmtree(self.save_dir)
