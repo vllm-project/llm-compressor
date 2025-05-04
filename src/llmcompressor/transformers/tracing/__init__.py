@@ -1,3 +1,6 @@
+from .gemma3 import (
+    Gemma3ForConditionalGeneration as TraceableGemma3ForConditionalGeneration,
+)
 from .llava import (
     LlavaForConditionalGeneration as TraceableLlavaForConditionalGeneration,
 )
@@ -11,12 +14,13 @@ from .idefics3 import (
     Idefics3ForConditionalGeneration as TraceableIdefics3ForConditionalGeneration,
 )
 from .qwen2_5_vl import (
-    Qwen2_5_VLForConditionalGeneration as TraceableQwen2_5_VLForConditionalGeneration
+    Qwen2_5_VLForConditionalGeneration as TraceableQwen2_5_VLForConditionalGeneration,
 )
 from .debug import get_model_class
 
 __all__ = [
     "get_model_class",
+    "TraceableGemma3ForConditionalGeneration",
     "TraceableLlavaForConditionalGeneration",
     "TraceableMllamaForConditionalGeneration",
     "TraceableQwen2VLForConditionalGeneration",
