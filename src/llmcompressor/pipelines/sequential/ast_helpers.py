@@ -290,23 +290,21 @@ class NameAnalyzer(ast.NodeVisitor):
 
     def visit_If(self, node: ast.If):
         self.visit(node.test)
-        pre_assigned_names = self.assigned_names.copy()
 
-        for statement in node.body:
-            self.visit(statement)
+        # collect names from `true` clause
+        with patch_attr(self, "assigned_names", set()):
+            for statement in node.body:
+                self.visit(statement)
+            true_assigned = self.assigned_names
 
-        if_true_assigned_names = self.assigned_names - pre_assigned_names
-        self.assigned_names = pre_assigned_names.copy()
+        # collect names from `false` clause
+        with patch_attr(self, "assigned_names", set()):
+            for statement in node.orelse:
+                self.visit(statement)
+            false_assigned = self.assigned_names
 
-        for statement in node.orelse:
-            self.visit(statement)
-
-        if_false_assigned_names = self.assigned_names - pre_assigned_names
-
-        self.conditionally_assigned_names |= (
-            if_true_assigned_names ^ if_false_assigned_names
-        )
-        self.assigned_names |= if_true_assigned_names | if_false_assigned_names
+        self.conditionally_assigned_names |= true_assigned ^ false_assigned
+        self.assigned_names |= true_assigned | false_assigned
 
     def visit_Name(self, node: ast.Name) -> ast.Name:
         name = node.id
