@@ -245,6 +245,11 @@ class AutoWrapper(ast.NodeTransformer):
         self._wrapper_fn_defs.append(fn_def)
 
         # build call and assignment
+        # TODO: when it comes to handling fns with `self`, do one of the following
+        # 1. define functions as methods (and patch them in along with the forward),
+        #   + keep the patches while executing pipeline
+        #   + use torch.fx._symbolic_trace._wrapped_methods_to_patch
+        # 2. expand any self attributes, both in the fn def and in the fn call
         fn_call = ast.Call(
             func=ast.Name(id=fn_name, ctx=ast.Load()),
             args=[ast.Name(id=name, ctx=ast.Load()) for name in args],
