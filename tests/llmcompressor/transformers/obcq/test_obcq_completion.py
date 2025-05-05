@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 
@@ -22,20 +23,18 @@ class TestOBCQCompletion(unittest.TestCase):
         from torch.utils.data import DataLoader
         from transformers import AutoTokenizer, DefaultDataCollator
 
+        from llmcompressor.args import DatasetArguments
         from llmcompressor.transformers.finetune.data import TextGenerationDataset
-        from llmcompressor.transformers.finetune.data.data_args import (
-            DataTrainingArguments,
-        )
 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        data_args = DataTrainingArguments(
+        dataset_args = DatasetArguments(
             dataset=dataset_name,
             max_seq_length=512,
             pad_to_max_length=False,
         )
         dataset_manager = TextGenerationDataset.load_from_registry(
-            data_args.dataset,
-            data_args=data_args,
+            dataset_args.dataset,
+            dataset_args=dataset_args,
             split="train",
             processor=tokenizer,
         )
@@ -49,9 +48,9 @@ class TestOBCQCompletion(unittest.TestCase):
     def _test_oneshot_completion(self, model_name: str = None):
         import torch
 
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils import tensors_to_device
-        from llmcompressor.transformers import oneshot
 
         oneshot(
             model=self.model,
@@ -62,9 +61,7 @@ class TestOBCQCompletion(unittest.TestCase):
             num_calibration_samples=self.num_samples,
             pad_to_max_length=False,
             output_dir=self.output,
-            clear_sparse_session=False,
             precision="bfloat16",
-            bf16=True,
         )
 
         first_tiny_model = get_session_model()
@@ -94,7 +91,8 @@ class TestOBCQCompletion(unittest.TestCase):
         self.assertLess(avg_new_ppl, self.perplexity)
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
 
 
 @requires_gpu

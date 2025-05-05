@@ -3,7 +3,6 @@ General utility helper functions.
 Common functions for interfacing with python primitives and directories/files.
 """
 
-import ast
 import contextlib
 import errno
 import fnmatch
@@ -26,6 +25,7 @@ import numpy
 import torch
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from loguru import logger
+from transformers import PreTrainedModel
 
 __all__ = [
     "ALL_TOKEN",
@@ -58,13 +58,14 @@ __all__ = [
     "tensors_export",
     "json_to_jsonl",
     "deprecation_warning",
-    "parse_kwarg_tuples",
     "is_package_available",
     "import_from_path",
     "getattr_chain",
     "DisableKVCache",
     "DisableQuantization",
+    "eval_context",
     "calibration_forward_context",
+    "patch_attr",
 ]
 
 
@@ -879,83 +880,6 @@ def deprecation_warning(message: str):
     )
 
 
-def parse_kwarg_tuples(kwargs: tuple) -> Dict:
-    """
-    Convert a tuple of kwargs to a dict of kwargs.
-    This function is used to enable the click parsing of kwargs.
-
-    Example use:
-    ```
-    @click.command(
-    context_settings=dict(
-        ignore_unknown_options=True)
-    )
-    @click.argument(...)
-    @click.option(...)
-    ...
-    @click.argument("kwargs", nargs=-1, type=click.UNPROCESSED)
-    def main(..., kwargs):
-        ...
-        kwargs: Dict[str, Any] = parse_kwarg_tuples(kwargs: Tuple)
-    ```
-
-    Example inputs, outputs:
-    ```
-    input = ('--arg1', 1, 'arg2', 2, '-arg3', 3)
-    output = parse_kwarg_tuples(input)
-    output = {'arg1': 1, 'arg2': 2, 'arg3': 3}
-    ```
-
-    ```
-    input = ('--arg1', 1, '--args1', 2 , 'arg2', 2, '-arg3', 3)
-    output = parse_kwarg_tuples(input)
-    output = {'arg1': [1, 2], 'arg2': 2, 'arg3': 3}
-    ```
-
-    :param kwargs: The kwargs to convert. Should be a tuple of alternating
-        kwargs names and kwargs values e.g.('--arg1', 1, 'arg2', 2, -arg3', 3).
-        The names can optionally have a '-' or `--` in front of them.
-    :return: The converted kwargs as a dict.
-    """
-    if len(kwargs) == 0:
-        return {}
-    if len(kwargs) % 2 != 0:
-        raise ValueError(
-            "kwargs must be a tuple of alternating names and values "
-            "i.e. the length of kwargs tuple must be even. Received "
-            f"kwargs: {kwargs}"
-        )
-    # names are uneven indices, values are even indices
-    kwargs_names = kwargs[0::2]
-    kwargs_values = kwargs[1::2]
-    # by default kwargs values are strings, so convert them
-    # to the appropriate type if possible
-    kwargs_values = list(kwargs_values)
-    for i, value in enumerate(kwargs_values):
-        try:
-            kwargs_values[i] = ast.literal_eval(value)
-        except Exception as e:  # noqa E841
-            logger.debug(
-                f"Failed to infer non-string type"
-                f"from kwarg value: {value}. It will"
-                f"be left as a string."
-            )
-            pass
-    # remove any '-' or '--' from the names
-    kwargs_names = [name.lstrip("-") for name in kwargs_names]
-    processed_kwargs = {}
-    for kwarg_name, kwarg_value in zip(kwargs_names, kwargs_values):
-        if kwarg_name in processed_kwargs:
-            # if the kwarg name is already in the processed kwargs,
-            # then we should convert the value to a list
-            if not isinstance(processed_kwargs[kwarg_name], list):
-                processed_kwargs[kwarg_name] = [processed_kwargs[kwarg_name]]
-            processed_kwargs[kwarg_name].append(kwarg_value)
-        else:
-            processed_kwargs[kwarg_name] = kwarg_value
-    return processed_kwargs
-
-
 def is_package_available(
     package_name: str,
     return_version: bool = False,
@@ -1062,7 +986,7 @@ class DisableKVCache:
     ...     output = model(input)
     """
 
-    def __init__(self, model: torch.nn.Module):
+    def __init__(self, model: PreTrainedModel):
         if hasattr(model.config, "use_cache"):
             self.config = model.config
 
@@ -1087,31 +1011,69 @@ class DisableKVCache:
 
 
 @contextlib.contextmanager
-def DisableQuantization(model: torch.nn.Module):
+def DisableQuantization(module: torch.nn.Module):
     """
-    Disable quantization from QuantizationModifier
+    Disable quantization during forward passes after applying a quantization config
     """
     try:
-        model.apply(disable_quantization)
+        module.apply(disable_quantization)
         yield
     finally:
-        model.apply(enable_quantization)
+        module.apply(enable_quantization)
 
 
 @contextlib.contextmanager
-def calibration_forward_context(model: torch.nn.Module):
+def eval_context(module: torch.nn.Module):
+    restore_value = module.training
+    try:
+        module.train(False)  # equivalent to eval()
+        yield
+
+    finally:
+        module.train(restore_value)
+
+
+@contextlib.contextmanager
+def calibration_forward_context(model: PreTrainedModel):
     """
     Context in which all calibration forward passes should occur.
 
     - Remove gradient calculations
     - Disable the KV cache
-    - Disable quantization from QuantizationModifier
+    - Disable train mode and enable eval mode
     """
-    model.eval()
-
     with (
         torch.no_grad(),
         DisableKVCache(model),
-        DisableQuantization(model),
+        eval_context(model),
     ):
         yield
+
+
+@contextlib.contextmanager
+def patch_attr(base: object, attr: str, value: Any):
+    """
+    Patch the value of an object attribute. Original value is restored upon exit
+
+    :param base: object which has the attribute to patch
+    :param attr: name of the the attribute to patch
+    :param value: used to replace original value
+
+    Usage:
+    >>> from types import SimpleNamespace
+    >>> obj = SimpleNamespace()
+    >>> with patch_attr(obj, "attribute", "value"):
+    ...     assert obj.attribute == "value"
+    >>> assert not hasattr(obj, "attribute")
+    """
+    _sentinel = object()
+    original_value = getattr(base, attr, _sentinel)
+
+    setattr(base, attr, value)
+    try:
+        yield
+    finally:
+        if original_value is not _sentinel:
+            setattr(base, attr, original_value)
+        else:
+            delattr(base, attr)

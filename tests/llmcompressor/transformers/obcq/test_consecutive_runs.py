@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 from pathlib import Path
@@ -8,8 +9,8 @@ from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
+from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
-from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
@@ -26,10 +27,9 @@ class TestConsecutiveRuns(unittest.TestCase):
     ):
         import math
 
+        from llmcompressor import oneshot
         from llmcompressor.core import active_session
-        from llmcompressor.pytorch.model_load.helpers import initialize_recipe
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
         from llmcompressor.utils.pytorch import qat_active
 
         # test recipe with 50% sparsity, quantization and smoothquant
@@ -40,12 +40,12 @@ class TestConsecutiveRuns(unittest.TestCase):
             recipe=self.first_recipe,
             output_dir=self.output_first,
             oneshot_device=self.device,
-            clear_sparse_session=False,
         )
 
         first_model = AutoModelForCausalLM.from_pretrained(
             self.output_first,
             device_map="auto",
+            torch_dtype="auto",
             quantization_config=self.quantization_config,
         )
 
@@ -61,11 +61,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertEqual(len(stages), 1)
         session.reset()
 
-        recipe = infer_recipe_from_model_path(model_path=self.output_first)
-        if recipe:
-            initialize_recipe(model=first_model, recipe_path=recipe)
-
-        # reload saved model and up sparsity to 0.7
+        # reload saved model and increase sparsity to 0.7
         oneshot(
             model=self.output_first,
             dataset=self.dataset,
@@ -77,8 +73,9 @@ class TestConsecutiveRuns(unittest.TestCase):
 
         second_model = AutoModelForCausalLM.from_pretrained(
             self.output_second,
-            device_map="auto",
             quantization_config=self.quantization_config,
+            device_map="auto",
+            torch_dtype="auto",
         )
 
         layer_0_sparse = tensor_sparsity(
@@ -87,11 +84,6 @@ class TestConsecutiveRuns(unittest.TestCase):
         assert math.isclose(layer_0_sparse.item(), 0.7, rel_tol=tolerance)
         assert qat_active(second_model)
 
-        session = active_session()
-        session_recipe = session.lifecycle.recipe_container.compiled_recipe
-        stages = [stage.group for stage in session_recipe.stages]
-        self.assertEqual(len(stages), 2)
-
         recipe_path = self.output_second / "recipe.yaml"
         recipe_data = yaml.safe_load(recipe_path.read_text())
         stage_keys = recipe_data.keys()
@@ -99,8 +91,27 @@ class TestConsecutiveRuns(unittest.TestCase):
         self.assertIn("test_stage_0", stage_keys)
         self.assertIn("test_stage_1", stage_keys)
 
+        # check saved modifier names are same
+        stage0_modifier_names = list(
+            list(recipe_data["test_stage_0"].values())[0].keys()
+        )
+        exp_stage0_modifier_names = [
+            mod.type
+            for mod in Recipe.create_instance(self.first_recipe).stages[0].modifiers
+        ]
+        stage1_modifier_names = list(
+            list(recipe_data["test_stage_1"].values())[0].keys()
+        )
+        exp_stage1_modifier_names = [
+            mod.type
+            for mod in Recipe.create_instance(self.second_recipe).stages[0].modifiers
+        ]
+        self.assertEqual(stage0_modifier_names, exp_stage0_modifier_names)
+        self.assertEqual(stage1_modifier_names, exp_stage1_modifier_names)
+
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
 
 
 @pytest.mark.integration
@@ -123,7 +134,6 @@ class TestConsecutiveRunsSmall(TestConsecutiveRuns):
         self._test_consecutive_runs(tolerance=1e-3)
 
 
-# TODO: @Satrat and @dsikka, revisit if we want these nightly or weekly
 @requires_gpu
 @pytest.mark.integration
 @parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
@@ -144,8 +154,7 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         )
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.model,
-            device_map=self.device,
+            self.model, device_map=self.device, torch_dtype="auto"
         )
 
         self.output = "./oneshot_output"
@@ -153,4 +162,4 @@ class TestConsecutiveRunsGPU(TestConsecutiveRuns):
         self.output_second = Path(self.output) / "test_2"
 
     def test_consecutive_runs_gpu(self):
-        self._test_consecutive_runs(tolerance=1e-0, num_calibration_samples=16)
+        self._test_consecutive_runs(tolerance=1e-0)

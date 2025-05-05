@@ -7,13 +7,13 @@ from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
 
 if TYPE_CHECKING:
-    from llmcompressor.transformers import DataTrainingArguments as DataArgs
+    from llmcompressor.args import DatasetArguments
 
 
 @TextGenerationDataset.register(name="flickr", alias="flickr30k")
 class Flickr30K(TextGenerationDataset):
     """
-    :param data_args: configuration settings for dataset loading
+    :param dataset_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
     :param processor: processor or tokenizer to use on dataset
     """
@@ -31,11 +31,13 @@ class Flickr30K(TextGenerationDataset):
         "{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
     )
 
-    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
-        data_args = deepcopy(data_args)
-        data_args.dataset = "lmms-lab/flickr30k"
+    def __init__(
+        self, dataset_args: "DatasetArguments", split: str, processor: Processor
+    ):
+        dataset_args = deepcopy(dataset_args)
+        dataset_args.dataset = "lmms-lab/flickr30k"
 
-        super().__init__(data_args=data_args, split=split, processor=processor)
+        super().__init__(dataset_args=dataset_args, split=split, processor=processor)
 
         if (
             self.tokenizer is not None
@@ -55,14 +57,19 @@ class Flickr30K(TextGenerationDataset):
                 "role": "user",
                 "content": [
                     {"type": "image"},
-                    {"type": "text", "text": "What does the image show?"},
+                    {"type": "text", "text": "What does this image show?"},
                 ],
-            }
+            },
+            {
+                "role": "assistant",
+                "content": " ".join(sample["caption"]),
+            },
         ]
+
         return {
             "text": self.processor.apply_chat_template(
                 messages,
-                add_generation_prompt=True,
+                add_generation_prompt=False,
             ),
             "images": sample["image"],
         }

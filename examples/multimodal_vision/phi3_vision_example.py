@@ -1,10 +1,12 @@
+# NOTE: this model requires modification in order to work with transformers>4.48
+# https://huggingface.co/microsoft/Phi-3-vision-128k-instruct/discussions/69
+
 import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoProcessor
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.transformers import oneshot
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"
@@ -31,11 +33,14 @@ ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
 # Apply chat template
 def preprocess(example):
-    messages = [{"role": "user", "content": "<|image_1|>\nWhat does the image show?"}]
+    messages = [
+        {"role": "user", "content": "<|image_1|>\nWhat does this image show?"},
+        {"role": "assistant", "content": " ".join(example["caption"])},
+    ]
     return {
         "text": processor.apply_chat_template(
             messages,
-            add_generation_prompt=True,
+            add_generation_prompt=False,
         ),
         "images": example["image"],
     }
@@ -67,15 +72,12 @@ def data_collator(batch):
 
 
 # Recipe
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(
-        targets="Linear",
-        scheme="W4A16",
-        sequential_targets=["Phi3DecoderLayer"],
-        ignore=["lm_head", "re:model.vision_embed_tokens.*"],
-    ),
-]
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    sequential_targets=["Phi3DecoderLayer"],
+    ignore=["lm_head", "re:model.vision_embed_tokens.*"],
+)
 
 # Perform oneshot
 oneshot(

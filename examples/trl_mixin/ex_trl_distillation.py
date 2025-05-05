@@ -1,11 +1,8 @@
 from sft_trainer import SFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
-from llmcompressor.transformers import (
-    DataTrainingArguments,
-    TextGenerationDataset,
-    TrainingArguments,
-)
+from llmcompressor.args import DatasetArguments, ModelArguments
+from llmcompressor.transformers import TextGenerationDataset
 
 model_path = "neuralmagic/Llama-2-7b-pruned50-retrained"
 teacher_path = "neuralmagic/Llama-2-7b-gsm8k"
@@ -19,18 +16,19 @@ teacher = AutoModelForCausalLM.from_pretrained(
 )
 
 tokenizer = AutoTokenizer.from_pretrained(model_path)
+max_seq_length = 512
 
 # Load gsm8k using SparseML dataset tools
-data_args = DataTrainingArguments(
-    dataset="gsm8k", dataset_config_name="main", max_seq_length=512
+dataset_args = DatasetArguments(
+    dataset="gsm8k", dataset_config_name="main", max_seq_length=max_seq_length
 )
 dataset_manager = TextGenerationDataset.load_from_registry(
-    data_args.dataset,
-    data_args=data_args,
+    dataset_args.dataset,
+    dataset_args=dataset_args,
     split="train",
-    tokenizer=tokenizer,
+    processor=tokenizer,
 )
-train_dataset = dataset_manager.tokenize_and_process()
+train_dataset = dataset_manager()
 print(f"--> Training Set Length = {len(train_dataset)}")
 
 # recipe for maintaining model sparsity during finetuning
@@ -51,25 +49,28 @@ test_stage:
 """
 
 data_collator = DefaultDataCollator()
-training_args = TrainingArguments(
+trl_sft_config_args = dict(
     output_dir=output_dir,
     num_train_epochs=0.6,
     logging_steps=50,
     gradient_checkpointing=True,
     bf16=True,
     save_safetensors=False,  # workaround for shared tensors
+    max_seq_length=max_seq_length,
+    packing=True,
 )
+model_args = ModelArguments(model=model, distill_teacher=teacher)
+
 trainer = SFTTrainer(
     model=model,
     teacher=teacher,
-    tokenizer=tokenizer,
+    processing_class=tokenizer,
     recipe=recipe,
     train_dataset=train_dataset,
     data_collator=data_collator,
-    args=training_args,
-    data_args=data_args,
-    max_seq_length=data_args.max_seq_length,
-    packing=True,
+    trl_sft_config_args=trl_sft_config_args,
+    dataset_args=dataset_args,
+    model_args=model_args,
 )
 trainer.train()
-trainer.save_model()
+trainer.save_model(output_dir)

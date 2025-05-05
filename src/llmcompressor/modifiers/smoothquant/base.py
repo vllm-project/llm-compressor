@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.utils.offload import is_module_offloaded
+from compressed_tensors.utils import align_module_device
 from loguru import logger
+from pydantic import ConfigDict, Field
 from torch.nn import Module
 
 from llmcompressor.core import State
@@ -14,6 +15,7 @@ from llmcompressor.modifiers.smoothquant.utils import (
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
+from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_matching_layer,
@@ -104,8 +106,10 @@ class SmoothQuantModifier(Modifier):
     num_calibration_steps: Optional[int] = None
     calibration_function: Optional[Callable] = None
 
-    resolved_mappings_: Optional[List] = None
-    scales_: Optional[Dict] = None
+    resolved_mappings_: Optional[List[SmoothQuantMapping]] = Field(
+        default=None, repr=False
+    )
+    scales_: Optional[Dict] = Field(default=None, repr=False)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -165,7 +169,7 @@ class SmoothQuantModifier(Modifier):
         )
 
     @handle_mapping_resolution_errors
-    def _resolve_mappings(self, model: Module) -> List:
+    def _resolve_mappings(self, model: Module) -> List[SmoothQuantMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into SmoothQuantMapping objects, resolving regular expressions.
@@ -250,12 +254,13 @@ class SmoothQuantModifier(Modifier):
                 " CompressionSession to run the SmoothQuant modifier"
             )
 
-        run_calibration_forward(
-            model,
-            calibration_dataloader,
-            self.num_calibration_steps,
-            self.calibration_function,
-        )
+        with calibration_forward_context(model):
+            run_calibration_forward(
+                model,
+                calibration_dataloader,
+                self.num_calibration_steps,
+                self.calibration_function,
+            )
 
         # remove the hooks now that we are done calibrating
         self.remove_hooks()
@@ -287,22 +292,16 @@ class SmoothQuantModifier(Modifier):
 
             @torch.no_grad()
             def smooth(module):
-                offloaded = is_module_offloaded(module)
-                if offloaded:
-                    module._hf_hook.pre_forward(module)
-
-                if module in balance_layers:
-                    module.weight.mul_(scales.view(1, -1))
-                elif module == smooth_layer:
-                    if module.weight.ndim == 1:
-                        module.weight.div_(scales)
-                    else:
-                        module.weight.div_(scales.view(-1, 1))
-                    if hasattr(module, "bias") and module.bias is not None:
-                        module.bias.div_(scales)
-
-                if offloaded:
-                    module._hf_hook.post_forward(module, None)
+                with align_module_device(module):
+                    if module in balance_layers:
+                        module.weight.mul_(scales.view(1, -1))
+                    elif module == smooth_layer:
+                        if module.weight.ndim == 1:
+                            module.weight.div_(scales)
+                        else:
+                            module.weight.div_(scales.view(-1, 1))
+                        if hasattr(module, "bias") and module.bias is not None:
+                            module.bias.div_(scales)
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
             if parent is not None:
@@ -312,9 +311,6 @@ class SmoothQuantModifier(Modifier):
                 for layer in balance_layers:
                     smooth(layer)
                 smooth(smooth_layer)
-
-        # clear out allocated smoothing scales
-        torch.cuda.empty_cache()
 
     def _calculate_smoothing_scales(
         self, balance_layers: List[Module], activation_scales: torch.Tensor
@@ -330,15 +326,9 @@ class SmoothQuantModifier(Modifier):
         # get the channel-wise dynamic range for each layer to be balanced
         weight_scales = []
         for layer in balance_layers:
-            offloaded = is_module_offloaded(layer)
-            if offloaded:
-                layer._hf_hook.pre_forward(layer)
-
-            scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
-            weight_scales.append(scale)
-
-            if offloaded:
-                layer._hf_hook.post_forward(layer, None)
+            with align_module_device(layer):
+                scale = layer.weight.abs().max(dim=0, keepdim=True)[0]
+                weight_scales.append(scale)
 
         weight_scales = 2.0 * torch.cat(weight_scales, dim=0).max(dim=0)[0]
 
@@ -351,3 +341,5 @@ class SmoothQuantModifier(Modifier):
         scales = torch.where(weight_scales > 0.0, scales, activation_scales)
 
         return scales
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

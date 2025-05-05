@@ -1,7 +1,7 @@
 cadence: "commit"
 test_type: "smoke"
 tokenize: False
-model: "Xenova/llama2.c-stories15M"
+model: "nm-testing/llama2.c-stories15M"
 dataset: "gsm8k"
 dataset_config_name: "main"
 recipe: |
@@ -10,7 +10,6 @@ recipe: |
       SparseGPTModifier:
         sparsity: 0.5
         block_size: 128
-        sequential_update: False
         targets: [
           're:model.layers.3.mlp.gate_proj.weight'
         ]

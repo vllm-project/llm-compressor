@@ -1,9 +1,10 @@
 from typing import List
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from packaging.version import Version
+from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
@@ -47,13 +48,19 @@ oneshot(
     max_seq_length=MAX_SEQ_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=SAVE_COMPRESSED,
-    overwrite_output_dir=True,
     output_dir=SAVE_DIR,
 )
 
 # Confirm generations of the quantized model look sane.
-print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
-print("==========================================")
+# Generation is broken for deepseek models when using the latest transformers package
+if Version(__version__) < Version("4.48"):
+    print("========== SAMPLE GENERATION ==============")
+    input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+    output = model.generate(input_ids, max_new_tokens=20)
+    print(tokenizer.decode(output[0]))
+    print("==========================================")
+else:
+    print(
+        "WARNING: cannot perform sample generation of "
+        "deepseek models with transformers >= 4.48"
+    )

@@ -8,8 +8,8 @@ from compressed_tensors.quantization.utils.helpers import iter_named_quantizable
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.core import reset_session
-from llmcompressor.transformers import oneshot
 
 NUM_CALIBRATION_SAMPLES = 16
 MAX_SEQUENCE_LENGTH = 512
@@ -222,7 +222,6 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
                     dynamic: {dynamic}
                     symmetric: {symmetric}
             GPTQModifier:
-                sequential_update: false
                 ignore: ["lm_head"]
                 config_groups:
                     group_0:

@@ -2,8 +2,8 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Callable
 
+import pandas as pd
 import pytest
 import yaml
 from huggingface_hub import HfApi
@@ -12,6 +12,7 @@ from loguru import logger
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
+from tests.test_timer.timer_utils import get_singleton_manager, log_time
 
 try:
     from vllm import LLM, SamplingParams
@@ -24,7 +25,11 @@ except ImportError:
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "")
+TEST_DATA_FILE = os.environ.get(
+    "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
+)
+SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
+TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 
 EXPECTED_SAVED_FILES = [
     "config.json",
@@ -34,15 +39,12 @@ EXPECTED_SAVED_FILES = [
 ]
 
 
-@pytest.fixture
-def record_config_file(record_testsuite_property: Callable[[str, object], None]):
-    test_data_file_name = TEST_DATA_FILE.split("configs/")[-1]
-    record_testsuite_property("TEST_DATA_FILE_NAME", test_data_file_name)
-
-
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
 @requires_gpu_count(1)
+@pytest.mark.parametrize(
+    "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
+)
 @pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
@@ -61,13 +63,14 @@ class TestvLLM:
     be used for quantization. Otherwise, the recipe will always be used if given.
     """  # noqa: E501
 
-    def set_up(self):
-        eval_config = yaml.safe_load(Path(TEST_DATA_FILE).read_text(encoding="utf-8"))
+    def set_up(self, test_data_file: str):
+        eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
 
         self.model = eval_config["model"]
+        self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
@@ -76,13 +79,16 @@ class TestvLLM:
         self.quant_type = eval_config.get("quant_type")
         self.save_dir = eval_config.get("save_dir")
         self.save_compressed = eval_config.get("save_compressed", True)
+        self.num_calibration_samples = eval_config.get("num_calibration_samples", 256)
+        self.max_seq_length = eval_config.get("max_seq_length", 2048)
+
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
 
         logger.info("========== RUNNING ==============")
-        logger.info(self.scheme)
+        logger.info(self.save_dir)
 
         self.device = "cuda:0"
-        self.num_calibration_samples = 256
-        self.max_seq_length = 2048
         self.prompts = [
             "The capital of France is",
             "The president of the US is",
@@ -90,16 +96,15 @@ class TestvLLM:
         ]
         self.api = HfApi()
 
-    @pytest.mark.usefixtures("record_config_file")
-    def test_vllm(self):
+    def test_vllm(self, test_data_file: str):
         # Run vLLM with saved model
-        import torch
 
-        self.set_up()
+        self.set_up(test_data_file)
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
+            model_class=self.model_class,
             device=self.device,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,
@@ -115,10 +120,8 @@ class TestvLLM:
         self._check_session_contains_recipe()
 
         logger.info("================= SAVING TO DISK ======================")
-        oneshot_model.save_pretrained(
-            self.save_dir, save_compressed=self.save_compressed
-        )
-        tokenizer.save_pretrained(self.save_dir)
+        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+
         recipe_path = os.path.join(self.save_dir, "recipe.yaml")
 
         # check that expected files exist
@@ -132,31 +135,26 @@ class TestvLLM:
             fp.write(recipe_yaml_str)
         session.reset()
 
-        logger.info("================= UPLOADING TO HUB ======================")
+        if SKIP_HF_UPLOAD.lower() != "yes":
+            logger.info("================= UPLOADING TO HUB ======================")
 
-        stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+            stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
 
-        self.api.create_repo(
-            repo_id=stub,
-            exist_ok=True,
-            repo_type="model",
-            private=False,
-        )
+            self.api.create_repo(
+                repo_id=stub,
+                exist_ok=True,
+                repo_type="model",
+                private=False,
+            )
 
-        self.api.upload_folder(
-            repo_id=stub,
-            folder_path=self.save_dir,
-        )
+            self.api.upload_folder(
+                repo_id=stub,
+                folder_path=self.save_dir,
+            )
 
         logger.info("================= RUNNING vLLM =========================")
 
-        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm = LLM(model=self.save_dir, dtype=torch.float16)
-        else:
-            llm = LLM(model=self.save_dir)
-        outputs = llm.generate(self.prompts, sampling_params)
+        outputs = self._run_vllm()
 
         logger.info("================= vLLM GENERATION ======================")
         for output in outputs:
@@ -172,8 +170,40 @@ class TestvLLM:
         self.tear_down()
 
     def tear_down(self):
-        if self.save_dir is not None:
+        if self.save_dir is not None and os.path.isdir(self.save_dir):
             shutil.rmtree(self.save_dir)
+
+        timer = get_singleton_manager()
+        # fetch dictionary of measurements, where keys are func names
+        # and values are the time it took to run the method, each
+        # time it was called
+        measurements = timer.measurements
+        if measurements:
+            p = Path(TIMINGS_DIR)
+            p.mkdir(parents=True, exist_ok=True)
+
+            df = pd.DataFrame(measurements)
+            df.to_csv(p / f"{self.save_dir}.csv", index=False)
+
+    @log_time
+    def _save_compressed_model(self, oneshot_model, tokenizer):
+        oneshot_model.save_pretrained(
+            self.save_dir, save_compressed=self.save_compressed
+        )
+        tokenizer.save_pretrained(self.save_dir)
+
+    @log_time
+    def _run_vllm(self):
+        import torch
+
+        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
+        if "W4A16_2of4" in self.scheme:
+            # required by the kernel
+            llm = LLM(model=self.save_dir, dtype=torch.float16)
+        else:
+            llm = LLM(model=self.save_dir)
+        outputs = llm.generate(self.prompts, sampling_params)
+        return outputs
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()

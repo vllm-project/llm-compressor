@@ -1,5 +1,6 @@
 from collections import OrderedDict, namedtuple
 from typing import List
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -96,9 +97,13 @@ class LinearNet(Module):
                 ]
             )
         )
+        self.config = Mock(use_cache=False)
 
     def forward(self, inp: Tensor):
         return self.seq(inp)
+
+    def _get_no_split_modules(self, device_map):
+        return []
 
 
 class MLPNet(Module):

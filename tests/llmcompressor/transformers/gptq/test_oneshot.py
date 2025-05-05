@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 
@@ -69,13 +70,12 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     def test_oneshot_application(self):
-        from llmcompressor.transformers import oneshot
+        from llmcompressor import oneshot
 
         oneshot(
             model=self.model,
             dataset=self.dataset,
             output_dir=self.output,
-            overwrite_output_dir=True,
             recipe=self.recipe,
             oneshot_device=self.device,
             num_calibration_samples=9,
@@ -114,4 +114,5 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         assert not hasattr(not_targetted, "quantization_scheme")
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)

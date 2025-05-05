@@ -2,29 +2,90 @@ import os
 import sys
 
 from setuptools import find_packages, setup
+from setuptools_scm import ScmVersion
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-from utils.version_extractor import extract_version_info  # noqa isort:skip
+# Set the build type using an environment variable to give us
+# different package names based on the reason for the build.
+VALID_BUILD_TYPES = {"release", "nightly", "dev"}
+BUILD_TYPE = os.environ.get("BUILD_TYPE", "dev")
+if BUILD_TYPE not in VALID_BUILD_TYPES:
+    raise ValueError(
+        f"Unsupported build type {BUILD_TYPE!r}, must be one of {VALID_BUILD_TYPES}"
+    )
 
-# load version info for the package
-package_path = os.path.join(
-    os.path.dirname(os.path.realpath(__file__)), "src", "llmcompressor"
-)
-version_info = extract_version_info(package_path)
 
-if version_info.build_type == "release":
-    package_name = "llmcompressor"
-elif version_info.build_type == "dev":
-    package_name = "llmcompressor-dev"
-elif version_info.build_type == "nightly":
-    package_name = "llmcompressor-nightly"
-else:
-    raise ValueError(f"Unsupported build type {version_info.build_type}")
+def version_func(version: ScmVersion) -> str:
+    from setuptools_scm.version import guess_next_version
+
+    print(
+        f"computing version for {BUILD_TYPE} build with "
+        f"{'dirty' if version.dirty else 'clean'} local repository"
+        f"{' and exact version from tag' if version.exact else ''}",
+        file=sys.stderr,
+    )
+
+    if BUILD_TYPE == "nightly":
+        # Nightly builds use alpha versions to ensure they are marked
+        # as pre-releases on pypi.org.
+        return version.format_next_version(
+            guess_next=guess_next_version,
+            fmt="{guessed}.a{node_date:%Y%m%d}",
+        )
+
+    if (
+        BUILD_TYPE == "release"
+        and not version.dirty
+        and (version.exact or version.node is None)
+    ):
+        # When we have a tagged version, use that without modification.
+        return version.format_with("{tag}")
+
+    # In development mode or when the local repository is dirty, treat
+    # it is as local development version.
+    return version.format_next_version(
+        guess_next=guess_next_version,
+        fmt="{guessed}.dev{distance}",
+    )
+
+
+def localversion_func(version: ScmVersion) -> str:
+    from setuptools_scm.version import get_local_node_and_date
+
+    print(
+        f"computing local version for {BUILD_TYPE} build with "
+        f"{'dirty' if version.dirty else 'clean'} local repository"
+        "f{' and exact version from tag' if version.exact else ''}",
+        file=sys.stderr,
+    )
+
+    # When we are building nightly versions, we guess the next release
+    # and add the date as an alpha version. We cannot publish packages
+    # with local versions, so we do not add one.
+    if BUILD_TYPE == "nightly":
+        return ""
+
+    # When we have an exact tag, with no local changes, do not append
+    # anything to the local version field.
+    if (
+        BUILD_TYPE == "release"
+        and not version.dirty
+        and (version.exact or version.node is None)
+    ):
+        return ""
+
+    # In development mode or when the local repository is dirty,
+    # return a string that includes the git SHA (node) and a date,
+    # formatted as a local version tag.
+    return get_local_node_and_date(version)
 
 
 setup(
-    name=package_name,
-    version=version_info.version,
+    name="llmcompressor",
+    use_scm_version={
+        "version_scheme": version_func,
+        "local_scheme": localversion_func,
+        "version_file": "src/llmcompressor/version.py",
+    },
     author="Neuralmagic, Inc.",
     author_email="support@neuralmagic.com",
     description=(
@@ -42,7 +103,7 @@ setup(
         "sparsity, optimization, model optimization, model compression, "
     ),
     license="Apache",
-    url="https://github.com/neuralmagic/llm-compressor",
+    url="https://github.com/vllm-project/llm-compressor",
     include_package_data=True,
     package_dir={"": "src"},
     packages=find_packages(
@@ -54,15 +115,17 @@ setup(
         "numpy>=1.17.0,<2.0",
         "requests>=2.0.0",
         "tqdm>=4.0.0",
-        "click>=7.1.2,!=8.0.0",  # 8.0.0 blocked due to reported bug
         "torch>=1.7.0",
         "transformers>4.0,<5.0",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
-        "pynvml==11.5.3",
-        "compressed-tensors"
-        if version_info.build_type == "release"
-        else "compressed-tensors-nightly",
+        "pynvml",
+        "pillow",
+        (
+            "compressed-tensors==0.9.4"
+            if BUILD_TYPE == "release"
+            else "compressed-tensors>=0.9.5a2"
+        ),
     ],
     extras_require={
         "dev": [
@@ -76,6 +139,7 @@ setup(
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
             "trl>=0.10.1",
+            "pandas",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
@@ -88,16 +152,10 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "llmcompressor.transformers.text_generation.apply=llmcompressor.transformers.finetune.text_generation:apply",  # noqa 501
-            "llmcompressor.transformers.text_generation.compress=llmcompressor.transformers.finetune.text_generation:apply",  # noqa 501
-            "llmcompressor.transformers.text_generation.train=llmcompressor.transformers.finetune.text_generation:train",  # noqa 501
-            "llmcompressor.transformers.text_generation.finetune=llmcompressor.transformers.finetune.text_generation:train",  # noqa 501
-            "llmcompressor.transformers.text_generation.eval=llmcompressor.transformers.finetune.text_generation:eval",  # noqa 501
-            "llmcompressor.transformers.text_generation.oneshot=llmcompressor.transformers.finetune.text_generation:oneshot",  # noqa 501
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",

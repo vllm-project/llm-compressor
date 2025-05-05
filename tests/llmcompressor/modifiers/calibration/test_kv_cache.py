@@ -25,7 +25,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_kv_cache_input_hook,
     calibrate_kv_cache_output_hook,
     freeze_module_quantization,
-    set_unset_kv_cache,
+    initialize_quantized_kv_cache,
 )
 
 config = {
@@ -75,7 +75,7 @@ def test_kv_cache_quantization(config):
     config = QuantizationConfig(**config)
     config.quantization_status = QuantizationStatus.CALIBRATION
     apply_quantization_config(model, config)
-    model.apply(set_unset_kv_cache)
+    model.apply(initialize_quantized_kv_cache)
     model.apply(_prep_for_calibration)
 
     with torch.no_grad():

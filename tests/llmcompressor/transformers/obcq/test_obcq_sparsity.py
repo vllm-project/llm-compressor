@@ -1,4 +1,5 @@
 import math
+import os
 import shutil
 import unittest
 
@@ -26,11 +27,10 @@ class TestSparsities(unittest.TestCase):
         self.output = "./oneshot_output"
 
     def test_sparsities(self):
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
 
-        oneshot(
+        model = oneshot(
             model=self.model,
             dataset=self.dataset,
             oneshot_device=self.device,
@@ -38,11 +38,8 @@ class TestSparsities(unittest.TestCase):
             max_seq_length=128,
             num_calibration_samples=64,
             pad_to_max_length=False,
-            clear_sparse_session=False,
             output_dir=self.output,
         )
-
-        model = get_session_model()
 
         layer_1_sparse = tensor_sparsity(model.model.layers[1].self_attn.k_proj.weight)
         assert math.isclose(layer_1_sparse.item(), self.sparsity, rel_tol=1e-4)
@@ -52,7 +49,8 @@ class TestSparsities(unittest.TestCase):
     def tearDown(self):
         import torch
 
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
         torch.cuda.empty_cache()
 
 
@@ -78,11 +76,10 @@ class TestSparsitiesGPU(unittest.TestCase):
         )
 
     def test_sparsities_gpu(self):
-        from llmcompressor.pytorch.model_load.helpers import get_session_model
+        from llmcompressor import oneshot
         from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-        from llmcompressor.transformers import oneshot
 
-        oneshot(
+        model = oneshot(
             model=self.model,
             dataset=self.dataset,
             oneshot_device=self.device,
@@ -90,13 +87,9 @@ class TestSparsitiesGPU(unittest.TestCase):
             max_seq_length=128,
             num_calibration_samples=64,
             pad_to_max_length=False,
-            clear_sparse_session=False,
             output_dir=self.output,
             precision="bfloat16",
-            bf16=True,
         )
-
-        model = get_session_model()
 
         layer_1_sparse = tensor_sparsity(model.model.layers[1].self_attn.k_proj.weight)
         assert math.isclose(layer_1_sparse.item(), self.sparsity, rel_tol=1e-4)
@@ -106,5 +99,6 @@ class TestSparsitiesGPU(unittest.TestCase):
     def tearDown(self):
         import torch
 
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
         torch.cuda.empty_cache()

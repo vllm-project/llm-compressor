@@ -22,7 +22,7 @@ class TestSafetensors(unittest.TestCase):
         self.output = Path("./finetune_output")
 
     def test_safetensors(self):
-        from llmcompressor.transformers import train
+        from llmcompressor import train
 
         device = "cuda:0"
         output_dir = self.output / "output1"
@@ -53,4 +53,5 @@ class TestSafetensors(unittest.TestCase):
         )
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)

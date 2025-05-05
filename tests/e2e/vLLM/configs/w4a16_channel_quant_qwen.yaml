@@ -1,0 +1,7 @@
+cadence: "nightly"
+test_type: "regression"
+model: Qwen/Qwen2.5-0.5B
+scheme: W4A16_channel
+dataset_id: Open-Orca/slimorca-deduped-cleaned-corrected
+dataset_split: train
+recipe: tests/e2e/vLLM/recipes/WNA16/recipe_w4a16_channel_quant.yaml

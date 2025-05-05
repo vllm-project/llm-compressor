@@ -1,16 +1,14 @@
 import torch
 from datasets import load_dataset
-from transformers import WhisperProcessor
+from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.tracing import TraceableWhisperForConditionalGeneration
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-large-v2"
+MODEL_ID = "openai/whisper-large-v3"
 
-model = TraceableWhisperForConditionalGeneration.from_pretrained(
+model = WhisperForConditionalGeneration.from_pretrained(
     MODEL_ID,
     device_map="auto",
     torch_dtype="auto",
@@ -53,19 +51,19 @@ ds = ds.map(preprocess, remove_columns=ds.column_names)
 
 # Process inputs.
 def process(sample):
-    audio_inputs = processor(
+    inputs = processor(
         audio=sample["array"],
         sampling_rate=sample["sampling_rate"],
+        text=sample["text"],
+        add_special_tokens=True,
         return_tensors="pt",
     )
 
-    text_inputs = processor(
-        text=sample["text"], add_special_tokens=True, return_tensors="pt"
-    )
-    text_inputs["decoder_input_ids"] = text_inputs["input_ids"]
-    del text_inputs["input_ids"]
+    inputs["input_features"] = inputs["input_features"].to(dtype=model.dtype)
+    inputs["decoder_input_ids"] = inputs["labels"]
+    del inputs["labels"]
 
-    return dict(**audio_inputs, **text_inputs)
+    return inputs
 
 
 ds = ds.map(process, remove_columns=ds.column_names)
@@ -78,10 +76,7 @@ def data_collator(batch):
 
 
 # Recipe
-recipe = [
-    SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
-]
+recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
 oneshot(

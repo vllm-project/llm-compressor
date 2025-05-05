@@ -17,43 +17,61 @@ GPU_CONFIGS_DIRECTORY = (
 
 class TestOneshotAndFinetune(unittest.TestCase):
     def _test_oneshot_and_finetune(self):
-        from llmcompressor.transformers import apply
+        from llmcompressor import oneshot, train
 
-        splits = {"train": "train[:30%]", "calibration": "train[30%:40%]"}
+        splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
         if self.dataset == "ultrachat-200k":
-            splits = {"train": "train_gen[:30%]", "calibration": "train_gen[30%:40%]"}
+            splits = {"train": "train_gen[:5%]", "calibration": "train_gen[5%:10%]"}
 
-        apply(
-            model=self.model,
+        oneshot_args = dict(
             dataset=self.dataset,
-            run_stages=True,
-            output_dir=self.output,
-            recipe=self.recipe,
-            num_train_epochs=self.num_train_epochs,
-            concatenate_data=self.concat_txt,
             splits=splits,
+            recipe=self.recipe,
+            num_calibration_samples=64,
             oneshot_device=self.device,
+            dataset_config_name=self.dataset_config_name,
+            concatenate_data=self.concat_txt,
+            output_dir=self.output,
+        )
+
+        train_args = dict(
+            num_train_epochs=self.num_train_epochs,
             precision="bfloat16",
             bf16=True,
-            dataset_config_name=self.dataset_config_name,
+        )
+        oneshot_model = oneshot(
+            model=self.model,
+            **oneshot_args,
+            stage="test_oneshot_stage",
         )
 
-        config_os = ModelCompressor.parse_sparsity_config(
+        train(
+            model=oneshot_model,
+            **oneshot_args,
+            **train_args,
+            stage="test_train_stage",
+        )
+
+        config_sparse_applied = ModelCompressor.parse_sparsity_config(
             AutoConfig.from_pretrained(
-                os.path.join(self.output, "stage_test_oneshot")
+                os.path.join(self.output, "test_oneshot_stage")
             ).quantization_config
         )
-        config_ft = ModelCompressor.parse_sparsity_config(
+        config_finetune_applied = ModelCompressor.parse_sparsity_config(
             AutoConfig.from_pretrained(
-                os.path.join(self.output, "stage_test_oneshot")
+                os.path.join(self.output, "test_train_stage")
             ).quantization_config
         )
-        assert config_ft["global_sparsity"] >= config_os["global_sparsity"]
+        # model is first sparsified, then finetuned, both should have the same sparsity
+        assert config_sparse_applied["global_sparsity"] == pytest.approx(
+            config_finetune_applied["global_sparsity"], abs=1e-5
+        )
 
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
         # stored in results.json
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
 
 
 @pytest.mark.integration

@@ -65,45 +65,6 @@ class CompressionSession:
         """
         return self._lifecycle.state
 
-    def pre_initialize_structure(
-        self,
-        model: Any,
-        recipe: Union[str, List[str], Recipe, List[Recipe], None] = None,
-        recipe_stage: Union[str, List[str], None] = None,
-        recipe_args: Union[Dict[str, Any], List[Dict[str, Any]], None] = None,
-        **kwargs,
-    ) -> ModifiedState:
-        """
-        A method to pre-initialize the structure of the model for compression.
-        This will run the pre-initialize structure method for each modifier in the
-        session's lifecycle. This will also set the session's state to the
-        pre-initialized state. Takes care of cases when the model(s) structure
-        has been previously modified by a modifier.
-
-        :param model: the model to pre-initialize the structure for
-        :param recipe: the recipe to use for the compression, can be a path to a
-            recipe file, a raw recipe string, a recipe object, or a list
-            of recipe objects.
-        :param recipe_stage: the stage to use for the compression
-        :param recipe_args: the args to use for overriding the recipe defaults
-        :return: A ModifiedState instance holding the modified model and modifier_data
-            after pre-initializing the structure
-        """
-        mod_data = self._lifecycle.pre_initialize_structure(
-            model=model,
-            recipe=recipe,
-            recipe_stage=recipe_stage,
-            recipe_args=recipe_args,
-            **kwargs,
-        )
-
-        return ModifiedState(
-            model=self.state.model,
-            optimizer=None,
-            loss=None,
-            modifier_data=mod_data,
-        )
-
     def initialize(
         self,
         recipe: Union[str, List[str], "Recipe", List["Recipe"], None] = None,
@@ -154,7 +115,6 @@ class CompressionSession:
         :param kwargs: additional kwargs to pass to the lifecycle's initialize method
         :return: the modified state of the session after initializing
         """
-
         mod_data = self._lifecycle.initialize(
             recipe=recipe,
             recipe_stage=recipe_stage,
@@ -199,19 +159,6 @@ class CompressionSession:
             loss=self.state.loss,
             modifier_data=mod_data,
         )
-
-    def apply(self, **kwargs):
-        """
-        Apply the recipe in one-shot manner. This will invoke the initialize
-        and then finalize methods for each modifier in the session's lifecycle.
-        This will also set the session's state to the finalized state.
-
-        :param kwargs: additional kwargs to pass to the lifecycle's initialize and
-            finalize methods
-        """
-        self.initialize(**kwargs)
-
-        return self.finalize(**kwargs)
 
     def event(
         self,
@@ -275,57 +222,34 @@ class CompressionSession:
 
     def _log_model_info(self):
         # Log model level logs if cadence reached
-        event_lifecycle = self._lifecycle.event_lifecycle
-        if event_lifecycle is None:
-            # event lifecycle not available
-            # when recipe is not provided
-            return
-
-        epoch = event_lifecycle.current_index
+        current_index = self._lifecycle.global_step
 
         if (
             should_log_model_info(
                 model=self.state.model,
                 loggers=self.state.loggers,
-                current_log_step=epoch,
+                current_log_step=current_index,
                 last_log_step=self.state._last_log_step,
             )
             and self.state.loggers.frequency_manager.is_epoch_frequency_manager
         ):
             log_model_info(
                 state=self.state,
-                current_log_step=epoch,
+                current_log_step=current_index,
             )
             # update last log epoch
-            self.state.loggers.log_written(epoch)
+            self.state.loggers.log_written(current_index)
 
     def _log_loss(self, event_type: EventType, loss: Any):
         if event_type != EventType.LOSS_CALCULATED:
             # only log loss when loss is calculated
             return
-        event_lifecycle = self._lifecycle.event_lifecycle
 
-        if event_lifecycle is None:
-            # event lifecycle not available
-            # when recipe is not provided
-            return
-
-        epoch = event_lifecycle.current_index
-        if self.state.loggers.frequency_manager.is_optim_frequency_manager:
-            # log integer step for optimizer frequency manager
-            current_step = int(
-                self.state.loggers.epoch_to_step(
-                    epoch=epoch,
-                    steps_per_epoch=len(self.state.data.train),
-                )
-            )
-        else:
-            # log float epoch for epoch frequency manager
-            current_step = epoch
+        current_index = self._lifecycle.global_step
 
         # always log loss if available
         if loss is not None:
             loss = loss if isinstance(loss, dict) else {"loss": loss}
             self.state.loggers.metric.log_scalars(
-                tag="Loss", values=loss, step=current_step
+                tag="Loss", values=loss, step=current_index
             )

@@ -9,8 +9,8 @@ from .metadata import (
     RecipeMetaData,
 )
 from .modifier import RecipeModifier
-from .recipe import Recipe, RecipeTuple
-from .stage import RecipeStage, StageRunType
+from .recipe import Recipe, RecipeArgsInput, RecipeInput, RecipeStageInput, RecipeTuple
+from .stage import RecipeStage
 
 __all__ = [
     "DatasetMetaData",
@@ -25,5 +25,7 @@ __all__ = [
     "RecipeArgs",
     "Recipe",
     "RecipeTuple",
-    "StageRunType",
+    "RecipeInput",
+    "RecipeStageInput",
+    "RecipeArgsInput",
 ]

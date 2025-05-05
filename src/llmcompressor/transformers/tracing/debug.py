@@ -9,7 +9,12 @@ from transformers import AutoProcessor, PreTrainedModel
 from llmcompressor.transformers import tracing
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
-from llmcompressor.transformers import DataTrainingArguments, TextGenerationDataset
+from llmcompressor.transformers import TextGenerationDataset
+from llmcompressor.args import DatasetArguments
+
+__all__ = [
+    "get_model_class"
+]
 
 
 def parse_args():
@@ -58,11 +63,11 @@ def trace(
     print("Loaded model")
 
     # Prepare sample data
-    data_args = DataTrainingArguments(**get_dataset_kwargs(modality))
+    dataset_args = DatasetArguments(**get_dataset_kwargs(modality))
     dataset = TextGenerationDataset.load_from_registry(
-        data_args.dataset,
-        data_args=data_args,
-        split=data_args.splits["calibration"],
+        dataset_args.dataset,
+        dataset_args=dataset_args,
+        split=dataset_args.splits["calibration"],
         processor=processor,
     )(add_labels=False)
     sample_input = next(iter(dataset))
@@ -84,7 +89,7 @@ def trace(
         "\nAttempting trace\n"
         f"    model_id={model_id}\n"
         f"    model_class={model_class.__name__}\n"
-        f"    dataset={data_args.dataset}\n"
+        f"    dataset={dataset_args.dataset}\n"
         f"    split={dataset.split}\n"
         f"    inputs={sample_input.keys()}\n"
         f"    sequential_targets={sequential_targets}\n"
@@ -110,6 +115,10 @@ def get_dataset_kwargs(modality: str) -> Dict[str, str]:
         },
         "vision": {
             "dataset": "flickr",
+            "splits": {"calibration": "test[:1]"},
+        },
+        "audio": {
+            "dataset": "peoples_speech",
             "splits": {"calibration": "test[:1]"},
         },
     }
