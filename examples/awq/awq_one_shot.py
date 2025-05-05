@@ -5,6 +5,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     QuantizationType,
 )
+from datasets import load_dataset
 from lm_eval.utils import make_table
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -12,21 +13,53 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-# This example demonstrates how to:
-# 1) Run the `llm-compressor` implementation of AWQ
-# 2) Evaluate the compressed model with the lm_eval framework
+# Select model and load it.
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID, device_map="auto", torch_dtype="auto"
+)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+
+# Select calibration dataset.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 DATASET_ID = "mit-han-lab/pile-val-backup"
 DATASET_SPLIT = "validation"
+
+# Select number of samples. 512 samples is a good place to start.
+# Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 512
-OUTPUT_DIR = MODEL_ID.split("/")[-1] + "-awq-asym"
 
-#
-# 1) Run LLM Compressor AWQ implementation
-#
+# Load dataset and preprocess.
+ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}:[:{NUM_CALIBRATION_SAMPLES}]")
+ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
 
+
+def preprocess(example):
+    return {
+        "text": tokenizer.apply_chat_template(
+            [{"role": "user", "content": example["text"]}],
+            tokenize=False,
+        )
+    }
+
+
+ds = ds.map(preprocess)
+
+
+# Tokenize inputs.
+def tokenize(sample):
+    return tokenizer(
+        sample["text"],
+        padding=False,
+        max_length=MAX_SEQUENCE_LENGTH,
+        truncation=True,
+        add_special_tokens=False,
+    )
+
+
+# Configure the quantization algorithm to run.
 recipe = [
     AWQModifier(bits=4, symmetric=False),
     QuantizationModifier(
@@ -47,45 +80,27 @@ recipe = [
     ),
 ]
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
-
-
-def get_calib_dataset(tokenizer):
-    from datasets import load_dataset
-
-    ds = load_dataset(
-        DATASET_ID,
-        split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES*100}]",
-    )
-
-    def preprocess(example):
-        return {
-            "input_ids": tokenizer.encode(example["text"].strip())[:MAX_SEQUENCE_LENGTH]
-        }
-
-    ds = (
-        ds.shuffle(seed=42)
-        .map(preprocess, remove_columns=ds.column_names)
-        .filter(lambda example: len(example["input_ids"]) >= MAX_SEQUENCE_LENGTH)
-        .select(range(NUM_CALIBRATION_SAMPLES))
-    )
-
-    return ds
-
-
+# Apply algorithms.
 oneshot(
     model=model,
-    dataset=get_calib_dataset(tokenizer=tokenizer),
+    dataset=ds,
     recipe=recipe,
-    output_dir=OUTPUT_DIR,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-print("Done! model saved to", OUTPUT_DIR)
+# Confirm generations of the quantized model look sane.
+print("\n\n")
+print("========== SAMPLE GENERATION ==============")
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+output = model.generate(input_ids, max_new_tokens=100)
+print(tokenizer.decode(output[0]))
+print("==========================================\n\n")
+
+# Save to disk compressed.
+SAVE_DIR = MODEL_ID.split("/")[-1] + "-awq-asym"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
 
 #
 # 2) Evaluate model on wikitext perplexity
@@ -94,7 +109,7 @@ print("Done! model saved to", OUTPUT_DIR)
 results = lm_eval.simple_evaluate(
     model="vllm",
     model_args={
-        "pretrained": OUTPUT_DIR,
+        "pretrained": SAVE_DIR,
         "add_bos_token": True,
         "dtype": "bfloat16",
         "gpu_memory_utilization": 0.5,
