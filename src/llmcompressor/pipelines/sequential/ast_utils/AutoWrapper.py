@@ -114,6 +114,9 @@ class AutoWrapper(ast.NodeTransformer):
         return super().generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> ast.Call:
+        # TODO: since self cannot be passed, we may have to add to
+        # torch.fx._symbolic_trace._wrapped_methods_to_patch directly and not wrap
+
         # check for variadic starred
         if any(isinstance(elem, ast.Starred) for elem in node.args):
             return self._wrap_if_possible(node)
@@ -248,8 +251,8 @@ class AutoWrapper(ast.NodeTransformer):
         # build call and assignment
         # TODO: when it comes to handling fns with `self`, do one of the following
         # 1. define functions as methods (and patch them in along with the forward),
-        #   + keep the patches while executing pipeline
         #   + use torch.fx._symbolic_trace._wrapped_methods_to_patch
+        #   + keep the patches after trace is done? unclear how subgraphs handle fx.wrap
         # 2. expand any self attributes, both in the fn def and in the fn call
         fn_call = ast.Call(
             func=ast.Name(id=fn_name, ctx=ast.Load()),
