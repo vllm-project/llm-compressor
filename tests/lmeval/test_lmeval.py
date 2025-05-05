@@ -164,7 +164,7 @@ class TestLMEval:
             # If stderr is provided, use it as absolute tolerance
             # Otherwise, default to a 5% relative tolerance
             stderr_key = metric_key.replace(",", "_stderr,")
-            std_err = metrics.get(stderr_key)
+            std_err = self.lmeval.metrics.get(stderr_key)
             if std_err is None:
                 logger.info(
                     f"Comparing {metric_key}: Expected {expected_val} "
