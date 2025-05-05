@@ -11,7 +11,7 @@ class AutoWrapper(ast.NodeTransformer):
         self.globals = globals
         self.locals = locals
         self.ignore = ignore
-        self._wrapper_fn_defs = list()
+        self._wrapper_fn_defs: List[ast.FunctionDef] = list()
         self._local_names = set()
 
     def auto_wrap(self, tree: ast.Module) -> ast.Module:
