@@ -2,7 +2,11 @@ import inspect
 from typing import Any, Dict, List, Optional, Union
 
 import torch
-from compressed_tensors.utils import align_module_device, update_offload_parameter
+from compressed_tensors.utils import (
+    align_module_device,
+    get_execution_device,
+    update_offload_parameter,
+)
 from loguru import logger
 from pydantic import ConfigDict
 from torch.nn import Module
@@ -590,7 +594,7 @@ class AWQModifier(Modifier):
         kwargs = input_kwargs or self._module_kwargs
         kwargs = _sanitize_kwargs(kwargs, module)
 
-        inputs = inputs.to(next(module.parameters()).device)
+        inputs = inputs.to(get_execution_device(module))
 
         return module(inputs, **kwargs)[0]
 
