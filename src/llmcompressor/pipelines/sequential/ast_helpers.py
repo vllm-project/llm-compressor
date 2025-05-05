@@ -37,8 +37,6 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     # autowrap untraceable code
     auto_wrapper = AutoWrapper(namespace, ignore)
     tree = auto_wrapper.auto_wrap(tree)
-    print(type(module))
-    print(ast.unparse(tree))
 
     # compile new forward function from autowrapped code
     filename = f"{module.__class__.__name__}_{hash(module)}_autowrapped"
