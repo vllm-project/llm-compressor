@@ -7,7 +7,9 @@ from .NameAnalyzer import NameAnalyzer
 
 
 class AutoWrapper(ast.NodeTransformer):
-    def __init__(self, globals: Dict[str, Any], locals: Dict[str, Any], ignore: List[str]):
+    def __init__(
+        self, globals: Dict[str, Any], locals: Dict[str, Any], ignore: List[str]
+    ):
         self.globals = globals
         self.locals = locals
         self.ignore = ignore
@@ -104,18 +106,18 @@ class AutoWrapper(ast.NodeTransformer):
                     return self._wrap_if_possible(node)
 
         return super().generic_visit(node)
-    
+
     def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
         if any(isinstance(elem, ast.Starred) for elem in node.elts):
             return self._wrap_if_possible(node)
-        
+
         return super().generic_visit(node)
-    
+
     def visit_Call(self, node: ast.Call) -> ast.Call:
         # check for variadic starred
         if any(isinstance(elem, ast.Starred) for elem in node.args):
             return self._wrap_if_possible(node)
-        
+
         # attempt to evaluate caller and check against ignore list
         try:
             caller = self._eval_expr(node.func)
@@ -190,17 +192,16 @@ class AutoWrapper(ast.NodeTransformer):
         """
         if not self._can_wrap(node):
             return node
-        
+
         if isinstance(node, ast.stmt):
             return self._wrap_stmt(node)
-        
+
         elif isinstance(node, ast.expr):
             return self._wrap_expr(node)
-        
+
         else:
             raise ValueError()
-        
-    
+
     def _wrap_stmt(self, node: ast.stmt) -> ast.Assign:
         # unbound := names which are read by node before being assigned
         # assigned := names which are assigned by operations in node
