@@ -15,6 +15,7 @@ lmeval:
   num_fewshot: 0
   use_stderr_atol: True
   batch_size: 8
-  # dense model achieves 0.9 accuracy
+  # dense model achieves accuracy of 0.9 +/ 0.0557
   metrics:
     acc,none: 0.833
+    acc_stderr,none: 0.0557
