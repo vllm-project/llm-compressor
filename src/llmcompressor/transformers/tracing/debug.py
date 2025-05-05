@@ -104,9 +104,7 @@ def trace(
         f"    sequential_targets={sequential_targets}\n"
         f"    ignore={ignore}\n"
     )
-    subgraphs = trace_subgraphs(
-        model, sample_input, sequential_targets, ignore
-    )
+    subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
     return subgraphs
