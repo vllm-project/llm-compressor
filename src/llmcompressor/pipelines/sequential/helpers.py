@@ -2,7 +2,7 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set
 
 import torch
 from compressed_tensors import has_offloaded_params
@@ -176,21 +176,6 @@ def get_tracer(model: Module, ancestors: Set[Module]) -> HFTracer:
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
             return module not in ancestors or module in offloaded_modules
-
-        def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
-            if isinstance(root, Module):
-                # due to a bug in Tracer.create_args_for_root (_patch_function),
-                # we must unwrap function wrappers prior to tracing, for example
-                # the `deprecate_kwarg` by transformers which wraps forward
-                unwrapped_forward = inspect.unwrap(type(root).forward)
-
-                # we override the class method because the
-                # class method is the one being traced
-                with patch_attr(type(root), "forward", unwrapped_forward):
-                    return super().trace(root, *args, **kwargs)
-
-            else:
-                return super().trace(root, *args, **kwargs)
 
     return SequentialTracer()
 

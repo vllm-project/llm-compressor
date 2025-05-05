@@ -7,10 +7,8 @@ from .NameAnalyzer import NameAnalyzer
 
 
 class AutoWrapper(ast.NodeTransformer):
-    def __init__(
-        self, globals: Dict[str, Any], locals: Dict[str, Any], ignore: List[str]
-    ):
-        self.globals = globals
+    def __init__(self, namespace: Dict[str, Any], ignore: List[str]):
+        self.namespace = namespace
         self.locals = locals
         self.ignore = ignore
         self._wrapper_fn_defs: List[ast.FunctionDef] = list()
@@ -93,9 +91,6 @@ class AutoWrapper(ast.NodeTransformer):
         return super().generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> ast.Call:
-        # TODO: since self cannot be passed, we may have to add to
-        # torch.fx._symbolic_trace._wrapped_methods_to_patch directly and not wrap
-
         # check for variadic starred
         if any(isinstance(elem, ast.Starred) for elem in node.args):
             return self._wrap_if_possible(node)
@@ -150,7 +145,7 @@ class AutoWrapper(ast.NodeTransformer):
         expr = ast.Expression(body=node)  # wrap in expression in order to compile
         expr = ast.fix_missing_locations(expr)
         compiled = compile(expr, filename="<_eval_expr>", mode="eval")
-        return eval(compiled, self.globals, self.locals)
+        return eval(compiled, self.namespace, {})
 
     def _can_wrap(self, node: ast.AST) -> bool:
         """
@@ -188,7 +183,7 @@ class AutoWrapper(ast.NodeTransformer):
         # unbound := names which are read by node before being assigned
         # assigned := names which are assigned by operations in node
         # cond_assigned := names which may be assigned depending on execution
-        analyzer = NameAnalyzer(omit=self.globals.keys())
+        analyzer = NameAnalyzer(omit=self.namespace.keys())
         unbound, assigned, conditionally_assigned = analyzer.analyze(node)
 
         # args := names which already existed and are needed for ops or wrapped return
@@ -197,6 +192,7 @@ class AutoWrapper(ast.NodeTransformer):
         args = (unbound | conditionally_assigned) & self._local_names
         kwargs = conditionally_assigned - self._local_names
         returns = assigned | conditionally_assigned
+        assert "self" not in args, "Cannot trace self, this should be in the namespace"
 
         # build function arguments
         args_obj = ast.arguments(
@@ -228,11 +224,6 @@ class AutoWrapper(ast.NodeTransformer):
         self._wrapper_fn_defs.append(fn_def)
 
         # build call and assignment
-        # TODO: when it comes to handling fns with `self`, do one of the following
-        # 1. define functions as methods (and patch them in along with the forward),
-        #   + use torch.fx._symbolic_trace._wrapped_methods_to_patch
-        #   + keep the patches after trace is done? unclear how subgraphs handle fx.wrap
-        # 2. expand any self attributes, both in the fn def and in the fn call
         fn_call = ast.Call(
             func=ast.Name(id=fn_name, ctx=ast.Load()),
             args=[ast.Name(id=name, ctx=ast.Load()) for name in args],
