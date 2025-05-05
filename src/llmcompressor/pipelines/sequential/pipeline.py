@@ -49,7 +49,7 @@ def run_pipeline(
     """
     # trace subgraphs
     sample_input = next(iter(dataloader))
-    _, subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+    subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
     with calibration_forward_context(model), DisableQuantization(model):
         # prepare intermediates cache

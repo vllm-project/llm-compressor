@@ -97,10 +97,13 @@ class AutoWrapper(ast.NodeTransformer):
 
         return super().generic_visit(node)
 
-    def visit_Starred(self, node: ast.Starred) -> Union[ast.Starred, ast.Assign]:
+    def visit_Starred(self, node: ast.Starred) -> ast.Assign:
         """
-        Note that args is represented as ast.arugments(..., vararg=ast.arg(arg="args")),
-        so starred only represents iterations
+        Replace any iterable unpacking with a function call to a wrapper function.
+        Note that `ast.Starred` only represents iterable unpacking, not variadic args
+
+        :param node: starred iterable unpacking to be wrapped
+        :return: function call to wrapper function
         """
         assign = ast.Assign(
             targets=[ast.Name(id="unpacked", ctx=ast.Store())],
@@ -108,8 +111,8 @@ class AutoWrapper(ast.NodeTransformer):
         )
         wrapped_assign = self._wrap_if_possible(assign)
         if wrapped_assign is assign:
-            # wrapping failed (although it really shouldn't)
-            return node
+            node_src = ast.unparse(ast.fix_missing_locations(assign))
+            raise ValueError(f"Could not wrap starred expression:\n{node_src}")
 
         return wrapped_assign.value
 
@@ -140,7 +143,8 @@ class AutoWrapper(ast.NodeTransformer):
     def _can_wrap(self, node: ast.AST) -> bool:
         """
         Some nodes cannot be wrapped because they contain control flow which is invalid
-        without its original context
+        without its original context. In the future, we can add more checks for module
+        calls (see `visit_If`)
         """
         analyzer = ControlFlowAnalyzer()
         return analyzer.is_valid(node)
