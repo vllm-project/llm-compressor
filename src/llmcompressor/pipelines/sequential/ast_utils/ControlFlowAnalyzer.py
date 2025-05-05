@@ -26,11 +26,8 @@ class ControlFlowAnalyzer(ast.NodeVisitor):
             self._contexts.pop()
 
     def visit_Return(self, node: ast.Return):
-        if (
-            ast.FunctionDef not in self._contexts
-            and ast.AsyncFunctionDef not in self._contexts
-        ):
-            self._is_valid = False
+        # cannot wrap early returns
+        self._is_valid = False
         return super().generic_visit(node)
 
     def visit_Continue(self, node: ast.Continue):

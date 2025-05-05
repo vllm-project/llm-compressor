@@ -29,18 +29,20 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
 
     # construct namespace
     defining_module = sys.modules[module.__class__.__module__]
-    namespace = defining_module.__dict__  # original module context
-    namespace.update({"self": module})
-    namespace.update({"torch.fx.wrap": torch.fx.wrap})
+    global_ns = defining_module.__dict__.copy()
+    global_ns.update({"torch.fx.wrap": torch.fx.wrap})
+    local_ns = {"self": module}
 
     # autowrap untraceable code
-    auto_wrapper = AutoWrapper(namespace, ignore)
+    auto_wrapper = AutoWrapper(global_ns, local_ns, ignore)
     tree = auto_wrapper.auto_wrap(tree)
+    print(type(module))
+    print(ast.unparse(tree))
 
     # compile new forward function from autowrapped code
     filename = f"{module.__class__.__name__}_{hash(module)}_autowrapped"
     code = compile(tree, filename=filename, mode="exec")
-    exec(code, namespace)
+    exec(code, global_ns)
 
     # enable better tracebacks if autowrapped code fails
     source_str = ast.unparse(tree)
@@ -53,7 +55,7 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
 
     # some modules (such as ModuleList) do not implement a forward function,
     # so fall back to existing forward definition
-    new_forward = namespace.get("forward", module.forward.__func__)
+    new_forward = global_ns.get("forward", module.forward.__func__)
     new_forward = new_forward.__get__(module)  # curry self
     with patch_attr(module, "forward", new_forward):
         yield
