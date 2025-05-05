@@ -166,6 +166,7 @@ class Oneshot:
             recipe=self.recipe,
             recipe_stage=recipe_stage,
             recipe_args=self.recipe_args.recipe_args,
+            calib_data=calibration_dataloader,  # TODO: only used by AWQ modifier
         )
 
         user_pipeline = self.dataset_args.pipeline
