@@ -1,100 +1,99 @@
-from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, List, Optional
 
+import torch
+from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
+from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq import AWQModifier
 from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationMixin
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.pipelines import (
-    basic,
-    data_free,
-    independent,
-    layer_sequential,
-    sequential,
-)
-from llmcompressor.typing import PipelineFn
 
-__all__ = ["PIPELINES", "get_pipeline_fn"]
+if TYPE_CHECKING:
+    from llmcompressor.args.dataset_arguments import DatasetArguments
+
+__all__ = ["CalibrationPipeline"]
 
 SEQUENTIAL_MODIFIERS = (GPTQModifier, SparsityModifierMixin)
 
 
-class PipelineName(str, Enum):
-    DATA_FREE = "data_free"
-    BASIC = "basic"
-    SEQUENTIAL = "sequential"
-    LAYER_SEQUENTIAL = "layer_sequential"
-    INDEPENDENT = "independent"
+class CalibrationPipeline(ABC, RegistryMixin):
+    @staticmethod
+    @abstractmethod
+    def __call__(
+        model: torch.nn.Module,
+        dataloader: DataLoader,
+        dataset_args: "DatasetArguments",
+    ):
+        raise NotImplementedError()
 
+    @classmethod
+    def from_modifiers(
+        cls, modifiers: List[Modifier], user: Optional[str] = None
+    ) -> "CalibrationPipeline":
+        """
+        Infer which calibration pipeline to use based on the available modifiers and
+        any user specifications
 
-PIPELINES: Dict[PipelineName, PipelineFn] = {
-    PipelineName.DATA_FREE: data_free.run_pipeline,
-    PipelineName.BASIC: basic.run_pipeline,
-    PipelineName.SEQUENTIAL: sequential.run_pipeline,
-    PipelineName.LAYER_SEQUENTIAL: layer_sequential.run_pipeline,
-    PipelineName.INDEPENDENT: independent.run_pipeline,
-}
+        :param modifiers: modifiers to apply to model
+        :param user: pipeline name passed by user
+        :return: CalibrationPipeline instance to be called with data (if not datafree)
+        """
+        user = standardize_lookup_name(user) if user else None
+        inferred = standardize_lookup_name(cls._validate_infer_pipeline(modifiers))
+        independent = standardize_lookup_name("independent")
 
+        if user == independent:
+            inferred = independent
 
-def get_pipeline_fn(
-    user: Optional[str], modifiers: List[Modifier]
-) -> Tuple[str, PipelineFn]:
-    inferred_pipeline = (
-        None if user == PipelineName.INDEPENDENT else infer_pipeline_fn(modifiers)
-    )
-    pipeline = user or inferred_pipeline
-
-    if user not in (None, PipelineName.INDEPENDENT) and user != inferred_pipeline:
-        logger.warning(
-            f"Calibration pipeline is set to `{user}`, but it is recommended to "
-            f"use `{inferred_pipeline}`"
-        )
-
-    if pipeline not in PIPELINES:
-        raise ValueError(
-            f"Cannot find `{pipeline}` in registered pipelines {PIPELINES.keys()}"
-        )
-
-    return pipeline, PIPELINES[pipeline]
-
-
-def infer_pipeline_fn(modifiers: List[Modifier]) -> PipelineName:
-    if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
-        if len(modifiers) > 1:
-            raise ValueError(
-                "AWQ does not currently support sharing a data pipeline with other "
-                "modifiers. Please use oneshot(pipeline='independent')"
+        if user is not None and user != inferred:
+            logger.warning(
+                f"Calibration pipeline is set to `{user}`, but it is recommended to "
+                f"use `{inferred}`"
             )
-        return PipelineName.DATA_FREE
 
-    if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
-        return PipelineName.SEQUENTIAL
+        pipeline = user or inferred
+        return cls.load_from_registry(pipeline)
 
-    quant_modifiers = _get_quantization_modifiers(modifiers)
-    if len(quant_modifiers) > 1:
-        raise ValueError(
-            f"Recipe contains more than one quantization modifier ({quant_modifiers})."
-            "Please modify your recipe to use at most one quantization modifier"
-        )
+    @staticmethod
+    def _validate_infer_pipeline(modifiers: List[Modifier]) -> str:
+        if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
+            if len(modifiers) > 1:
+                raise ValueError(
+                    "AWQ does not currently support sharing a data pipeline with other "
+                    "modifiers. Please use oneshot(pipeline='independent')"
+                )
+            return "datafree"
 
-    if len(quant_modifiers) == 1:
-        quant_modifier = quant_modifiers[0]
-        config = quant_modifier.resolve_quantization_config()
-        if config.requires_calibration_data():
-            return PipelineName.BASIC
-        else:
-            return PipelineName.DATA_FREE
+        if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
+            return "sequential"
 
-    if any(isinstance(modifier, SmoothQuantModifier) for modifier in modifiers):
-        return PipelineName.BASIC
+        active_qmods = _get_active_quant_modifiers(modifiers)
+        if len(active_qmods) > 1:
+            raise ValueError(
+                f"Recipe contains more than one active quantization config "
+                f"({active_qmods}). These configs may be conflicting, Please modify "
+                "your recipe to use at most one quantization config"
+            )
 
-    return PipelineName.DATA_FREE
+        if len(active_qmods) == 1:
+            quant_modifier = active_qmods[0]
+            config = quant_modifier.resolve_quantization_config()
+            if config.requires_calibration_data():
+                return "basic"
+            else:
+                return "datafree"
+
+        if any(isinstance(modifier, SmoothQuantModifier) for modifier in modifiers):
+            return "basic"
+
+        return "datafree"
 
 
-def _get_quantization_modifiers(modifiers: List[Modifier]) -> List[QuantizationMixin]:
+def _get_active_quant_modifiers(modifiers: List[Modifier]) -> List[QuantizationMixin]:
     return [
         modifier
         for modifier in modifiers

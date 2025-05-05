@@ -3,8 +3,6 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from transformers import DefaultDataCollator
 
-from llmcompressor.pipelines.registry import PIPELINES
-
 
 @dataclass
 class DVCDatasetArguments:
@@ -176,7 +174,8 @@ class DatasetArguments(CustomDatasetArguments):
     pipeline: Optional[str] = field(
         default="independent",
         metadata={
-            "help": "Calibration pipeline used to calibrate model. "
-            f"Options: {PIPELINES.keys()}"
+            "help": "Calibration pipeline used to calibrate model"
+            "Options: ['basic', 'datafree', 'sequential', 'layer_sequential', "
+            "independent]"
         },
     )

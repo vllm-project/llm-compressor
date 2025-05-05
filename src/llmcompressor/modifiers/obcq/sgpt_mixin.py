@@ -12,7 +12,6 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.basic import run_pipeline as run_basic
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -247,7 +246,7 @@ class SparsityModifierMixin(Modifier):
         return sparsities
 
     def _get_activations(self, model, dataloader, nsamples=128) -> Dict[str, int]:
-        from llmcompressor.args import DatasetArguments
+        from llmcompressor.pipelines.basic import run_calibration
 
         acts = defaultdict(int)
 
@@ -263,7 +262,7 @@ class SparsityModifierMixin(Modifier):
             if isinstance(mod, torch.nn.Linear) and "lm_head" not in name
         )
         with HooksMixin.disable_hooks(keep=hooks):
-            run_basic(model, dataloader, DatasetArguments())
+            run_calibration(model, dataloader)
         self.remove_hooks(hooks)
 
         return acts
