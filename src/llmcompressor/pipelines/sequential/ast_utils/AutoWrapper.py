@@ -86,27 +86,6 @@ class AutoWrapper(ast.NodeTransformer):
             node.test = ast.Constant(value=value)
             return super().generic_visit(node)
 
-    def visit_Assign(self, node: ast.Assign) -> ast.Assign:
-        """
-        Check for assignment from ignored functions
-        """
-        if isinstance(node.value, ast.Call):
-            caller_ast = node.value.func
-            try:
-                caller = self._eval_expr(caller_ast)
-
-            except Exception:
-                pass
-
-            else:
-                if (
-                    isinstance(caller, (FunctionType, MethodType))
-                    and caller.__name__ in self.ignore
-                ):
-                    return self._wrap_if_possible(node)
-
-        return super().generic_visit(node)
-
     def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
         if any(isinstance(elem, ast.Starred) for elem in node.elts):
             return self._wrap_if_possible(node)
@@ -271,7 +250,6 @@ class AutoWrapper(ast.NodeTransformer):
         return assign_call
 
     def _wrap_expr(self, node: ast.expr) -> ast.Call:
-        # TODO: `ret = {expr}; return ret` -> `return {expr}`
         return_stmt = ast.Return(value=node)
         wrapped = self._wrap_stmt(return_stmt)
         fn_call = wrapped.value
