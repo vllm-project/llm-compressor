@@ -26,20 +26,20 @@ class PeoplesSpeech(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
-    def __init__(self, data_args: "DataArgs", split: str, processor: Processor):
-        data_args = deepcopy(data_args)
-        data_args.dataset = "MLCommons/peoples_speech"
-        data_args.dataset_config_name = "test"
-        if not data_args.overwrite_cache:
+    def __init__(self, dataset_args: "DataArgs", split: str, processor: Processor):
+        dataset_args = deepcopy(dataset_args)
+        dataset_args.dataset = "MLCommons/peoples_speech"
+        dataset_args.dataset_config_name = "test"
+        if not dataset_args.overwrite_cache:
             logger.warning(
                 "Because audio processors are more complex, dataset mapping functions "
                 "vary with model architecture and their results cannot be cached. "
                 "Setting overwrite_cache=True"
             )
-            data_args.overwrite_cache = True
+            dataset_args.overwrite_cache = True
         self.processor_type = processor.__class__.__name__
 
-        super().__init__(data_args=data_args, split=split, processor=processor)
+        super().__init__(dataset_args=dataset_args, split=split, processor=processor)
 
     def dataset_template(self, example):
         audio = example["audio"]["array"]
