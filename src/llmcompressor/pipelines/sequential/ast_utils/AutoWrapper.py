@@ -7,8 +7,9 @@ from .NameAnalyzer import NameAnalyzer
 
 
 class AutoWrapper(ast.NodeTransformer):
-    def __init__(self, eval_context: Dict[str, Any], ignore: List[str]):
-        self.eval_context = eval_context
+    def __init__(self, globals: Dict[str, Any], locals: Dict[str, Any], ignore: List[str]):
+        self.globals = globals
+        self.locals = locals
         self.ignore = ignore
         self._wrapper_fn_defs = list()
         self._local_names = set()
@@ -88,9 +89,9 @@ class AutoWrapper(ast.NodeTransformer):
         Check for assignment from ignored functions
         """
         if isinstance(node.value, ast.Call):
-            func = node.value.func
+            caller_ast = node.value.func
             try:
-                caller = self._eval_expr(func)
+                caller = self._eval_expr(caller_ast)
 
             except Exception:
                 pass
@@ -103,25 +104,33 @@ class AutoWrapper(ast.NodeTransformer):
                     return self._wrap_if_possible(node)
 
         return super().generic_visit(node)
+    
+    def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
+        if any(isinstance(elem, ast.Starred) for elem in node.elts):
+            return self._wrap_if_possible(node)
+        
+        return super().generic_visit(node)
+    
+    def visit_Call(self, node: ast.Call) -> ast.Call:
+        # check for variadic starred
+        if any(isinstance(elem, ast.Starred) for elem in node.args):
+            return self._wrap_if_possible(node)
+        
+        # attempt to evaluate caller and check against ignore list
+        try:
+            caller = self._eval_expr(node.func)
 
-    def visit_Starred(self, node: ast.Starred) -> ast.Assign:
-        """
-        Replace any iterable unpacking with a function call to a wrapper function.
-        Note that `ast.Starred` only represents iterable unpacking, not variadic args
+        except Exception:
+            caller = None
 
-        :param node: starred iterable unpacking to be wrapped
-        :return: function call to wrapper function
-        """
-        assign = ast.Assign(
-            targets=[ast.Name(id="unpacked", ctx=ast.Store())],
-            value=ast.Tuple(elts=[node], ctx=ast.Load()),
-        )
-        wrapped_assign = self._wrap_if_possible(assign)
-        if wrapped_assign is assign:
-            node_src = ast.unparse(ast.fix_missing_locations(assign))
-            raise ValueError(f"Could not wrap starred expression:\n{node_src}")
+        finally:
+            if (
+                isinstance(caller, (FunctionType, MethodType))
+                and caller.__name__ in self.ignore
+            ):
+                return self._wrap_if_possible(node)
 
-        return wrapped_assign.value
+        return super().generic_visit(node)
 
     def visit_Name(self, node: ast.Name):
         """
@@ -157,7 +166,7 @@ class AutoWrapper(ast.NodeTransformer):
         expr = ast.Expression(body=node)  # wrap in expression in order to compile
         expr = ast.fix_missing_locations(expr)
         compiled = compile(expr, filename="<_eval_expr>", mode="eval")
-        return eval(compiled, {}, self.eval_context)
+        return eval(compiled, self.globals, self.locals)
 
     def _can_wrap(self, node: ast.AST) -> bool:
         """
@@ -168,7 +177,7 @@ class AutoWrapper(ast.NodeTransformer):
         analyzer = ControlFlowAnalyzer()
         return analyzer.is_valid(node)
 
-    def _wrap_if_possible(self, node: ast.AST) -> ast.Assign:
+    def _wrap_if_possible(self, node: ast.AST) -> Union[ast.AST, ast.Assign, ast.Call]:
         """
         Defines a wrapper function containing the wrapped node. Returns a statement
         which calls the newly defined wrapper function with required inputs and outputs
@@ -181,11 +190,22 @@ class AutoWrapper(ast.NodeTransformer):
         """
         if not self._can_wrap(node):
             return node
-
+        
+        if isinstance(node, ast.stmt):
+            return self._wrap_stmt(node)
+        
+        elif isinstance(node, ast.expr):
+            return self._wrap_expr(node)
+        
+        else:
+            raise ValueError()
+        
+    
+    def _wrap_stmt(self, node: ast.stmt) -> ast.Assign:
         # unbound := names which are read by node before being assigned
         # assigned := names which are assigned by operations in node
         # cond_assigned := names which may be assigned depending on execution
-        analyzer = NameAnalyzer(omit=self.eval_context.keys())
+        analyzer = NameAnalyzer(omit=self.globals.keys())
         unbound, assigned, conditionally_assigned = analyzer.analyze(node)
 
         # args := names which already existed and are needed for ops or wrapped return
@@ -240,3 +260,11 @@ class AutoWrapper(ast.NodeTransformer):
         self._local_names |= returns
 
         return assign_call
+
+    def _wrap_expr(self, node: ast.expr) -> ast.Call:
+        # TODO: `ret = {expr}; return ret` -> `return {expr}`
+        return_stmt = ast.Return(value=node)
+        wrapped = self._wrap_stmt(return_stmt)
+        fn_call = wrapped.value
+
+        return fn_call
