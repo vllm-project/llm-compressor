@@ -158,8 +158,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         if not added_hook:
             raise ValueError(
-                "GPTQModifier requires a quantization config be specified by this "
-                "modifier or a modifier preceding it"
+                "GPTQModifier requires a weight quantization config be specified by "
+                "this modifier or a modifier preceding it"
             )
 
     def on_event(self, state: State, event: Event, **kwargs):

@@ -7,6 +7,7 @@ from compressed_tensors.quantization.lifecycle import KVCacheScaleType
 from compressed_tensors.quantization.utils.helpers import iter_named_quantizable_modules
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
@@ -236,7 +237,11 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
     output_dir, _ = next(kv_cache_fixture(recipe, tmp_path))
 
     with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(output_dir)
+        # There is a bug in `apply_quantization_config`
+        model = AutoModelForCausalLM.from_pretrained(
+            output_dir,
+            quantization_config=CompressedTensorsConfig(run_compressed=False),
+        )
 
     counts = 0
     for name, submodule in iter_named_quantizable_modules(
