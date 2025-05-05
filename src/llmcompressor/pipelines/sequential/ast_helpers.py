@@ -5,7 +5,7 @@ import inspect
 import sys
 import textwrap
 from types import FunctionType, MethodType
-from typing import Any, Dict, List, Type, Union
+from typing import Any, Dict, List, Set, Tuple, Type, Union
 
 import torch
 
@@ -35,7 +35,7 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
 
     # autowrap untraceable code
     auto_wrapper = AutoWrapper(namespace, ignore)
-    tree = auto_wrapper.autowrap(tree)
+    tree = auto_wrapper.auto_wrap(tree)
 
     # compile new forward function from autowrapped code
     filename = f"{module.__class__.__name__}_{hash(module)}_autowrapped"
@@ -63,12 +63,12 @@ class AutoWrapper(ast.NodeTransformer):
     def __init__(self, eval_context: Dict[str, Any], ignore: List[str]):
         self.eval_context = eval_context
         self.ignore = ignore
-        self._wrapped_fn_defs = list()
+        self._wrapper_fn_defs = list()
         self._local_names = set()
 
-    def autowrap(self, tree: ast.Module) -> ast.Module:
+    def auto_wrap(self, tree: ast.Module) -> ast.Module:
         tree = self.visit(tree)
-        for fn_def in self._wrapped_fn_defs:
+        for fn_def in self._wrapper_fn_defs:
             tree.body.insert(0, fn_def)
 
         return ast.fix_missing_locations(tree)
@@ -77,6 +77,12 @@ class AutoWrapper(ast.NodeTransformer):
         """
         Remove decorators which prevent forward function recompilation
         For example, add_start_docstrings_to_model_forward
+
+        Because `_wrapper_fn_defs` are appended after `visit` finishes, this function
+        will not affect wrapper functions
+
+        :param node: function definition whose decorators will be stripped
+        :return: function definition without decorators
         """
         node.decorator_list = []
         if node.name == "forward":
@@ -86,7 +92,32 @@ class AutoWrapper(ast.NodeTransformer):
 
     def visit_If(self, node: ast.If) -> Union[ast.If, ast.Assign]:
         """
-        Attempt static eval, else wrap
+        Attempt to statically evaluate the condition of the `if` statement. If the
+        condition can not be statically evaluated, then wrap the `if` statement if
+        possible
+
+        TODO: sometimes module calls happen in if statements.
+        Most commonly, this can happen for code like this:
+        ```
+        if image_embeds is None:
+            image_embeds = self.visual(pixel_values)
+        ```
+
+        There may be some ways of mitigating this, but there are likely no perfect
+        solutions that cover all cases without requiring some user intervention
+        1. Add model inputs such as `image_embeds` to the eval context, allowing
+            these names to be evaluated (although any intermediate ops will not be
+            reflected)
+        2. Attempt to infer if a node calls a module from static code analysis alone
+            a. We can eval the caller of any Calls (in the self module context) and
+                check if the caller is one of our targets (or an ancestor of targets)
+            b. We can use type inference libraries like `jedi` to infer the type of
+                any callers, which may be more robust but more complicated
+
+        :param node: `if` statement which may be wrapped
+        :return: if the `if` statement cannot be statically evaluated, return the
+            `if` statement with the condition replaced by `True` or `False`.
+            Otherwise, return a wrapper function call
         """
         try:
             value = bool(self._eval_expr(node.test))
@@ -159,31 +190,53 @@ class AutoWrapper(ast.NodeTransformer):
         compiled = compile(module, filename="<ast>", mode="eval")
         return eval(compiled, {}, self.eval_context)
 
+    def _can_wrap(self, node: ast.AST) -> bool:
+        """
+        Some nodes cannot be wrapped because they contain control flow which is invalid
+        without its original context
+        """
+        analyzer = ControlFlowAnalyzer()
+        return analyzer.is_valid(node)
+
     def _wrap_if_possible(self, node: ast.AST) -> ast.Assign:
+        """
+        Defines a wrapper function containing the wrapped node. Returns a statement
+        which calls the newly defined wrapper function with required inputs and outputs
+
+        The new wrapper function definition is stored in `_wrapper_fn_defs` and is later
+        appended to the module ast by `AutoWrapper.auto_wrap`
+
+        :param node: node to be wrapped
+        :return: an Assign statement which calls the wrapper function
+        """
         if not self._can_wrap(node):
             return node
 
-        analyzer = NameAnalyzer(self.eval_context.keys())
-        analyzer.visit(node)
+        # unbound := names which are read by node before being assigned
+        # assigned := names which are assigned by operations in node
+        # cond_assigned := names which may be assigned depending on execution
+        analyzer = NameAnalyzer(omit=self.eval_context.keys())
+        unbound, assigned, conditionally_assigned = analyzer.analyze(node)
 
-        args = (
-            analyzer.unbound_names | analyzer.conditionally_assigned_names
-        ) & self._local_names
-        returns = analyzer.assigned_names
+        # args := names which already existed and are needed for ops or wrapped return
+        # kwargs := names which are needed for return but did not already exist
+        # returns := names which are assigned or could be assigned
+        args = (unbound | conditionally_assigned) & self._local_names
+        kwargs = conditionally_assigned - self._local_names
+        returns = assigned | conditionally_assigned
 
-        # Create function arguments
-        args_ast = [ast.arg(arg=name) for name in args]
+        # build function arguments
         args_obj = ast.arguments(
-            args=args_ast,
+            args=[ast.arg(arg=name) for name in args],
             posonlyargs=[],
-            kwonlyargs=[],
-            kw_defaults=[],
+            kwonlyargs=[ast.arg(arg=name) for name in kwargs],
+            kw_defaults=[ast.Constant(value=None) for _ in kwargs],
             defaults=[],
             vararg=None,
             kwarg=None,
         )
 
-        # Build return statement
+        # build return statement
         return_stmt = ast.Return(
             value=ast.Tuple(
                 elts=[ast.Name(id=name, ctx=ast.Load()) for name in sorted(returns)],
@@ -191,6 +244,7 @@ class AutoWrapper(ast.NodeTransformer):
             )
         )
 
+        # build function definition, store in `_wrapper_fn_defs`
         fn_name = f"wrapped_{hash(node)}"
         fn_def = ast.FunctionDef(
             name=fn_name,
@@ -198,25 +252,24 @@ class AutoWrapper(ast.NodeTransformer):
             body=[node, return_stmt],
             decorator_list=[ast.Name(id="torch.fx.wrap", ctx=ast.Load())],
         )
+        self._wrapper_fn_defs.append(fn_def)
+
+        # build call and assignment
         fn_call = ast.Call(
             func=ast.Name(id=fn_name, ctx=ast.Load()),
             args=[ast.Name(id=name, ctx=ast.Load()) for name in args],
             keywords=list(),
         )
-
         return_tuple = ast.Tuple(
             elts=[ast.Name(id=name, ctx=ast.Store()) for name in sorted(returns)],
             ctx=ast.Store(),
         )
-        fn_call_expr = ast.Assign(targets=[return_tuple], value=fn_call)
+        assign_call = ast.Assign(targets=[return_tuple], value=fn_call)
 
-        self._wrapped_fn_defs.append(fn_def)
+        # update local names with newly returned values
+        self._local_names |= returns
 
-        return fn_call_expr
-
-    def _can_wrap(self, node: ast.AST) -> bool:
-        analyzer = ControlFlowAnalyzer()
-        return analyzer.is_valid(node)
+        return assign_call
 
 
 class ControlFlowAnalyzer(ast.NodeVisitor):
@@ -272,50 +325,50 @@ class ControlFlowAnalyzer(ast.NodeVisitor):
 
 
 class NameAnalyzer(ast.NodeVisitor):
-    def __init__(self, globals):
-        self.unbound_names = set()
-        self.assigned_names = set()
-        self.conditionally_assigned_names = set()
-        self._omit_names = builtins.__dict__.keys() | globals
+    _unbound: Set[str]
+    _assigned: Set[str]
+    _conditionally_assigned: Set[str]
+    _omit: Set[str]
 
-    def generic_visit(self, node):
-        """Explicitly define to guarantee DFS"""
-        for field, value in ast.iter_fields(node):
-            if isinstance(value, list):
-                for item in value:
-                    if isinstance(item, ast.AST):
-                        self.visit(item)
-            elif isinstance(value, ast.AST):
-                self.visit(value)
+    def __init__(self, omit: Set[str]):
+        self._omit = builtins.__dict__.keys() | omit
 
-    def visit_If(self, node: ast.If):
-        self.visit(node.test)
+    def analyze(self, tree: ast.AST) -> Tuple[Set[str], Set[str], Set[str]]:
+        self._unbound = set()
+        self._assigned = set()
+        self._conditionally_assigned = set()
+        self.visit(tree)
 
-        # collect names from `true` clause
-        with patch_attr(self, "assigned_names", set()):
-            for statement in node.body:
-                self.visit(statement)
-            true_assigned = self.assigned_names
-
-        # collect names from `false` clause
-        with patch_attr(self, "assigned_names", set()):
-            for statement in node.orelse:
-                self.visit(statement)
-            false_assigned = self.assigned_names
-
-        self.conditionally_assigned_names |= true_assigned ^ false_assigned
-        self.assigned_names |= true_assigned | false_assigned
+        return self._unbound, self._assigned, self._conditionally_assigned
 
     def visit_Name(self, node: ast.Name) -> ast.Name:
         name = node.id
 
         if isinstance(node.ctx, ast.Load):
             # reading name that has not been written yet
-            if name not in self.assigned_names and name not in self._omit_names:
-                self.unbound_names.add(node.id)
+            if name not in self._assigned and name not in self._omit:
+                self._unbound.add(node.id)
         else:
             # writing any name that's not omitted
-            if name not in self._omit_names:
-                self.assigned_names.add(name)
+            if name not in self._omit:
+                self._assigned.add(name)
 
         self.generic_visit(node)
+
+    def visit_If(self, node: ast.If):
+        self.visit(node.test)
+
+        # collect names from `true` clause
+        with patch_attr(self, "_assigned", set()):
+            for statement in node.body:
+                self.visit(statement)
+            true_assigned = self._assigned
+
+        # collect names from `false` clause
+        with patch_attr(self, "_assigned", set()):
+            for statement in node.orelse:
+                self.visit(statement)
+            false_assigned = self._assigned
+
+        self._conditionally_assigned |= true_assigned ^ false_assigned
+        self._assigned |= true_assigned & false_assigned

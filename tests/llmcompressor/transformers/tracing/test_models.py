@@ -1,6 +1,7 @@
 import pytest
 from transformers import (
     AutoModelForCausalLM,
+    Gemma3ForConditionalGeneration,
     Idefics3ForConditionalGeneration,
     LlavaForConditionalGeneration,
     MllamaForConditionalGeneration,
@@ -67,6 +68,12 @@ def test_text_trace(model_id, model_class, targets):
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,
             ["Qwen2VLDecoderLayer"],
+            [],
+        ),
+        (
+            "google/gemma-3-4b-it",
+            Gemma3ForConditionalGeneration,
+            ["Gemma3DecoderLayer"],
             [],
         ),
     ],

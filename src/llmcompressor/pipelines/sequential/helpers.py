@@ -130,7 +130,7 @@ def trace_subgraphs(
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
 
-    if len(subgraphs) == len(targets):
+    if len(subgraphs) != len(targets) + 1:
         logger.warning(
             f"Expected {len(targets)} subgraphs, but only traced {len(subgraphs)}. "
             "This is likely due to having wrapped code which calls sequential targets"
