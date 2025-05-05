@@ -215,7 +215,7 @@ class AutoWrapper(ast.NodeTransformer):
         )
 
         # build function definition, store in `_wrapper_fn_defs`
-        fn_name = f"wrapped_{len(self._wrapper_fn_defs)}"
+        fn_name = f"wrapped_{hash(node)}"
         fn_def = ast.FunctionDef(
             name=fn_name,
             args=args_obj,
