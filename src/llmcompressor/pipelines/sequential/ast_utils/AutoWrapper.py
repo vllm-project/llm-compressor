@@ -14,6 +14,13 @@ class AutoWrapper(ast.NodeTransformer):
         self._local_names = set()
 
     def auto_wrap(self, tree: ast.Module) -> ast.Module:
+        """
+        Modify ast by automatically wrapping any untraceable code segments. Segments to
+        wrap are determined through analysis of the code and basic pattern matching
+
+        :param tree: module containing a definition to an original forward function
+        :return: module with added wrapper function definitions and function calls
+        """
         tree = self.visit(tree)
         for fn_def in self._wrapper_fn_defs:
             tree.body.insert(0, fn_def)
@@ -117,12 +124,18 @@ class AutoWrapper(ast.NodeTransformer):
         return wrapped_assign.value
 
     def visit_Name(self, node: ast.Name):
+        """
+        Add any new names in `self._local_names`
+        """
         if isinstance(node.ctx, ast.Store):
             self._local_names.add(node.id)
 
         return super().generic_visit(node)
 
     def visit_Delete(self, node: ast.Delete):
+        """
+        Remove any deleted names from `self._local_names`
+        """
         ret = super().visit_Delete(node)
 
         for target in node.targets:
@@ -132,12 +145,18 @@ class AutoWrapper(ast.NodeTransformer):
         return ret
 
     def _eval_expr(self, node: ast.expr) -> Any:
-        if not isinstance(node, ast.expr):
-            raise TypeError("Expected an ast.expr node")
+        """
+        Evaluate an expression using evaluation context
 
-        module = ast.Expression(body=node)  # wrap in expression in order to compile
-        module = ast.fix_missing_locations(module)
-        compiled = compile(module, filename="<ast>", mode="eval")
+        :param node: expression to evaluate
+        :return: evaluated value of expression
+        """
+        if not isinstance(node, ast.expr):
+            raise TypeError("Expected an `ast.expr` node")
+
+        expr = ast.Expression(body=node)  # wrap in expression in order to compile
+        expr = ast.fix_missing_locations(expr)
+        compiled = compile(expr, filename="<_eval_expr>", mode="eval")
         return eval(compiled, {}, self.eval_context)
 
     def _can_wrap(self, node: ast.AST) -> bool:
