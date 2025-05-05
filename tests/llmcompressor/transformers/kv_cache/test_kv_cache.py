@@ -214,13 +214,6 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
     recipe = """
     quant_stage:
         quant_modifiers:
-            QuantizationModifier:
-                kv_cache_scheme:
-                    num_bits: {num_bits}
-                    type: {_type}
-                    strategy: {strategy}
-                    dynamic: {dynamic}
-                    symmetric: {symmetric}
             GPTQModifier:
                 ignore: ["lm_head"]
                 config_groups:
@@ -232,6 +225,12 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
                             strategy: "channel"
                             actorder: False
                         targets: ["Linear"]
+                kv_cache_scheme:
+                    num_bits: {num_bits}
+                    type: {_type}
+                    strategy: {strategy}
+                    dynamic: {dynamic}
+                    symmetric: {symmetric}
     """
 
     output_dir, _ = next(kv_cache_fixture(recipe, tmp_path))
