@@ -60,7 +60,7 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+ds = ds.shuffle(seed=42)
 
 def process_and_tokenize(example):
     text = tokenizer.apply_chat_template(example["messages"], tokenize=False)

@@ -63,7 +63,7 @@ MAX_SEQUENCE_LENGTH=2048
 
 # Load dataset.
 ds = load_dataset("HuggingFaceH4/ultrachat_200k", split=f"train_sft[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+ds = ds.shuffle(seed=42)
 
 # Preprocess the data into the format the model is trained with.
 def preprocess(example):

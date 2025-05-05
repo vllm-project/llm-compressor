@@ -81,11 +81,9 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Load and preprocess dataset
-ds = (
-    load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-    .shuffle(seed=42)
-    .select(range(NUM_CALIBRATION_SAMPLES))
-)
+ds = load_dataset(
+    DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"
+).shuffle(seed=42)
 ds = ds.map(preprocess)
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
