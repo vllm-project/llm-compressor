@@ -19,7 +19,6 @@ class AutoWrapper(ast.NodeTransformer):
 
     def __init__(self, namespace: Dict[str, Any], ignore: List[str]):
         self.namespace = namespace
-        self.locals = locals
         self.ignore = ignore
         self._wrapper_fn_defs: List[ast.FunctionDef] = list()
         self._local_names = set()
