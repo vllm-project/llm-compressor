@@ -1,6 +1,11 @@
 from typing import Any, Dict, Optional
 
-from pydantic import model_validator, BaseModel, ConfigDict, ValidationError
+from pydantic import (
+    ConfigDict,
+    ValidationError,
+    create_model,
+    model_validator,
+)
 
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.args import RecipeArgs
@@ -75,26 +80,20 @@ class RecipeModifier(RecipeBase):
             ModifierFactory.refresh()
 
         modifier_class = ModifierFactory.get_class(self.type)
-        
-        if hasattr(modifier_class, "model_fields"):
-            field_definitions = {
-                field_name: (field_info.annotation, field_info.default)
-                for field_name, field_info in modifier_class.model_fields.items()
-            }
-            
-            class TempModel(BaseModel):
-                model_config = ConfigDict(extra="forbid")
-                
-                __annotations__ = {
-                    field_name: field_type
-                    for field_name, (field_type, _) in field_definitions.items()
-                }
 
-            for field_name, (_, default) in field_definitions.items():
-                if default is not Ellipsis:  # Ellipsis is used for required fields
-                    setattr(TempModel, field_name, default)
+        # Validate arguments against the modifier class fields
+        if hasattr(modifier_class, "model_fields") and self.args_evaluated:
             try:
-                TempModel(**self.args_evaluated) if self.args_evaluated else None
+                validation_model = create_model(
+                    f"{self.type}Validator",
+                    **{
+                        field: (type_, ...)
+                        for field, type_ in modifier_class.model_fields.items()
+                    },
+                    __config__=ConfigDict(extra="forbid"),
+                )
+
+                validation_model.model_validate(self.args_evaluated)
             except ValidationError as e:
                 error_msg = f"Invalid arguments found for {self.type}: {str(e)}"
                 raise ValueError(error_msg)
@@ -103,7 +102,7 @@ class RecipeModifier(RecipeBase):
             self.type,
             allow_registered=True,
             allow_experimental=True,
-            **self.args_evaluated if self.args_evaluated else {}
+            **self.args_evaluated if self.args_evaluated else {},
         )
 
     @model_validator(mode="before")
