@@ -221,6 +221,9 @@ class CompressionSession:
         logger.warning("Recipe not found in session - it may have been reset")
 
     def get_modifiers(self):
+        """
+        Get all modifiers across all stages
+        """
         stage_modifiers = self.lifecycle.modifiers
         return [
             modifier

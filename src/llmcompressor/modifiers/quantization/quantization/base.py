@@ -62,7 +62,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Begin calibrating activations and weights. Calibrate weights only once on start
         """
-        self.started_ = True  # TODO: move to super call
+        self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
 
         modules = list(state.model.modules())
@@ -72,11 +72,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
-                # TODO: modify lifecycle to start on calibration epoch start
                 self.on_start(state, None)
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            # TODO: modify lifecycle to end on calibration epoch end
             if not self.ended_:
                 self.on_end(state, None)
 
@@ -84,12 +82,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True  # TODO: move to super call
+        self.ended_ = True
         QuantizationMixin.end_calibration(
             self, state.model
         )  # keep quantization enabled
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        # TODO: modify lifecycle to end on finalize
         if not self.ended_:
             self.on_end(state, None)

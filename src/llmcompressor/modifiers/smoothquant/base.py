@@ -135,13 +135,12 @@ class SmoothQuantModifier(Modifier):
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True  # TODO: move to super call
+        self.started_ = True
         self._setup_scale_hooks()
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
-                # TODO: modify lifecycle to start on calibration epoch start
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -150,19 +149,17 @@ class SmoothQuantModifier(Modifier):
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             self._apply_smoothing(state.model)
 
-            # TODO: modify lifecycle to end on calibration epoch end
             if not self.ended_:
                 self.on_end(state, None)
 
     def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True  # TODO: move to super calls
+        self.ended_ = True
         self.remove_hooks()  # remove hooks
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         Clean up by clearing the scale and mapping data
         """
-        # TODO: modify lifecycle to end on finalize
         if not self.ended_:
             self.on_end(state, None)
 

@@ -136,7 +136,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True  # TODO: move to super call
+        self.started_ = True
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
@@ -165,7 +165,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
-                # TODO: modify lifecycle to start on calibration epoch start
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -174,7 +173,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             self.compress_modules()
 
-            # TODO: modify lifecycle to end on calibration epoch end
             if not self.ended_:
                 self.on_end(state, None)
 
@@ -182,7 +180,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True  # TODO: move to super call
+        self.ended_ = True
         QuantizationMixin.end_calibration(self, state.model)
         self.remove_hooks()  # remove gptq hooks
 
@@ -192,7 +190,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # TODO: modify lifecycle to end on finalize
         if not self.ended_:
             self.on_end(state, None)
 

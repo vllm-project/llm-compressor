@@ -96,9 +96,8 @@ class CompressionLifecycle:
             return
 
         logger.debug("Initializing compression lifecycle")
-        if not (recipe is recipe_stage is recipe_args is None):
-            self.recipe_container.append(recipe, recipe_stage, recipe_args)
-            self.modifiers = self.recipe_container.get_modifiers()
+        self.recipe_container.append(recipe, recipe_stage, recipe_args)
+        self.modifiers = self.recipe_container.get_modifiers()
         self._set_model_layer_prefix()
 
         mod_data = []

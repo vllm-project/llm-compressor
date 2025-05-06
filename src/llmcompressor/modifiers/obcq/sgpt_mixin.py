@@ -134,7 +134,7 @@ class SparsityModifierMixin(Modifier):
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
-        self.started_ = True  # TODO: move to super call
+        self.started_ = True
 
         # register hooks
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
@@ -171,7 +171,6 @@ class SparsityModifierMixin(Modifier):
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
-                # TODO: modify lifecycle to start on calibration epoch start
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -180,12 +179,11 @@ class SparsityModifierMixin(Modifier):
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             self.compress_modules()
 
-            # TODO: modify lifecycle to end on calibration epoch end
             if not self.ended_:
                 self.on_end(state, None)
 
     def on_end(self, state: State, event: Event, **kwargs):
-        self.ended_ = True  # TODO: move to super call
+        self.ended_ = True
         self.remove_hooks()
 
     def _infer_sequential_targets(

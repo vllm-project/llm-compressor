@@ -160,14 +160,15 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        # TODO: validate modifiers before intialization, likely in recipe
+        # (Helen INFERENG-661): validate recipe modifiers before intialization
         session.initialize(
             model=self.model,
             start=-1,
             recipe=self.recipe,
             recipe_stage=recipe_stage,
             recipe_args=self.recipe_args.recipe_args,
-            calib_data=calibration_dataloader,  # TODO: only used by AWQ modifier
+            calib_data=calibration_dataloader,  # only used by AWQModifier, remove once
+            # AWQModifier supports calibration pipelines
         )
 
         user_pipeline = self.dataset_args.pipeline
