@@ -4,7 +4,7 @@ from safetensors import safe_open
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-MODEL_ID = "Llama-3.2-1B-Instruct-W4A16-uncompressed-hadamard-random-debug"
+MODEL_ID = "/home/dsikka/Llama-3.2-1B-Instruct-W4A16-uncompressed-hadamard-random-debug"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
