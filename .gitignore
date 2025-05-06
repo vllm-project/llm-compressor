@@ -3,6 +3,8 @@
 tensorboard/*
 # Created by .ignore support plugin (hsz.mobi)
 !/data/.gitkeep
+docs/source/doc
+docs/source/examples.md
 # tranformer stuff
 examples/transformers/cache/
 examples/transformers/output/
