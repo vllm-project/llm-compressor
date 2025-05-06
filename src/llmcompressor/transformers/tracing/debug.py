@@ -1,6 +1,7 @@
-from typing import List, Type, Union, Optional, Dict
+from typing import List, Type, Union, Optional, Dict, Tuple, Any
 
 import argparse
+from contextlib import nullcontext
 
 import torch
 import transformers
@@ -27,6 +28,8 @@ def parse_args():
     parser.add_argument("--ignore", type=str, nargs="*", default=[], metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
     parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
     parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
+    parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
+    parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
     return parser.parse_args()
 
 
@@ -36,8 +39,10 @@ def trace(
     sequential_targets: Optional[Union[List[str], str]] = None,
     ignore: Union[List[str], str] = [],
     modality: str = "text",
-    trust_remote_code: bool = True
-) -> List[Subgraph]:
+    trust_remote_code: bool = True,
+    skip_weights: bool = True,
+    device_map: Union[str, Dict] = "cpu",
+) -> Tuple[PreTrainedModel, List[Subgraph], Dict[str, torch.Tensor]]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
 
@@ -59,10 +64,10 @@ def trace(
         --modality text
     """
     # Load model
-    with skip_weights_download(model_class):
+    with skip_weights_download(model_class) if skip_weights else nullcontext():
         model = model_class.from_pretrained(
             model_id,
-            device_map="cpu",
+            device_map=device_map,
             torch_dtype="auto",
             trust_remote_code=trust_remote_code,
         )
@@ -79,8 +84,8 @@ def trace(
         split=dataset_args.splits["calibration"],
         processor=processor,
     )(add_labels=False)
-    sample_input = next(iter(dataset))
-    sample_input = {k: torch.tensor(v) for k, v in sample_input.items()}
+    sample = next(iter(dataset))
+    sample = collate_sample(sample, device=model.device)
     print("Loaded sample data")
 
     # infer sequential targets
@@ -100,14 +105,14 @@ def trace(
         f"    model_class={model_class.__name__}\n"
         f"    dataset={dataset_args.dataset}\n"
         f"    split={dataset.split}\n"
-        f"    inputs={sample_input.keys()}\n"
+        f"    inputs={sample.keys()}\n"
         f"    sequential_targets={sequential_targets}\n"
         f"    ignore={ignore}\n"
     )
-    subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+    subgraphs = trace_subgraphs(model, sample, sequential_targets, ignore)
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
-    return subgraphs
+    return model, subgraphs, sample
 
 
 def get_model_class(model_class: str) -> Type[PreTrainedModel]:
@@ -140,6 +145,18 @@ def get_dataset_kwargs(modality: str) -> Dict[str, str]:
     return dataset_kwargs[modality]
 
 
+def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tensor]:
+    # TODO: needs a little bit more automagic, doesn't seem to work for idefics3
+    for name, value in sample.items():
+        if name in ("input_ids", "attention_mask") and torch.tensor(value).ndim == 1:
+            sample[name] = torch.tensor([value], device=device)
+
+        else:
+            sample[name] = torch.tensor(value, device=device)
+
+    return sample
+
+
 def main():
     args = parse_args()
 
@@ -149,7 +166,9 @@ def main():
         sequential_targets=args.sequential_targets,
         ignore=args.ignore,
         modality=args.modality,
-        trust_remote_code=args.trust_remote_code
+        trust_remote_code=args.trust_remote_code,
+        skip_weights=args.skip_weights,
+        device_map=args.device_map,
     )
 
 
