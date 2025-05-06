@@ -62,10 +62,11 @@ class CalibrationPipeline(ABC, RegistryMixin):
     def _validate_infer_pipeline(modifiers: List[Modifier]) -> str:
         if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
             if len(modifiers) > 1:
-                raise ValueError(
+                logger.warning(
                     "AWQ does not currently support sharing a data pipeline with other "
-                    "modifiers. Please use oneshot(pipeline='independent')"
+                    "modifiers. Inferring `independent` calibration pipeline"
                 )
+                return "independent"
             return "datafree"
 
         if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):

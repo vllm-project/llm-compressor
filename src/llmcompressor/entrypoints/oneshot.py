@@ -160,6 +160,7 @@ class Oneshot:
         session = active_session()
         session.reset()
 
+        # TODO: validate modifiers before intialization, likely in recipe
         session.initialize(
             model=self.model,
             start=-1,
