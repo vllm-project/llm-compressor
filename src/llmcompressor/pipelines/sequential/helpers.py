@@ -1,8 +1,10 @@
+import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set
 
+import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from loguru import logger
@@ -16,6 +18,8 @@ from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+
+from .ast_helpers import autowrap_forwards
 
 __all__ = ["trace_subgraphs", "Subgraph"]
 
@@ -83,14 +87,27 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    sequential_targets = match_modules(model, sequential_targets)
+    ignore = ["_update_causal_mask"]
+    targets = match_modules(model, sequential_targets)
+    ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets)
+    tracer = get_tracer(model, ancestors)
     concrete_args = populate_concrete_args(model, sample_input)
 
-    # trace
-    with calibration_forward_context(model), HooksMixin.disable_hooks():
+    with contextlib.ExitStack() as stack:
+        # calibration context
+        stack.enter_context(calibration_forward_context(model))
+        stack.enter_context(HooksMixin.disable_hooks())
+
+        # flags useful for tracing
+        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
+        stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
+
+        # autowrap forwards
+        stack.enter_context(autowrap_forwards(ancestors, ignore))
+        stack.enter_context(patch_attr(type(model), "forward", model.forward.__func__))
+
         graph = GraphModule(
             model,
             tracer.trace(
@@ -109,14 +126,20 @@ def trace_subgraphs(
     graph.device = model.device
 
     # perform subgraph partition
-    partitions = topological_partition(graph, sequential_targets)
+    partitions = topological_partition(graph, targets)
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
+
+    if len(subgraphs) != len(targets) + 1:
+        logger.warning(
+            f"Expected {len(targets)} subgraphs, but only traced {len(subgraphs)}. "
+            "This is likely due to having wrapped code which calls sequential targets"
+        )
 
     return subgraphs
 
 
-def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
+def get_tracer(model: Module, ancestors: Set[Module]) -> HFTracer:
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
@@ -128,11 +151,10 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
     :param model: model being traced
     :param sequential_targets: modules which are sequential targets
     """
-    sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
 
     # check unlikely case that ancestors have direct params which are offloaded
-    offloaded_ancestors = offloaded_modules & sequential_ancestors
+    offloaded_ancestors = offloaded_modules & ancestors
     if offloaded_ancestors:
         names = set(module.__class__.__name__ for module in offloaded_ancestors)
         logger.warning(
@@ -153,22 +175,7 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module not in sequential_ancestors or module in offloaded_modules
-
-        def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
-            if isinstance(root, Module):
-                # due to a bug in Tracer.create_args_for_root (_patch_function),
-                # we must unwrap function wrappers prior to tracing, for example
-                # the `deprecate_kwarg` by transformers which wraps forward
-                unwrapped_forward = inspect.unwrap(type(root).forward)
-
-                # we override the class method because the
-                # class method is the one being traced
-                with patch_attr(type(root), "forward", unwrapped_forward):
-                    return super().trace(root, *args, **kwargs)
-
-            else:
-                return super().trace(root, *args, **kwargs)
+            return module not in ancestors or module in offloaded_modules
 
     return SequentialTracer()
 
