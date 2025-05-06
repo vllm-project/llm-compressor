@@ -7,6 +7,16 @@ from .NameAnalyzer import NameAnalyzer
 
 
 class AutoWrapper(ast.NodeTransformer):
+    """
+    Automatically wraps untracable code according to the following patterns:
+
+    The following patterns are automatically wrapped
+    1. If statements whose conditions cannot be statically evaluated
+    2. Ignored functions (`_update_causal_mask`)
+    3. Starred tuple unpacking
+    4. Starred argument unpacking
+    """
+
     def __init__(self, namespace: Dict[str, Any], ignore: List[str]):
         self.namespace = namespace
         self.locals = locals
@@ -50,24 +60,6 @@ class AutoWrapper(ast.NodeTransformer):
         Attempt to statically evaluate the condition of the `if` statement. If the
         condition can not be statically evaluated, then wrap the `if` statement if
         possible
-
-        TODO: sometimes module calls happen in if statements.
-        Most commonly, this can happen for code like this:
-        ```
-        if image_embeds is None:
-            image_embeds = self.visual(pixel_values)
-        ```
-
-        There may be some ways of mitigating this, but there are likely no perfect
-        solutions that cover all cases without requiring some user intervention
-        1. Add model inputs such as `image_embeds` to the eval context, allowing
-            these names to be evaluated (although any intermediate ops will not be
-            reflected)
-        2. Attempt to infer if a node calls a module from static code analysis alone
-            a. We can eval the caller of any Calls (in the self module context) and
-                check if the caller is one of our targets (or an ancestor of targets)
-            b. We can use type inference libraries like `jedi` to infer the type of
-                any callers, which may be more robust but more complicated
 
         :param node: `if` statement which may be wrapped
         :return: if the `if` statement cannot be statically evaluated, return the
@@ -158,14 +150,20 @@ class AutoWrapper(ast.NodeTransformer):
 
     def _wrap_if_possible(self, node: ast.AST) -> Union[ast.AST, ast.Assign, ast.Call]:
         """
-        Defines a wrapper function containing the wrapped node. Returns a statement
-        which calls the newly defined wrapper function with required inputs and outputs
+        Defines a wrapper function containing the wrapped node.
+
+        If a statement is passed, then returns a statement which calls the newly defined
+        wrapper function with inputs and assigns the value to the output names
+
+        If an expression is passed, then returns a call to the newly defined wrapper
+        function with inputs and no assignment
 
         The new wrapper function definition is stored in `_wrapper_fn_defs` and is later
         appended to the module ast by `AutoWrapper.auto_wrap`
 
         :param node: node to be wrapped
-        :return: an Assign statement which calls the wrapper function
+        :return: a call to the wrapped function, either being assigned to variable names
+            or called as-is
         """
         if not self._can_wrap(node):
             return node
@@ -177,7 +175,7 @@ class AutoWrapper(ast.NodeTransformer):
             return self._wrap_expr(node)
 
         else:
-            raise ValueError()
+            raise TypeError(f"Unknown type {type(node)}")
 
     def _wrap_stmt(self, node: ast.stmt) -> ast.Assign:
         # unbound := names which are read by node before being assigned
@@ -205,20 +203,23 @@ class AutoWrapper(ast.NodeTransformer):
             kwarg=None,
         )
 
-        # build return statement
+        # build body and return statement
         return_stmt = ast.Return(
             value=ast.Tuple(
                 elts=[ast.Name(id=name, ctx=ast.Load()) for name in sorted(returns)],
                 ctx=ast.Load(),
             )
         )
+        body = [node, return_stmt]
+        # TODO: validate that we can skip
+        # body = [node] if isinstance(node, ast.Return) else [node, return_stmt]
 
         # build function definition, store in `_wrapper_fn_defs`
         fn_name = f"wrapped_{hash(node)}"
         fn_def = ast.FunctionDef(
             name=fn_name,
             args=args_obj,
-            body=[node, return_stmt],
+            body=body,
             decorator_list=[ast.Name(id="torch.fx.wrap", ctx=ast.Load())],
         )
         self._wrapper_fn_defs.append(fn_def)

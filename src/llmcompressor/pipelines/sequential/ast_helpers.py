@@ -52,8 +52,7 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
         filename,
     )
 
-    # some modules (such as ModuleList) do not implement a forward function,
-    # so fall back to existing forward definition
+    # patch forward with autowrapped forward
     new_forward = namespace["forward"].__get__(module)
     with patch_attr(module, "forward", new_forward):
         yield
