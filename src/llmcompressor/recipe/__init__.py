@@ -6,7 +6,6 @@ from .metadata import (
     LayerMetaData,
     ModelMetaData,
     ParamMetaData,
-    RecipeMetaData,
 )
 from .modifier import RecipeModifier
 from .recipe import Recipe, RecipeArgsInput, RecipeInput, RecipeStageInput, RecipeTuple
@@ -17,7 +16,6 @@ __all__ = [
     "ParamMetaData",
     "LayerMetaData",
     "ModelMetaData",
-    "RecipeMetaData",
     "RecipeBase",
     "RecipeContainer",
     "RecipeModifier",
