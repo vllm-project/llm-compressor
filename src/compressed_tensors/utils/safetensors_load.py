@@ -234,11 +234,11 @@ def get_nested_weight_mappings(
     for key, file_location in weight_mappings.items():
         matched = False
         for param_name in params_to_nest:
-            dense_param = match_param_name(key, param_name)
-            if dense_param:
-                if dense_param not in nested_weight_mappings:
-                    nested_weight_mappings[dense_param] = {}
-                nested_weight_mappings[dense_param][param_name] = file_location
+            module_path = match_param_name(key, param_name)
+            if module_path:
+                if module_path not in nested_weight_mappings:
+                    nested_weight_mappings[module_path] = {}
+                nested_weight_mappings[module_path][param_name] = file_location
                 matched = True
         if return_unmatched_params and not matched:
             unmatched_params[key] = file_location
@@ -271,11 +271,11 @@ def get_nested_mappings_from_state_dict(
     nested_weight_mappings = {}
     for key in state_dict.keys():
         for param_name in params_to_nest:
-            dense_param = match_param_name(key, param_name)
-            if dense_param:
-                if dense_param not in nested_weight_mappings:
-                    nested_weight_mappings[dense_param] = {}
-                nested_weight_mappings[dense_param][param_name] = state_dict[key]
+            module_path = match_param_name(key, param_name)
+            if module_path:
+                if module_path not in nested_weight_mappings:
+                    nested_weight_mappings[module_path] = {}
+                nested_weight_mappings[module_path][param_name] = state_dict[key]
     return nested_weight_mappings
 
 
