@@ -1,6 +1,6 @@
 import threading
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any, Generator, Optional
 
 from llmcompressor.core.events import EventType
 from llmcompressor.core.session import CompressionSession
@@ -21,7 +21,7 @@ _local_storage.session = _global_session
 
 
 @contextmanager
-def create_session() -> CompressionSession:
+def create_session() -> Generator[CompressionSession, None, None]:
     """
     Context manager to create and yield a new session for sparsification.
     This will set the active session to the new session for the duration
@@ -135,6 +135,37 @@ class LifecycleCallbacks:
         """
         active_session()._log_model_info()
         return cls.event(EventType.BATCH_END, **kwargs)
+
+    @classmethod
+    def calibration_epoch_start(cls, **kwargs) -> ModifiedState:
+        """
+        Invoke a epoch start event for the active session during calibration. This event
+        should be called before calibration starts for one epoch
+
+        see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
+        """
+        return cls.event(EventType.CALIBRATION_EPOCH_START, **kwargs)
+
+    @classmethod
+    def sequential_epoch_end(cls, **kwargs) -> ModifiedState:
+        """
+        Invoke a sequential epoch end event for the active session. This event should be
+        called after one sequential layer has been calibrated/trained for one epoch
+
+        This is called after a sequential layer has been calibrated with one batch, see
+        `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
+        """
+        return cls.event(EventType.SEQUENTIAL_EPOCH_END, **kwargs)
+
+    @classmethod
+    def calibration_epoch_end(cls, **kwargs) -> ModifiedState:
+        """
+        Invoke a epoch end event for the active session during calibration. This event
+        should be called after the model has been calibrated for one epoch
+
+        see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
+        """
+        return cls.event(EventType.CALIBRATION_EPOCH_END, **kwargs)
 
 
 callbacks = LifecycleCallbacks
