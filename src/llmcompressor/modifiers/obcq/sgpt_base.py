@@ -20,7 +20,12 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 
-class SparsityModifierMixin(Modifier):
+class SparsityModifierBase(Modifier):
+    """
+    Abstract base class which implements functionality related to oneshot sparsity.
+    Inheriters must implement `calibrate_module` and `compress_modules`
+    """
+
     # modifier arguments
     sparsity: Optional[Union[float, List[float]]]
     sparsity_profile: Optional[str] = None
@@ -66,7 +71,7 @@ class SparsityModifierMixin(Modifier):
         return value
 
     @model_validator(mode="after")
-    def validate_model_after(model: "SparsityModifierMixin") -> "SparsityModifierMixin":
+    def validate_model_after(model: "SparsityModifierBase") -> "SparsityModifierBase":
         profile = model.sparsity_profile
         owl_m = model.owl_m
         owl_lmbda = model.owl_lmbda
