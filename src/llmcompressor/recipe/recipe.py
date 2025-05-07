@@ -22,7 +22,6 @@ __all__ = [
     "RecipeArgsInput",
 ]
 
-
 class Recipe(RecipeBase):
     """
     A class to represent a recipe for a model.
