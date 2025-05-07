@@ -98,7 +98,6 @@ class CompressionLifecycle:
         logger.debug("Initializing compression lifecycle")
         self.recipe_container.append(recipe, recipe_stage, recipe_args)
         self.modifiers = self.recipe_container.get_modifiers()
-        self._set_model_layer_prefix()
 
         mod_data = []
         for mod in self.modifiers:
@@ -229,16 +228,3 @@ class CompressionLifecycle:
         if valid:
             self._last_event_type = event_type
         return valid
-
-    def _set_model_layer_prefix(self):
-        compiled_recipe = self.recipe_container.compiled_recipe
-        if (
-            compiled_recipe is None
-            or (metadata := compiled_recipe.metadata) is None
-            or (model_metadata := metadata.target_model) is None
-        ):
-            return False
-
-        self.state.model.layer_prefix = model_metadata.layer_prefix
-        logger.debug("Model layer prefix set to {}", self.state.model.layer_prefix)
-        return True
