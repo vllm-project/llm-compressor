@@ -573,8 +573,8 @@ class ModelCompressor:
         :param model: The model whose weights are to be updated.
         """
 
-        for name, data in tqdm(dense_weight_generator, desc="Decompressing model"):
-            module = operator.attrgetter(name)(model)
+        for mod_path, data in tqdm(dense_weight_generator, desc="Decompressing model"):
+            module = operator.attrgetter(mod_path)(model)
 
             params_device = next(module.parameters()).device
             device = "cpu" if has_offloaded_params(module) else params_device

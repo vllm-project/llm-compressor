@@ -195,33 +195,33 @@ class BaseQuantizationCompressor(BaseCompressor):
         weight_mappings = get_nested_weight_mappings(
             path_to_model, self.compression_param_names
         )
-        for weight_name in weight_mappings.keys():
+        for module_path in weight_mappings.keys():
             weight_data = {}
-            for param_name, safe_path in weight_mappings[weight_name].items():
-                full_name = merge_names(weight_name, param_name)
+            for param_name, safe_path in weight_mappings[module_path].items():
+                full_name = merge_names(module_path, param_name)
                 with safe_open(safe_path, framework="pt", device=device) as f:
                     weight_data[param_name] = f.get_tensor(full_name)
             if "weight_scale" in weight_data:
-                quant_args = names_to_scheme[weight_name].weights
+                quant_args = names_to_scheme[module_path].weights
                 decompressed = self.decompress_weight(
                     compressed_data=weight_data, quantization_args=quant_args
                 )
                 weight_data["weight"] = decompressed
-                yield weight_name, weight_data
+                yield module_path, weight_data
 
     def _decompress_from_state_dict(self, state_dict, names_to_scheme):
         weight_mappings = get_nested_mappings_from_state_dict(
             state_dict, self.compression_param_names
         )
-        for weight_name in weight_mappings.keys():
+        for module_path in weight_mappings.keys():
             weight_data = {}
-            for param_name, param_value in weight_mappings[weight_name].items():
+            for param_name, param_value in weight_mappings[module_path].items():
                 weight_data[param_name] = param_value
 
             if "weight_scale" in weight_data:
-                quant_args = names_to_scheme[weight_name]
+                quant_args = names_to_scheme[module_path]
                 decompressed = self.decompress_weight(
                     compressed_data=weight_data, quantization_args=quant_args
                 )
                 weight_data["weight"] = decompressed
-                yield weight_name, weight_data
+                yield module_path, weight_data
