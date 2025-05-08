@@ -49,7 +49,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     |                    num_bits: 8
     |                    type: "int"
     |                    symmetric: true
-    |                    strategy: "tensor"
+    |                    strategy: group
     |                    group_size: 128
     |                    actorder: False
 
@@ -98,7 +98,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     # gptq modifier arguments
-    sequential_update: bool = True  # DEPRECIATED
+    sequential_update: bool = True  # DEPRECATED
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
