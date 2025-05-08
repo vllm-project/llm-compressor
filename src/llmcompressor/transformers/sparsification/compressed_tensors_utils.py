@@ -136,11 +136,11 @@ def modify_save_pretrained(model: PreTrainedModel):
             # copy python files from cache dir to save_path if any
             copy_python_files_from_model_cache(model, save_directory)
 
-        save_pretrained_wrapper._overriden = True
+        save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
 
     # wrap save_pretrained if not already
-    if not getattr(model.save_pretrained, "_overriden", False):
+    if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
