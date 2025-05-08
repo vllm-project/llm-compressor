@@ -7,12 +7,14 @@ from compressed_tensors.utils import (
     get_execution_device,
     update_offload_parameter,
 )
+from compressed_tensors.quantization import disable_quantization
+
 from loguru import logger
 from pydantic import ConfigDict
 from torch.nn import Module
 from tqdm import tqdm
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
@@ -22,6 +24,8 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
+from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+
 
 from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 
@@ -29,7 +33,7 @@ __all__ = ["AWQModifier"]
 
 
 # TODO (Brian INFERENG-531) Add support for offloaded models
-class AWQModifier(Modifier):
+class AWQModifier(Modifier, QuantizationMixin):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,
     as described in https://arxiv.org/pdf/2306.00978. The algorithm
@@ -49,7 +53,6 @@ class AWQModifier(Modifier):
     example recipe:
     ```yaml
     AWQModifier:
-      bits: 4
       mappings:
         - smooth_layer: "re:.*self_attn_layer_norm"
           balance_layers: ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"]
@@ -57,6 +60,18 @@ class AWQModifier(Modifier):
           balance_layers: ["re:.*fc1"]
       ]
       ignore: ["model.decoder.final_layer_norm"]
+      config_groups:
+        group_0:
+          targets:
+            - "Linear"
+          input_activations: null
+          output_activations: null
+          weights:
+            num_bits: 4
+            type: int
+            symmetric: false
+            strategy: group
+            group_size: 128
     ```
 
     Lifecycle:
@@ -97,40 +112,78 @@ class AWQModifier(Modifier):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
-    ignore: List[str] = []
-    group_size: int = 128
     max_chunk_memory: int = 1024 * 1024 * 1024
-    num_bits: int = 4
-    symmetric: bool = False
     duo_scaling: bool = True
 
     _resolved_mappings: List[ResolvedMapping] = []
     _scales: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = {}
     _module_kwargs: Dict = {}
 
+    @property
+    def num_bits(self) -> int:
+        return self.config_groups["group_0"].weights.num_bits
+
+    @property
+    def symmetric(self) -> bool:
+        return self.config_groups["group_0"].weights.symmetric
+
+    @property
+    def group_size(self) -> int:
+        return self.config_groups["group_0"].weights.group_size
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize and run AWQ on the given state
+        Initialize AWQ on the given state
 
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
         """
 
+        # apply config to model and prepare calibration hooks
+        if QuantizationMixin.has_config(self):
+            QuantizationMixin.initialize_quantization(self, state.model)
+
         self._set_resolved_mappings(state.model)
 
-        with calibration_forward_context(state.model):
-            self._set_module_kwargs(state.model, state.data.calib)
-
-        self._setup_scale_hooks()
-        with calibration_forward_context(state.model):
-            self._calibrate(state.model, state.data.calib)
-        self.remove_hooks()
-        self._concat_collected_activations()
-
-        with calibration_forward_context(state.model):
-            self._apply_smoothing(state.model)
-
         return True
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        self.started_ = True
+
+        # register quantization calibration hooks
+        # assume quantization has been initialized by this modifier or one before it
+        QuantizationMixin.start_calibration(self, state.model)
+        # Unlike qmod, do not quantize as we calibrate
+        # This choice does not seem to have a meaningful impact on accuracy
+        state.model.apply(disable_quantization)
+
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.CALIBRATION_EPOCH_START:
+            if not self.started_:
+                self.on_start(state, None)
+
+            # TODO I'm guessing we don't need this anymore
+            # as calibrate is called  call ._calibrate here somewhere
+            # self._setup_scale_hooks()
+            # with calibration_forward_context(state.model):
+            #     self._calibrate(state.model, state.data.calib)
+            # self.remove_hooks()
+            # self._concat_collected_activations()
+
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            with calibration_forward_context(state.model):
+                self._apply_smoothing(state.model)
+
+            if not self.ended_:
+                self.on_end(state, None)
+
+    def on_end(self, state: State, event: Event, **kwargs):
+        """
+        Finish calibrating by removing observers and calibration hooks
+        """
+        self.ended_ = True
+        QuantizationMixin.end_calibration(self, state.model)
+        self.remove_hooks()  # remove awq hooks
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -438,14 +491,14 @@ class AWQModifier(Modifier):
             scales[torch.isnan(scales)] = 1
 
             # Q(W * s)
-            for fc in linears2scale:
-                with align_module_device(fc):
-                    fc.weight.mul_(_scalesview)
+            for linear in linears2scale:
+                with align_module_device(linear):
+                    linear.weight.mul_(_scalesview)
                     update_offload_parameter(
-                        fc,
+                        linear,
                         "weight",
                         _pseudo_quantize_tensor(
-                            w=fc.weight.data,
+                            w=linear.weight.data,
                             symmetric=self.symmetric,
                             bit_width=self.num_bits,
                             group_size=self.group_size,
@@ -503,7 +556,7 @@ class AWQModifier(Modifier):
         fp16_chunks = torch.split(fp16_output_flat, chunk_size)
         int_w_chunks = torch.split(int_w_output_flat, chunk_size)
 
-        # Compute the loss for each chunk
+        # Compute the MSE loss for each chunk
         for fp16_chunk, int_w_chunk in zip(fp16_chunks, int_w_chunks):
             chunk_loss = (
                 (fp16_chunk.to(device) - int_w_chunk.to(device))
