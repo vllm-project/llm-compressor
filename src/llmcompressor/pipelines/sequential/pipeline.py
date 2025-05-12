@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
-# TODO this iterates over every layer, should this be `LayerSequentialPipeline`?
 @CalibrationPipeline.register("sequential")
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
@@ -73,7 +72,8 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-                # TODO should we have LifecycleCallbacks.sequential_epoch_begin() here?
+                # TODO should we have this here?
+                LifecycleCallbacks.sequential_epoch_begin()
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
@@ -94,5 +94,5 @@ class SequentialPipeline(CalibrationPipeline):
                             intermediates.update(batch_idx, output)
                             intermediates.delete(batch_idx, subgraph.consumed_names)
 
-            # redudant, finish any remaining compression
+            # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
