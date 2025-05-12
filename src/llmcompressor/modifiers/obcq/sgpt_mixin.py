@@ -9,13 +9,9 @@ import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
+from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_no_split_params,
@@ -24,7 +20,7 @@ from llmcompressor.utils.pytorch.module import (
 )
 
 
-class SparsityModifierMixin(HooksMixin):
+class SparsityModifierMixin(Modifier):
     # modifier arguments
     sparsity: Optional[Union[float, List[float]]]
     sparsity_profile: Optional[str] = None
@@ -42,6 +38,7 @@ class SparsityModifierMixin(HooksMixin):
     _prune_n: Optional[int] = PrivateAttr(default=None)
     _prune_m: Optional[int] = PrivateAttr(default=None)
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _target_layers: Dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
     _module_sparsities: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
@@ -97,6 +94,10 @@ class SparsityModifierMixin(HooksMixin):
     ):
         raise NotImplementedError()
 
+    @abstractmethod
+    def compress_modules(self):
+        raise NotImplementedError()
+
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
         Initialize and run the OBCQ algorithm on the current state
@@ -109,7 +110,9 @@ class SparsityModifierMixin(HooksMixin):
         # infer module and sequential targets
         self.sequential_targets = self._infer_sequential_targets(model)
         layers = get_layers(self.sequential_targets, model)
-        target_layers = get_layers(self.targets, model)  # layers containing targets
+        self._target_layers = get_layers(
+            self.targets, model
+        )  # layers containing targets
 
         # infer layer sparsities
         if self.sparsity_profile == "owl":
@@ -120,7 +123,7 @@ class SparsityModifierMixin(HooksMixin):
             self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
 
         # get layers and validate sparsity
-        if isinstance(self.sparsity, (list, dict)) and len(target_layers) != len(
+        if isinstance(self.sparsity, (list, dict)) and len(self._target_layers) != len(
             self.sparsity
         ):
             raise ValueError(
@@ -128,8 +131,13 @@ class SparsityModifierMixin(HooksMixin):
                 f"sparsities values, but model has {len(layers)} target layers"
             )
 
+        return True
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        self.started_ = True
+
         # register hooks
-        for index, (layer_name, layer) in enumerate(target_layers.items()):
+        for index, (layer_name, layer) in enumerate(self._target_layers.items()):
             if isinstance(self.sparsity, dict):
                 layer_sparsity = self.sparsity[layer_name]
             elif isinstance(self.sparsity, list):
@@ -160,48 +168,23 @@ class SparsityModifierMixin(HooksMixin):
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")
 
-        # infer and run pipeline
-        model_name = state.model.__class__.__name__
-        input_names = dataloader.dataset.column_names
-        unfixable_errors = (torch.OutOfMemoryError, torch._C._LinAlgError)
-        try:
-            run_sequential(
-                state.model,
-                state.data.calib,
-                self.sequential_targets,
-                self.ignore,
-                self,
-            )
-            return True
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.CALIBRATION_EPOCH_START:
+            if not self.started_:
+                self.on_start(state, None)
 
-        except Exception as exception:
-            if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(f"Failed to trace {model_name} with inputs {input_names}")
-            if isinstance(exception, unfixable_errors):
-                raise exception
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            self.compress_modules()
 
-            warnings.warn("Falling back to layer_sequential pipeline")
-            try:
-                run_layer_sequential(
-                    state.model,
-                    state.data.calib,
-                    self.sequential_targets,
-                    self,
-                )
-                return True
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.compress_modules()
 
-            except Exception as exception:
-                if isinstance(exception, TypeError):
-                    warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, unfixable_errors):
-                    raise exception
+            if not self.ended_:
+                self.on_end(state, None)
 
-                warnings.warn(
-                    "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy"
-                )
-                run_basic(state.model, state.data.calib, self)
-                return True
+    def on_end(self, state: State, event: Event, **kwargs):
+        self.ended_ = True
+        self.remove_hooks()
 
     def _infer_sequential_targets(
         self, model: torch.nn.Module
@@ -261,6 +244,8 @@ class SparsityModifierMixin(HooksMixin):
         return sparsities
 
     def _get_activations(self, model, dataloader, nsamples=128) -> Dict[str, int]:
+        from llmcompressor.pipelines.basic import run_calibration
+
         acts = defaultdict(int)
 
         def save_acts(_module, input: Union[Tuple[Any, ...], torch.Tensor], name: str):
@@ -275,7 +260,7 @@ class SparsityModifierMixin(HooksMixin):
             if isinstance(mod, torch.nn.Linear) and "lm_head" not in name
         )
         with HooksMixin.disable_hooks(keep=hooks):
-            run_basic(model, dataloader)
+            run_calibration(model, dataloader)
         self.remove_hooks(hooks)
 
         return acts

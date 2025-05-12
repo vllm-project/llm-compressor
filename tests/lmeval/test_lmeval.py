@@ -155,12 +155,28 @@ class TestLMEval:
         )
 
         metrics = results["results"][self.lmeval.task]
-        for metric, expected_val in self.lmeval.metrics.items():
-            actual_val = metrics.get(metric)
-            logger.info(
-                f"Comparing {metric}: Expected {expected_val}, Got {actual_val}"
-            )
-            assert numpy.isclose(expected_val, actual_val, rtol=0.05)
+        for metric_key, expected_val in self.lmeval.metrics.items():
+            # stderr metrics are only used as absolute tolerance
+            # checks for actual values
+            if "stderr" in metric_key:
+                continue
+            actual_val = metrics.get(metric_key)
+            # If stderr is provided, use it as absolute tolerance
+            # Otherwise, default to a 5% relative tolerance
+            stderr_key = metric_key.replace(",", "_stderr,")
+            std_err = self.lmeval.metrics.get(stderr_key)
+            if std_err is None:
+                logger.info(
+                    f"Comparing {metric_key}: Expected {expected_val} "
+                    f"±5%, Got {actual_val}"
+                )
+                assert numpy.isclose(expected_val, actual_val, rtol=0.05)
+            else:
+                logger.info(
+                    f"Comparing {metric_key}: Expected {expected_val} "
+                    f"±{std_err*100}%, Got {actual_val}"
+                )
+                assert numpy.isclose(expected_val, actual_val, atol=std_err)
 
     def tear_down(self):
         timer = get_singleton_manager()
