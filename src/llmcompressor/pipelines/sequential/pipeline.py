@@ -73,7 +73,7 @@ class SequentialPipeline(CalibrationPipeline):
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
                 # TODO should we have this here?
-                LifecycleCallbacks.sequential_epoch_begin()
+                LifecycleCallbacks.sequential_epoch_start()
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
