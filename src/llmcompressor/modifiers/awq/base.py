@@ -1,16 +1,22 @@
 import inspect
 from typing import Any, Dict, List, Optional, Union
-
 import torch
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
     update_offload_parameter,
 )
-from compressed_tensors.quantization import disable_quantization
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationConfig,
+    QuantizationScheme,
+    QuantizationStatus,
+    disable_quantization,
+    preset_name_to_scheme,
+)
 
 from loguru import logger
-from pydantic import ConfigDict
+from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -115,21 +121,58 @@ class AWQModifier(Modifier, QuantizationMixin):
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
-    _resolved_mappings: List[ResolvedMapping] = []
-    _scales: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = {}
-    _module_kwargs: Dict = {}
+    # Private vars set during validation
+    _num_bits: Optional[int] = PrivateAttr(default=None)
+    _symmetric: Optional[bool] = PrivateAttr(default=None)
+    _group_size: Optional[int] = PrivateAttr(default=None)
 
-    @property
-    def num_bits(self) -> int:
-        return self.config_groups["group_0"].weights.num_bits
+    # Private vars set during initialization, cleared during finalization
+    _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default=list)
+    _scales: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = PrivateAttr(
+        default=dict
+    )
+    _module_kwargs: Dict = PrivateAttr(default=dict)
 
-    @property
-    def symmetric(self) -> bool:
-        return self.config_groups["group_0"].weights.symmetric
+    @model_validator(mode="after")
+    def validate_model_after(model: "AWQModifier") -> "AWQModifier":
+        if not model.config_groups and not model.scheme:
+            raise ValueError("AWQ requires either a config_groups or a scheme")
 
-    @property
-    def group_size(self) -> int:
-        return self.config_groups["group_0"].weights.group_size
+        # TODO better way to do this?
+        config_groups = model.config_groups or preset_name_to_scheme(model.scheme)
+
+        num_bits_set = set(
+            group.weights.num_bits
+            for group in config_groups.values()
+            if group.weights is not None
+        )
+        assert (
+            len(num_bits_set) == 1
+        ), "In AWQ, all config groups must use the same configuration for num_bits"
+
+        model._num_bits = num_bits_set[0]
+
+        symmetric_set = set(
+            group.weights.symmetric
+            for group in config_groups.values()
+            if group.weights is not None
+        )
+        assert (
+            len(symmetric_set) == 1
+        ), "In AWQ, all config groups must use the same configuration for symmetric"
+
+        model._symmetric = symmetric_set[0]
+
+        group_size_set = set(
+            group.weights.group_size
+            for group in config_groups.values()
+            if group.weights is not None
+        )
+        assert (
+            len(group_size_set) == 1
+        ), "In AWQ, all config groups must use the same configuration for group_size"
+
+        model._group_size = group_size_set[0]
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -144,6 +187,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(self, state.model)
 
         self._set_resolved_mappings(state.model)
+
+        with calibration_forward_context(state.model):
+            self._set_module_kwargs(state.model, state.data.calib)
 
         return True
 
@@ -171,9 +217,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             # self._concat_collected_activations()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
-            with calibration_forward_context(state.model):
-                self._apply_smoothing(state.model)
-
             if not self.ended_:
                 self.on_end(state, None)
 
@@ -182,8 +225,13 @@ class AWQModifier(Modifier, QuantizationMixin):
         Finish calibrating by removing observers and calibration hooks
         """
         self.ended_ = True
+
+        with calibration_forward_context(state.model):
+            self._apply_smoothing(state.model)
+
         QuantizationMixin.end_calibration(self, state.model)
-        self.remove_hooks()  # remove awq hooks
+        # TODO confirm this is no longer needed
+        # self.remove_hooks()  # remove awq hooks
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -273,65 +321,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         self._resolved_mappings = resolved_mappings
         return
 
-    def _setup_scale_hooks(self) -> None:
-        """
-        Attach a forward hook to each activation we want to smooth. This allows us to
-        calculate the dynamic range during calibration
-        """
-
-        def create_hook_fn(layer_name):
-            def hook_fn(module, inp, out):
-                inp = inp[0].cpu().detach()
-
-                if layer_name in self._scales:
-                    self._scales[layer_name].append(inp)
-                else:
-                    self._scales[layer_name] = [inp]
-
-            return hook_fn
-
-        for mapping in self._resolved_mappings:
-            name = mapping.smooth_name
-            # storing inps to first balance layer
-            # is enough, as other balance layers
-            # get the same input
-            layer = mapping.balance_layers[0]
-            self.register_hook(layer, create_hook_fn(name), "forward")
-
-    @torch.no_grad()
-    def _calibrate(self, model: Module, calibration_dataloader: List) -> None:
-        """
-        Catch the output dynamic ranges of each layer that will be smoothed by running
-        forward passes with calibration_dataloader
-        """
-        class_name = self.__class__.__name__.replace("PyTorch", "")
-        logger.info(
-            f"Running {class_name} calibration with "
-            f"{len(calibration_dataloader)} samples..."
-        )
-        if not calibration_dataloader:
-            raise ValueError(
-                "Calibration data loader not set, must populate the calib_data field of"
-                " CompressionSession to run the AWQ modifier"
-            )
-
-        run_calibration_forward(
-            model,
-            calibration_dataloader,
-        )
-
-    def _concat_collected_activations(self) -> None:
-        """
-        Concatenate the collected activation values from each forward pass into a single
-        tensor for each layer
-
-        :postcondition: each layer in self._scales will have a single tensor containing
-            all the activation values seen during calibration
-        """
-        for mapping in self._resolved_mappings:
-            name = mapping.smooth_name
-            self._scales[name] = torch.cat(self._scales[name], dim=0)
-
     @torch.no_grad()
     def _apply_smoothing(self, model: Module) -> None:
         """
@@ -355,7 +344,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
             org_shape = weight.shape
             # The weights are reshaped to be organised by quantization group
-            weight = weight.view(-1, self.group_size)
+            weight = weight.view(-1, self._group_size)
             # Calculates the relative magnitude of the weights within
             # each of the quantization groups, and rescales each group
             # individually so that each group has weights on a 0-1 scale.
@@ -499,9 +488,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                         "weight",
                         _pseudo_quantize_tensor(
                             w=linear.weight.data,
-                            symmetric=self.symmetric,
-                            bit_width=self.num_bits,
-                            group_size=self.group_size,
+                            symmetric=self._symmetric,
+                            bit_width=self._num_bits,
+                            group_size=self._group_size,
                         )[0]
                         / _scalesview,
                     )
