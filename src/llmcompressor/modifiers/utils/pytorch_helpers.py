@@ -3,7 +3,6 @@ from typing import Dict
 import torch
 from torch.nn import Module
 
-
 __all__ = [
     "apply_pad_mask_to_batch",
     "is_moe_model",

@@ -1,30 +1,23 @@
 import inspect
-from typing import Any, Dict, List, Optional, Union, Tuple, Set
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
+
 import torch
+from compressed_tensors.quantization import disable_quantization, preset_name_to_scheme
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
     update_offload_parameter,
-    getattr_chain,
 )
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationConfig,
-    QuantizationScheme,
-    QuantizationStatus,
-    disable_quantization,
-    preset_name_to_scheme,
-)
-
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
-from tqdm import tqdm
 from torch.utils.hooks import RemovableHandle
-from llmcompressor.modifiers.utils.hooks import HooksMixin
+from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
@@ -32,8 +25,6 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
-from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-
 
 from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 

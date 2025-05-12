@@ -149,8 +149,8 @@ class LifecycleCallbacks:
     @classmethod
     def sequential_epoch_start(cls, **kwargs) -> ModifiedState:
         """
-        Invoke a sequential epoch start event for the active session. This event should be
-        called after one sequential layer has been calibrated/trained for one epoch
+        Invoke a sequential epoch start event for the active session. This event should
+        be called after one sequential layer has been calibrated/trained for one epoch
 
         This is called after a sequential layer has been calibrated with one batch, see
         `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
