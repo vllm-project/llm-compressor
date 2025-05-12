@@ -28,7 +28,7 @@ DATASET_SPLIT = "validation"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 256
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 512
 
 # Load dataset and preprocess.
