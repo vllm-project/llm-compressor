@@ -1,10 +1,11 @@
 import inspect
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 import torch
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
     update_offload_parameter,
+    getattr_chain,
 )
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -128,7 +129,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default=list)
-    _scales: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = PrivateAttr(
+    _activations: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = PrivateAttr(
         default=dict
     )
     _module_kwargs: Dict = PrivateAttr(default=dict)
@@ -203,20 +204,25 @@ class AWQModifier(Modifier, QuantizationMixin):
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
 
+        self._setup_activation_cache_hooks()
+
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
                 self.on_start(state, None)
 
-            # TODO I'm guessing we don't need this anymore
-            # as calibrate is called  call ._calibrate here somewhere
-            # self._setup_scale_hooks()
-            # with calibration_forward_context(state.model):
-            #     self._calibrate(state.model, state.data.calib)
-            # self.remove_hooks()
-            # self._concat_collected_activations()
+        elif event.type_ == EventType.SEQUENTIAL_EPOCH_START:
+            self._activations.clear()
 
-        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+        elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            self._concat_collected_activations()
+
+            with calibration_forward_context(state.model):
+                self._apply_smoothing(state.model)
+
+            self._activations.clear()
+
+        elif event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:
                 self.on_end(state, None)
 
@@ -226,26 +232,64 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         self.ended_ = True
 
-        with calibration_forward_context(state.model):
-            self._apply_smoothing(state.model)
-
         QuantizationMixin.end_calibration(self, state.model)
-        # TODO confirm this is no longer needed
-        # self.remove_hooks()  # remove awq hooks
+
+        # remove awq activation hooks
+        self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
-        Clean up by clearing the scale and mapping data
+        Clean up by clearing the activations and mapping data
 
         :param state: unused
         :return: True
         """
-        if self._scales is not None:
-            self._scales.clear()
-        if self._resolved_mappings is not None:
-            self._resolved_mappings.clear()
+        self._activations.clear()
+        self._resolved_mappings.clear()
 
         return True
+
+    def _setup_activation_cache_hooks(self) -> None:
+        """
+        Attach a forward hook to each activation we want to smooth. This allows us to
+        calculate the dynamic range during calibration
+        """
+
+        def create_cache_activation_hook(layer_name):
+            def cache_activation_hook_fn(
+                _module: torch.nn.Module,
+                args: Tuple[torch.Tensor, ...],
+                _output: torch.Tensor,
+            ):
+                # Assume that first argument is the input
+                inp = args[0].cpu().detach()
+
+                if layer_name in self._scales:
+                    self._activations[layer_name].append(inp)
+                else:
+                    self._activations[layer_name] = [inp]
+
+            return cache_activation_hook_fn
+
+        # register awq hooks
+        for mapping in self._resolved_mappings:
+            name = mapping.smooth_name
+            # storing inps to first balance layer
+            # is enough, as other balance layers
+            # get the same input
+            layer = mapping.balance_layers[0]
+            self.register_hook(layer, create_cache_activation_hook(name), "forward")
+
+    def _concat_collected_activations(self) -> None:
+        """
+        Concatenate the collected activation values from each forward pass into a single
+        tensor for each layer
+        :postcondition: each layer in self._scales will have a single tensor containing
+            all the activation values seen during calibration
+        """
+        for mapping in self._resolved_mappings:
+            name = mapping.smooth_name
+            self._activations[name] = torch.cat(self._activations[name], dim=0)
 
     def _set_resolved_mappings(self, model: Module) -> None:
         """
@@ -332,11 +376,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         logger.info("Smoothing activation scales...")
         for mapping in tqdm(self._resolved_mappings):
+            # When using SequentialPipeline, not all the mappings will have
+            # activations not found in this segment
+            if mapping.smooth_name not in self._activations:
+                continue
+
+            activations = self._activations[mapping.smooth_name]
+
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
-
-            activations = self._scales[mapping.smooth_name]
-
             module2inspect = mapping.parent
 
             # [STEP 1]: Compute per-channel mean of normalised weights
