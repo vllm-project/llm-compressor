@@ -247,48 +247,6 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         return True
 
-    def _setup_activation_cache_hooks(self) -> None:
-        """
-        Attach a forward hook to each activation we want to smooth. This allows us to
-        calculate the dynamic range during calibration
-        """
-
-        def create_cache_activation_hook(layer_name):
-            def cache_activation_hook_fn(
-                _module: torch.nn.Module,
-                args: Tuple[torch.Tensor, ...],
-                _output: torch.Tensor,
-            ):
-                # Assume that first argument is the input
-                inp = args[0].cpu().detach()
-
-                if layer_name in self._activations:
-                    self._activations[layer_name].append(inp)
-                else:
-                    self._activations[layer_name] = [inp]
-
-            return cache_activation_hook_fn
-
-        for mapping in self._resolved_mappings:
-            # storing inps to first balance layer
-            # is enough, as other balance layers
-            # get the same input
-            layer = mapping.balance_layers[0]
-            hook = self.register_hook(
-                layer, create_cache_activation_hook(mapping.smooth_name), "forward"
-            )
-            self._activation_hooks.add(hook)
-
-    def _concat_collected_activations(self) -> None:
-        """
-        Concatenate the collected activation values from each forward pass into a single
-        tensor for each layer
-        :postcondition: each layer in self._scales will have a single tensor containing
-            all the activation values seen during calibration
-        """
-        for name in self._activations.keys():
-            self._activations[name] = torch.cat(self._activations[name], dim=0)
-
     def _set_resolved_mappings(self, model: Module) -> None:
         """
         Transforms the list of activations to smooth and their corresponding weights
@@ -365,6 +323,48 @@ class AWQModifier(Modifier, QuantizationMixin):
             )
         self._resolved_mappings = resolved_mappings
         return
+
+    def _setup_activation_cache_hooks(self) -> None:
+        """
+        Attach a forward hook to each activation we want to smooth. This allows us to
+        calculate the dynamic range during calibration
+        """
+
+        def create_cache_activation_hook(layer_name):
+            def cache_activation_hook_fn(
+                _module: torch.nn.Module,
+                args: Tuple[torch.Tensor, ...],
+                _output: torch.Tensor,
+            ):
+                # Assume that first argument is the input
+                inp = args[0].cpu().detach()
+
+                if layer_name in self._activations:
+                    self._activations[layer_name].append(inp)
+                else:
+                    self._activations[layer_name] = [inp]
+
+            return cache_activation_hook_fn
+
+        for mapping in self._resolved_mappings:
+            # storing inps to first balance layer
+            # is enough, as other balance layers
+            # get the same input
+            layer = mapping.balance_layers[0]
+            hook = self.register_hook(
+                layer, create_cache_activation_hook(mapping.smooth_name), "forward"
+            )
+            self._activation_hooks.add(hook)
+
+    def _concat_collected_activations(self) -> None:
+        """
+        Concatenate the collected activation values from each forward pass into a single
+        tensor for each layer
+        :postcondition: each layer in self._scales will have a single tensor containing
+            all the activation values seen during calibration
+        """
+        for name in self._activations.keys():
+            self._activations[name] = torch.cat(self._activations[name], dim=0)
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module) -> None:
