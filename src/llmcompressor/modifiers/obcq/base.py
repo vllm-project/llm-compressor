@@ -11,8 +11,7 @@ from loguru import logger
 from pydantic import PrivateAttr
 
 from llmcompressor.core import State
-from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.obcq.sgpt_sparsify import (
     accumulate_hessian,
     make_empty_hessian,
@@ -23,7 +22,7 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 __all__ = ["SparseGPTModifier"]
 
 
-class SparseGPTModifier(SparsityModifierMixin, Modifier):
+class SparseGPTModifier(SparsityModifierBase):
     """
     Modifier for applying the one-shot SparseGPT algorithm to a model
 
