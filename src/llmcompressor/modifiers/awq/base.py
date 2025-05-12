@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, Set
 import torch
 from compressed_tensors.utils import (
     align_module_device,
@@ -20,10 +20,11 @@ from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
 from tqdm import tqdm
+from torch.utils.hooks import RemovableHandle
+from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
@@ -97,6 +98,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         - on_finalize
             - clear resolved mappings and captured activations
 
+    :param sequential_targets: list of layer names to compress during AWQ, or
+        '__ALL__' to compress every layer in the model
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -118,6 +121,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
+    sequential_targets: Union[str, List[str], None] = None
     mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
@@ -128,11 +132,12 @@ class AWQModifier(Modifier, QuantizationMixin):
     _group_size: Optional[int] = PrivateAttr(default=None)
 
     # Private vars set during initialization, cleared during finalization
-    _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default=list)
+    _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
     _activations: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = PrivateAttr(
-        default=dict
+        default_factory=dict
     )
-    _module_kwargs: Dict = PrivateAttr(default=dict)
+    _activation_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _module_kwargs: Dict = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_model_after(model: "AWQModifier") -> "AWQModifier":
@@ -151,7 +156,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             len(num_bits_set) == 1
         ), "In AWQ, all config groups must use the same configuration for num_bits"
 
-        model._num_bits = num_bits_set[0]
+        model._num_bits = next(iter(num_bits_set))
 
         symmetric_set = set(
             group.weights.symmetric
@@ -162,7 +167,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             len(symmetric_set) == 1
         ), "In AWQ, all config groups must use the same configuration for symmetric"
 
-        model._symmetric = symmetric_set[0]
+        model._symmetric = next(iter(symmetric_set))
 
         group_size_set = set(
             group.weights.group_size
@@ -173,7 +178,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             len(group_size_set) == 1
         ), "In AWQ, all config groups must use the same configuration for group_size"
 
-        model._group_size = group_size_set[0]
+        model._group_size = next(iter(group_size_set))
+
+        return model
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -203,7 +210,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
-
         self._setup_activation_cache_hooks()
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -217,7 +223,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self._concat_collected_activations()
 
-            with calibration_forward_context(state.model):
+            with calibration_forward_context(state.model), HooksMixin.disable_hooks():
                 self._apply_smoothing(state.model)
 
             self._activations.clear()
@@ -235,7 +241,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.end_calibration(self, state.model)
 
         # remove awq activation hooks
-        self.remove_hooks()
+        self.remove_hooks(self._activation_hooks)
+        self._activation_hooks.clear()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -264,21 +271,22 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # Assume that first argument is the input
                 inp = args[0].cpu().detach()
 
-                if layer_name in self._scales:
+                if layer_name in self._activations:
                     self._activations[layer_name].append(inp)
                 else:
                     self._activations[layer_name] = [inp]
 
             return cache_activation_hook_fn
 
-        # register awq hooks
         for mapping in self._resolved_mappings:
-            name = mapping.smooth_name
             # storing inps to first balance layer
             # is enough, as other balance layers
             # get the same input
             layer = mapping.balance_layers[0]
-            self.register_hook(layer, create_cache_activation_hook(name), "forward")
+            hook = self.register_hook(
+                layer, create_cache_activation_hook(mapping.smooth_name), "forward"
+            )
+            self._activation_hooks.add(hook)
 
     def _concat_collected_activations(self) -> None:
         """
@@ -287,8 +295,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         :postcondition: each layer in self._scales will have a single tensor containing
             all the activation values seen during calibration
         """
-        for mapping in self._resolved_mappings:
-            name = mapping.smooth_name
+        for name in self._activations.keys():
             self._activations[name] = torch.cat(self._activations[name], dim=0)
 
     def _set_resolved_mappings(self, model: Module) -> None:
@@ -308,7 +315,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         for mapping in self.mappings:
             to_smooth_layers = get_layers(mapping.smooth_layer, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
-                if layer_name not in self.ignore:
+                # always exclude `.weight_observer`, only want `.weight`
+                if layer_name not in self.ignore and not layer_name.endswith(
+                    "_observer"
+                ):
                     balance_layers, balance_names = [], []
                     for balance_suffix in mapping.balance_layers:
                         # find the submodule that matches the activation layer

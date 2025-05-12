@@ -75,7 +75,7 @@ class IntermediatesCache:
         for batch in tqdm.tqdm(dataloader, desc="Preparing intermediates cache"):
             intermediate = {}
             for key, value in batch.items():
-                if mask_padding and key == "input_ids":
+                if mask_padding and (key == "input_ids") and "attention_mask" in batch:
                     value = cls._mask_padding(value, batch["attention_mask"])
                 intermediate[key] = IntermediateValue(value=value, device=model_device)
 
