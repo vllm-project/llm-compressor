@@ -1,5 +1,8 @@
 name: Test Checks (Base/PyTorch)
 on:
+  pull_request:
+    branches:
+      - main
   push:
 
 env:

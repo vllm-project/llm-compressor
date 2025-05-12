@@ -7,7 +7,6 @@ __all__ = [
     "ParamMetaData",
     "LayerMetaData",
     "ModelMetaData",
-    "RecipeMetaData",
 ]
 
 
@@ -45,26 +44,3 @@ class ModelMetaData(BaseModel):
     output_shapes: List[List[int]] = None
     layers: List[LayerMetaData] = Field(default_factory=list)
     layer_prefix: Optional[str] = None
-
-
-class RecipeMetaData(BaseModel):
-    domain: str = None
-    task: str = None
-    requirements: List[str] = None
-    tags: List[str] = None
-    target_dataset: DatasetMetaData = None
-    target_model: ModelMetaData = None
-
-    def update_missing_metadata(self, other: "RecipeMetaData"):
-        """
-        Update recipe metadata with missing values from another
-        recipe metadata instance
-
-        :param other: the recipe metadata to update with
-        """
-        self.domain = self.domain or other.domain
-        self.task = self.task or other.task
-        self.requirements = self.requirements or other.requirements
-        self.tags = self.tags or other.tags
-        self.target_dataset = self.target_dataset or other.target_dataset
-        self.target_model = self.target_model or other.target_model

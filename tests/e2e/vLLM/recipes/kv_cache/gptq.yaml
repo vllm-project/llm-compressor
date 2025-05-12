@@ -1,8 +1,5 @@
 quant_stage:
   quant_modifiers:
-    QuantizationModifier:
-      kv_cache_scheme:
-        {num_bits: 8, type: float, symmetric: true, strategy: tensor}
     GPTQModifier:
       sequential_update: false
       ignore: ["lm_head"]
@@ -15,3 +12,5 @@ quant_stage:
                   strategy: "channel"
                   actorder: False
               targets: ["Linear"]
+      kv_cache_scheme:
+        {num_bits: 8, type: float, symmetric: true, strategy: tensor}

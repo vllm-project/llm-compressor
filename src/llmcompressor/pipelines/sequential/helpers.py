@@ -1,7 +1,7 @@
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
@@ -14,10 +14,12 @@ from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
-__all__ = ["trace_subgraphs", "Subgraph"]
+__all__ = ["trace_subgraphs", "Subgraph", "get_targets_from_modifiers"]
 
 
 @dataclass
@@ -78,15 +80,16 @@ def trace_subgraphs(
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
     :param sequential_targets: list of patterns matching sequential targets
-    :param ignore: TODO: unused, in the future will specify functions and methods to
-        skip during tracing
+    :param ignore: modules to ignore during tracing, in the future will specify
+        functions and methods to skip during tracing
     :return: a list of Subgraphs in order of execution
     """
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
+    ignore = match_modules(model, ignore)
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets)
+    tracer = get_tracer(model, sequential_targets, ignore)
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
@@ -116,7 +119,9 @@ def trace_subgraphs(
     return subgraphs
 
 
-def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
+def get_tracer(
+    model: Module, sequential_targets: Set[Module], ignore: Set[Module]
+) -> HFTracer:
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
@@ -127,6 +132,8 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
 
     :param model: model being traced
     :param sequential_targets: modules which are sequential targets
+    :param ignore: modules to ignore during tracing, in the future will specify
+        functions and methods to skip during tracing
     """
     sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
@@ -153,7 +160,11 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module not in sequential_ancestors or module in offloaded_modules
+            return (
+                module not in sequential_ancestors
+                or module in offloaded_modules
+                or module in ignore
+            )
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
             if isinstance(root, Module):
@@ -401,6 +412,46 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def get_targets_from_modifiers(
+    modifiers: List[Modifier], model: PreTrainedModel
+) -> Tuple[List[str], List[str]]:
+    """
+    Infer sequential targets and ignore list from modifiers list
+
+    :param model: model being calibrated
+    :param modifiers: list of modifiers being applied during calibration
+    :return: list of sequential targets and list of modules to ignore for tracing
+    """
+    # avoid circular import
+    from llmcompressor.pipelines.registry import SEQUENTIAL_MODIFIERS
+
+    sequential_modifiers = [
+        modifier for modifier in modifiers if isinstance(modifier, SEQUENTIAL_MODIFIERS)
+    ]
+
+    if len(sequential_modifiers) >= 2:
+        types = [type(modifier) for modifier in sequential_modifiers]
+        logger.warning(
+            "Cannot infer sequential targets from multiple sequential modifiers "
+            f"({types}). Defaulting to {types[0]}"
+        )
+    elif len(sequential_modifiers) <= 0:
+        types = [type(modifier) for modifier in modifiers]
+        raise ValueError(f"Cannot infer sequential targets from list of {types}")
+
+    modifier = sequential_modifiers[0]
+
+    # infer sequential targets
+    if modifier.sequential_targets is None:
+        sequential_targets = get_no_split_params(model)
+    elif isinstance(modifier.sequential_targets, str):
+        sequential_targets = [modifier.sequential_targets]
+    else:
+        sequential_targets = modifier.sequential_targets
+
+    return sequential_targets, modifier.ignore
 
 
 def add_line_numbers(text: str) -> str:
