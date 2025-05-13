@@ -124,9 +124,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
-    _activations: Dict[str, Union[torch.Tensor, List[torch.Tensor]]] = PrivateAttr(
-        default_factory=dict
-    )
+    _activations: Dict[str, List[torch.Tensor]] = PrivateAttr(default_factory=dict)
     _activation_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
     _module_kwargs: Dict = PrivateAttr(default_factory=dict)
 
@@ -209,17 +207,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_START:
-            self._activations.clear()
+            pass
 
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self._concat_collected_activations()
-
+            # Run smoothing in case of sequential pipeline
             with calibration_forward_context(state.model), HooksMixin.disable_hooks():
                 self._apply_smoothing(state.model)
 
-            self._activations.clear()
-
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
+            # Run smoothing in case of basic pipeline
+            with calibration_forward_context(state.model), HooksMixin.disable_hooks():
+                self._apply_smoothing(state.model)
+
             if not self.ended_:
                 self.on_end(state, None)
 
@@ -230,6 +229,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         self.ended_ = True
 
         QuantizationMixin.end_calibration(self, state.model)
+
+        # confirm all activations have been used
+        if len(self._activations) > 0:
+            raise RuntimeError("Some cached activations were not used")
 
         # remove awq activation hooks
         self.remove_hooks(self._activation_hooks)
@@ -356,16 +359,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             )
             self._activation_hooks.add(hook)
 
-    def _concat_collected_activations(self) -> None:
-        """
-        Concatenate the collected activation values from each forward pass into a single
-        tensor for each layer
-        :postcondition: each layer in self._scales will have a single tensor containing
-            all the activation values seen during calibration
-        """
-        for name in self._activations.keys():
-            self._activations[name] = torch.cat(self._activations[name], dim=0)
-
     @torch.no_grad()
     def _apply_smoothing(self, model: Module) -> None:
         """
@@ -376,13 +369,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         :param model: model to apply smoothing to
         """
         logger.info("Smoothing activation scales...")
+
         for mapping in tqdm(self._resolved_mappings):
             # When using SequentialPipeline, not all the mappings will have
             # activations not found in this segment
             if mapping.smooth_name not in self._activations:
                 continue
 
-            activations = self._activations[mapping.smooth_name]
+            activations = torch.cat(self._activations[mapping.smooth_name], dim=0)
+            del self._activations[mapping.smooth_name]
 
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
@@ -479,6 +474,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                 for layer in balance_layers:
                     smooth(layer)
                 smooth(smooth_layer)
+
+        # confirm all activations have been used
+        if len(self._activations) > 0:
+            raise RuntimeError("Some cached activations were not used")
 
     def _compute_best_scale(
         self,
