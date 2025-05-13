@@ -33,24 +33,6 @@ class RecipeStage(RecipeBase):
     exclude_default: bool = False
     args_evaluated: Optional[RecipeArgs] = None
 
-    def calculate_start(self) -> int:
-        """
-        :return: the start epoch for the stage, atleast one modifier
-            in current stage must have a start
-        """
-        return min(
-            mod.calculate_start()
-            for mod in self.modifiers
-            if mod.calculate_start() >= 0
-        )
-
-    def calculate_end(self) -> int:
-        """
-        :return: the end epoch for the stage, -1 if no modifier
-            in current stage has an end
-        """
-        return max(mod.calculate_end() for mod in self.modifiers)
-
     def evaluate(
         self, parent_args: Optional[RecipeArgs] = None, shift: Optional[int] = None
     ):
@@ -64,21 +46,14 @@ class RecipeStage(RecipeBase):
         """
         if self.args is None:
             self.args = RecipeArgs({})
-        merged_args = self.args.combine(parent_args)
-        self.args_evaluated = merged_args.evaluate()
         for modifier in self.modifiers:
             modifier.evaluate(self.args_evaluated, shift)
 
     def create_modifier(self, parent_args: RecipeArgs = None) -> StageModifiers:
         """
-        Evaluate curent stage with parent_args if any and return
-        StageModifiers instance.
-
         The StageModifiers instance will contain instantiated
         specific modifiers for the stage with the group and index set
 
-        evaluate(...)
-            | evaluate stage with parent_args if any
             | for each recipe_modifier in stage
             |   | instantiate modifier
             |   | set group and index of modifier
@@ -88,8 +63,6 @@ class RecipeStage(RecipeBase):
         :param parent_args: Optional RecipeArgs to use for evaluation
         :return: the StageModifiers for the stage
         """
-        if parent_args is not None:
-            self.evaluate(parent_args)
 
         stage_modifiers = StageModifiers()
         for index, modifier in enumerate(self.modifiers):

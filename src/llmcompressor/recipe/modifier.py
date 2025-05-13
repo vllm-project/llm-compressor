@@ -5,6 +5,7 @@ from pydantic import model_validator
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
+from llmcompressor.recipe.utils import evaluate_ext, eval_args 
 
 __all__ = ["RecipeModifier"]
 
@@ -26,26 +27,6 @@ class RecipeModifier(RecipeBase):
     args: Optional[Dict[str, Any]] = None
     args_evaluated: Optional[Dict[str, Any]] = None
 
-    def calculate_start(self) -> int:
-        """
-        :raises: ValueError if args have not been evaluated
-        :return: the start epoch for the modifier, -1 if no start is defined
-        """
-        if not self.args_evaluated:
-            raise ValueError("args must be evaluated before calculating start")
-
-        return self.args_evaluated.get("start", -1)
-
-    def calculate_end(self) -> int:
-        """
-        :raises: ValueError if args have not been evaluated
-        :return: the end epoch for the modifier, -1 if no end is defined
-        """
-        if not self.args_evaluated:
-            raise ValueError("args must be evaluated before calculating end")
-
-        return self.args_evaluated.get("end", -1)
-
     def evaluate(self, args: Optional[RecipeArgs] = None, shift: Optional[int] = None):
         """
         Evaluate the args for the modifier and shift the start and end if provided
@@ -56,14 +37,13 @@ class RecipeModifier(RecipeBase):
         if not self.args:
             raise ValueError("args must be set before evaluating")
 
-        comb_args = args or RecipeArgs()
-        self.args_evaluated = comb_args.evaluate_ext(self.args)
+        print("-------- modifier evaluate args --------")
+        print(args)
+        print(self.args)
 
-        if shift is not None and self.args_evaluated.get("start") is not None:
-            self.args_evaluated["start"] += shift
+        context_args = eval_args(args or {})
+        self.args_evaluated = evaluate_ext(self.args, context_args)
 
-        if shift is not None and self.args_evaluated.get("end") is not None:
-            self.args_evaluated["end"] += shift
 
     def create_modifier(self) -> "Modifier":
         """
@@ -83,6 +63,8 @@ class RecipeModifier(RecipeBase):
     @model_validator(mode="before")
     @classmethod
     def extract_modifier_type(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        print("----------- modifier values ---------")
+        print(values)
         if len(values) == 2:
             if "group" not in values:
                 raise ValueError(
