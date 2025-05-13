@@ -100,6 +100,17 @@ def is_preset_scheme(name: str) -> bool:
 
 UNQUANTIZED = dict()
 
+NVFP4A16 = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=16,
+    )
+)
+
 # 8 bit integer weights and 8 bit activations quantization
 INT8_W8A8 = dict(
     weights=QuantizationArgs(
@@ -225,4 +236,5 @@ PRESET_SCHEMES = {
     # Float weight and activation schemes
     "FP8": FP8,
     "FP8_DYNAMIC": FP8_DYNAMIC,
+    "NVFP4A16": NVFP4A16,
 }

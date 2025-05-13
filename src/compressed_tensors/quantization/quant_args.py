@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 __all__ = [
     "FP8_DTYPE",
+    "FP8_E4M3_DATA",
+    "FP4_E2M1_DATA",
     "QuantizationType",
     "QuantizationStrategy",
     "QuantizationArgs",
@@ -31,6 +33,48 @@ __all__ = [
     "ActivationOrdering",
 ]
 
+
+class FloatArgs:
+    exponent: int
+    mantissa: int
+    bits: int
+    max: float
+    min: float
+    dtype: Optional[torch.dtype] = None
+
+
+class FP4_E2M1_DATA(FloatArgs):
+    exponent = 2
+    mantissa = 1
+    bits = 4
+    max = 6.0
+    min = -6.0
+
+    @staticmethod
+    def cast_to_fp4(x):
+        sign = torch.sign(x)
+        x = torch.abs(x)
+        x[(x >= 0.0) & (x <= 0.25)] = 0.0
+        x[(x > 0.25) & (x < 0.75)] = 0.5
+        x[(x >= 0.75) & (x <= 1.25)] = 1.0
+        x[(x > 1.25) & (x < 1.75)] = 1.5
+        x[(x >= 1.75) & (x <= 2.5)] = 2.0
+        x[(x > 2.5) & (x < 3.5)] = 3.0
+        x[(x >= 3.5) & (x <= 5.0)] = 4.0
+        x[x > 5.0] = 6.0
+        return x * sign
+
+
+class FP8_E4M3_DATA(FloatArgs):
+    exponent = 4
+    mantissa = 3
+    bits = 8
+    max = torch.finfo(torch.float8_e4m3fn).max
+    min = torch.finfo(torch.float8_e4m3fn).min
+    dtype = torch.float8_e4m3fn
+
+
+# TODO: Remove soon in favour of a more descriptive FloatArgs
 FP8_DTYPE = torch.float8_e4m3fn
 
 
@@ -234,7 +278,10 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
 
     def pytorch_dtype(self) -> torch.dtype:
         if self.type == QuantizationType.FLOAT:
-            return FP8_DTYPE
+            if self.num_bits == 8:
+                return FP8_E4M3_DATA.dtype
+            else:
+                raise NotImplementedError("Only num_bits in (8) are supported")
         elif self.type == QuantizationType.INT:
             if self.num_bits <= 8:
                 return torch.int8
@@ -263,7 +310,12 @@ def round_to_quantized_type(
     """
     original_dtype = tensor.dtype
     if args.type == QuantizationType.FLOAT:
-        rounded = tensor.to(FP8_DTYPE)
+        if args.num_bits == 8:
+            rounded = tensor.to(FP8_E4M3_DATA.dtype)
+        elif args.num_bits == 4:
+            rounded = FP4_E2M1_DATA.cast_to_fp4(tensor)
+        else:
+            raise NotImplementedError("Only num_bits in (4, 8) are supported")
     elif args.type == QuantizationType.INT:
         rounded = torch.round(tensor)
     else:
