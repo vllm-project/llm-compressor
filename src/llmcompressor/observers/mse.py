@@ -78,6 +78,7 @@ class MovingAverageMSEObserver(Observer):
                 candidate_scales,
                 candidate_zero_points,
                 self.quantization_args,
+                global_scale=self.global_scale,
             )
 
             q -= observed
@@ -136,7 +137,7 @@ class MovingAverageMSEObserver(Observer):
         return calculate_qparams(
             min_vals=updated_min_val,
             max_vals=updated_max_val,
-            quaantization_args=self.quantization_args,
+            quantization_args=self.quantization_args,
             global_scale=self.global_scale,
         )
 
