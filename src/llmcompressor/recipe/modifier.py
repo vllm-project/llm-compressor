@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional
 from pydantic import model_validator
 
 from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.utils import evaluate_ext, eval_args 
 
@@ -27,7 +26,7 @@ class RecipeModifier(RecipeBase):
     args: Optional[Dict[str, Any]] = None
     args_evaluated: Optional[Dict[str, Any]] = None
 
-    def evaluate(self, args: Optional[RecipeArgs] = None, shift: Optional[int] = None):
+    def evaluate(self, args: Optional[Dict[str, Any]] = None):
         """
         Evaluate the args for the modifier and shift the start and end if provided
 

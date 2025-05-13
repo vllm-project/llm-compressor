@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Optional
 from pydantic import ConfigDict, Field, model_validator
 
 from llmcompressor.modifiers import StageModifiers
-from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.modifier import RecipeModifier
 
@@ -16,40 +15,38 @@ class RecipeStage(RecipeBase):
 
     :param group: Name of the current stage
     :param run_type: Whether this is a oneshot or training stage
-    :param args: Optional RecipeArgs to use for this stage
+    :param args: Optional recipe args to use for this stage
     :param enabled: True to enable the stage, False otherwise
     :param modifiers: list of RecipeModifiers that are a part of this stage
     :param exclude_default: True to exclude the default modifiers from the stage,
         False otherwise
-    :param args_evaluated: the evaluated RecipeArgs for the stage
+    :param args_evaluated: the evaluated recipe args for the stage
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     group: Optional[str] = None
-    args: Optional[RecipeArgs] = None
+    args: Optional[Dict[str, Any]] = None
     enabled: bool = True
     modifiers: List[RecipeModifier] = Field(default_factory=list)
     exclude_default: bool = False
-    args_evaluated: Optional[RecipeArgs] = None
+    args_evaluated: Optional[Dict[str, Any]] = None
 
     def evaluate(
-        self, parent_args: Optional[RecipeArgs] = None, shift: Optional[int] = None
+        self
     ):
         """
         Evaluate the args for the stage with parent_args if any and shift
         the start and end if provided
 
-        :param parent_args: Optional RecipeArgs to use for evaluation
-        :param shift: Optional amount to shift the start and end by,
-            defaults to None (no shift)
+        :param parent_args: Optional recipe args to use for evaluation
         """
         if self.args is None:
-            self.args = RecipeArgs({})
+            self.args = {}
         for modifier in self.modifiers:
-            modifier.evaluate(self.args_evaluated, shift)
+            modifier.evaluate(self.args_evaluated)
 
-    def create_modifier(self, parent_args: RecipeArgs = None) -> StageModifiers:
+    def create_modifier(self) -> StageModifiers:
         """
         The StageModifiers instance will contain instantiated
         specific modifiers for the stage with the group and index set
@@ -60,7 +57,6 @@ class RecipeStage(RecipeBase):
             |   | append modifier to StageModifiers.modifiers
             | return StageModifiers instance
 
-        :param parent_args: Optional RecipeArgs to use for evaluation
         :return: the StageModifiers for the stage
         """
 
