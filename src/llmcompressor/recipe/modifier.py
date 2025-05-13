@@ -36,10 +36,6 @@ class RecipeModifier(RecipeBase):
         if not self.args:
             raise ValueError("args must be set before evaluating")
 
-        print("-------- modifier evaluate args --------")
-        print(args)
-        print(self.args)
-
         context_args = eval_args(args or {})
         self.args_evaluated = evaluate_ext(self.args, context_args)
 
@@ -62,8 +58,6 @@ class RecipeModifier(RecipeBase):
     @model_validator(mode="before")
     @classmethod
     def extract_modifier_type(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        print("----------- modifier values ---------")
-        print(values)
         if len(values) == 2:
             if "group" not in values:
                 raise ValueError(

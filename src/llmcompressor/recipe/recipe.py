@@ -9,7 +9,6 @@ from loguru import logger
 from pydantic import Field, model_validator
 
 from llmcompressor.modifiers import Modifier, StageModifiers
-from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.modifier import RecipeModifier
 from llmcompressor.recipe.stage import RecipeStage
@@ -218,7 +217,7 @@ class Recipe(RecipeBase):
 
         simplified = Recipe()
         simplified.version = version
-        simplified.args = RecipeArgs(args)
+        simplified.args = args
         simplified.stages = stages
         simplified.evaluate()
 
@@ -275,9 +274,9 @@ class Recipe(RecipeBase):
         return combined
 
     version: str = None
-    args: RecipeArgs = Field(default_factory=RecipeArgs)
+    args: Dict[str, Any] = Field(default_factory=dict)
     stages: List[RecipeStage] = Field(default_factory=list)
-    args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
+    args_evaluated: Dict[str, Any] = Field(default_factory=dict)
 
     def evaluate(
         self
@@ -356,7 +355,7 @@ class Recipe(RecipeBase):
         args = {}
         for key, val in values.items():
             args[key] = val
-        formatted_values["args"] = RecipeArgs(args)
+        formatted_values["args"] = args
 
         return formatted_values
 
