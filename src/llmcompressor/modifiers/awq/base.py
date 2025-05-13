@@ -1,5 +1,6 @@
 import inspect
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+
 import torch
 from compressed_tensors.quantization import disable_quantization, preset_name_to_scheme
 from compressed_tensors.utils import (
@@ -15,6 +16,7 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
@@ -24,7 +26,6 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
-from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 
 from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 
