@@ -70,7 +70,6 @@ class SequentialPipeline(CalibrationPipeline):
             for subgraph_index, subgraph in tqdm.tqdm(
                 enumerate(subgraphs), desc="Sequence", total=num_subgraphs
             ):
-
                 LifecycleCallbacks.sequential_epoch_start()
 
                 # do a preliminary pass to trigger modifier hooks
