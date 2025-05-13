@@ -220,7 +220,7 @@ class Recipe(RecipeBase):
         simplified.version = version
         simplified.args = RecipeArgs(args)
         simplified.stages = stages
-        simplified.evaluate(args=args, shift=shift)
+        simplified.evaluate()
 
         return simplified
 
@@ -280,7 +280,7 @@ class Recipe(RecipeBase):
     args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
 
     def evaluate(
-        self, args: Optional[Dict[str, Any]] = None, shift: Optional[int] = None
+        self
     ):
         """
         Evaluate the recipe by evaluating all stages and combining the args
@@ -299,19 +299,10 @@ class Recipe(RecipeBase):
         >>> recipe.evaluate({"start_epoch": 1})
         >>> recipe.stages[0].modifiers[0].args_evaluated["start"]
         1.0
-
-        Evaluate with shift:
-        >>> recipe.evaluate({"start_epoch": 2}, shift=2)
-        >>> recipe.stages[0].modifiers[0].args_evaluated["start"]
-        4.0
-
-        :param args: The args to evaluate the recipe with
-        :param shift: The amount to shift the start and end of the recipe by,
-            defaults to None (No shift)
         """
 
         for stage in self.stages:
-            stage.evaluate(self.args_evaluated, shift)
+            stage.evaluate()
 
     def create_modifier(self) -> List["StageModifiers"]:
         """

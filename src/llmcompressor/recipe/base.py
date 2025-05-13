@@ -3,8 +3,6 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from llmcompressor.recipe.args import RecipeArgs
-
 __all__ = ["RecipeBase"]
 
 
