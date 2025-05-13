@@ -10,8 +10,7 @@ from loguru import logger
 from pydantic import PrivateAttr
 
 from llmcompressor.core import State
-from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.pruning.wanda.wanda_sparsify import (
     accumulate_row_scalars,
     make_empty_row_scalars,
@@ -22,7 +21,7 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 __all__ = ["WandaPruningModifier"]
 
 
-class WandaPruningModifier(SparsityModifierMixin, Modifier):
+class WandaPruningModifier(SparsityModifierBase):
     """
     Modifier for applying the one-shot WANDA algorithm to a model
     from the paper: https://arxiv.org/abs/2306.11695
