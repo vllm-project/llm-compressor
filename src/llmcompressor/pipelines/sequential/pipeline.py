@@ -67,15 +67,16 @@ class SequentialPipeline(CalibrationPipeline):
             intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
 
             num_subgraphs = len(subgraphs)
-            for subgraph_index, subgraph in enumerate(subgraphs):
-                # prepare tqdm description texts
-                calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
-                prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
+            for subgraph_index, subgraph in tqdm.tqdm(
+                enumerate(subgraphs), desc="Sequence", total=num_subgraphs
+            ):
 
                 LifecycleCallbacks.sequential_epoch_start()
 
                 # do a preliminary pass to trigger modifier hooks
-                for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
+                for batch_idx in tqdm.tqdm(
+                    range(len(dataloader)), desc="Calibrating", leave=False
+                ):
                     inputs = intermediates.fetch(batch_idx, subgraph.input_names)
                     subgraph.forward(model, **inputs)
 
@@ -85,7 +86,9 @@ class SequentialPipeline(CalibrationPipeline):
                 # this pass does not trigger modifier hooks
                 # and is only used for capturing outputs from newly compressed modules
                 with HooksMixin.disable_hooks():
-                    for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
+                    for batch_idx in tqdm.tqdm(
+                        range(len(dataloader)), desc="Propagating", leave=False
+                    ):
                         inputs = intermediates.fetch(batch_idx, subgraph.input_names)
                         output = subgraph.forward(model, **inputs)
 

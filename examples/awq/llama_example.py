@@ -61,23 +61,24 @@ def tokenize(sample):
 
 # Configure the quantization algorithm to run.
 recipe = [
-    AWQModifier(bits=4, symmetric=False),
-    QuantizationModifier(
-        ignore=["lm_head"],
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(
-                    num_bits=4,
-                    type=QuantizationType.INT,
-                    dynamic=False,
-                    symmetric=False,
-                    strategy=QuantizationStrategy.GROUP,
-                    group_size=128,
-                ),
-            )
-        },
-    ),
+    AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
+    # AWQModifier(bits=4, symmetric=False),
+    # QuantizationModifier(
+    #     ignore=["lm_head"],
+    #     config_groups={
+    #         "group_0": QuantizationScheme(
+    #             targets=["Linear"],
+    #             weights=QuantizationArgs(
+    #                 num_bits=4,
+    #                 type=QuantizationType.INT,
+    #                 dynamic=False,
+    #                 symmetric=False,
+    #                 strategy=QuantizationStrategy.GROUP,
+    #                 group_size=128,
+    #             ),
+    #         )
+    #     },
+    # ),
 ]
 
 # Apply algorithms.
