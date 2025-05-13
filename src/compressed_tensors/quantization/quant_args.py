@@ -206,7 +206,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         return value
 
     @model_validator(mode="after")
-    def validate_model_after(model: "QuantizationArgs") -> Dict[str, Any]:
+    def validate_model_after(model: "QuantizationArgs") -> "QuantizationArgs":
         # extract user-passed values from dictionary
         strategy = model.strategy
         group_size = model.group_size

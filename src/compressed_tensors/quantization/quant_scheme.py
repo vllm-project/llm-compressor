@@ -48,7 +48,7 @@ class QuantizationScheme(BaseModel):
     output_activations: Optional[QuantizationArgs] = None
 
     @model_validator(mode="after")
-    def validate_model_after(model: "QuantizationArgs") -> Dict[str, Any]:
+    def validate_model_after(model: "QuantizationScheme") -> "QuantizationScheme":
         inputs = model.input_activations
         outputs = model.output_activations
 
