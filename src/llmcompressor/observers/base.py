@@ -6,6 +6,7 @@ from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationStrategy,
+    QuantizationType,
 )
 from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import safe_permute
@@ -97,9 +98,15 @@ class Observer(Module, RegistryMixin):
                 self._scale = torch.empty(
                     (rows, num_groups), dtype=observed.dtype, device=observed.device
                 )
-                # TODO: update
-                # zp_dtype = self.quantization_args.pytorch_dtype()
-                zp_dtype = FP8_E4M3_DATA.dtype
+                # TODO: use utils for FP4 check
+                if (
+                    self.quantization_args.num_bits == 4
+                    and self.quantization_args.type == QuantizationType.FLOAT
+                ):
+                    zp_dtype = FP8_E4M3_DATA.dtype
+                else:
+                    zp_dtype = self.quantization_args.pytorch_dtype()
+
                 self._zero_point = torch.empty(
                     (rows, num_groups), dtype=zp_dtype, device=observed.device
                 )

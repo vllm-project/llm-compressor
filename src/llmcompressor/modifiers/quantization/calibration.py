@@ -57,9 +57,12 @@ def initialize_observer(
     if quantization_args is not None and not quantization_args.dynamic:
         global_scale = getattr(module, f"{base_name}_global_scale", None)
         if global_scale is not None:
-            assert base_name == "weight"
-            assert quantization_args.num_bits == 4
-            assert quantization_args.type == QuantizationType.FLOAT
+            assert (
+                base_name == "weight"
+                and quantization_args.num_bits == 4
+                and quantization_args.type == QuantizationType.FLOAT
+            )
+
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
