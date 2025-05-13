@@ -264,7 +264,6 @@ class Recipe(RecipeBase):
         for recipe in recipes:
             simplified = Recipe.simplify_recipe(
                 recipe=recipe,
-                #shift=combined.calculate_end(),
             )
             combined.version = simplified.version
             combined.stages.extend(simplified.stages)
