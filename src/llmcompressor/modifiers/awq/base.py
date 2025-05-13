@@ -134,7 +134,9 @@ class AWQModifier(Modifier, QuantizationMixin):
             raise ValueError("AWQ requires either a config_groups or a scheme")
 
         # TODO better way to do this?
-        config_groups = model.config_groups or preset_name_to_scheme(model.scheme)
+        config_groups = model.config_groups or {
+            "group_0": preset_name_to_scheme(model.scheme)
+        }
 
         num_bits_set = set(
             group.weights.num_bits
@@ -234,7 +236,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         if len(self._activations) > 0:
             raise RuntimeError("Some cached activations were not used")
 
-        # remove awq activation hooks
+        # remove activation hooks
         self.remove_hooks(self._activation_hooks)
         self._activation_hooks.clear()
 
@@ -350,9 +352,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             return cache_activation_hook_fn
 
         for mapping in self._resolved_mappings:
-            # storing inps to first balance layer
-            # is enough, as other balance layers
-            # get the same input
+            # storing inputs to first balance layer is sufficient
+            # other balance layers get the same input
             layer = mapping.balance_layers[0]
             hook = self.register_hook(
                 layer, create_cache_activation_hook(mapping.smooth_name), "forward"
