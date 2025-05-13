@@ -324,6 +324,8 @@ class Recipe(RecipeBase):
 
         :return: A list of StageModifiers for each stage in the recipe
         """
+        if not self.args_evaluated:
+            self.evaluate()
         modifiers = []
 
         for index, stage in enumerate(self.stages):
