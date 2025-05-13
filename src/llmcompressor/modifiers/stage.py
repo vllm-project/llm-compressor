@@ -49,23 +49,6 @@ class StageModifiers(ModifierInterface, BaseModel):
         """
         return self.group + "_" + str(self.index)
 
-    def calculate_start(self) -> float:
-        """
-        :return: The minimum start time of all the stage modifiers
-        """
-        return min(
-            mod.calculate_start()
-            for mod in self.modifiers
-            if mod.calculate_start() >= 0
-        )
-
-    def calculate_end(self) -> float:
-        """
-        :return: The maximum end time of all the stage modifiers, or -1 if none of the
-        modifiers have set ends
-        """
-        return max(mod.calculate_end() for mod in self.modifiers)
-
     def initialize(self, state: "State", **kwargs):
         """
         Initialize all the stage modifiers

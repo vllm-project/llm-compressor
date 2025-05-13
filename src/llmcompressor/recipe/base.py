@@ -23,17 +23,5 @@ class RecipeBase(BaseModel, ABC):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @abstractmethod
-    def calculate_start(self) -> int:
-        raise NotImplementedError()
-
-    @abstractmethod
-    def calculate_end(self) -> int:
-        raise NotImplementedError()
-
-    @abstractmethod
-    def evaluate(self, args: Optional[RecipeArgs] = None, shift: Optional[int] = None):
-        raise NotImplementedError()
-
-    @abstractmethod
     def create_modifier(self) -> Any:
         raise NotImplementedError()

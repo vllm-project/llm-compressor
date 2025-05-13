@@ -88,12 +88,14 @@ class RecipeArgs(Dict[str, Any]):
         :param target: The target dict to evaluate
         :return: The combined RecipeArgs instance with the evaluated values
         """
+        print("-------- evaluate_ext target --------")
+        print(target)
         args = RecipeArgs.eval_args(self)
         resolved = {}
 
         for key, value in target.items():
             resolved[key] = RecipeArgs.eval_obj(value, args)
-
+        print(args)
         return resolved
 
     @staticmethod

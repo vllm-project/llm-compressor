@@ -196,7 +196,6 @@ class Recipe(RecipeBase):
             recipe = Recipe.create_instance(recipe)
 
         if isinstance(recipe, Recipe):
-            recipe.evaluate(shift=shift)
             return recipe
 
         # RecipeTuple case
@@ -267,7 +266,7 @@ class Recipe(RecipeBase):
         for recipe in recipes:
             simplified = Recipe.simplify_recipe(
                 recipe=recipe,
-                shift=combined.calculate_end(),
+                #shift=combined.calculate_end(),
             )
             combined.version = simplified.version
             combined.stages.extend(simplified.stages)
@@ -279,33 +278,6 @@ class Recipe(RecipeBase):
     args: RecipeArgs = Field(default_factory=RecipeArgs)
     stages: List[RecipeStage] = Field(default_factory=list)
     args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
-
-    def calculate_start(self) -> int:
-        """
-        Calculate and return the start epoch of the recipe.
-        The start epoch is the minimum start epoch of all stages.
-        Must have at least one stage to calculate the start epoch
-
-        :return: The start epoch of the stage
-        """
-        return min(
-            stage.calculate_start()
-            for stage in self.stages
-            if stage.calculate_start() >= 0
-        )
-
-    def calculate_end(self) -> int:
-        """
-        Calculate and return the end epoch of the recipe.
-        The end epoch is the maximum end epoch of all stages.
-
-        :return: The end of the recipe, the maximum end of all stages. If no stages
-            found, or no stages had ends, returns 0
-        """
-        if len(self.stages) == 0:
-            return 0
-        end = max(stage.calculate_end() for stage in self.stages)
-        return max(0, end)
 
     def evaluate(
         self, args: Optional[Dict[str, Any]] = None, shift: Optional[int] = None
@@ -337,8 +309,7 @@ class Recipe(RecipeBase):
         :param shift: The amount to shift the start and end of the recipe by,
             defaults to None (No shift)
         """
-        args = self.args.combine(args) if self.args else RecipeArgs(**(args or {}))
-        self.args_evaluated = args.evaluate()
+
         for stage in self.stages:
             stage.evaluate(self.args_evaluated, shift)
 
@@ -363,8 +334,6 @@ class Recipe(RecipeBase):
 
         :return: A list of StageModifiers for each stage in the recipe
         """
-        if not self.args_evaluated:
-            self.evaluate()
         modifiers = []
 
         for index, stage in enumerate(self.stages):
