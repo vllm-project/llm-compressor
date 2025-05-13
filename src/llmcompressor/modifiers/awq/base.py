@@ -252,6 +252,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         :param state: unused
         :return: True
         """
+        if not self.ended_:
+            self.on_end(state, None)
+
         self._activations.clear()
         self._resolved_mappings.clear()
 
