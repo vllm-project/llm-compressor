@@ -77,15 +77,19 @@ class AWQModifier(Modifier, QuantizationMixin):
         - on_initialize
             - resolve mappings
             - capture kwargs needed for forward passes into modules
-            - capture input activations to balance layers
-                - register hook to capture inputs and offload to cpu
-                - run calibration dataset through, to capture inputs
-                - clear hooks
-            - concatenate activations across all batches
-            - apply smooothing
+        - on_start
+            - set up activation cache hooks to capture input activations
+                to balance layers
+        - on sequential epoch end
+            - apply smoothing to each smoothing layer
+                - consume cached activations across all batches
+                    - clear cached activations as they are used
                 - find best smoothing scale for each smoothing layer
-                - apply
-                - move to next smoothing layer
+                - apply to model weights
+                - raise error if any unused activations remain
+        - on_end
+            - re-run logic of sequential epoch end (in case of basic pipeline)
+            - remove activation hooks
         - on_finalize
             - clear resolved mappings and captured activations
 
@@ -112,6 +116,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
+    # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: Union[str, List[str], None] = None
     mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
     max_chunk_memory: int = 1024 * 1024 * 1024
@@ -135,7 +140,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # TODO better way to do this?
         config_groups = model.config_groups or {
-            "group_0": preset_name_to_scheme(model.scheme)
+            "group_0": preset_name_to_scheme(model.scheme, model.targets)
         }
 
         num_bits_set = set(
@@ -335,7 +340,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         calculate the dynamic range during calibration
         """
 
-        def create_cache_activation_hook(layer_name):
+        def create_cache_activation_hook(smooth_layer_name):
             def cache_activation_hook_fn(
                 _module: torch.nn.Module,
                 args: Tuple[torch.Tensor, ...],
@@ -344,10 +349,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # Assume that first argument is the input
                 inp = args[0].cpu().detach()
 
-                if layer_name in self._activations:
-                    self._activations[layer_name].append(inp)
+                if smooth_layer_name in self._activations:
+                    self._activations[smooth_layer_name].append(inp)
                 else:
-                    self._activations[layer_name] = [inp]
+                    self._activations[smooth_layer_name] = [inp]
 
             return cache_activation_hook_fn
 
