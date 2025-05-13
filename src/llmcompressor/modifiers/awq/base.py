@@ -1,6 +1,5 @@
 import inspect
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
-
 import torch
 from compressed_tensors.quantization import disable_quantization, preset_name_to_scheme
 from compressed_tensors.utils import (
@@ -25,6 +24,7 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
+from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 
 from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 
@@ -142,6 +142,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         config_groups = model.config_groups or {
             "group_0": preset_name_to_scheme(model.scheme, model.targets)
         }
+        # config = model.resolve_config()
 
         num_bits_set = set(
             group.weights.num_bits
@@ -206,6 +207,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
+
         self._setup_activation_cache_hooks()
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -233,13 +235,17 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        self.ended_ = True
-
-        QuantizationMixin.end_calibration(self, state.model)
-
         # confirm all activations have been used
         if len(self._activations) > 0:
             raise RuntimeError("Some cached activations were not used")
+
+        self.ended_ = True
+
+        modules = list(state.model.modules())
+        for module in tqdm(modules, desc="Calibrating weights", leave=False):
+            update_weight_zp_scale(module)
+
+        QuantizationMixin.end_calibration(self, state.model)
 
         # remove activation hooks
         self.remove_hooks(self._activation_hooks)
@@ -377,9 +383,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         :param model: model to apply smoothing to
         """
-        logger.info("Smoothing activation scales...")
-
-        for mapping in tqdm(self._resolved_mappings):
+        for mapping in tqdm(
+            self._resolved_mappings, desc="Smoothing activation scales", leave=False
+        ):
             # When using SequentialPipeline, not all the mappings will have
             # activations not found in this segment
             if mapping.smooth_name not in self._activations:
