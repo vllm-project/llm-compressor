@@ -32,20 +32,6 @@ class RecipeStage(RecipeBase):
     exclude_default: bool = False
     args_evaluated: Optional[Dict[str, Any]] = None
 
-    def evaluate(
-        self
-    ):
-        """
-        Evaluate the args for the stage with parent_args if any and shift
-        the start and end if provided
-
-        :param parent_args: Optional recipe args to use for evaluation
-        """
-        if self.args is None:
-            self.args = {}
-        for modifier in self.modifiers:
-            modifier.evaluate(self.args_evaluated)
-
     def create_modifier(self) -> StageModifiers:
         """
         The StageModifiers instance will contain instantiated

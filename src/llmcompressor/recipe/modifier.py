@@ -4,7 +4,6 @@ from pydantic import model_validator
 
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.base import RecipeBase
-from llmcompressor.recipe.utils import evaluate_ext, eval_args 
 
 __all__ = ["RecipeModifier"]
 
@@ -26,20 +25,6 @@ class RecipeModifier(RecipeBase):
     args: Optional[Dict[str, Any]] = None
     args_evaluated: Optional[Dict[str, Any]] = None
 
-    def evaluate(self, args: Optional[Dict[str, Any]] = None):
-        """
-        Evaluate the args for the modifier and shift the start and end if provided
-
-        :param args: the args to use for evaluation
-        :param shift: the amount to shift the start and end by
-        """
-        if not self.args:
-            raise ValueError("args must be set before evaluating")
-
-        context_args = eval_args(args or {})
-        self.args_evaluated = evaluate_ext(self.args, context_args)
-
-
     def create_modifier(self) -> "Modifier":
         """
         Create a Modifier instance using the ModifierFactory
@@ -52,7 +37,7 @@ class RecipeModifier(RecipeBase):
             self.type,
             allow_registered=True,
             allow_experimental=True,
-            **self.args_evaluated,
+            **self.args,
         )
 
     @model_validator(mode="before")
@@ -77,4 +62,4 @@ class RecipeModifier(RecipeBase):
         """
         :return: the dictionary representation of the modifier
         """
-        return {self.type: self.args_evaluated, "group": f"{self.group}_modifiers"}
+        return {self.type: self.args, "group": f"{self.group}_modifiers"}

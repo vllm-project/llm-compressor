@@ -219,7 +219,6 @@ class Recipe(RecipeBase):
         simplified.version = version
         simplified.args = args
         simplified.stages = stages
-        simplified.evaluate()
 
         return simplified
 
@@ -278,31 +277,6 @@ class Recipe(RecipeBase):
     stages: List[RecipeStage] = Field(default_factory=list)
     args_evaluated: Dict[str, Any] = Field(default_factory=dict)
 
-    def evaluate(
-        self
-    ):
-        """
-        Evaluate the recipe by evaluating all stages and combining the args
-        with existing recipe_args
-
-        Evaluate with no shift:
-        >>> recipe_str = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: eval(start_epoch)
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe = Recipe.create_instance(recipe_str)
-        >>> recipe.evaluate({"start_epoch": 1})
-        >>> recipe.stages[0].modifiers[0].args_evaluated["start"]
-        1.0
-        """
-
-        for stage in self.stages:
-            stage.evaluate()
-
     def create_modifier(self) -> List["StageModifiers"]:
         """
         Create and return a list of StageModifiers for each stage in the recipe
@@ -324,8 +298,6 @@ class Recipe(RecipeBase):
 
         :return: A list of StageModifiers for each stage in the recipe
         """
-        if not self.args_evaluated:
-            self.evaluate()
         modifiers = []
 
         for index, stage in enumerate(self.stages):
