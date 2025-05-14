@@ -12,8 +12,6 @@ from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 from torch.nn import Module
 
-from llmcompressor.logger import loguru_once
-
 __all__ = ["Observer"]
 
 
@@ -91,8 +89,7 @@ class Observer(Module, RegistryMixin):
                 columns = observed.shape[1]
                 num_groups = int(ceil(columns / group_size))
                 if num_groups * group_size != columns:
-                    loguru_once(
-                        logger.warning,
+                    logger.bind(log_once=True).warning(
                         "Attempting to quantize a module weight whose columns "
                         f"({columns}) are not divisible by group_size ({group_size}). "
                         "This scheme is not supported by vLLM, please consider "
