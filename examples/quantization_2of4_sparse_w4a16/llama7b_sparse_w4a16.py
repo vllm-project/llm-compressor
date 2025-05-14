@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot, train
 
 # load the model in as bfloat16 to save on memory and compute
-model_stub = "Xenova/llama2.c-stories42M"
+model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
 model = AutoModelForCausalLM.from_pretrained(
     model_stub, torch_dtype=torch.bfloat16, device_map="auto"
 )
@@ -21,7 +21,7 @@ recipe = "2of4_w4a16_recipe.yaml"
 output_dir = "output_llama7b_2of4_w4a16_channel"
 
 # set dataset config parameters
-splits = {"calibration": "train_gen[:1%]", "train": "train_gen[:1%]"}
+splits = {"calibration": "train_gen[:5%]", "train": "train_gen"}
 max_seq_length = 512
 num_calibration_samples = 512
 
