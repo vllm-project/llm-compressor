@@ -33,8 +33,6 @@ class EventType(Enum):
     :param LOSS_CALCULATED: Event type for when loss is calculated.
     :param BATCH_END: Event type for the end of a batch.
     :param CALIBRATION_EPOCH_START: Event type for the start of a calibration epoch.
-    :param SEQUENTIAL_EPOCH_END: Event type for the start of a layer calibration epoch,
-        specifically used by `src/llmcompressor/pipelines/sequential/pipeline.py`
     :param SEQUENTIAL_EPOCH_END: Event type for the end of a layer calibration epoch,
         specifically used by `src/llmcompressor/pipelines/sequential/pipeline.py`
     :param CALIBRATION_EPOCH_END: Event type for the end of a calibration epoch.
