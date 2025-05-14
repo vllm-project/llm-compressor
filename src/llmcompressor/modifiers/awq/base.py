@@ -90,6 +90,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 - raise error if any unused activations remain
         - on_end
             - re-run logic of sequential epoch end (in case of basic pipeline)
+            - set scales and zero points
             - remove activation hooks
         - on_finalize
             - clear resolved mappings and captured activations
@@ -139,11 +140,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not model.config_groups and not model.scheme:
             raise ValueError("AWQ requires either a config_groups or a scheme")
 
-        # TODO better way to do this?
+        # TODO better way to do this? model.resolve_config() ??
         config_groups = model.config_groups or {
             "group_0": preset_name_to_scheme(model.scheme, model.targets)
         }
-        # config = model.resolve_config()
 
         num_bits_set = set(
             group.weights.num_bits
@@ -183,6 +183,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize AWQ on the given state
+        Initialize quantization, resolve mappings, cache module kwargs
 
         :param state: state to run AWQ on
         :return: True on a successful run, False otherwise
@@ -234,16 +235,15 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def on_end(self, state: State, event: Event, **kwargs):
         """
-        Finish calibrating by removing observers and calibration hooks
+        Finish calibrating by setting scales and zero-points,
+         removing observers and calibration hooks
         """
-        # confirm all activations have been used
-        if len(self._activations) > 0:
-            raise RuntimeError("Some cached activations were not used")
+        self._assert_all_activations_consumed()
 
         self.ended_ = True
 
         modules = list(state.model.modules())
-        for module in tqdm(modules, desc="Calibrating weights", leave=False):
+        for module in tqdm(modules, desc="Calibrating weights"):
             update_weight_zp_scale(module)
 
         QuantizationMixin.end_calibration(self, state.model)
@@ -384,9 +384,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         :param model: model to apply smoothing to
         """
-        for mapping in tqdm(
-            self._resolved_mappings, desc="Smoothing activation scales", leave=False
-        ):
+        for mapping in tqdm(self._resolved_mappings, desc="Smoothing"):
             # When using SequentialPipeline, not all the mappings will have
             # activations not found in this segment
             if mapping.smooth_name not in self._activations:
@@ -491,9 +489,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     smooth(layer)
                 smooth(smooth_layer)
 
-        # confirm all activations have been used
-        if len(self._activations) > 0:
-            raise RuntimeError("Some cached activations were not used")
+        self._assert_all_activations_consumed()
 
     def _compute_best_scale(
         self,
@@ -624,6 +620,14 @@ class AWQModifier(Modifier, QuantizationMixin):
         loss /= num_elements
 
         return loss
+
+    def _assert_all_activations_consumed(self):
+        """
+        Confirm all activations have been consumed
+        If not, something has gone wrong
+        """
+        if len(self._activations) > 0:
+            raise RuntimeError("Some cached activations were not used")
 
     def _set_module_kwargs(self, model, dataloader) -> None:
         _, modules = next(iter(get_layers("re:.*layers", model).items()))
