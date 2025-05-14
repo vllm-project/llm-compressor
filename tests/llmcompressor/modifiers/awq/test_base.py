@@ -17,6 +17,7 @@ def test_awq_is_registered():
         type_="AWQModifier",
         allow_experimental=False,
         allow_registered=True,
+        scheme="W4A16_ASYM",
     )
 
     assert isinstance(modifier, AWQModifier), "AWQModifier not registered"
@@ -35,7 +36,8 @@ def test_set_resolved_mappings():
                 "re:.*up_proj",
                 ["re:.*down_proj"],
             ),
-        ]
+        ],
+        scheme="W4A16_ASYM",
     )
     self_attn = torch.nn.ModuleDict(
         {
@@ -84,7 +86,8 @@ def test_set_resolved_mappings():
     awq = AWQModifier(
         mappings=[
             AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
-        ]
+        ],
+        scheme="W4A16_ASYM",
     )
     model = torch.nn.ModuleDict(
         {
