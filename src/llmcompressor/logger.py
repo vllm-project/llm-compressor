@@ -123,8 +123,10 @@ def support_log_once(record: Dict[str, Any]) -> bool:
     Support logging only once using `.bind(log_once=True)`
 
     ```
+    logger.bind(log_once=False).info("This will log multiple times")
+    logger.bind(log_once=False).info("This will log multiple times")
     logger.bind(log_once=True).info("This will only log once")
-    logger.bind(log_once=True).info("This will only log once")
+    logger.bind(log_once=True).info("This will only log once")  # skipped
     ```
     """
     log_once = record["extra"].get("log_once", False)
