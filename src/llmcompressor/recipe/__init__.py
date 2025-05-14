@@ -1,4 +1,3 @@
-from .args import RecipeArgs
 from .base import RecipeBase
 from .container import RecipeContainer
 from .metadata import DatasetMetaData, LayerMetaData, ModelMetaData, ParamMetaData
@@ -15,7 +14,6 @@ __all__ = [
     "RecipeContainer",
     "RecipeModifier",
     "RecipeStage",
-    "RecipeArgs",
     "Recipe",
     "RecipeTuple",
     "RecipeInput",
