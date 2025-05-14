@@ -434,8 +434,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             x_mean = (x_sum / num_elements).to(inp.dtype)
 
-            # [STEP 3]: Compute output of module
             with calibration_forward_context(model), HooksMixin.disable_hooks():
+                # [STEP 3]: Compute output of module
                 fp16_output = self._forward_input_with_kwargs(
                     module=module2inspect,
                     inputs=inp,
@@ -446,10 +446,10 @@ class AWQModifier(Modifier, QuantizationMixin):
                     torch.finfo(fp16_output.dtype).max,
                 )
 
-            # [STEP 4]: Compute loss
-            best_scales = self._compute_best_scale(
-                inp, w_mean, x_mean, module2inspect, balance_layers, fp16_output
-            )
+                # [STEP 4]: Compute loss
+                best_scales = self._compute_best_scale(
+                    inp, w_mean, x_mean, module2inspect, balance_layers, fp16_output
+                )
 
             scales = best_scales
 
@@ -556,16 +556,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
 
             # W * X
-            with calibration_forward_context(
-                module2inspect
-            ), HooksMixin.disable_hooks():
-                int_w_output = self._forward_input_with_kwargs(
-                    module=module2inspect, inputs=x, input_kwargs=self._module_kwargs
-                )
-                int_w_output = int_w_output.clip(
-                    torch.finfo(int_w_output.dtype).min,
-                    torch.finfo(int_w_output.dtype).max,
-                )
+            int_w_output = self._forward_input_with_kwargs(
+                module=module2inspect, inputs=x, input_kwargs=self._module_kwargs
+            )
+            int_w_output = int_w_output.clip(
+                torch.finfo(int_w_output.dtype).min,
+                torch.finfo(int_w_output.dtype).max,
+            )
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_output, int_w_output, device)
