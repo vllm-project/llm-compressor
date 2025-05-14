@@ -128,7 +128,7 @@ def support_log_once(record: Dict[str, Any]) -> bool:
     ```
     """
     log_once = record["extra"].get("log_once", False)
-    level = (getattr(record["level"], "name", "none"),)
+    level = getattr(record["level"], "name", "none")
     message = str(level) + record["message"]
 
     if log_once and message in _logged_once:
