@@ -73,8 +73,6 @@ class LayerSequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
                 prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
-                LifecycleCallbacks.sequential_epoch_start()
-
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_idx)
