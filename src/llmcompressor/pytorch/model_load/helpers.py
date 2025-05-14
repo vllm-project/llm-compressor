@@ -9,6 +9,9 @@ from torch.nn import Module
 from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    get_model_compressor,
+)
 from llmcompressor.typing import Processor
 
 COMPLETED_STAGES_FILENAME = "completed_stages.json"
@@ -50,6 +53,16 @@ def save_checkpoint(
     )
     if processor is not None:
         processor.save_pretrained(save_path)
+
+    # saving the model modifies the model strcuture
+    # as this is only a checkpoint, decompress model to enable future training/oneshot
+    compressor = get_model_compressor(
+        model=model,
+        save_compressed=save_compressed,
+        skip_sparsity_compression_stats=skip_sparsity_compression_stats,
+    )
+    if compressor is not None:
+        compressor.decompress_model(model)
 
 
 def fallback_to_cpu(device: str) -> str:
