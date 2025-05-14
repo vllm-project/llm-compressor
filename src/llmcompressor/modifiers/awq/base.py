@@ -2,7 +2,7 @@ import inspect
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import disable_quantization, preset_name_to_scheme
+from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
