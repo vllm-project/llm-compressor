@@ -5,32 +5,26 @@ from transformers import AutoProcessor
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
+from llmcompressor.transformers.tracing import TraceableGemma3ForConditionalGeneration
 
 # Load model.
-model_id = "mgoin/pixtral-12b"
-model = TraceableLlavaForConditionalGeneration.from_pretrained(
+model_id = "google/gemma-3-4b-it"
+model = TraceableGemma3ForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
-DATASET_SPLIT = "test"
+DATASET_SPLIT = {"calibration": "test[:512]"}
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 
 # Define a oneshot data collator for multimodal inputs.
-# NOTE: for transformers<4.48.0, please squeeze the first dimension of `pixel_values`
-# by appending `[0]` to the end of line 32
 def data_collator(batch):
     assert len(batch) == 1
-    return {
-        "input_ids": torch.LongTensor(batch[0]["input_ids"]),
-        "attention_mask": torch.tensor(batch[0]["attention_mask"]),
-        "pixel_values": torch.tensor(batch[0]["pixel_values"]),
-    }
+    return {key: torch.tensor(value) for key, value in batch[0].items()}
 
 
 # Recipe
@@ -38,8 +32,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["MistralDecoderLayer"],
-        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        ignore=["re:*.lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
     ),
 ]
 
@@ -48,7 +41,7 @@ oneshot(
     model=model,
     tokenizer=model_id,
     dataset=DATASET_ID,
-    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    splits=DATASET_SPLIT,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
