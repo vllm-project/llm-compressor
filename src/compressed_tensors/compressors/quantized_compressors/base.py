@@ -23,7 +23,6 @@ from compressed_tensors.utils import (
     get_nested_mappings_from_state_dict,
     get_nested_weight_mappings,
     merge_names,
-    remove_suffix,
 )
 from safetensors import safe_open
 from torch import Tensor
@@ -71,6 +70,7 @@ class BaseQuantizationCompressor(BaseCompressor):
         self,
         model_state: Dict[str, Tensor],
         names_to_scheme: Dict[str, QuantizationScheme],
+        show_progress: bool = False,
         **kwargs,
     ) -> Dict[str, Tensor]:
         """
@@ -79,18 +79,21 @@ class BaseQuantizationCompressor(BaseCompressor):
         :param model_state: state dict of uncompressed model
         :param names_to_scheme: quantization args for each quantized weight, needed for
             quantize function to calculate bit depth
+        :param show_progress: whether to show tqdm progress
         :return: compressed state dict
         """
+        uncompressed_names = list(model_state.keys())
         compressed_dict = {}
         save_device = "cpu"
 
-        uncompressed_names = list(model_state.keys())
-        for name in tqdm(uncompressed_names, desc="Compressing with quantization"):
+        # compress values
+        desc = "Compressing with quantization"
+        for name in tqdm(uncompressed_names, desc=desc, disable=(not show_progress)):
             value = model_state[name]
 
             # compress weights
             if name.endswith("weight"):
-                prefix = remove_suffix(name, "weight")
+                prefix = name.removesuffix("weight")
 
                 # gather qparams
                 scale = model_state.get(prefix + "weight_scale", None)
@@ -182,7 +185,7 @@ class BaseQuantizationCompressor(BaseCompressor):
             )
 
         else:
-            yield from self._decompress_from_state_dict(
+            yield from self.decompress_from_state_dict(
                 path_to_model_or_tensors, names_to_scheme
             )
 
@@ -209,7 +212,11 @@ class BaseQuantizationCompressor(BaseCompressor):
                 weight_data["weight"] = decompressed
                 yield module_path, weight_data
 
-    def _decompress_from_state_dict(self, state_dict, names_to_scheme):
+    def decompress_from_state_dict(
+        self,
+        state_dict: Dict[str, torch.Tensor],
+        names_to_scheme: Dict[str, QuantizationScheme],
+    ) -> Generator[Tuple[str, Dict[str, torch.Tensor]], None, None]:
         weight_mappings = get_nested_mappings_from_state_dict(
             state_dict, self.compression_param_names
         )
@@ -219,7 +226,7 @@ class BaseQuantizationCompressor(BaseCompressor):
                 weight_data[param_name] = param_value
 
             if "weight_scale" in weight_data:
-                quant_args = names_to_scheme[module_path]
+                quant_args = names_to_scheme[module_path].weights
                 decompressed = self.decompress_weight(
                     compressed_data=weight_data, quantization_args=quant_args
                 )

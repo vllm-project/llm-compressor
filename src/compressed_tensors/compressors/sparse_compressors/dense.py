@@ -40,3 +40,10 @@ class DenseCompressor(BaseCompressor):
         self, path_to_model_or_tensors: str, device: str = "cpu", **kwargs
     ) -> Generator[Tuple[str, Tensor], None, None]:
         return iter([])
+
+    def decompress_from_state_dict(
+        self,
+        state_dict: Dict[str, Tensor],
+    ) -> Generator[Tuple[str, Dict[str, Tensor]], None, None]:
+        for key, value in state_dict.items():
+            yield key, value

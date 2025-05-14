@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Union
+from typing import Dict, Generator, List, Tuple, Union
 
 import torch
 from compressed_tensors.compressors.base import BaseCompressor
@@ -202,11 +202,7 @@ def sparse24_bitmask_decompress(
     decompressed_tensor = torch.zeros(original_shape, dtype=values.dtype)
     decompressed_tensor = decompressed_tensor.to(values.device)
     values = values.flatten()
-    if decompressed_tensor.dtype == FP8_DTYPE:
-        decompressed_tensor[bytemasks_unpacked] = values
-        decompressed_tensor = decompressed_tensor.cuda()
-    else:
-        decompressed_tensor[bytemasks_unpacked] = values
+    decompressed_tensor[bytemasks_unpacked] = values
     return decompressed_tensor
 
 

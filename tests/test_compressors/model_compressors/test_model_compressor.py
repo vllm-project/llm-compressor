@@ -24,6 +24,7 @@ from compressed_tensors.config import SparsityCompressionConfig
 from compressed_tensors.quantization import QuantizationConfig
 from safetensors.torch import save_file
 from tests.testing_utils import induce_sparsity, requires_hf_quantizer
+from transformers import AutoModelForCausalLM
 
 
 def sparsity_config():
@@ -365,3 +366,115 @@ def _get_combined_config(s_config, q_config):
         combined["sparsity_config"] = s_config
 
     return combined
+
+
+@pytest.mark.parametrize(
+    "model_stub,q_format,s_config",
+    [
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-quantized-only-uncompressed",
+            "float-quantized",
+            None,
+        ),
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-sparse-only-uncompressed",
+            None,
+            "sparse-24-bitmask",
+        ),
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-stacked-uncompressed",
+            "float-quantized",
+            "sparse-24-bitmask",
+        ),
+        (
+            "nm-testing/llama2.c-stories15M-ultrachat-mixed-uncompressed",
+            "pack-quantized",
+            None,
+        ),
+    ],
+)
+def test_compress_model(model_stub, q_format, s_config, tmpdir):
+    model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype=torch.float32)
+    compressor = ModelCompressor.from_pretrained_model(model, s_config, q_format)
+
+    # compress model by eagerly compressing state dict
+    true_compressed = dict(compressor.compress(model))
+    true_compressed = {key: value.clone() for key, value in true_compressed.items()}
+
+    # compress model directly
+    compressor.compress_model(model)
+    compressed = dict(model.state_dict())
+
+    # equivalent to eagerly compressing state dict
+    assert compressed.keys() == true_compressed.keys()
+    for key in compressed.keys():
+        assert compressed[key].dtype == true_compressed[key].dtype
+        assert torch.all(compressed[key] == true_compressed[key]), f"{key}"
+
+
+@pytest.mark.parametrize(
+    "model_stub,comp_stub",
+    [
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-quantized-only-uncompressed",
+            "nm-testing/llama2.c-stories42M-gsm8k-quantized-only-compressed",
+        ),
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-sparse-only-uncompressed",
+            "nm-testing/llama2.c-stories42M-gsm8k-sparse-only-compressed",
+        ),
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-stacked-uncompressed",
+            "nm-testing/llama2.c-stories42M-gsm8k-stacked-compressed",
+        ),
+        (
+            "nm-testing/llama2.c-stories15M-ultrachat-mixed-uncompressed",
+            "nm-testing/llama2.c-stories15M-ultrachat-mixed-compressed",
+        ),
+    ],
+)
+def test_decompress_model(model_stub, comp_stub):
+    from transformers.utils.quantization_config import CompressedTensorsConfig
+
+    # decompress from disk
+    # NOTE: transformers adds extra zero points if run_compressed=False or w/ sparsity
+    # https://github.com/huggingface/transformers/blob/main/src/transformers/quantizers/quantizer_compressed_tensors.py#L131-L133
+    # however, decompression does not add zero points in non-asymmetric cases
+    # in order to normalize for this effect in this test, we remove empty weight zps
+    true_decompressed_model = AutoModelForCausalLM.from_pretrained(
+        comp_stub,
+        quantization_config=CompressedTensorsConfig(run_compressed=False),
+        torch_dtype=torch.float32,
+    )
+    true_decompressed = dict(true_decompressed_model.state_dict())
+    true_decompressed = remove_empty_weight_zero_points(true_decompressed)  # see above
+
+    # decompress from memory
+    # NOTE there is no other way to load a compressed model into memory, since
+    # there is no way to turn off decompression for sparse models
+    # https://github.com/huggingface/transformers/blob/main/src/transformers/quantizers/quantizer_compressed_tensors.py#L133
+    model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype=torch.float32)
+    compressor = ModelCompressor.from_pretrained(comp_stub)
+    compressor.compress_model(model)
+    compressor.decompress_model(model)
+    decompressed = dict(model.state_dict())
+
+    # remove keys not in model definition
+    # NOTE it would be better if compressors only returned keys to keep, rather than
+    # relying on the model structure + missing keys to catch and remove them later
+    model_keys = true_decompressed_model.state_dict().keys()
+    decompressed = {key: val for key, val in decompressed.items() if key in model_keys}
+
+    # equivalent to decompressing from disk
+    assert decompressed.keys() == true_decompressed.keys()
+    for key in decompressed.keys():
+        assert decompressed[key].dtype == true_decompressed[key].dtype
+        assert torch.all(decompressed[key] == true_decompressed[key]), f"{key}"
+
+
+def remove_empty_weight_zero_points(state_dict):
+    return {
+        name: value
+        for name, value in state_dict.items()
+        if not (name.endswith("weight_zero_point") and torch.all(value == 0))
+    }

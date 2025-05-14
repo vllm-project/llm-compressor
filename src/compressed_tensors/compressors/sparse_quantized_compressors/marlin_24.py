@@ -125,6 +125,7 @@ class Marlin24Compressor(BaseCompressor):
         self,
         model_state: Dict[str, Tensor],
         names_to_scheme: Dict[str, QuantizationScheme],
+        show_progress: bool = False,
         **kwargs,
     ) -> Dict[str, Tensor]:
         """
@@ -134,6 +135,7 @@ class Marlin24Compressor(BaseCompressor):
         :param model_state: state dict of uncompressed model
         :param names_to_scheme: quantization scheme for each quantized weight, needed
             for quantize function to calculate bit depth
+        :param show_progress: whether to show tqdm progress
         :return: compressed state dict
         """
         self.validate_quant_compatability(names_to_scheme)
@@ -144,7 +146,9 @@ class Marlin24Compressor(BaseCompressor):
             f"Compressing model with {len(model_state)} parameterized layers..."
         )
 
-        for name, value in tqdm(model_state.items(), desc="Compressing model"):
+        for name, value in tqdm(
+            model_state.items(), desc="Compressing model", disable=(not show_progress)
+        ):
             if name.endswith(weight_suffix):
                 prefix = name[: -(len(weight_suffix))]
                 scale = model_state.get(merge_names(prefix, "weight_scale"), None)

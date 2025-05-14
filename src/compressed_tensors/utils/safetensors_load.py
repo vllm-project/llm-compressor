@@ -35,6 +35,7 @@ __all__ = [
     "is_quantization_param",
 ]
 
+NestedStateDictType = Dict[str, Dict[str, Tensor]]
 WeightMappingType = Dict[str, str]
 NestedWeightMappingType = Dict[str, WeightMappingType]
 
@@ -249,8 +250,10 @@ def get_nested_weight_mappings(
 
 
 def get_nested_mappings_from_state_dict(
-    state_dict, params_to_nest: Iterable[str]
-) -> NestedWeightMappingType:
+    state_dict: Dict[str, Tensor],
+    params_to_nest: Iterable[str],
+    return_unmatched_params: bool = False,
+) -> Union[NestedStateDictType, Tuple[NestedStateDictType, Dict[str, Tensor]]]:
     """
     Takes a state dict and returns a nested mapping from uncompressed
     parameterized layer names to the value of
@@ -266,16 +269,26 @@ def get_nested_mappings_from_state_dict(
     :param state_dict: state dict of the model
     :param params_to_nest: Iterable of parameter names to nest.
     :return: Nested mapping of parameterized layer names to the value of
-        each layer's compression parameters.
+        each layer's compression parameters. If `return_unmatched_params`, then
+        also return a dictionary mapping unused parameter names to their values
     """
     nested_weight_mappings = {}
+    unmatched_params = {}
+
     for key in state_dict.keys():
+        matched = False
         for param_name in params_to_nest:
             module_path = match_param_name(key, param_name)
             if module_path:
                 if module_path not in nested_weight_mappings:
                     nested_weight_mappings[module_path] = {}
                 nested_weight_mappings[module_path][param_name] = state_dict[key]
+                matched = True
+        if return_unmatched_params and not matched:
+            unmatched_params[key] = state_dict[key]
+
+    if return_unmatched_params:
+        return nested_weight_mappings, unmatched_params
     return nested_weight_mappings
 
 

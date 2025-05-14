@@ -16,7 +16,11 @@ import logging
 from typing import Dict, Generator, Optional, Set, Tuple
 
 from compressed_tensors.compressors.base import BaseCompressor
-from compressed_tensors.utils import get_nested_weight_mappings, merge_names
+from compressed_tensors.utils import (
+    get_nested_mappings_from_state_dict,
+    get_nested_weight_mappings,
+    merge_names,
+)
 from safetensors import safe_open
 from torch import Tensor
 from tqdm import tqdm
@@ -63,6 +67,7 @@ class BaseSparseCompressor(BaseCompressor):
         self,
         model_state: Dict[str, Tensor],
         compression_targets: Optional[Set[str]] = None,
+        show_progress: bool = False,
     ) -> Dict[str, Tensor]:
         """
         Compresses a dense state dict using bitmask compression
@@ -76,7 +81,11 @@ class BaseSparseCompressor(BaseCompressor):
         _LOGGER.debug(
             f"Compressing model with {len(model_state)} parameterized layers..."
         )
-        for name, value in tqdm(model_state.items(), desc="Compressing model"):
+        for name, value in tqdm(
+            model_state.items(),
+            desc="Compressing with sparsity",
+            disable=(not show_progress),
+        ):
             if not self.should_compress(name, compression_targets):
                 compressed_dict[name] = value
                 continue
@@ -124,15 +133,15 @@ class BaseSparseCompressor(BaseCompressor):
             self.compression_param_names,
             return_unmatched_params=True,
         )
-        for weight_name in weight_mappings.keys():
+        for module_path in weight_mappings.keys():
             weight_data = {}
-            for param_name, safe_path in weight_mappings[weight_name].items():
-                full_name = merge_names(weight_name, param_name)
+            for param_name, safe_path in weight_mappings[module_path].items():
+                full_name = merge_names(module_path, param_name)
                 with safe_open(safe_path, framework="pt", device=device) as f:
                     weight_data[param_name] = f.get_tensor(full_name)
 
             decompressed = self.decompress_weight(weight_data)
-            yield merge_names(weight_name, "weight"), decompressed
+            yield merge_names(module_path, "weight"), decompressed
 
         for ignored_param_name, safe_path in ignored_params.items():
             should_skip = False
@@ -145,6 +154,35 @@ class BaseSparseCompressor(BaseCompressor):
                 with safe_open(safe_path, framework="pt", device=device) as f:
                     value = f.get_tensor(ignored_param_name)
                 yield ignored_param_name, value
+
+    def decompress_from_state_dict(
+        self,
+        state_dict: Dict[str, Tensor],
+    ) -> Generator[Tuple[str, Dict[str, Tensor]], None, None]:
+        """
+        Decompress the state dict of a module (or model)
+
+        Unlike `self.decompress`, this function does not need to explicitly skip params
+        via params_to_skip_load because it is more convenient for its only caller
+        (ModelCompressor.decompress_model) to retrieve all unused param keys
+
+        :param state_dict: state dict containing parameters to decompress
+        :return: Generator of (param_path, param_val)
+        """
+        weight_mappings, ignored_params = get_nested_mappings_from_state_dict(
+            state_dict, self.compression_param_names, return_unmatched_params=True
+        )
+
+        for module_path in weight_mappings.keys():
+            weight_data = {}
+            for param_name, param_value in weight_mappings[module_path].items():
+                weight_data[param_name] = param_value
+
+            decompressed = self.decompress_weight(weight_data)
+            yield merge_names(module_path, "weight"), decompressed
+
+        for ignored_param_path, ignored_param_value in ignored_params.items():
+            yield ignored_param_path, ignored_param_value
 
     @staticmethod
     def should_compress(name: str, expanded_targets: Optional[Set[str]] = None) -> bool:
