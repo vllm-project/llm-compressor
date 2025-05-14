@@ -72,8 +72,6 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-                LifecycleCallbacks.sequential_epoch_start()
-
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_idx, subgraph.input_names)

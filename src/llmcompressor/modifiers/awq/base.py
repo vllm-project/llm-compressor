@@ -217,9 +217,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             if not self.started_:
                 self.on_start(state, None)
 
-        elif event.type_ == EventType.SEQUENTIAL_EPOCH_START:
-            pass
-
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             # Run smoothing in case of sequential pipeline
             self._apply_smoothing(state.model)
