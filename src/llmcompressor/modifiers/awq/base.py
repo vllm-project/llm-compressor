@@ -142,17 +142,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         as AWQ algorithm depends on it
         Confirm no activation quantization, as AWQ only works with WNA16
         """
-        if not model.config_groups and not model.scheme:
-            raise ValueError("AWQ requires either a config_groups or a scheme")
-
-        # TODO better way to do this? model.resolve_config() ??
-        config_groups = model.config_groups or {
-            "group_0": preset_name_to_scheme(model.scheme, model.targets)
-        }
+        config = model.resolve_quantization_config()
 
         num_bits_set = set(
             group.weights.num_bits
-            for group in config_groups.values()
+            for group in config.config_groups.values()
             if group.weights is not None
         )
         assert (
@@ -163,7 +157,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         symmetric_set = set(
             group.weights.symmetric
-            for group in config_groups.values()
+            for group in config.config_groups.values()
             if group.weights is not None
         )
         assert (
@@ -174,7 +168,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         group_size_set = set(
             group.weights.group_size
-            for group in config_groups.values()
+            for group in config.config_groups.values()
             if group.weights is not None
         )
         assert (
