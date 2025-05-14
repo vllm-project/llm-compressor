@@ -137,6 +137,11 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     @model_validator(mode="after")
     def validate_model_after(model: "AWQModifier") -> "AWQModifier":
+        """
+        Confirm only one configuration for group_size, symmetric, and num_bits,
+        as AWQ algorithm depends on it
+        Confirm no activation quantization, as AWQ only works with WNA16
+        """
         if not model.config_groups and not model.scheme:
             raise ValueError("AWQ requires either a config_groups or a scheme")
 
@@ -178,6 +183,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         model._group_size = next(iter(group_size_set))
 
+        # TODO confirm no activation quantization
+
         return model
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -195,8 +202,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self._set_resolved_mappings(state.model)
 
-        with calibration_forward_context(state.model):
-            self._set_module_kwargs(state.model, state.data.calib)
+        self._set_module_kwargs(state.model, state.data.calib)
 
         return True
 
@@ -222,13 +228,11 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         elif event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             # Run smoothing in case of sequential pipeline
-            with calibration_forward_context(state.model), HooksMixin.disable_hooks():
-                self._apply_smoothing(state.model)
+            self._apply_smoothing(state.model)
 
         elif event.type_ == EventType.CALIBRATION_EPOCH_END:
             # Run smoothing in case of basic pipeline
-            with calibration_forward_context(state.model), HooksMixin.disable_hooks():
-                self._apply_smoothing(state.model)
+            self._apply_smoothing(state.model)
 
             if not self.ended_:
                 self.on_end(state, None)
@@ -385,8 +389,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         :param model: model to apply smoothing to
         """
         for mapping in tqdm(self._resolved_mappings, desc="Smoothing"):
-            # When using SequentialPipeline, not all the mappings will have
-            # activations not found in this segment
+            # NOTE: When using SequentialPipeline, not all the mappings
+            # will have cached activations in the segment being udpated
             if mapping.smooth_name not in self._activations:
                 continue
 
@@ -437,14 +441,16 @@ class AWQModifier(Modifier, QuantizationMixin):
             x_mean = (x_sum / num_elements).to(inp.dtype)
 
             # [STEP 3]: Compute output of module
-            fp16_output = self._forward_input_with_kwargs(
-                module=module2inspect,
-                inputs=inp,
-                input_kwargs=_sanitize_kwargs(self._module_kwargs, module2inspect),
-            )
-            fp16_output = fp16_output.clip(
-                torch.finfo(fp16_output.dtype).min, torch.finfo(fp16_output.dtype).max
-            )
+            with calibration_forward_context(model), HooksMixin.disable_hooks():
+                fp16_output = self._forward_input_with_kwargs(
+                    module=module2inspect,
+                    inputs=inp,
+                    input_kwargs=_sanitize_kwargs(self._module_kwargs, module2inspect),
+                )
+                fp16_output = fp16_output.clip(
+                    torch.finfo(fp16_output.dtype).min,
+                    torch.finfo(fp16_output.dtype).max,
+                )
 
             # [STEP 4]: Compute loss
             best_scales = self._compute_best_scale(
@@ -556,12 +562,16 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
 
             # W * X
-            int_w_output = self._forward_input_with_kwargs(
-                module=module2inspect, inputs=x, input_kwargs=self._module_kwargs
-            )
-            int_w_output = int_w_output.clip(
-                torch.finfo(int_w_output.dtype).min, torch.finfo(int_w_output.dtype).max
-            )
+            with calibration_forward_context(
+                module2inspect
+            ), HooksMixin.disable_hooks():
+                int_w_output = self._forward_input_with_kwargs(
+                    module=module2inspect, inputs=x, input_kwargs=self._module_kwargs
+                )
+                int_w_output = int_w_output.clip(
+                    torch.finfo(int_w_output.dtype).min,
+                    torch.finfo(int_w_output.dtype).max,
+                )
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_output, int_w_output, device)
@@ -666,7 +676,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         # patch layer 0 to catch input and kwargs
         modules[0] = Catcher(modules[0])
         try:
-            model(samples.to(next(model.parameters()).device))
+            with calibration_forward_context(model):
+                model(samples.to(next(model.parameters()).device))
         except ValueError:  # work with early exit
             pass
         modules[0] = modules[0].module  # restore
