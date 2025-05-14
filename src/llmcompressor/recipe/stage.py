@@ -20,7 +20,6 @@ class RecipeStage(RecipeBase):
     :param modifiers: list of RecipeModifiers that are a part of this stage
     :param exclude_default: True to exclude the default modifiers from the stage,
         False otherwise
-    :param args_evaluated: the evaluated recipe args for the stage
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -30,7 +29,6 @@ class RecipeStage(RecipeBase):
     enabled: bool = True
     modifiers: List[RecipeModifier] = Field(default_factory=list)
     exclude_default: bool = False
-    args_evaluated: Optional[Dict[str, Any]] = None
 
     def create_modifier(self) -> StageModifiers:
         """

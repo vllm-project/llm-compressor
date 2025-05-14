@@ -182,13 +182,9 @@ class Recipe(RecipeBase):
         ... '''
         >>> recipe = Recipe.create_instance(recipe_str)
         >>> recipe_tuple = RecipeTuple(recipe, ["test"], {})
-        >>> simplified = Recipe.simplify_recipe(recipe_tuple, shift=2)
-        >>> simplified.stages[0].modifiers[0].args_evaluated["start"]
-        2.0
+        >>> simplified = Recipe.simplify_recipe(recipe_tuple)
 
         :param recipe: The Recipe or RecipeTuple instance to simplify
-        :param shift: The amount to shift the start and end of the recipe by,
-            defaults to None (No shift)
         :return: The simplified Recipe instance
         """
         if isinstance(recipe, str):
@@ -274,7 +270,6 @@ class Recipe(RecipeBase):
     version: str = None
     args: Dict[str, Any] = Field(default_factory=dict)
     stages: List[RecipeStage] = Field(default_factory=list)
-    args_evaluated: Dict[str, Any] = Field(default_factory=dict)
 
     def create_modifier(self) -> List["StageModifiers"]:
         """

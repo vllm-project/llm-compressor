@@ -17,13 +17,11 @@ class RecipeModifier(RecipeBase):
     :param type: the type of modifier to create
     :param group: the group to assign the modifier to
     :param args: the args to use for the modifier
-    :param args_evaluated: the evaluated args for the modifier
     """
 
     type: str
     group: Optional[str] = None
     args: Optional[Dict[str, Any]] = None
-    args_evaluated: Optional[Dict[str, Any]] = None
 
     def create_modifier(self) -> "Modifier":
         """
