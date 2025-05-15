@@ -77,7 +77,6 @@ class SequentialPipeline(CalibrationPipeline):
                     inputs = intermediates.fetch(batch_idx, subgraph.input_names)
                     subgraph.forward(model, **inputs)
 
-                # trigger compression
                 LifecycleCallbacks.sequential_epoch_end()
 
                 # this pass does not trigger modifier hooks
