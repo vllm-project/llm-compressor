@@ -94,8 +94,7 @@ class MinMaxObserver(Observer):
             max_vals = torch.max(updated_max_val, torch.zeros_like(updated_max_val))
             max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
             global_scale = FP8_E4M3_DATA.max * FP4_E2M1_DATA.max / max_val_pos
-            print("global_scale")
-            return global_scale, None
+            return global_scale.to(torch.float32), None
 
         return calculate_qparams(
             min_vals=updated_min_val,

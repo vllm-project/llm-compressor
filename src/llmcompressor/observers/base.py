@@ -93,7 +93,7 @@ class Observer(Module, RegistryMixin):
                     observed, calculate_global_scale=True
                 )
 
-            if self.quantization_args.strategy == QuantizationStrategy.TENSOR:
+            elif self.quantization_args.strategy == QuantizationStrategy.TENSOR:
                 # re-calculate scale and zero point, update the stored value
                 self._scale, self._zero_point = self.calculate_qparams(observed)
 

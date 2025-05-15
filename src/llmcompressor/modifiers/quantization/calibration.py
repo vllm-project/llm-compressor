@@ -91,7 +91,7 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         observer = getattr(module, f"{base_name}_observer")
         updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
 
-        if hasattr(module, "input_global_scale"):
+        if base_name == "input" and hasattr(module, "input_global_scale"):
             update_parameter_data(module, updated_scale, "input_global_scale")
         else:
             # update scale and zero point
