@@ -1,4 +1,0 @@
-cadence: "nightly"
-test_type: "regression"
-model: "nm-testing/llama2.c-stories15M"
-dataset: open_platypus

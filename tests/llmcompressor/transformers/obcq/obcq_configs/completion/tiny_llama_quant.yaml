@@ -1,7 +1,0 @@
-cadence: "nightly"
-test_type: "sanity"
-model: "nm-testing/llama2.c-stories15M"
-dataset: open_platypus
-recipe: "tests/llmcompressor/transformers/obcq/recipes/quant.yaml"
-num_samples: 32
-perplexity: 5000

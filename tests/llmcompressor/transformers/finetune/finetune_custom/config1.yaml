@@ -1,5 +1,0 @@
-cadence: "commit"
-test_type: "sanity"
-model: "nm-testing/llama2.c-stories15M"
-file_extension: json
-num_train_epochs: 1

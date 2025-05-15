@@ -1,2 +1,0 @@
-include LICENSE
-recursive-exclude src *.png *.jpg *.jpeg *.gif *.svg *.bmp *.webp
