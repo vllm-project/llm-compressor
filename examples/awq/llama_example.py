@@ -1,17 +1,8 @@
-import lm_eval
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationScheme,
-    QuantizationStrategy,
-    QuantizationType,
-)
 from datasets import load_dataset
-from lm_eval.utils import make_table
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -61,23 +52,7 @@ def tokenize(sample):
 
 # Configure the quantization algorithm to run.
 recipe = [
-    AWQModifier(bits=4, symmetric=False),
-    QuantizationModifier(
-        ignore=["lm_head"],
-        config_groups={
-            "group_0": QuantizationScheme(
-                targets=["Linear"],
-                weights=QuantizationArgs(
-                    num_bits=4,
-                    type=QuantizationType.INT,
-                    dynamic=False,
-                    symmetric=False,
-                    strategy=QuantizationStrategy.GROUP,
-                    group_size=128,
-                ),
-            )
-        },
-    ),
+    AWQModifier(ignore=["lm_head"], scheme="W4A16_ASYM", targets=["Linear"]),
 ]
 
 # Apply algorithms.
@@ -101,21 +76,3 @@ print("==========================================\n\n")
 SAVE_DIR = MODEL_ID.split("/")[-1] + "-awq-asym"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
-
-#
-# 2) Evaluate model on wikitext perplexity
-#
-
-results = lm_eval.simple_evaluate(
-    model="hf",
-    model_args={
-        "pretrained": SAVE_DIR,
-        "add_bos_token": True,
-        "dtype": "bfloat16",
-        "gpu_memory_utilization": 0.5,
-    },
-    tasks=["wikitext"],
-    num_fewshot=5,
-    batch_size="auto",
-)
-print(make_table(results))
