@@ -91,9 +91,12 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         observer = getattr(module, f"{base_name}_observer")
         updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
 
-        # update scale and zero point
-        update_parameter_data(module, updated_scale, f"{base_name}_scale")
-        update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+        if hasattr(module, "input_global_scale"):
+            update_parameter_data(module, updated_scale, "input_global_scale")
+        else:
+            # update scale and zero point
+            update_parameter_data(module, updated_scale, f"{base_name}_scale")
+            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
 def update_weight_zp_scale(module: Module):
