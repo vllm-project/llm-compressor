@@ -1,17 +1,15 @@
 import pytest
 import torch
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+)
 from pydantic import ValidationError
+
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import _sanitize_kwargs
 from llmcompressor.modifiers.factory import ModifierFactory
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationConfig,
-    QuantizationScheme,
-    QuantizationStatus,
-    QuantizationStrategy,
-)
 
 
 @pytest.mark.unit
