@@ -80,15 +80,16 @@ def trace_subgraphs(
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
     :param sequential_targets: list of patterns matching sequential targets
-    :param ignore: TODO: unused, in the future will specify functions and methods to
-        skip during tracing
+    :param ignore: modules to ignore during tracing, in the future will specify
+        functions and methods to skip during tracing
     :return: a list of Subgraphs in order of execution
     """
     # find modules
     sequential_targets = match_modules(model, sequential_targets)
+    ignore = match_modules(model, ignore)
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets)
+    tracer = get_tracer(model, sequential_targets, ignore)
     concrete_args = populate_concrete_args(model, sample_input)
 
     # trace
@@ -118,7 +119,9 @@ def trace_subgraphs(
     return subgraphs
 
 
-def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
+def get_tracer(
+    model: Module, sequential_targets: Set[Module], ignore: Set[Module]
+) -> HFTracer:
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
@@ -129,6 +132,8 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
 
     :param model: model being traced
     :param sequential_targets: modules which are sequential targets
+    :param ignore: modules to ignore during tracing, in the future will specify
+        functions and methods to skip during tracing
     """
     sequential_ancestors = get_sequential_ancestors(model, sequential_targets)
     offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
@@ -155,7 +160,11 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module not in sequential_ancestors or module in offloaded_modules
+            return (
+                module not in sequential_ancestors
+                or module in offloaded_modules
+                or module in ignore
+            )
 
         def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
             if isinstance(root, Module):

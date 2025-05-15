@@ -8,7 +8,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationMixin
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 __all__ = ["CalibrationPipeline"]
 
-SEQUENTIAL_MODIFIERS = (GPTQModifier, SparsityModifierMixin)
+SEQUENTIAL_MODIFIERS = (GPTQModifier, SparsityModifierBase)
 
 
 class CalibrationPipeline(ABC, RegistryMixin):
