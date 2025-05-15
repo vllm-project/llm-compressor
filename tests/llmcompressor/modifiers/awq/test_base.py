@@ -1,9 +1,6 @@
 import pytest
 import torch
-from compressed_tensors.quantization import (
-    QuantizationArgs,
-    QuantizationScheme,
-)
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from pydantic import ValidationError
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
