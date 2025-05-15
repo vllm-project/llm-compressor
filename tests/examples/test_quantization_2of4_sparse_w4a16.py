@@ -1,8 +1,8 @@
+import json
 import shlex
 import shutil
 import sys
 from pathlib import Path
-import json
 
 import pytest
 
@@ -58,7 +58,6 @@ class TestQuantization24SparseW4A16:
         assert quant_config, "Missing quantization config"
         format = quant_config.get("format")
         assert format == "marlin-24", f"Incorrect quantization format: {format}"
-
 
     def test_alternative_recipe(self, example_dir: str, tmp_path: Path):
         """
