@@ -1,10 +1,17 @@
 import pytest
 import torch
-
+from pydantic import ValidationError
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import _sanitize_kwargs
 from llmcompressor.modifiers.factory import ModifierFactory
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationConfig,
+    QuantizationScheme,
+    QuantizationStatus,
+    QuantizationStrategy,
+)
 
 
 @pytest.mark.unit
@@ -103,6 +110,66 @@ def test_set_resolved_mappings():
     )
     awq._set_resolved_mappings(model)
     assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_validate():
+    with pytest.raises(ValidationError):
+        AWQModifier(scheme="W8A8")
+
+    with pytest.raises(ValidationError):
+        AWQModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=4,
+                        group_size=64,
+                    ),
+                ),
+                "group_1": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=4,
+                        group_size=128,
+                    ),
+                ),
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        AWQModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=4,
+                        group_size=128,
+                    ),
+                ),
+                "group_1": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=8,
+                        group_size=128,
+                    ),
+                ),
+            }
+        )
+
+    # valid configuration
+    AWQModifier(
+        config_groups={
+            "group_0": QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
+            ),
+            "group_1": QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
+            ),
+        }
+    )
 
 
 @pytest.mark.unit
