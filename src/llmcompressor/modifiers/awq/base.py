@@ -3,7 +3,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import disable_quantization
-from compressed_tensors.utils import align_module_device, update_offload_parameter
+from compressed_tensors.utils import (
+    align_module_device,
+    get_execution_device,
+    update_offload_parameter,
+)
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
@@ -482,9 +486,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _compute_best_scale(
         self,
-        x: torch.Tensor,
         w_mean: torch.Tensor,
-        x_mean: torch.Tensor,
         parent_layer: torch.nn.Module,
         linears2scale: List[torch.nn.Linear],
         fp16_output: torch.Tensor,
@@ -506,7 +508,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         org_sd = {k: v.cpu() for k, v in parent_layer.state_dict().items()}
 
-        device = x.device
+        device = get_execution_device(parent_layer)
         x_mean = self._sample_means[parent_layer]
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
