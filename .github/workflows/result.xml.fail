@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="BuildStatus" tests="1" failures="1" errors="1">
-  <testcase name="BuildStatus">
-        <failure message="build failed" type="Error"/>
-  </testcase>
-</testsuite>
