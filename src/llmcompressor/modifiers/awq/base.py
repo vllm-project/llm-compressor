@@ -95,8 +95,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         - on_finalize
             - clear resolved mappings and captured activations
 
-    :param sequential_targets: list of layer names to compress during AWQ, or
-        '__ALL__' to compress every layer in the model
+    :param sequential_targets: list of module names to compress in the same calibration pass
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
