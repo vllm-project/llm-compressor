@@ -11,4 +11,7 @@ def accumulate_mean(
     num_added = inp.size(0)
     input_sum = inp.to(AWQ_PRECISION).sum()
 
-    return ((prev_mean * num_samples) + input_sum) / (num_samples + num_added)
+    prev_sum = prev_mean * num_samples
+    num_samples += num_added
+
+    return (prev_sum + input_sum) / num_samples, num_samples
