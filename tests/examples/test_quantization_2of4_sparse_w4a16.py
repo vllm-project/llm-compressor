@@ -58,7 +58,7 @@ class TestQuantization24SparseW4A16:
             },
         }
 
-        for stage, (path, fmt) in stages:
+        for stage, (path, fmt) in stages.items():
             output_path = tmp_path / example_dir / output_dir / path
 
             recipe_path = output_path / "recipe.yaml"
