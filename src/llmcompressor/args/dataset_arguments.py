@@ -171,3 +171,11 @@ class DatasetArguments(CustomDatasetArguments):
             "will execute code present on the Hub on your local machine."
         },
     )
+    pipeline: Optional[str] = field(
+        default="independent",
+        metadata={
+            "help": "Calibration pipeline used to calibrate model"
+            "Options: ['basic', 'datafree', 'sequential', 'layer_sequential', "
+            "independent]"
+        },
+    )
