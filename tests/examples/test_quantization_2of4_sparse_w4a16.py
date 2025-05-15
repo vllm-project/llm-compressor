@@ -40,24 +40,41 @@ class TestQuantization24SparseW4A16:
         result = copy_and_run_command(tmp_path, example_dir, command)
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
 
-        # Check output directory
-        quantization_dir = Path("output_llama7b_2of4_w4a16_channel/quantization_stage")
-        output_dir = tmp_path / example_dir / quantization_dir
+        output_dir = Path("output_llama7b_2of4_w4a16_channel")
 
-        recipe_path = output_dir / "recipe.yaml"
-        config_path = output_dir / "config.json"
+        # Loop through each stage output and verify content
+        stages = {
+            "quantization": {
+                "path": Path("quantization_stage"),
+                "format": "marlin-24",
+            },
+            "sparsity": {
+                "path": Path("sparsity_stage"),
+                "format": "sparse-24-bitmask",
+            },
+            "finetuning": {
+                "path": Path("finetuning_stage"),
+                "format": "sparse-24-bitmask",
+            },
+        }
 
-        assert recipe_path.exists(), f"Missing recipe file: {recipe_path}"
-        assert config_path.exists(), f"Missing config file: {config_path}"
+        for stage, (path, fmt) in stages:
+            output_path = tmp_path / example_dir / output_dir / path
 
-        # Check contents of config.json
-        with config_path.open("r", encoding="utf-8") as f:
-            config = json.load(f)
+            recipe_path = output_path / "recipe.yaml"
+            config_path = output_path / "config.json"
 
-        quant_config = config.get("quantization_config", {})
-        assert quant_config, "Missing quantization config"
-        format = quant_config.get("format")
-        assert format == "marlin-24", f"Incorrect quantization format: {format}"
+            assert recipe_path.exists(), f"Missing recipe in {stage}: {recipe_path}"
+            assert config_path.exists(), f"Missing config in {stage}: {config_path}"
+
+            # Check contents of config.json
+            with config_path.open("r", encoding="utf-8") as f:
+                config = json.load(f)
+
+            quant_config = config.get("quantization_config", {})
+            assert quant_config, "Missing quantization config"
+            format = quant_config.get("format")
+            assert format == fmt, f"Incorrect quantization format in {stage}: {format}"
 
     def test_alternative_recipe(self, example_dir: str, tmp_path: Path):
         """
