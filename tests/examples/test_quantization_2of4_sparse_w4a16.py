@@ -2,6 +2,7 @@ import shlex
 import shutil
 import sys
 from pathlib import Path
+import json
 
 import pytest
 
@@ -28,18 +29,36 @@ class TestQuantization24SparseW4A16:
 
     def test_doc_example_command(self, example_dir: str, tmp_path: Path):
         """
-        Test for the example command in the README.
+        Test the README script and validate output files.
         """
         readme_path = Path.cwd() / example_dir / "README.md"
         readme = ReadMe(readme_path)
-
         command = readme.get_code_block_content(position=2, lang="shell")
         assert command.startswith("python")
 
         command = shlex.split(command)
         result = copy_and_run_command(tmp_path, example_dir, command)
-
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
+
+        # Check output directory
+        quantization_dir = Path("output_llama7b_2of4_w4a16_channel/quantization_stage")
+        output_dir = tmp_path / example_dir / quantization_dir
+
+        recipe_path = output_dir / "recipe.yaml"
+        config_path = output_dir / "config.json"
+
+        assert recipe_path.exists(), f"Missing recipe file: {recipe_path}"
+        assert config_path.exists(), f"Missing config file: {config_path}"
+
+        # Check contents of config.json
+        with config_path.open("r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        quant_config = config.get("quantization_config", {})
+        assert quant_config, "Missing quantization config"
+        format = quant_config.get("format")
+        assert format == "marlin-24", f"Incorrect quantization format: {format}"
+
 
     def test_alternative_recipe(self, example_dir: str, tmp_path: Path):
         """
