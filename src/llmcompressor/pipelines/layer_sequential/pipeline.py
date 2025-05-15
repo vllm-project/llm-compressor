@@ -78,7 +78,6 @@ class LayerSequentialPipeline(CalibrationPipeline):
                     inputs = intermediates.fetch(batch_idx)
                     layer(**inputs)
 
-                # trigger compression
                 LifecycleCallbacks.sequential_epoch_end()
 
                 # this pass does not trigger modifier hooks

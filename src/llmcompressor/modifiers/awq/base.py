@@ -59,7 +59,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         - smooth_layer: "re:.*final_layer_norm"
           balance_layers: ["re:.*fc1"]
       ]
-      ignore: ["model.decoder.final_layer_norm"]
+      ignore: ["lm_head"]
       config_groups:
         group_0:
           targets:
