@@ -1,7 +1,11 @@
 from typing import Any, Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import (
+    FP4_E2M1_DATA,
+    FP8_E4M3_DATA,
+    QuantizationArgs,
+)
 from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import deprecated
 
@@ -35,6 +39,7 @@ class MinMaxObserver(Observer):
         observed: torch.Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
+        calculate_global_scale: Optional[bool] = False,
     ) -> Tuple[torch.FloatTensor, torch.IntTensor]:
         """
         Updates the observed min and max using a moving average smoothed by the
@@ -81,6 +86,16 @@ class MinMaxObserver(Observer):
 
         self.min_val[tensor_id] = updated_min_val
         self.max_val[tensor_id] = updated_max_val
+
+        # We want to calculate the global scale but we dont want to update any qparams
+        # those will be determined dynamically
+        if calculate_global_scale:
+            min_vals = torch.min(updated_min_val, torch.zeros_like(updated_min_val))
+            max_vals = torch.max(updated_max_val, torch.zeros_like(updated_max_val))
+            max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
+            global_scale = FP8_E4M3_DATA.max * FP4_E2M1_DATA.max / max_val_pos
+            print("global_scale")
+            return global_scale, None
 
         return calculate_qparams(
             min_vals=updated_min_val,
