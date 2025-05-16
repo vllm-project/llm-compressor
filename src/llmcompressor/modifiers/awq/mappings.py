@@ -38,8 +38,9 @@ _default_mappings = [
     ),
 ]
 
-# Phi merges q, k, and v proj layers into a single qkv_proj layer
-# and merged gate and up proj layers into a single gate_up_proj layer
+# Phi merges
+#  q, k, and v proj layers into a single qkv_proj layer
+#  gate and up proj layers into a single gate_up_proj layer
 _phi_mappings = [
     AWQMapping(
         "re:.*input_layernorm",
