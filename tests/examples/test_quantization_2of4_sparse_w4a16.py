@@ -24,11 +24,14 @@ def example_dir() -> str:
 @requires_gpu_count(1)
 class TestQuantization24SparseW4A16:
     """
-    Validates the quantization_2of4_sparse_w4a16 example by executing the README
-    command and verifying output artifacts for each processing stage.
+    Tests for examples in the "quantization_2of4_sparse_w4a16" example folder.
     """
 
     def test_doc_example_command(self, example_dir: str, tmp_path: Path):
+        """
+        Validates the quantization_2of4_sparse_w4a16 example by executing the README
+        command and verifying output artifacts for each processing stage.
+        """
         readme_path = Path.cwd() / example_dir / "README.md"
         readme = ReadMe(readme_path)
 
