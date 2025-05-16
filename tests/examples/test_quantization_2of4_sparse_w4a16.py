@@ -90,7 +90,7 @@ class TestQuantization24SparseW4A16:
                 f"Unexpected format in {stage}: got '{actual_format}', "
                 f"expected '{stage_info['format']}'"
             )
-    
+
     def test_alternative_recipe(self, example_dir: str, tmp_path: Path):
         """
         Test for the example command in the README with the alternative recipe file.
