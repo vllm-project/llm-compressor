@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.utils import align_modules
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -10,6 +9,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
+    disable_onloading,
     get_targets_from_modifiers,
     set_execution_device,
     trace_subgraphs,
@@ -75,7 +75,7 @@ class SequentialPipeline(CalibrationPipeline):
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
                 # sequential onloading: only onload one layer at a time
-                with align_modules(subgraph.modules, args.oneshot_device):
+                with disable_onloading():
                     # do an preliminary pass to trigger modifier hooks
                     for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
                         inputs = cache.fetch(batch_idx, subgraph.input_names)

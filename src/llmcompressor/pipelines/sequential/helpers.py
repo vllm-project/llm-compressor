@@ -10,8 +10,9 @@ from accelerate.hooks import (
     add_hook_to_module,
     remove_hook_from_module,
     send_to_device,
+    set_module_tensor_to_device,
 )
-from compressed_tensors import align_module_device, has_offloaded_params
+from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
@@ -541,6 +542,14 @@ def attach_execution_device_hook(
         attach_execution_device_hook(submodule, execution_device)
 
 
+# some submodules are called outside of the fx graph. Because these submodules do not
+# appear in the graph, there is no way to know if they appear in the subgraph, and
+# therefore no way to directly control their onloading behavior. Instead we must rely on
+# a hook applied all offloadable modules and global variables to control them
+offloading_disabled = False
+disabled_offloading = set()
+
+
 class AlignExecutionDeviceHook(ModelHook):
     def __init__(
         self,
@@ -549,14 +558,46 @@ class AlignExecutionDeviceHook(ModelHook):
     ):
         self.execution_device = execution_device
         self.skip_keys = skip_keys
-        self.stack = contextlib.ExitStack()
+
+        self.devices = {}
+
+    def init_hook(self, module: Module) -> Module:
+        self.devices = {
+            name: param.device for name, param in module.named_parameters(recurse=False)
+        }
+        return module
 
     def pre_forward(self, module, *args, **kwargs):
-        self.stack.enter_context(align_module_device(module, self.execution_device))
+        for name in self.devices:
+            set_module_tensor_to_device(module, name, self.execution_device)
+
         return send_to_device(args, self.execution_device), send_to_device(
             kwargs, self.execution_device, skip_keys=self.skip_keys
         )
 
     def post_forward(self, module, output):
-        self.stack.close()
+        global offloading_disabled
+        global disabled_offloading
+
+        if not offloading_disabled:
+            for name, device in self.devices.items():
+                set_module_tensor_to_device(module, name, device)
+        else:
+            disabled_offloading.add((self, module))
+
         return output
+
+
+@contextlib.contextmanager
+def disable_onloading():
+    global offloading_disabled
+    global disabled_offloading
+    offloading_disabled = True
+
+    yield
+
+    offloading_disabled = False
+    for hook, module in disabled_offloading:
+        hook.post_forward(module, None)
+
+    disabled_offloading = set()
