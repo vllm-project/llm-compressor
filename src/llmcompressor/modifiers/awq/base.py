@@ -298,27 +298,24 @@ class AWQModifier(Modifier, QuantizationMixin):
         resolved_mappings: list[ResolvedMapping] = []
         for mapping_idx, mapping in enumerate(self.mappings):
             num_skipped_mappings = 0
-            to_smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_names = [
+                smooth_name
+                for smooth_name in smooth_layers
+                if (
+                    smooth_name not in self.ignore
+                    and not smooth_name.endswith("_observer")
+                )
+            ]
 
             # always exclude `.weight_observer`, only want `.weight`
-            pbar = tqdm(
-                [
-                    (smooth_name, to_smooth_layers[smooth_name])
-                    for smooth_name in to_smooth_layers
-                    if (
-                        smooth_name not in self.ignore
-                        and not smooth_name.endswith("_observer")
-                    )
-                ]
-            )
-            for smooth_name, smooth_layer in pbar:
+            pbar = tqdm(smooth_names)
+            for smooth_name in pbar:
                 pbar.set_description(
                     f"Mapping {mapping_idx+1}/{len(self.mappings)}: resolving smoothing layers"
                     f" ({num_skipped_mappings} skipped)"
                 )
-
-                if len(to_smooth_layers) > 1000:
-                    pass
+                smooth_layer = smooth_layers[smooth_name]
 
                 balance_layers, balance_names = [], []
                 for balance_suffix in mapping.balance_layers:
@@ -331,14 +328,16 @@ class AWQModifier(Modifier, QuantizationMixin):
                         smooth_name,
                         parent_module,
                     )
-                    balance_name = f"{parent_name}.{balance_name}"
                     if not balance_layer:
                         continue
+                    balance_name = f"{parent_name}.{balance_name}"
 
                     # exclude v_proj/o_proj mappings whose shapes are incompatible
                     # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                     if (
-                        isinstance(smooth_layer, torch.nn.Linear)
+                        ".v_proj" in smooth_name
+                        and ".o_proj" in balance_name
+                        and isinstance(smooth_layer, torch.nn.Linear)
                         and isinstance(balance_layer, torch.nn.Linear)
                         and smooth_layer.weight.shape != balance_layer.weight.shape
                     ):
