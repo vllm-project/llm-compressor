@@ -208,9 +208,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         :return: True on a successful run, False otherwise
         """
 
+        # TODO figure out how to avoid .weight_observer stuff
         # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+        # if QuantizationMixin.has_config(self):
+        #     QuantizationMixin.initialize_quantization(self, state.model)
 
         self._set_resolved_mappings(state.model)
 
@@ -223,7 +224,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
+        # TODO figure out how to avoid .weight_observer stuff
+        #  in `apply_smoothing`, disabling for now
+        # QuantizationMixin.start_calibration(self, state.model)
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
@@ -293,67 +296,82 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        num_skipped_oproj_mappings = 0
-        for mapping in self.mappings:
-            to_smooth_layers = get_layers(mapping.smooth_layer, model)
-            for layer_name, smooth_layer in to_smooth_layers.items():
-                # always exclude `.weight_observer`, only want `.weight`
-                if layer_name not in self.ignore and not layer_name.endswith(
-                    "_observer"
-                ):
-                    balance_layers, balance_names = [], []
-                    for balance_suffix in mapping.balance_layers:
-                        # find the submodule that matches the activation layer
-                        balance_name, balance_layer = get_matching_layer(
-                            balance_suffix, layer_name, model
-                        )
-                        if not balance_layer:
-                            continue
+        for mapping_idx, mapping in enumerate(self.mappings):
+            num_skipped_mappings = 0
+            smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_names = [
+                smooth_name
+                for smooth_name in smooth_layers
+                if (
+                    smooth_name not in self.ignore
+                    and not smooth_name.endswith("_observer")
+                )
+            ]
 
-                        # exclude v_proj/o_proj mappings whose shapes are incompatible
-                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-                        if (
-                            ".v_proj" in layer_name
-                            and ".o_proj" in balance_name
-                            and isinstance(smooth_layer, torch.nn.Linear)
-                            and isinstance(balance_layer, torch.nn.Linear)
-                            and smooth_layer.weight.shape != balance_layer.weight.shape
-                        ):
-                            num_skipped_oproj_mappings += 1
-                            continue
+            # always exclude `.weight_observer`, only want `.weight`
+            pbar = tqdm(smooth_names)
+            for smooth_name in pbar:
+                pbar.set_description(
+                    f"Mapping {mapping_idx+1}/{len(self.mappings)}: resolving smoothing layers"
+                    f" ({num_skipped_mappings} skipped)"
+                )
+                smooth_layer = smooth_layers[smooth_name]
 
-                        balance_layers.append(balance_layer)
-                        balance_names.append(balance_name)
+                balance_layers, balance_names = [], []
+                for balance_suffix in mapping.balance_layers:
+                    # find the submodule that matches the activation layer
+                    parent_name, parent_module = get_parent_by_name(
+                        layer_name=smooth_name, model=model
+                    )
+                    balance_name, balance_layer = get_matching_layer(
+                        balance_suffix,
+                        smooth_name,
+                        parent_module,
+                    )
+                    if not balance_layer:
+                        continue
+                    balance_name = f"{parent_name}.{balance_name}"
 
-                    if len(balance_layers) == 0:
+                    # exclude v_proj/o_proj mappings whose shapes are incompatible
+                    # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+                    if (
+                        ".v_proj" in smooth_name
+                        and ".o_proj" in balance_name
+                        and isinstance(smooth_layer, torch.nn.Linear)
+                        and isinstance(balance_layer, torch.nn.Linear)
+                        and smooth_layer.weight.shape != balance_layer.weight.shape
+                    ):
+                        num_skipped_mappings += 1
                         continue
 
-                    # each mapping can contain multiple layers to balance, but only
-                    # one layer to smooth
-                    if len(balance_layers) == 1:
-                        # for single balance layer, parent is the balance layer
-                        parent_name, parent = balance_name, balance_layer
-                    else:
-                        # for multiple balance layers,
-                        # parent of any balance layer is the parent
-                        parent_name, parent = get_parent_by_name(
-                            layer_name=balance_name, model=model
-                        )
-                    resolved_mappings.append(
-                        ResolvedMapping(
-                            layer_name,
-                            smooth_layer,
-                            balance_layers,
-                            balance_names=balance_names,
-                            parent=parent,
-                            parent_name=parent_name,
-                        )
+                    balance_layers.append(balance_layer)
+                    balance_names.append(balance_name)
+
+                if len(balance_layers) == 0:
+                    continue
+
+                # each mapping can contain multiple layers to balance, but only
+                # one layer to smooth
+                elif len(balance_layers) == 1:
+                    # for single balance layer, parent is the balance layer
+                    parent_name, parent = balance_name, balance_layer
+                else:
+                    # for multiple balance layers,
+                    # parent of any balance layer is the parent
+                    parent_name, parent = get_parent_by_name(
+                        layer_name=balance_name, model=model
                     )
-        if num_skipped_oproj_mappings > 0:
-            logger.info(
-                f"Excluded {num_skipped_oproj_mappings} from resolved "
-                "mappings due to shape mismatch"
-            )
+                resolved_mappings.append(
+                    ResolvedMapping(
+                        smooth_name,
+                        smooth_layer,
+                        balance_layers,
+                        balance_names=balance_names,
+                        parent=parent,
+                        parent_name=parent_name,
+                    )
+                )
+        breakpoint()
         self._resolved_mappings = resolved_mappings
         return
 
