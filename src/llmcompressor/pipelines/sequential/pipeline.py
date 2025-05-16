@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
 import torch
-import tqdm
-from compressed_tensors.utils import get_execution_device
+from compressed_tensors.utils import align_modules
 from torch.utils.data.dataloader import DataLoader
+from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -11,6 +11,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     get_targets_from_modifiers,
+    set_execution_device,
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -25,7 +26,7 @@ __all__ = ["SequentialPipeline"]
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
     def __call__(
-        model: torch.nn.Module, dataloader: DataLoader, dataset_args: "DatasetArguments"
+        model: torch.nn.Module, dataloader: DataLoader, args: "DatasetArguments"
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -59,12 +60,13 @@ class SequentialPipeline(CalibrationPipeline):
         sample_input = next(iter(dataloader))
         subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
 
-        LifecycleCallbacks.calibration_epoch_start()
+        # set execution device for sequential onloading
+        model = set_execution_device(model, args.oneshot_device)
 
         with calibration_forward_context(model), DisableQuantization(model):
             # prepare intermediates cache
-            model_device = get_execution_device(model)
-            intermediates = IntermediatesCache.from_dataloader(dataloader, model_device)
+            LifecycleCallbacks.calibration_epoch_start()
+            cache = IntermediatesCache.from_dataloader(dataloader, args.oneshot_device)
 
             num_subgraphs = len(subgraphs)
             for subgraph_index, subgraph in enumerate(subgraphs):
@@ -72,24 +74,26 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-                # do an preliminary pass to trigger modifier hooks
-                for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                    inputs = intermediates.fetch(batch_idx, subgraph.input_names)
-                    subgraph.forward(model, **inputs)
+                # sequential onloading: only onload one layer at a time
+                with align_modules(subgraph.modules, args.oneshot_device):
+                    # do an preliminary pass to trigger modifier hooks
+                    for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
+                        inputs = cache.fetch(batch_idx, subgraph.input_names)
+                        subgraph.forward(model, **inputs)
 
-                # trigger compression
-                LifecycleCallbacks.sequential_epoch_end()
+                    # trigger compression
+                    LifecycleCallbacks.sequential_epoch_end()
 
-                # this pass does not trigger modifier hooks
-                # and is only used for capturing outputs from newly compressed modules
-                with HooksMixin.disable_hooks():
-                    for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
-                        inputs = intermediates.fetch(batch_idx, subgraph.input_names)
-                        output = subgraph.forward(model, **inputs)
+                    # this pass does not trigger modifier hooks
+                    # and is only used for capturing outputs from compressed modules
+                    with HooksMixin.disable_hooks():
+                        for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
+                            inputs = cache.fetch(batch_idx, subgraph.input_names)
+                            output = subgraph.forward(model, **inputs)
 
-                        if subgraph_index < num_subgraphs - 1:
-                            intermediates.update(batch_idx, output)
-                            intermediates.delete(batch_idx, subgraph.consumed_names)
+                            if subgraph_index < num_subgraphs - 1:
+                                cache.update(batch_idx, output)
+                                cache.delete(batch_idx, subgraph.consumed_names)
 
             # redudant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
