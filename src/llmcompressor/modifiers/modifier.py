@@ -55,20 +55,6 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         return self.finalized_
 
-    def calculate_start(self) -> float:
-        """
-        Calculate and return the start epoch for the modifier.
-
-        :return: the start epoch for the modifier if set, else -1
-        """
-        return self.start if self.start is not None else -1
-
-    def calculate_end(self) -> float:
-        """
-        :return: the end epoch for the modifier if set, else -1
-        """
-        return self.end if self.end is not None else -1
-
     def initialize(self, state: State, **kwargs):
         """
         Initialize the modifier for the given model and state.
