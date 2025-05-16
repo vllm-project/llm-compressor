@@ -38,9 +38,28 @@ _default_mappings = [
     ),
 ]
 
+# Phi merges q, k, and v proj layers into a single qkv_proj layer
+# and merged gate and up proj layers into a single gate_up_proj layer
+_phi_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm",
+        ["re:.*qkv_proj"],
+    ),
+    AWQMapping("re:.*qkv_proj", ["re:.*o_proj"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm",
+        ["re:.*gate_up_proj"],
+    ),
+    AWQMapping(
+        "re:.*gate_up_proj",
+        ["re:.*down_proj"],
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "Llama": _default_mappings,
     "Qwen": _default_mappings,
+    "Phi": _phi_mappings,
 }
 
 
