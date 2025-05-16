@@ -488,6 +488,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # TODO fc1.weight[-scales.size(0) :].div_(scales.view(-1, 1))
                             weight = module.weight
                             weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            # weight.transpose(1, 0).div_(scales.view(-1, 1))
                             update_offload_parameter(
                                 module,
                                 "weight",
