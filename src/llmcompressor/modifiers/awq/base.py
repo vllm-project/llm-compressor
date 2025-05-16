@@ -466,33 +466,41 @@ class AWQModifier(Modifier, QuantizationMixin):
                     inp, w_mean, x_mean, module2inspect, balance_layers, fp16_output
                 )
 
-            scales = best_scales
-
             @torch.no_grad()
             def smooth(module):
                 with align_module_device(module):
+                    scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
-                        module.weight.mul_(scales.view(1, -1).to(module.weight.device))
+                        update_offload_parameter(
+                            module,
+                            "weight",
+                            module.weight.mul_(scales.view(1, -1)),
+                        )
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                module.weight.div(scales.to(module.weight.device)),
+                                module.weight.div(scales),
                             )
                         else:
+                            # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
+                            # TODO fc1.weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            weight = module.weight
+                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                module.weight.div(
-                                    scales.view(-1, 1).to(module.weight.device)
-                                ),
+                                weight,
+                                # module.weight.div(
+                                #     scales.view(-1, 1).to(module.weight.device)
+                                # ),
                             )
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
                                 "bias",
-                                module.bias.div(scales.to(module.bias.device)),
+                                module.bias.div(scales),
                             )
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
