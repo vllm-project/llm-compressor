@@ -83,7 +83,7 @@ class Llama4TextExpertsLinear(torch.nn.Module):
             ]
         )
 
-        # self.register_state_dict_post_hook(self.Hook())
+        self.register_state_dict_post_hook(self.Hook())
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         output = torch.empty_like(hidden_states)
