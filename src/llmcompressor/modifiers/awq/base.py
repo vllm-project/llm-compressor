@@ -16,9 +16,13 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+<<<<<<< HEAD
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+=======
+from llmcompressor.modifiers.utils.pytorch_helpers import run_calibration_forward
+>>>>>>> 6b873714 (squashed/rebased)
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
