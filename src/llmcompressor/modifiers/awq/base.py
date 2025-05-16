@@ -293,7 +293,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        num_skipped_mappings = 0
+        num_skipped_oproj_mappings = 0
         for mapping in self.mappings:
             to_smooth_layers = get_layers(mapping.smooth_layer, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
@@ -319,7 +319,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                             and isinstance(balance_layer, torch.nn.Linear)
                             and smooth_layer.weight.shape != balance_layer.weight.shape
                         ):
-                            num_skipped_mappings += 1
+                            num_skipped_oproj_mappings += 1
                             continue
 
                         balance_layers.append(balance_layer)
@@ -349,9 +349,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                             parent_name=parent_name,
                         )
                     )
-        if num_skipped_mappings > 0:
+        if num_skipped_oproj_mappings > 0:
             logger.info(
-                f"Excluded {num_skipped_mappings} from resolved "
+                f"Excluded {num_skipped_oproj_mappings} from resolved "
                 "mappings due to shape mismatch"
             )
         self._resolved_mappings = resolved_mappings
