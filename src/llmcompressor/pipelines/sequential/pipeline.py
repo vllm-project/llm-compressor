@@ -72,12 +72,11 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-                # do an preliminary pass to trigger modifier hooks
+                # do a preliminary pass to trigger modifier hooks
                 for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_idx, subgraph.input_names)
                     subgraph.forward(model, **inputs)
 
-                # trigger compression
                 LifecycleCallbacks.sequential_epoch_end()
 
                 # this pass does not trigger modifier hooks
@@ -91,5 +90,5 @@ class SequentialPipeline(CalibrationPipeline):
                             intermediates.update(batch_idx, output)
                             intermediates.delete(batch_idx, subgraph.consumed_names)
 
-            # redudant, finish any remaining compression
+            # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
