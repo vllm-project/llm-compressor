@@ -211,10 +211,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         :return: True on a successful run, False otherwise
         """
 
-        # TODO figure out how to avoid .weight_observer stuff
         # apply config to model and prepare calibration hooks
-        # if QuantizationMixin.has_config(self):
-        #     QuantizationMixin.initialize_quantization(self, state.model)
+        if QuantizationMixin.has_config(self):
+            QuantizationMixin.initialize_quantization(self, state.model)
 
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
@@ -233,9 +232,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        # TODO figure out how to avoid .weight_observer stuff
-        #  in `apply_smoothing`, disabling for now
-        # QuantizationMixin.start_calibration(self, state.model)
+        QuantizationMixin.start_calibration(self, state.model)
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
@@ -305,31 +302,26 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        num_skipped_mappings = 0
         pbar = tqdm(enumerate(self.mappings), desc="Resolving Mappings")
         for mapping_idx, mapping in pbar:
-            pbar.set_description(f"Resolving Mappings ({num_skipped_mappings} skipped)")
-            to_smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_names = [
+                smooth_name
+                for smooth_name in smooth_layers
+                if (
+                    smooth_name not in self.ignore
+                    and not smooth_name.endswith("_observer")
+                )
+            ]
 
-            # always exclude `.weight_observer`, only want `.weight`
-            pbar = tqdm(
-                [
-                    (smooth_name, to_smooth_layers[smooth_name])
-                    for smooth_name in to_smooth_layers
-                    if (
-                        smooth_name not in self.ignore
-                        and not smooth_name.endswith("_observer")
-                    )
-                ]
-            )
-            for smooth_name, smooth_layer in pbar:
+            num_skipped_mappings = 0
+            pbar = tqdm(smooth_names)
+            for smooth_name in pbar:
                 pbar.set_description(
                     f"Mapping {mapping_idx+1}/{len(self.mappings)}: resolving smoothing layers"
                     f" ({num_skipped_mappings} skipped)"
                 )
-
-                if len(to_smooth_layers) > 1000:
-                    pass
+                smooth_layer = smooth_layers[smooth_name]
 
                 balance_layers, balance_names = [], []
                 for balance_suffix in mapping.balance_layers:
@@ -342,14 +334,16 @@ class AWQModifier(Modifier, QuantizationMixin):
                         smooth_name,
                         parent_module,
                     )
-                    balance_name = f"{parent_name}.{balance_name}"
                     if not balance_layer:
                         continue
+                    balance_name = f"{parent_name}.{balance_name}"
 
                     # exclude v_proj->o_proj mappings whose shapes are incompatible
                     # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                     if (
-                        isinstance(smooth_layer, torch.nn.Linear)
+                        ".v_proj" in smooth_name
+                        and ".o_proj" in balance_name
+                        and isinstance(smooth_layer, torch.nn.Linear)
                         and isinstance(balance_layer, torch.nn.Linear)
                         and ".o_proj" in balance_name
                         and (
