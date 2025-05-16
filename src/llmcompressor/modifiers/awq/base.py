@@ -331,7 +331,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         smooth_name,
                         parent_module,
                     )
-                    balance_name = parent_name + "." + balance_name
+                    balance_name = f"{parent_name}.{balance_name}"
                     if not balance_layer:
                         continue
 
