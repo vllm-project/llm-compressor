@@ -22,24 +22,45 @@ class AWQMapping:
     balance_layers: list[str]
 
 
+_default_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm",
+        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+    ),
+    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm",
+        ["re:.*gate_proj", "re:.*up_proj"],
+    ),
+    AWQMapping(
+        "re:.*up_proj",
+        ["re:.*down_proj"],
+    ),
+]
+
+# Phi merges
+#  q, k, and v proj layers into a single qkv_proj layer
+#  gate and up proj layers into a single gate_up_proj layer
+_phi_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm",
+        ["re:.*qkv_proj"],
+    ),
+    AWQMapping("re:.*qkv_proj", ["re:.*o_proj"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm",
+        ["re:.*gate_up_proj"],
+    ),
+    AWQMapping(
+        "re:.*gate_up_proj",
+        ["re:.*down_proj"],
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
-    "Llama": [
-        AWQMapping(
-            "re:.*input_layernorm",
-            ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-        ),
-        AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
-        AWQMapping(
-            "re:.*post_attention_layernorm",
-            ["re:.*gate_proj", "re:.*up_proj"],
-        ),
-        AWQMapping(
-            "re:.*up_proj",
-            ["re:.*down_proj"],
-        ),
-    ],
-    # TODO (Brian INFERENG-529) Add Qwen mappings
-    # "Qwen": [ ],
+    "Llama": _default_mappings,
+    "Qwen": _default_mappings,
+    "Phi": _phi_mappings,
 }
 
 
