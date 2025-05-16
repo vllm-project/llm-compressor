@@ -294,9 +294,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         num_skipped_mappings = 0
-        pbar = tqdm(self.mappings, desc="Resolving Mappings")
-        for mapping in pbar:
-            pbar.set_description(f"Resolving Mappings ({num_skipped_mappings} skipped)")
+        for mapping in self.mappings:
             to_smooth_layers = get_layers(mapping.smooth_layer, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
                 # always exclude `.weight_observer`, only want `.weight`
