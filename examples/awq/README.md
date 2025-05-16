@@ -10,8 +10,7 @@ The AWQ recipe has been inferfaced as follows, where the `AWQModifier` adjusts m
 
 ```python
 recipe = [
-    AWQModifier(bits=4, symmetric=False),
-    QuantizationModifier(
+    AWQModifier(
         ignore=["lm_head"],
         config_groups={
             "group_0": QuantizationScheme(
