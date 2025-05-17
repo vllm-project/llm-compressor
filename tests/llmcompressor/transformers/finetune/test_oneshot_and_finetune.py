@@ -31,20 +31,20 @@ class TestOneshotAndFinetune(unittest.TestCase):
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
-            output_dir=self.output,
         )
 
-        train_args = dict(
-            num_train_epochs=self.num_train_epochs,
-            precision="bfloat16",
-            bf16=True,
-        )
         oneshot_model = oneshot(
             model=self.model,
             **oneshot_args,
             stage="test_oneshot_stage",
         )
 
+        train_args = dict(
+            num_train_epochs=self.num_train_epochs,
+            precision="bfloat16",
+            bf16=True,
+            output_dir=self.output,
+        )
         train(
             model=oneshot_model,
             **oneshot_args,
