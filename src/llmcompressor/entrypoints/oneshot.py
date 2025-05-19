@@ -1,8 +1,9 @@
-from typing import List, Optional
+import transformers
+import datasets
+from typing import List, Optional, Union
 
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel
-
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
@@ -176,12 +177,12 @@ class Oneshot:
 
 def oneshot(
     # Required model parameters
-    model: str,
+    model: Union[str, PreTrainedModel ],
     # Optional model parameters
     distill_teacher: Optional[str] = None,
     config_name: Optional[str] = None,
-    tokenizer: Optional[str] = None,
-    processor: Optional[str] = None,
+    tokenizer: Optional[Union[str, transformers.PreTrainedTokenizerBase]] = None,
+    processor: Optional[Union[str, transformers.ProcessorMixin]] = None,
     cache_dir: Optional[str] = None,
     use_auth_token: bool = False,
     precision: str = "auto",
@@ -191,12 +192,12 @@ def oneshot(
     oneshot_device: str = "cuda:0",
     model_revision: str = "main",
     # Recipe parameters
-    recipe: Optional[str] = None,
+    recipe: Optional[Union[str, List[str]]] = None,
     recipe_args: Optional[List[str]] = None,
     clear_sparse_session: bool = False,
     stage: Optional[str] = None,
     # Dataset parameters
-    dataset: Optional[str] = None,
+    dataset: Optional[Union[str, "datasets.Dataset", "datasets.DatasetDict"]] = None,
     dataset_config_name: Optional[str] = None,
     dataset_path: Optional[str] = None,
     num_calibration_samples: int = 512,
