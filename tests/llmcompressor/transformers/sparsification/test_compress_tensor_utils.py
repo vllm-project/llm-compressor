@@ -4,7 +4,7 @@ import shutil
 
 import pytest
 import torch
-from accelerate import cpu_offload
+from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import QUANTIZATION_CONFIG_NAME, CompressionFormat
 from compressed_tensors.compressors import ModelCompressor
@@ -234,7 +234,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
 # technically only tie_word_embeddings=False is supported right now
 # setting to True is discouraged
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         # dtype
         (False, torch.float16, False, "cpu"),
@@ -248,7 +248,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         # (True, torch.float32, True, "cpu"),  # TODO: fails
     ],
 )
-def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
+def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
     model_path = "nm-testing/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
@@ -256,18 +256,17 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         model_path,
         tie_word_embeddings=tie_word_embeddings,
         torch_dtype=torch_dtype,
-        device_map=device_map,
     )
     if offload:
-        model = cpu_offload(model)
+        model = dispatch_model(model, {"": device}, force_hooks=True)
+    else:
+        model = model.to(device)
 
     patch_tied_tensors_bug(model)
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
 
-    reloaded = AutoModelForCausalLM.from_pretrained(
-        save_path, torch_dtype="auto", device_map="cpu"
-    )
+    reloaded = AutoModelForCausalLM.from_pretrained(save_path, torch_dtype="auto")
 
     model_dict = get_state_dict_offloaded_model(model)
     reloaded_dict = get_state_dict_offloaded_model(reloaded)
@@ -278,7 +277,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         (False, torch.float32, False, "cuda:0"),
         (True, torch.float32, False, "cuda:0"),
@@ -286,10 +285,8 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         (True, torch.float32, True, "cuda:0"),
     ],
 )
-def test_model_reload_gpu(
-    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
-):
-    test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path)
+def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
+    test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path)
 
 
 @pytest.mark.parametrize(
