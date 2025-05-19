@@ -8,7 +8,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationMixin
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 __all__ = ["CalibrationPipeline"]
 
-SEQUENTIAL_MODIFIERS = (GPTQModifier, SparsityModifierMixin)
+SEQUENTIAL_MODIFIERS = (AWQModifier, GPTQModifier, SparsityModifierBase)
 
 
 class CalibrationPipeline(ABC, RegistryMixin):
@@ -60,15 +60,6 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @staticmethod
     def _validate_infer_pipeline(modifiers: List[Modifier]) -> str:
-        if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
-            if len(modifiers) > 1:
-                logger.warning(
-                    "AWQ does not currently support sharing a data pipeline with other "
-                    "modifiers. Inferring `independent` calibration pipeline"
-                )
-                return "independent"
-            return "datafree"
-
         if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
             return "sequential"
 

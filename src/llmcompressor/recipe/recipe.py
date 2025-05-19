@@ -9,7 +9,6 @@ from loguru import logger
 from pydantic import Field, model_validator
 
 from llmcompressor.modifiers import Modifier, StageModifiers
-from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
 from llmcompressor.recipe.modifier import RecipeModifier
 from llmcompressor.recipe.stage import RecipeStage
@@ -183,20 +182,15 @@ class Recipe(RecipeBase):
         ... '''
         >>> recipe = Recipe.create_instance(recipe_str)
         >>> recipe_tuple = RecipeTuple(recipe, ["test"], {})
-        >>> simplified = Recipe.simplify_recipe(recipe_tuple, shift=2)
-        >>> simplified.stages[0].modifiers[0].args_evaluated["start"]
-        2.0
+        >>> simplified = Recipe.simplify_recipe(recipe_tuple)
 
         :param recipe: The Recipe or RecipeTuple instance to simplify
-        :param shift: The amount to shift the start and end of the recipe by,
-            defaults to None (No shift)
         :return: The simplified Recipe instance
         """
         if isinstance(recipe, str):
             recipe = Recipe.create_instance(recipe)
 
         if isinstance(recipe, Recipe):
-            recipe.evaluate(shift=shift)
             return recipe
 
         # RecipeTuple case
@@ -219,9 +213,8 @@ class Recipe(RecipeBase):
 
         simplified = Recipe()
         simplified.version = version
-        simplified.args = RecipeArgs(args)
+        simplified.args = args
         simplified.stages = stages
-        simplified.evaluate(args=args, shift=shift)
 
         return simplified
 
@@ -267,7 +260,6 @@ class Recipe(RecipeBase):
         for recipe in recipes:
             simplified = Recipe.simplify_recipe(
                 recipe=recipe,
-                shift=combined.calculate_end(),
             )
             combined.version = simplified.version
             combined.stages.extend(simplified.stages)
@@ -276,71 +268,8 @@ class Recipe(RecipeBase):
         return combined
 
     version: str = None
-    args: RecipeArgs = Field(default_factory=RecipeArgs)
+    args: Dict[str, Any] = Field(default_factory=dict)
     stages: List[RecipeStage] = Field(default_factory=list)
-    args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
-
-    def calculate_start(self) -> int:
-        """
-        Calculate and return the start epoch of the recipe.
-        The start epoch is the minimum start epoch of all stages.
-        Must have at least one stage to calculate the start epoch
-
-        :return: The start epoch of the stage
-        """
-        return min(
-            stage.calculate_start()
-            for stage in self.stages
-            if stage.calculate_start() >= 0
-        )
-
-    def calculate_end(self) -> int:
-        """
-        Calculate and return the end epoch of the recipe.
-        The end epoch is the maximum end epoch of all stages.
-
-        :return: The end of the recipe, the maximum end of all stages. If no stages
-            found, or no stages had ends, returns 0
-        """
-        if len(self.stages) == 0:
-            return 0
-        end = max(stage.calculate_end() for stage in self.stages)
-        return max(0, end)
-
-    def evaluate(
-        self, args: Optional[Dict[str, Any]] = None, shift: Optional[int] = None
-    ):
-        """
-        Evaluate the recipe by evaluating all stages and combining the args
-        with existing recipe_args
-
-        Evaluate with no shift:
-        >>> recipe_str = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: eval(start_epoch)
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe = Recipe.create_instance(recipe_str)
-        >>> recipe.evaluate({"start_epoch": 1})
-        >>> recipe.stages[0].modifiers[0].args_evaluated["start"]
-        1.0
-
-        Evaluate with shift:
-        >>> recipe.evaluate({"start_epoch": 2}, shift=2)
-        >>> recipe.stages[0].modifiers[0].args_evaluated["start"]
-        4.0
-
-        :param args: The args to evaluate the recipe with
-        :param shift: The amount to shift the start and end of the recipe by,
-            defaults to None (No shift)
-        """
-        args = self.args.combine(args) if self.args else RecipeArgs(**(args or {}))
-        self.args_evaluated = args.evaluate()
-        for stage in self.stages:
-            stage.evaluate(self.args_evaluated, shift)
 
     def create_modifier(self) -> List["StageModifiers"]:
         """
@@ -363,8 +292,6 @@ class Recipe(RecipeBase):
 
         :return: A list of StageModifiers for each stage in the recipe
         """
-        if not self.args_evaluated:
-            self.evaluate()
         modifiers = []
 
         for index, stage in enumerate(self.stages):
@@ -396,7 +323,7 @@ class Recipe(RecipeBase):
         args = {}
         for key, val in values.items():
             args[key] = val
-        formatted_values["args"] = RecipeArgs(args)
+        formatted_values["args"] = args
 
         return formatted_values
 
