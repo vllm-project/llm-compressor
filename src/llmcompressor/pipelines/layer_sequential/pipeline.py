@@ -73,12 +73,11 @@ class LayerSequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
                 prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
-                # do an preliminary pass to trigger modifier hooks
+                # do a preliminary pass to trigger modifier hooks
                 for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                     inputs = intermediates.fetch(batch_idx)
                     layer(**inputs)
 
-                # trigger compression
                 LifecycleCallbacks.sequential_epoch_end()
 
                 # this pass does not trigger modifier hooks
@@ -98,5 +97,5 @@ class LayerSequentialPipeline(CalibrationPipeline):
                             intermediates.delete(batch_idx)
                             intermediates.update(batch_idx, output)
 
-            # redudant, finish any remaining compression
+            # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
