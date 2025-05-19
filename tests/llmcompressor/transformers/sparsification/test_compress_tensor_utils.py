@@ -290,7 +290,7 @@ def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp
 
 
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         (False, torch.float16, False, "cpu"),
         (False, torch.float32, False, "cpu"),
@@ -302,19 +302,20 @@ def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp
     ],
 )
 def test_model_shared_tensors(
-    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+    offload, torch_dtype, tie_word_embeddings, device, tmp_path
 ):
     # load model
     model = AutoModelForCausalLM.from_pretrained(
         "nm-testing/llama2.c-stories15M",
         torch_dtype=torch_dtype,
         tie_word_embeddings=tie_word_embeddings,
-        device_map=device_map,
     )
     patch_tied_tensors_bug(model)
 
     if offload:
-        model = cpu_offload(model)
+        model = dispatch_model(model, {"": device}, force_hooks=True)
+    else:
+        model = model.to(device)
 
     # modify lm head
     with torch.no_grad():
@@ -340,17 +341,17 @@ def test_model_shared_tensors(
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         (False, torch.float32, False, "cuda:0"),
         (False, torch.float32, True, "cuda:0"),
     ],
 )
 def test_model_shared_tensors_gpu(
-    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+    offload, torch_dtype, tie_word_embeddings, device, tmp_path
 ):
     test_model_shared_tensors(
-        offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+        offload, torch_dtype, tie_word_embeddings, device, tmp_path
     )
 
 
