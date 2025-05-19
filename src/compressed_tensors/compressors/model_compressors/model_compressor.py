@@ -421,6 +421,13 @@ class ModelCompressor:
 
                 module.quantization_status = QuantizationStatus.COMPRESSED
 
+        # TODO: consider sparse compression to also be compression
+        if (
+            self.quantization_config is not None
+            and self.quantization_config.format != CompressionFormat.dense.value
+        ):
+            self.quantization_config.quantization_status = QuantizationStatus.COMPRESSED
+
     def decompress_model(self, model: Module):
         """
         Decompress a model in memory. Because the model structure is modified in place,
