@@ -85,6 +85,7 @@ class Oneshot:
 
     def __init__(
         self,
+        log_dir: Optional[str] = "sparse_logs",
         **kwargs,
     ):
         """
@@ -103,12 +104,12 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
 
         """
-        base_log_path = "sparse_logs"  # TODO: maybe make this an input argument?
-        if base_log_path:
-            os.makedirs(base_log_path, exist_ok=True)
+        # Set up logging
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
             date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             logger.add(
-                f"{base_log_path}/oneshot_{date_str}.log",
+                f"{log_dir}/oneshot_{date_str}.log",
                 level="DEBUG",
             )
 
