@@ -481,27 +481,30 @@ class AWQModifier(Modifier, QuantizationMixin):
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                module.weight.div(scales),
+                                module.weight.div_(scales),
                             )
                         else:
+                            # NOTE: edge case when smooth layer number of out_features
+                            # is not equal to balance layer number of in_features
+                            # e.g. when fused qkv_proj is used to smooth o_proj
+                            # in this case, default to scaling the last output features
+                            # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            # TODO fc1.weight[-scales.size(0) :].div_(scales.view(-1, 1))
                             weight = module.weight
-                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
-                            # weight.transpose(1, 0).div_(scales.view(-1, 1))
+                            if module.out_features == scales.numel():
+                                weight.div_(scales.view(-1, 1))
+                            else:
+                                weight[-scales.size(0) :].div_(scales.view(-1, 1))
                             update_offload_parameter(
                                 module,
                                 "weight",
                                 weight,
-                                # module.weight.div(
-                                #     scales.view(-1, 1).to(module.weight.device)
-                                # ),
                             )
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
                                 "bias",
-                                module.bias.div(scales),
+                                module.bias.div_(scales),
                             )
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
