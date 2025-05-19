@@ -413,8 +413,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
                     second_per_grid_ts,
                     attention_mask,
                 )
-                # TRACING: the position_ids shape is known
-                position_ids = maybe_install_metadata_position_ids(position_ids, input_ids)
                 self.rope_deltas = rope_deltas
             # then use the prev pre-calculated rope-deltas to get the correct position ids
             else:
@@ -430,6 +428,9 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLForConditionalGeneration):
                     delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
                 position_ids = position_ids.add(delta)
                 position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
+
+        # TRACING: the position_ids shape is known
+        position_ids = maybe_install_metadata_position_ids(position_ids, input_ids)
 
         outputs = self.model(
             input_ids=None,
