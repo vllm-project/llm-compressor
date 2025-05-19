@@ -1,9 +1,14 @@
 import contextlib
 import warnings
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationScheme,
+    disable_quantization,
+)
+from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -11,30 +16,22 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import Field, PrivateAttr, field_validator
+from pydantic import PrivateAttr, field_validator
 
-from llmcompressor.core import State
-from llmcompressor.modifiers import Modifier, ModifierFactory
-from llmcompressor.modifiers.quantization.calibration import freeze_module_quantization
+from llmcompressor.core import Event, EventType, State
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
     make_empty_hessian,
     quantize_weight,
 )
-from llmcompressor.modifiers.quantization.quantization.base import QuantizationModifier
-from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.basic import run_pipeline as run_basic
-from llmcompressor.pipelines.layer_sequential import (
-    run_pipeline as run_layer_sequential,
-)
-from llmcompressor.pipelines.sequential import run_pipeline as run_sequential
+from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.utils.metric_logging import CompressionLogger
-from llmcompressor.utils.pytorch.module import get_no_split_params, qat_active
 
 __all__ = ["GPTQModifier"]
 
 
-class GPTQModifier(Modifier, HooksMixin):
+class GPTQModifier(Modifier, QuantizationMixin):
     """
     Implements the GPTQ algorithm from https://arxiv.org/abs/2210.17323. This modifier
     uses activations to calibrate a hessian matrix, which is then used to determine
@@ -47,6 +44,7 @@ class GPTQModifier(Modifier, HooksMixin):
     |          block_size: 128
     |          dampening_frac: 0.001
     |          offload_hessians: False
+    |          actorder: static
     |          config_groups:
     |            group_0:
     |                targets:
@@ -57,18 +55,16 @@ class GPTQModifier(Modifier, HooksMixin):
     |                    num_bits: 8
     |                    type: "int"
     |                    symmetric: true
-    |                    strategy: "tensor"
+    |                    strategy: group
     |                    group_size: 128
-    |                    actorder: False
 
     Lifecycle:
         - on_initialize
-            - _build_quant_modifier
-            - register_hook(module, compress_module, "forward")
-            - run_sequential / run_layer_sequential / run_basic
-                - make_empty_hessian
-                - accumulate_hessian
-        - on_sequential_batch_end
+            - apply config to model
+        - on_start
+            - add activation calibration hooks
+            - add gptq weight calibration hooks
+        - on_sequential_epoch_end
             - quantize_weight
         - on_finalize
             - remove_hooks()
@@ -79,52 +75,44 @@ class GPTQModifier(Modifier, HooksMixin):
     :param block_size: Used to determine number of columns to compress in one pass
     :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
         diagonal norm
-    :param quantize: Set to True to quantize using an existing quantization modifier,
-        or pass in the configuration for a quantization modifier if one does not
-        already exist in the recipe
+    :param actorder: order in which weight columns are quantized. For more information,
+        on actorder options, see https://github.com/vllm-project/vllm/pull/8135
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
-    :param config_groups: [Used, if a quantization modifier is not specified],
-        dictionary specifying quantization schemes to apply to target
+
+    :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
-    :param scheme: [Used, if a quantization modifier is not specified], the quantization
-        scheme to apply to the model, this is a dictionary that supports all keys from
-        QuantizationScheme except targets, which will be set to the targets parameter
-        set at the modifier level. Can also be set to a dictionary of the format
-        `preset_scheme_name: targets` for example: `W8A8: ['Linear']` for weight 8 bit
-        or a string of a preset scheme if targets is provided
-        and activation 8 bit quantization on the Linear layers.
     :param targets: list of layer names to quantize if a scheme is provided. Defaults
         to Linear layers
-    :param ignore: [Used, if a quantization modifier is not specified]
-        optional list of module class names or submodule names to not
+    :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
-    :param num_calibration_steps: Number of steps to run post training calibration for.
-        When None, the entire calibration_dataloader is used
-    :param disable_quantization_observer_epoch: [Used, if a quantization modifier is
-        not specified] Epoch to disable updates to the module
-        quantization observers. At this point, quantized weights and zero points will
-        not be updated. Leave None to not disable observers during QAT. Default is None
+    :param scheme: a single quantization scheme to apply to the model. This is a
+        dictionary that supports all keys from QuantizationScheme except targets, which
+        will be set to the targets parameter set at the modifier level. Can also be set
+        to a dictionary of the format `preset_scheme_name: targets` for example:
+        `W8A8: ['Linear']` for weight and activation 8-bit.
+    :param kv_cache_scheme: optional QuantizationArgs, that specify the
+        quantization of the kv cache. If None, kv cache is not quantized.
+        When applying kv cache quantization to transformer AutoModelForCausalLM,
+        the kv_cache_scheme gets converted into a QuantizationScheme that:
+            - targets the `q_proj` and `k_proj` modules of the model. The outputs
+              of those modules are the keys and values that might be cached
+            - quantizes the outputs of the aformentioned layers, so that
+              keys and values are compressed before storing them in the cache
+        There is an explicit assumption that the model contains modules with
+        `k_proj` and `v_proj` in their names. If this is not the case
+        and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
     # gptq modifier arguments
-    sequential_update: bool = True  # DEPRECIATED
+    sequential_update: bool = True  # DEPRECATED
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    quantize: Union[bool, Dict] = True
+    actorder: Optional[ActivationOrdering] = None
     offload_hessians: bool = False
 
-    # arguments used for attached quant modifier
-    config_groups: Optional[Dict[str, QuantizationScheme]] = None
-    scheme: Optional[Union[str, Dict[str, Any]]] = None
-    targets: Union[str, List[str], None] = None
-    ignore: List[str] = Field(default_factory=list)
-    num_calibration_steps: Optional[int] = None
-    disable_quantization_observer_epoch: Optional[float] = None
-
     # private variables
-    _quantization_modifier: Optional[QuantizationModifier] = PrivateAttr(default=None)
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
@@ -140,55 +128,28 @@ class GPTQModifier(Modifier, HooksMixin):
 
         return True
 
-    def _check_build_quant_modifier(self, model: torch.nn.Module):
-        """
-        Check the model's quantization state matches that expected by this modifier,
-        adding a default quantization scheme if needed
+    def resolve_quantization_config(self) -> QuantizationConfig:
+        config = super().resolve_quantization_config()
 
-        # TODO: build modifier during recipe validation
+        # Resolve config with `self.actorder`
+        for scheme in config.config_groups.values():
+            assert isinstance(scheme, QuantizationScheme)  # (1)
+            if scheme.weights is not None:
+                existing = scheme.weights.actorder
+                assert isinstance(existing, (ActivationOrdering, type(None)))  # (2)
+                if existing is not None and existing != self.actorder:
+                    raise ValueError(
+                        "Cannot resolve activation ordering when both "
+                        "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
+                        "both are provided. Either set `GPTQModifier.actorder = None` "
+                        "or remove `actorder` from config groups"
+                    )
+                scheme.weights.actorder = self.actorder
 
-        :param state: session state storing input model and calibration data
-        """
-        quantization_already_active = qat_active(model)
-        if isinstance(self.quantize, bool):
-            if not self.quantize and quantization_already_active:
-                logger.warning(
-                    "GPTQ quantization is set to False, but a "
-                    "quantization modifier is already active on the model "
-                    "resetting quantize to True"
-                )
-                self.quantize = True
-            elif self.quantize and not quantization_already_active:
-                logger.warning(
-                    "GPTQ quantization is set to True without an "
-                    "active quantization modifier."
-                )
-                self._build_quant_modifier()
-            return  # use existing quantization modifier if there is one
-        else:
-            if not isinstance(self.quantize, Dict):
-                raise ValueError(
-                    "GPTQModifier.quantize accepts only a single "
-                    "quantization modifier or a boolean. Found "
-                    f"type {type(self.quantize)}"
-                )
-            if len(self.quantize) != 1:
-                raise ValueError(
-                    "GPTQModifier.quantize accepts only a single "
-                    "quantization modifier or a boolean. Found "
-                    f"{len(self.quantize)} modifiers"
-                )
-            if quantization_already_active:
-                logger.warning(
-                    "Attempting to initialize quantization for GPTQ "
-                    "but a quantization modifier has already been applied. "
-                    "The quantization configuration defined under the "
-                    "GPTQ modifier will be ignored."
-                )
-                self.quantize = True
-                return
-            self._build_quant_modifier_from_dict(self.quantize)
-            self.quantize = True
+        # (1) QuantizationConfig.model_post_init
+        # (2) QuantizationScheme.validate_actorder
+
+        return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -196,18 +157,27 @@ class GPTQModifier(Modifier, HooksMixin):
 
         :param state: session state storing input model and calibration data
         """
-        # build quantization modifier
-        self._check_build_quant_modifier(state.model)
-
-        if self._quantization_modifier:
-            self._quantization_modifier.initialize(state, **kwargs)
-        if not self.quantize:
-            raise ValueError("To use the GPTQModifier, quantization must be enabled.")
+        # apply config to model and prepare calibration hooks
+        if QuantizationMixin.has_config(self):
+            QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
         self._module_names = {m: name for name, m in state.model.named_modules()}
 
-        # register hooks
+        return True
+
+    def on_start(self, state: State, event: Event, **kwargs):
+        self.started_ = True
+
+        # register quantization calibration hooks
+        # assume quantization has been initialized by this modifier or one before it
+        QuantizationMixin.start_calibration(self, state.model)
+        # Unlike qmod, do not quantize as we calibrate
+        # This choice does not seem to have a meaningful impact on accuracy
+        state.model.apply(disable_quantization)
+
+        # register gptq hooks
+        added_hook = False
         for module in state.model.modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
@@ -215,81 +185,27 @@ class GPTQModifier(Modifier, HooksMixin):
                 # but in the FUTURE this should be ignored by the user
                 if not isinstance(module, torch.nn.Embedding):
                     self.register_hook(module, self.calibrate_module, "forward")
+                    added_hook = True
 
-        # infer sequential targets
-        if self.sequential_targets is None:
-            self.sequential_targets = get_no_split_params(state.model)
-        if isinstance(self.sequential_targets, str):
-            self.sequential_targets = [self.sequential_targets]
-
-        # infer pipeline
-        model_name = state.model.__class__.__name__
-        input_names = state.data.calib.dataset.column_names
-        unfixable_errors = (
-            torch.OutOfMemoryError,
-            torch._C._LinAlgError,
-            KeyboardInterrupt,
-        )
-        try:
-            run_sequential(
-                state.model,
-                state.data.calib,
-                self.sequential_targets,
-                self.ignore,
-                self,
+        if not added_hook:
+            raise ValueError(
+                "GPTQModifier requires a weight quantization config be specified by "
+                "this modifier or a modifier preceding it"
             )
-            return True
 
-        except Exception as exception:
-            if isinstance(exception, torch.fx.proxy.TraceError):
-                warnings.warn(
-                    f"Failed to trace {model_name} with inputs {input_names}. For more "
-                    "information on tracing with the sequential pipeline, see "
-                    "https://github.com/vllm-project/llm-compressor/blob/main/"
-                    "src/llmcompressor/transformers/tracing/GUIDE.md"
-                )
-            if isinstance(exception, unfixable_errors):
-                raise exception
+    def on_event(self, state: State, event: Event, **kwargs):
+        if event.type_ == EventType.CALIBRATION_EPOCH_START:
+            if not self.started_:
+                self.on_start(state, None)
 
-            warnings.warn("Falling back to layer_sequential pipeline")
-            try:
-                run_layer_sequential(
-                    state.model,
-                    state.data.calib,
-                    self.sequential_targets,
-                    self,
-                )
-                return True
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            self.compress_modules()
 
-            except Exception as exception:
-                if isinstance(exception, TypeError):
-                    warnings.warn(f"{model_name} fails layer-wise assumptions")
-                if isinstance(exception, unfixable_errors):
-                    raise exception
+        if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.compress_modules()
 
-                warnings.warn(
-                    "Falling back to basic pipeline, which requires extra memory and "
-                    "may result in decreased accuracy. Consider using "
-                    "`offload_hessians=True`"
-                )
-                run_basic(state.model, state.data.calib, self)
-                return True
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        """
-        disable the quantization observers used by the OBCQ algorithm
-
-        :param state: session state storing input model and calibration data
-        """
-        if self._quantization_modifier:
-            self._quantization_modifier.finalize(state, **kwargs)
-
-        self.remove_hooks()
-        self._hessians = dict()
-        self._num_samples = dict()
-        state.model.apply(freeze_module_quantization)
-
-        return True
+            if not self.ended_:
+                self.on_end(state, None)
 
     def calibrate_module(
         self,
@@ -298,13 +214,12 @@ class GPTQModifier(Modifier, HooksMixin):
         _output: torch.Tensor,
     ):
         """
-        Quantize a module's weight according to the GPTQ algorithm
+        Calibration hook used to accumulate the hessian of the input to the module
 
-        :param name: name of module being quantized
-        :param module: module being quantized
-        :param args: input arguments for module forward pass
-
-        :return: total loss from applying weight quantization to this module
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
         """
         # Assume that first argument is the input
         inp = args[0]
@@ -326,10 +241,9 @@ class GPTQModifier(Modifier, HooksMixin):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def compress_modules(self):
         """
-        Quantize modules.
-        TODO: implement with event callback
+        Quantize modules which have been calibrated
         """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
@@ -360,6 +274,31 @@ class GPTQModifier(Modifier, HooksMixin):
             # self._hessians[module] already deleted by quantize_weight
             del self._num_samples[module]
 
+    def on_end(self, state: State, event: Event, **kwargs):
+        """
+        Finish calibrating by removing observers and calibration hooks
+        """
+        self.ended_ = True
+        QuantizationMixin.end_calibration(self, state.model)
+        self.remove_hooks()  # remove gptq hooks
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        """
+        disable the quantization observers used by the OBCQ algorithm
+
+        :param state: session state storing input model and calibration data
+        """
+        if not self.ended_:
+            self.on_end(state, None)
+
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
+        self._hessians = dict()
+        self._num_samples = dict()
+
+        return True
+
     @contextlib.contextmanager
     def _maybe_onload_hessian(self, module: torch.nn.Module):
         if self.offload_hessians:
@@ -371,41 +310,3 @@ class GPTQModifier(Modifier, HooksMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
-
-    def _build_quant_modifier(self):
-        """
-        Build a quantization modifier based on the specified config_groups,
-        ignore list, and num_calibration_steps.
-
-        :postcondition: self._quantization_modifier is set to the built
-            quantization modifier
-        """
-
-        quantization_args_names = [
-            "config_groups",
-            "targets",
-            "scheme",
-            "num_calibration_steps",
-            "ignore",
-            "disable_quantization_observer_epoch",
-        ]
-
-        quant_args = {
-            key: getattr(self, key)
-            for key in quantization_args_names
-            if getattr(self, key, False)
-        }
-
-        logger.info(f"Building quantization modifier with args: {quant_args}")
-        vllm_quant_config = {"QuantizationModifier": quant_args}
-        self._build_quant_modifier_from_dict(vllm_quant_config)
-
-    def _build_quant_modifier_from_dict(self, quant_config):
-        modifier_type = list(quant_config.keys())[0]
-        modifier_args = quant_config[modifier_type]
-        self._quantization_modifier = ModifierFactory.create(
-            modifier_type,
-            allow_registered=True,
-            allow_experimental=True,
-            **modifier_args,
-        )

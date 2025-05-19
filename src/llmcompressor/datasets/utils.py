@@ -129,7 +129,7 @@ def format_calibration_data(
     if num_calibration_samples is not None:
         safe_calibration_samples = min(len(tokenized_dataset), num_calibration_samples)
         if safe_calibration_samples != num_calibration_samples:
-            logger.warn(
+            logger.warning(
                 f"Requested {num_calibration_samples} calibration samples but "
                 f"the provided dataset only has {safe_calibration_samples}. "
             )

@@ -75,7 +75,7 @@ class IntermediatesCache:
         for batch in tqdm.tqdm(dataloader, desc="Preparing intermediates cache"):
             intermediate = {}
             for key, value in batch.items():
-                if mask_padding and key == "input_ids":
+                if mask_padding and (key == "input_ids") and "attention_mask" in batch:
                     value = cls._mask_padding(value, batch["attention_mask"])
                 intermediate[key] = IntermediateValue(value=value, device=model_device)
 
@@ -164,7 +164,9 @@ class IntermediatesCache:
                 value=tuple(self._offload_value(v) for v in value), device=None
             )
 
-        if not isinstance(value, (int, str, float, bool, torch.dtype, type(None))):
+        if not isinstance(
+            value, (int, str, float, bool, torch.dtype, torch.device, type(None))
+        ):
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
 
         return IntermediateValue(value=value, device=None)

@@ -3,11 +3,13 @@ from unittest.mock import Mock, patch
 import pytest
 from torch.nn import Module
 
-from llmcompressor.transformers.compression.sparsity_config import (
+from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
 )
 
-SPARSITY_CONFIG_LOCATION = "llmcompressor.transformers.compression.sparsity_config"
+SPARSITY_CONFIG_LOCATION = (
+    "llmcompressor.transformers.compression.sparsity_metadata_config"
+)
 
 
 # Mock classes and functions

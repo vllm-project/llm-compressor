@@ -26,13 +26,12 @@ class TestOneshotAndFinetune(unittest.TestCase):
         oneshot_args = dict(
             dataset=self.dataset,
             splits=splits,
-            output_dir=self.output,
             recipe=self.recipe,
             num_calibration_samples=64,
             oneshot_device=self.device,
             dataset_config_name=self.dataset_config_name,
             concatenate_data=self.concat_txt,
-            clear_sparse_session=True,
+            output_dir=self.output,
         )
 
         train_args = dict(
@@ -64,15 +63,15 @@ class TestOneshotAndFinetune(unittest.TestCase):
             ).quantization_config
         )
         # model is first sparsified, then finetuned, both should have the same sparsity
-        assert (
-            config_sparse_applied["global_sparsity"]
-            >= config_finetune_applied["global_sparsity"]
+        assert config_sparse_applied["global_sparsity"] == pytest.approx(
+            config_finetune_applied["global_sparsity"], abs=1e-5
         )
 
     def tearDown(self):
         # TODO: we get really nice stats from finetune that we should log
         # stored in results.json
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
 
 
 @pytest.mark.integration

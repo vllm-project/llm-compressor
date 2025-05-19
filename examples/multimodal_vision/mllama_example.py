@@ -16,7 +16,7 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
-DATASET_SPLIT = {"calibration": "test[:512]"}
+DATASET_SPLIT = "test"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -32,6 +32,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
+        sequential_targets=["MllamaSelfAttentionDecoderLayer"],
         ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
     ),
 ]
@@ -41,7 +42,7 @@ oneshot(
     model=model,
     tokenizer=model_id,
     dataset=DATASET_ID,
-    splits=DATASET_SPLIT,
+    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
