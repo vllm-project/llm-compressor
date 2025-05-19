@@ -44,7 +44,7 @@ recipe = [
             "re:vision_model.*",
         ],
         #sequential_targets=["Llama4TextDecoderLayer"],
-        sequential_targets=["Llama4TextAttention", "Llama4TextMLP", "Llama4TextMLP"],
+        sequential_targets=["Llama4TextAttention", "Llama4TextMLP"],
     ),
 ]
 

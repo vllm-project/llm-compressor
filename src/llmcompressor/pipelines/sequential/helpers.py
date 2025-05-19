@@ -262,6 +262,10 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     }
     partition_index = 0  # global counter
 
+    # HARD CODE
+    num_linears_per_subgraph = 64
+    linears_counter = 64  # first linear gets its own partition
+
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
     queue = deque(
@@ -277,8 +281,16 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
 
         # guarantee targets are assigned to disjoint partitions
         if node in target_nodes:
-            partition_index += 1
-            partitions.append([])
+            if graph.get_submodule(node.target).__class__.__name__ == "Llama4TextMLP":
+                if linears_counter >= num_linears_per_subgraph:
+                    partition_index += 1
+                    partitions.append([])
+                    linears_counter = 0
+
+                linears_counter += 1
+            else:
+                partition_index += 1
+                partitions.append([])
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition
