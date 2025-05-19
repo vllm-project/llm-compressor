@@ -6,6 +6,7 @@ from compressed_tensors.quantization.utils import calculate_qparams
 from torch import FloatTensor, IntTensor, Tensor
 
 from llmcompressor.observers.base import Observer
+from llmcompressor.test_timer.timer_utils import get_singleton_manager, log_time
 
 __all__ = ["MovingAverageMSEObserver"]
 
@@ -22,7 +23,7 @@ class MovingAverageMSEObserver(Observer):
         quantization_args: QuantizationArgs,
         averaging_constant: float = 0.01,
         grid: float = 100.0,
-        maxshrink: float = 0.80,
+        maxshrink: float = 0.20,
         norm: float = 2.4,
     ):
         super().__init__(quantization_args=quantization_args)
@@ -33,7 +34,7 @@ class MovingAverageMSEObserver(Observer):
         self.grid = grid
         self.maxshrink = maxshrink
         self.norm = norm
-
+    @log_time
     def calculate_mse_min_max(
         self,
         observed: Tensor,
@@ -61,6 +62,11 @@ class MovingAverageMSEObserver(Observer):
         )
         min_val = torch.ones_like(absolute_min_val)
         max_val = torch.zeros_like(absolute_max_val)
+
+        # Early stopping params
+        patience = 5
+        no_improve_count = 0
+
         for i in range(int(self.maxshrink * self.grid)):
             p = 1 - i / self.grid
             shrinked_min_val = p * absolute_min_val
@@ -89,6 +95,12 @@ class MovingAverageMSEObserver(Observer):
                 best[tmp] = err[tmp]
                 min_val[tmp] = shrinked_min_val[tmp]
                 max_val[tmp] = shrinked_max_val[tmp]
+                no_improve_count = 0
+            else:
+                no_improve_count += 1
+                if no_improve_count >= patience:
+                    break
+
         return min_val, max_val
 
     def calculate_qparams(
