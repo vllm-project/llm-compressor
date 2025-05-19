@@ -6,7 +6,6 @@ from compressed_tensors.quantization.utils import calculate_qparams
 from torch import FloatTensor, IntTensor, Tensor
 
 from llmcompressor.observers.base import Observer
-from llmcompressor.test_timer.timer_utils import get_singleton_manager, log_time
 
 __all__ = ["MovingAverageMSEObserver"]
 
@@ -34,7 +33,7 @@ class MovingAverageMSEObserver(Observer):
         self.grid = grid
         self.maxshrink = maxshrink
         self.norm = norm
-    @log_time
+
     def calculate_mse_min_max(
         self,
         observed: Tensor,
