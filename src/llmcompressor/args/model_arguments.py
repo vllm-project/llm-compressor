@@ -80,10 +80,6 @@ class ModelArguments:
         default=True,
         metadata={"help": "Whether to compress sparse models during save"},
     )
-    oneshot_device: Optional[str] = field(
-        default="cuda:0",
-        metadata={"help": "Device to run oneshot calibration on"},
-    )
     model_revision: str = field(
         default="main",
         metadata={

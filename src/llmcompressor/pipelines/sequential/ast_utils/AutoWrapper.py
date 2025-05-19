@@ -168,9 +168,15 @@ class AutoWrapper(ast.NodeTransformer):
             return node
 
         if isinstance(node, ast.stmt):
+            # print("-- autowrapped --")
+            # print(ast.unparse(node))
+            # print("-----------------")
             return self._wrap_stmt(node)
 
         elif isinstance(node, ast.expr):
+            # print("-- autowrapped --")
+            # print(ast.unparse(node))
+            # print("-----------------")
             return self._wrap_expr(node)
 
         else:

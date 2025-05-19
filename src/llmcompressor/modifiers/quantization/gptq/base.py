@@ -147,7 +147,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # register gptq hooks
         added_hook = False
-        for module in state.model.modules():
+        for name, module in state.model.named_modules():
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
@@ -223,6 +223,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             init_device = (
                 "cpu" if self.offload_hessians else get_execution_device(module)
             )
+            print(f"made hessian {self._module_names[module]}")
             self._hessians[module] = make_empty_hessian(module, device=init_device)
             self._num_samples[module] = 0
 

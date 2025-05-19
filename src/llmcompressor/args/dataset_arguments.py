@@ -179,3 +179,7 @@ class DatasetArguments(CustomDatasetArguments):
             "independent]"
         },
     )
+    oneshot_device: Optional[str] = field(
+        default=None,
+        metadata={"help": "Device to run oneshot calibration on"},
+    )

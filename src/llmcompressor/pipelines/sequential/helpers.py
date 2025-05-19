@@ -2,9 +2,16 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import torch
+from accelerate.hooks import (
+    ModelHook,
+    add_hook_to_module,
+    remove_hook_from_module,
+    send_to_device,
+    set_module_tensor_to_device,
+)
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from loguru import logger
@@ -40,6 +47,7 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    modules: List[Module]
     _code: Optional[PythonCode] = None
 
     def forward(self, *args, **kwargs) -> Dict[str, Any]:
@@ -94,7 +102,7 @@ def trace_subgraphs(
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets)
+    tracer = get_tracer(model, ancestors)
     concrete_args = populate_concrete_args(model, sample_input)
 
     with contextlib.ExitStack() as stack:
@@ -129,7 +137,7 @@ def trace_subgraphs(
 
     # perform subgraph partition
     partitions = topological_partition(graph, targets)
-    subgraphs = partition_graph(model, partitions)
+    subgraphs = partition_graph(model, partitions, graph)
     trace_consumed_names(subgraphs)
 
     if len(subgraphs) != len(targets) + 1:
@@ -141,7 +149,7 @@ def trace_subgraphs(
     return subgraphs
 
 
-def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
+def get_tracer(model: Module, ancestors: Set[Module]) -> HFTracer:
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
@@ -151,14 +159,12 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
     modules may result in meta tensors being added to the model graph
 
     :param model: model being traced
-    :param sequential_targets: modules which are sequential targets
+    :param ancestors: modules which are ancestors of sequential targets
     :param ignore: modules to ignore during tracing, in the future will specify
-        functions and methods to skip during tracing
+        functions and methods to skip during tracing TODO
     """
-    ancestors = get_sequential_ancestors(model, sequential_targets)
-    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
-
     # check unlikely case that ancestors have direct params which are offloaded
+    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
     offloaded_ancestors = offloaded_modules & ancestors
     if offloaded_ancestors:
         names = set(module.__class__.__name__ for module in offloaded_ancestors)
@@ -180,6 +186,8 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
+            # TODO: cleanup
+            nonlocal ancestors
             return module not in ancestors or module in offloaded_modules
 
     return SequentialTracer()
@@ -254,6 +262,10 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     }
     partition_index = 0  # global counter
 
+    # HARD CODE
+    num_linears_per_subgraph = 64
+    linears_counter = 64  # first linear gets its own partition
+
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
     queue = deque(
@@ -269,8 +281,16 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
 
         # guarantee targets are assigned to disjoint partitions
         if node in target_nodes:
-            partition_index += 1
-            partitions.append([])
+            if graph.get_submodule(node.target).__class__.__name__ == "Llama4TextMLP":
+                if linears_counter >= num_linears_per_subgraph:
+                    partition_index += 1
+                    partitions.append([])
+                    linears_counter = 0
+
+                linears_counter += 1
+            else:
+                partition_index += 1
+                partitions.append([])
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition
@@ -297,7 +317,9 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     return partitions
 
 
-def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgraph]:
+def partition_graph(
+    model: Module, partitions: List[List[Node]], parent_graph: GraphModule
+) -> List[Subgraph]:
     """
     Convert each partition into a Subgraph. Each Subgraph returns a dictionary mapping
     of output node names to their computed values. Note that the `consumed_names`
@@ -343,11 +365,13 @@ def partition_graph(model: Module, partitions: List[List[Node]]) -> List[Subgrap
         # save the subgraph for this partition
         graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
+        modules = get_subgraph_modules(graph, parent_graph)
         subgraphs.append(
             Subgraph(
                 graph=graph,
                 input_names=input_names,
                 consumed_names=set(),  # populated later
+                modules=modules,
             )
         )
 
@@ -484,3 +508,108 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     is_ancestor(model)
     return ancestors
+
+
+def get_subgraph_modules(subgraph: Graph, parent_graph: GraphModule) -> List[Module]:
+    """
+    Get all submodules executed by `subgraph`
+    :param subgraph: subgraph of parent_graph
+    :param parent_graph: GraphModule describing the model,
+        used for `get_submodule` method
+    :return: all submodules executed by subgraph
+    """
+    modules_ops: List[Node] = subgraph.find_nodes(op="call_module")
+    called_modules = [parent_graph.get_submodule(op.target) for op in modules_ops]
+    return list({m for module in called_modules for m in module.modules()})
+
+
+def infer_oneshot_device(oneshot_device: Optional[torch.device]) -> torch.device:
+    if oneshot_device is None:
+        if torch.cuda.is_available():
+            return torch.device("cuda:0")
+        else:
+            return torch.device("cpu")
+
+    else:
+        return torch.device(oneshot_device)
+
+
+def set_execution_device(model: Module, oneshot_device: Union[str, None]) -> Module:
+    execution_device = infer_oneshot_device(oneshot_device)
+
+    remove_hook_from_module(model, recurse=True)
+    attach_execution_device_hook(model, execution_device)
+    return model
+
+
+def attach_execution_device_hook(
+    module: Module,
+    execution_device: torch.device,
+):
+    if len(list(module.parameters(recurse=False))) > 0:
+        hook = AlignExecutionDeviceHook(execution_device=execution_device)
+        add_hook_to_module(module, hook)
+
+    for submodule in module.children():
+        attach_execution_device_hook(submodule, execution_device)
+
+
+# some submodules are called outside of the fx graph. Because these submodules do not
+# appear in the graph, there is no way to know if they appear in the subgraph, and
+# therefore no way to directly control their onloading behavior. Instead we must rely on
+# a hook applied all offloadable modules and global variables to control them
+offloading_disabled = False
+disabled_offloading = set()
+
+
+class AlignExecutionDeviceHook(ModelHook):
+    def __init__(
+        self,
+        execution_device: Optional[Union[int, str, torch.device]] = None,
+        skip_keys: Optional[Union[str, List[str]]] = None,
+    ):
+        self.execution_device = execution_device
+        self.skip_keys = skip_keys
+
+        self.devices = {}
+
+    def init_hook(self, module: Module) -> Module:
+        self.devices = {
+            name: param.device for name, param in module.named_parameters(recurse=False)
+        }
+        return module
+
+    def pre_forward(self, module, *args, **kwargs):
+        for name in self.devices:
+            set_module_tensor_to_device(module, name, self.execution_device)
+
+        return send_to_device(args, self.execution_device), send_to_device(
+            kwargs, self.execution_device, skip_keys=self.skip_keys
+        )
+
+    def post_forward(self, module, output):
+        global offloading_disabled
+        global disabled_offloading
+
+        if not offloading_disabled:
+            for name, device in self.devices.items():
+                set_module_tensor_to_device(module, name, device)
+        else:
+            disabled_offloading.add((self, module))
+
+        return output
+
+
+@contextlib.contextmanager
+def disable_onloading():
+    global offloading_disabled
+    global disabled_offloading
+    offloading_disabled = True
+
+    yield
+
+    offloading_disabled = False
+    for hook, module in disabled_offloading:
+        hook.post_forward(module, None)
+
+    disabled_offloading = set()
