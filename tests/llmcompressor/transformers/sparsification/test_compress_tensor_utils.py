@@ -4,7 +4,7 @@ import shutil
 
 import pytest
 import torch
-from accelerate import cpu_offload
+from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import QUANTIZATION_CONFIG_NAME, CompressionFormat
 from compressed_tensors.compressors import ModelCompressor
@@ -14,7 +14,7 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
     quantize,
 )
-from compressed_tensors.utils import get_offloaded_device, update_prefix_dict
+from compressed_tensors.utils import align_module_device, update_offload_parameter
 from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.utils.quantization_config import CompressedTensorsConfig
@@ -234,7 +234,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
 # technically only tie_word_embeddings=False is supported right now
 # setting to True is discouraged
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         # dtype
         (False, torch.float16, False, "cpu"),
@@ -248,7 +248,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         # (True, torch.float32, True, "cpu"),  # TODO: fails
     ],
 )
-def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path):
+def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
     model_path = "nm-testing/llama2.c-stories15M"
     save_path = tmp_path / "save_path"
 
@@ -256,18 +256,17 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         model_path,
         tie_word_embeddings=tie_word_embeddings,
         torch_dtype=torch_dtype,
-        device_map=device_map,
     )
     if offload:
-        model = cpu_offload(model)
+        model = dispatch_model(model, {"": device}, force_hooks=True)
+    else:
+        model = model.to(device)
 
     patch_tied_tensors_bug(model)
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
 
-    reloaded = AutoModelForCausalLM.from_pretrained(
-        save_path, torch_dtype="auto", device_map="cpu"
-    )
+    reloaded = AutoModelForCausalLM.from_pretrained(save_path, torch_dtype="auto")
 
     model_dict = get_state_dict_offloaded_model(model)
     reloaded_dict = get_state_dict_offloaded_model(reloaded)
@@ -278,7 +277,7 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         (False, torch.float32, False, "cuda:0"),
         (True, torch.float32, False, "cuda:0"),
@@ -286,14 +285,12 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp
         (True, torch.float32, True, "cuda:0"),
     ],
 )
-def test_model_reload_gpu(
-    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
-):
-    test_model_reload(offload, torch_dtype, tie_word_embeddings, device_map, tmp_path)
+def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
+    test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path)
 
 
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         (False, torch.float16, False, "cpu"),
         (False, torch.float32, False, "cpu"),
@@ -305,31 +302,24 @@ def test_model_reload_gpu(
     ],
 )
 def test_model_shared_tensors(
-    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+    offload, torch_dtype, tie_word_embeddings, device, tmp_path
 ):
     # load model
     model = AutoModelForCausalLM.from_pretrained(
         "nm-testing/llama2.c-stories15M",
         torch_dtype=torch_dtype,
         tie_word_embeddings=tie_word_embeddings,
-        device_map=device_map,
     )
     patch_tied_tensors_bug(model)
 
     if offload:
-        model = cpu_offload(model)
+        model = dispatch_model(model, {"": device}, force_hooks=True)
+    else:
+        model = model.to(device)
 
     # modify lm head
-    with torch.no_grad():
-        if offload:
-            model.lm_head._hf_hook.pre_forward(model.lm_head)
-
-        model.lm_head.weight += 1
-
-        if offload:
-            device = get_offloaded_device(model.lm_head)
-            update_prefix_dict(model.lm_head, "weight", model.lm_head.weight.to(device))
-            model.lm_head._hf_hook.post_forward(model.lm_head, None)
+    with torch.no_grad(), align_module_device(model.lm_head):
+        update_offload_parameter(model.lm_head, "weight", model.lm_head.weight + 1)
 
     # check that embed_tokens is not modified
     model_dict = get_state_dict_offloaded_model(model)
@@ -343,17 +333,17 @@ def test_model_shared_tensors(
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device_map",
+    "offload,torch_dtype,tie_word_embeddings,device",
     [
         (False, torch.float32, False, "cuda:0"),
         (False, torch.float32, True, "cuda:0"),
     ],
 )
 def test_model_shared_tensors_gpu(
-    offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+    offload, torch_dtype, tie_word_embeddings, device, tmp_path
 ):
     test_model_shared_tensors(
-        offload, torch_dtype, tie_word_embeddings, device_map, tmp_path
+        offload, torch_dtype, tie_word_embeddings, device, tmp_path
     )
 
 
