@@ -1,5 +1,7 @@
 import inspect
 
+from pydantic_core import core_schema
+
 _registry = {}
 
 
@@ -39,3 +41,13 @@ class Sentinel:
                 self._module_name,
             ),
         )
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source_type, _handler):
+        return core_schema.no_info_after_validator_function(
+            cls.validate, core_schema.str_schema()
+        )
+
+    @classmethod
+    def validate(cls, value: str):
+        return cls(value)
