@@ -6,8 +6,8 @@ from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationStrategy,
-    QuantizationType,
 )
+from compressed_tensors.quantization.utils import is_fp4
 from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import safe_permute
 from loguru import logger
@@ -98,11 +98,7 @@ class Observer(Module, RegistryMixin):
                 self._scale = torch.empty(
                     (rows, num_groups), dtype=observed.dtype, device=observed.device
                 )
-                # TODO: use utils for FP4 check
-                if (
-                    self.quantization_args.num_bits == 4
-                    and self.quantization_args.type == QuantizationType.FLOAT
-                ):
+                if is_fp4(quantization_args=self.quantization_args):
                     zp_dtype = FP8_E4M3_DATA.dtype
                 else:
                     zp_dtype = self.quantization_args.pytorch_dtype()
