@@ -66,6 +66,7 @@ __all__ = [
     "eval_context",
     "calibration_forward_context",
     "patch_attr",
+    "disable_hf_kernels",
 ]
 
 
@@ -1034,6 +1035,16 @@ def eval_context(module: torch.nn.Module):
 
 
 @contextlib.contextmanager
+def disable_hf_kernels(model: PreTrainedModel):
+    if hasattr(model, "config"):
+        with patch_attr(model.config, "disable_custom_kernels", True):
+            yield
+
+    else:
+        yield
+
+
+@contextlib.contextmanager
 def calibration_forward_context(model: PreTrainedModel):
     """
     Context in which all calibration forward passes should occur.
@@ -1042,11 +1053,9 @@ def calibration_forward_context(model: PreTrainedModel):
     - Disable the KV cache
     - Disable train mode and enable eval mode
     """
-    with (
-        torch.no_grad(),
-        DisableKVCache(model),
-        eval_context(model),
-    ):
+    with torch.no_grad(), DisableKVCache(model), eval_context(
+        model
+    ), disable_hf_kernels(model):
         yield
 
 
