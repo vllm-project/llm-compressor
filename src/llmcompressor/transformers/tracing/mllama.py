@@ -19,17 +19,14 @@
 from typing import List, Optional, Tuple, Union
 
 import torch
-import torch.utils.checkpoint
 
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.utils import (
-    add_start_docstrings,
     logging,
 )
 
 # TRACING: imports
 from transformers.models.mllama.modeling_mllama import (
-    MLLAMA_START_DOCSTRING,
     MllamaForConditionalGeneration,
 )
 
@@ -69,10 +66,6 @@ def _prepare_cross_attention_mask(
 
 
 # TRACING: needs to use updated _prepare_cross_attention_mask
-@add_start_docstrings(
-    """The Mllama model which consists of a vision encoder and a language model.""",
-    MLLAMA_START_DOCSTRING,
-)
 class MllamaForConditionalGeneration(MllamaForConditionalGeneration):
     def forward(
         self,
