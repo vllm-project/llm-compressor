@@ -1,15 +1,16 @@
-import transformers
-import datasets
-from typing import List, Optional, Union
+from typing import List, Optional, Union, TYPE_CHECKING
 
 from torch.utils.data import DataLoader
-from transformers import PreTrainedModel
+from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 
 __all__ = ["Oneshot", "oneshot"]
+
+if TYPE_CHECKING:
+    from datasets import Dataset, DatasetDict
 
 
 class Oneshot:
@@ -177,12 +178,12 @@ class Oneshot:
 
 def oneshot(
     # Required model parameters
-    model: Union[str, PreTrainedModel ],
+    model: Union[str, PreTrainedModel],
     # Optional model parameters
     distill_teacher: Optional[str] = None,
     config_name: Optional[str] = None,
-    tokenizer: Optional[Union[str, transformers.PreTrainedTokenizerBase]] = None,
-    processor: Optional[Union[str, transformers.ProcessorMixin]] = None,
+    tokenizer: Optional[Union[str, PreTrainedTokenizerBase]] = None,
+    processor: Optional[Union[str, ProcessorMixin]] = None,
     cache_dir: Optional[str] = None,
     use_auth_token: bool = False,
     precision: str = "auto",
@@ -197,7 +198,7 @@ def oneshot(
     clear_sparse_session: bool = False,
     stage: Optional[str] = None,
     # Dataset parameters
-    dataset: Optional[Union[str, "datasets.Dataset", "datasets.DatasetDict"]] = None,
+    dataset: Optional[Union[str, "Dataset", "DatasetDict"]] = None,
     dataset_config_name: Optional[str] = None,
     dataset_path: Optional[str] = None,
     num_calibration_samples: int = 512,
