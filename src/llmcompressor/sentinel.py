@@ -8,6 +8,7 @@ _registry = {}
 class Sentinel:
     """
     Unique sentinel values. Implements https://peps.python.org/pep-0661/
+    with dummy pydantic validation
     """
 
     def __new__(cls, name, module_name=None):
@@ -44,10 +45,8 @@ class Sentinel:
 
     @classmethod
     def __get_pydantic_core_schema__(cls, _source_type, _handler):
-        return core_schema.no_info_after_validator_function(
-            cls.validate, core_schema.str_schema()
-        )
+        return core_schema.no_info_plain_validator_function(cls.validate)
 
     @classmethod
-    def validate(cls, value: str):
-        return cls(value)
+    def validate(cls, value: "Sentinel") -> "Sentinel":
+        return value
