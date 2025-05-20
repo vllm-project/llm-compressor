@@ -94,7 +94,6 @@ class TestLMEval:
         self.num_calibration_samples = 512
         self.max_seq_length = 2048
 
-    @log_time
     def test_lm_eval(self, test_data_file: str):
         # Run vLLM with saved model
         self.set_up(test_data_file)
