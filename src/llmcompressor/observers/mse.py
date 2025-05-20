@@ -25,6 +25,7 @@ class MovingAverageMSEObserver(Observer):
         self.grid = kwargs.get("grid", 100.0)
         self.maxshrink = kwargs.get("maxshrink", 0.20)
         self.norm = kwargs.get("norm", 2.4)
+        self.patience = kwargs.get("patience", 5)
 
         self.min_val = {}
         self.max_val = {}
@@ -58,7 +59,6 @@ class MovingAverageMSEObserver(Observer):
         max_val = torch.zeros_like(absolute_max_val)
 
         # Early stopping params
-        patience = 5
         no_improve_count = 0
 
         for i in range(int(self.maxshrink * self.grid)):
@@ -92,7 +92,7 @@ class MovingAverageMSEObserver(Observer):
                 no_improve_count = 0
             else:
                 no_improve_count += 1
-                if no_improve_count >= patience:
+                if no_improve_count >= self.patience:
                     break
 
         return min_val, max_val
