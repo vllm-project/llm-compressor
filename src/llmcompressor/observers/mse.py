@@ -17,22 +17,17 @@ class MovingAverageMSEObserver(Observer):
     zero point based on a moving average of the mse-clipped min and max observed values
     """
 
-    def __init__(
-        self,
-        quantization_args: QuantizationArgs,
-        averaging_constant: float = 0.01,
-        grid: float = 100.0,
-        maxshrink: float = 0.20,
-        norm: float = 2.4,
-    ):
+    def __init__(self, quantization_args: QuantizationArgs):
         super().__init__(quantization_args=quantization_args)
 
+        kwargs = quantization_args.observer_kwargs or {}
+        self.averaging_constant = kwargs.get("averaging_constant", 0.01)
+        self.grid = kwargs.get("grid", 100.0)
+        self.maxshrink = kwargs.get("maxshrink", 0.20)
+        self.norm = kwargs.get("norm", 2.4)
+        
         self.min_val = {}
         self.max_val = {}
-        self.averaging_constant = averaging_constant
-        self.grid = grid
-        self.maxshrink = maxshrink
-        self.norm = norm
 
     def calculate_mse_min_max(
         self,
