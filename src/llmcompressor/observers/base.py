@@ -31,7 +31,7 @@ class Observer(Module, RegistryMixin):
     ):
         self.quantization_args: QuantizationArgs = quantization_args
         super().__init__()
-        self.global_scale: torch.Tensor = global_scale
+        self.global_scale: Optional[torch.Tensor] = global_scale
         self._scale = None
         self._zero_point = None
         self._num_observed_tokens = None
