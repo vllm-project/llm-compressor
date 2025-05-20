@@ -310,8 +310,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         if not balance_layer:
                             continue
 
-                        # exclude v_proj/o_proj mappings whose shapes are incompatible
-                        # exclude fused qkv_proj/o_proj mappings when shapes are not all equal
+                        # exclude v_proj->o_proj mappings whose shapes are incompatible
                         # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                         if (
                             isinstance(smooth_layer, torch.nn.Linear)
