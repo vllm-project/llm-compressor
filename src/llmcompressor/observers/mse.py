@@ -25,7 +25,7 @@ class MovingAverageMSEObserver(Observer):
         self.grid = kwargs.get("grid", 100.0)
         self.maxshrink = kwargs.get("maxshrink", 0.20)
         self.norm = kwargs.get("norm", 2.4)
-        
+
         self.min_val = {}
         self.max_val = {}
 
