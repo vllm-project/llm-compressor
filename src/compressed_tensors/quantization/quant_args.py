@@ -26,6 +26,7 @@ __all__ = [
     "FP8_DTYPE",
     "FP8_E4M3_DATA",
     "FP4_E2M1_DATA",
+    "FloatArgs",
     "QuantizationType",
     "QuantizationStrategy",
     "QuantizationArgs",

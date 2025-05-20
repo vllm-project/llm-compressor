@@ -99,6 +99,7 @@ class BaseQuantizationCompressor(BaseCompressor):
                 scale = model_state.get(prefix + "weight_scale", None)
                 g_idx = model_state.get(prefix + "weight_g_idx", None)
                 zp = model_state.get(prefix + "weight_zero_point", None)
+                global_scale = model_state.get(prefix + "weight_global_scale", None)
 
                 # is scale does not exist, then weight cannot be compressed
                 if scale is None:
@@ -112,6 +113,7 @@ class BaseQuantizationCompressor(BaseCompressor):
                     weight=value,
                     scale=scale,
                     zero_point=zp,
+                    global_scale=global_scale,
                     g_idx=g_idx,
                     quantization_args=quant_args,
                     device="cpu",

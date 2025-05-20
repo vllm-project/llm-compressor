@@ -78,6 +78,7 @@ class NaiveQuantizationCompressor(BaseQuantizationCompressor):
         zero_point: Optional[Tensor] = None,
         g_idx: Optional[torch.Tensor] = None,
         device: Optional[torch.device] = None,
+        global_scale: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         """
         Compresses a single uncompressed weight
@@ -90,6 +91,11 @@ class NaiveQuantizationCompressor(BaseQuantizationCompressor):
         :param device: optional device to move compressed output to
         :return: dictionary of compressed weight data
         """
+        if global_scale is not None:
+            raise ValueError(
+                "global_scale is not supported for the NaiveQuantizationCompressor"
+            )
+
         if can_quantize(weight, quantization_args):
             quantized_weight = quantize(
                 x=weight,

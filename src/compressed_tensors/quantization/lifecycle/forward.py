@@ -20,6 +20,7 @@ import torch
 from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
+    QuantizationType,
     round_to_quantized_type,
 )
 from compressed_tensors.quantization.quant_config import QuantizationStatus
@@ -49,6 +50,7 @@ def quantize(
     args: QuantizationArgs,
     dtype: Optional[torch.dtype] = None,
     g_idx: Optional[torch.Tensor] = None,
+    global_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Quantize the input tensor x using the QuantizationStrategy specified in args.
@@ -63,6 +65,7 @@ def quantize(
     :param args: quantization args dictating how to quantize x
     :param dtype: optional dtype to cast the quantized output to
     :param g_idx: optional mapping from column index to group index
+    :param global_scale: optional constant to scale the quantization scale during QDQ
     :return: fake quantized tensor
     """
 
@@ -75,6 +78,7 @@ def quantize(
         do_quantize=True,
         do_dequantize=False,
         g_idx=g_idx,
+        global_scale=global_scale,
     )
 
 
@@ -86,6 +90,7 @@ def dequantize(
     args: Optional[QuantizationArgs] = None,
     dtype: Optional[torch.dtype] = None,
     g_idx: Optional[torch.Tensor] = None,
+    global_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Dequantize a quantized input tensor x_q based on the strategy specified in args. If
@@ -97,6 +102,7 @@ def dequantize(
     :param args: quantization args used to quantize x_q
     :param dtype: optional dtype to cast the dequantized output to
     :param g_idx: optional mapping from column index to group index
+    :param global_scale: optional constant to scale the quantization scale during QDQ
     :return: dequantized float tensor
     """
     if args is None:
@@ -128,6 +134,7 @@ def dequantize(
         do_dequantize=True,
         dtype=dtype,
         g_idx=g_idx,
+        global_scale=global_scale,
     )
 
 
@@ -138,6 +145,7 @@ def fake_quantize(
     zero_point: torch.Tensor,
     args: QuantizationArgs,
     g_idx: Optional[torch.Tensor] = None,
+    global_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Fake quantize the input tensor x by quantizing then dequantizing with
@@ -151,6 +159,7 @@ def fake_quantize(
     :param zero_point: zero point tensor
     :param args: quantization args dictating how to quantize x
     :param g_idx: optional mapping from column index to group index
+    :param global_scale: optional constant to scale the quantization scale during QDQ
     :return: fake quantized tensor
     """
     return _process_quantization(
@@ -161,6 +170,7 @@ def fake_quantize(
         do_quantize=True,
         do_dequantize=True,
         g_idx=g_idx,
+        global_scale=global_scale,
     )
 
 
@@ -174,6 +184,7 @@ def _process_quantization(
     dtype: Optional[torch.dtype] = None,
     do_quantize: bool = True,
     do_dequantize: bool = True,
+    global_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     q_min, q_max = calculate_range(args, x.device)
     group_size = args.group_size
@@ -221,18 +232,21 @@ def _process_quantization(
             end = start + group_count
             if do_quantize:
                 output[:, start:end] = _quantize(
-                    x[:, start:end],
-                    sc,
-                    zp,
-                    q_min,
-                    q_max,
-                    args,
+                    x=x[:, start:end],
+                    scale=sc,
+                    zero_point=zp,
+                    q_min=q_min,
+                    q_max=q_max,
+                    args=args,
                     dtype=dtype,
+                    global_scale=global_scale,
                 )
 
             if do_dequantize:
                 input = output[:, start:end] if do_quantize else x[:, start:end]
-                output[:, start:end] = _dequantize(input, sc, zp)
+                output[:, start:end] = _dequantize(
+                    x_q=input, scale=sc, zero_point=zp, global_scale=global_scale
+                )
 
         if not is_column_order:
             output = safe_permute(output, torch.argsort(perm), dim=1)
@@ -240,16 +254,22 @@ def _process_quantization(
     else:  # covers channel, token and tensor strategies
         if do_quantize:
             output = _quantize(
-                x,
-                scale,
-                zero_point,
-                q_min,
-                q_max,
-                args,
+                x=x,
+                scale=scale,
+                zero_point=zero_point,
+                q_min=q_min,
+                q_max=q_max,
+                args=args,
                 dtype=dtype,
+                global_scale=global_scale,
             )
         if do_dequantize:
-            output = _dequantize(output if do_quantize else x, scale, zero_point)
+            output = _dequantize(
+                output if do_quantize else x,
+                scale=scale,
+                zero_point=zero_point,
+                global_scale=global_scale,
+            )
 
     return output
 
@@ -330,6 +350,7 @@ def forward_quantize(
         return value
 
     g_idx = getattr(module, "weight_g_idx", None)
+    global_scale = getattr(module, f"{base_name}_global_scale", None)
 
     if args.dynamic:
         # dynamic quantization - determine the scale/zp on the fly
@@ -345,6 +366,7 @@ def forward_quantize(
         zero_point=zero_point,
         args=args,
         g_idx=g_idx,
+        global_scale=global_scale,
     )
 
 
@@ -357,11 +379,18 @@ def _quantize(
     q_max: torch.Tensor,
     args: QuantizationArgs,
     dtype: Optional[torch.dtype] = None,
+    global_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
+
+    # if a global scale is optionally provided, use it
+    # to further scale the local `scale` parameter
+    if global_scale:
+        scale = scale.to(global_scale.dtype) / global_scale
 
     scaled = x / scale
     if zero_point is not None:
         scaled += zero_point.to(x.dtype)
+
     # clamp first because cast isn't guaranteed to be saturated (ie for fp8)
     clamped_value = torch.clamp(
         scaled,
@@ -381,7 +410,14 @@ def _dequantize(
     scale: torch.Tensor,
     zero_point: torch.Tensor = None,
     dtype: Optional[torch.dtype] = None,
+    global_scale: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
+
+    # if a global scale is optionally provided, use it
+    # to further scale the local `scale` parameter
+    if global_scale:
+        scale = scale.to(global_scale.dtype) / global_scale
+
     dequant_value = x_q.to(scale.dtype)
 
     if zero_point is not None:

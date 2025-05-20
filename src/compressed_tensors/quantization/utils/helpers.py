@@ -17,7 +17,9 @@ from typing import Generator, List, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.quant_args import (
-    FP8_DTYPE,
+    FP4_E2M1_DATA,
+    FP8_E4M3_DATA,
+    FloatArgs,
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
@@ -44,6 +46,8 @@ __all__ = [
     "compute_dynamic_scales_and_zp",
     "calculate_range",
     "calculate_qparams",
+    "generate_global_scale",
+    "is_fp4",
 ]
 
 # target the self_attn layer
@@ -53,8 +57,18 @@ KV_CACHE_TARGETS = ["re:.*self_attn$"]
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
+def is_fp4(quantization_args: QuantizationArgs):
+    return (
+        quantization_args.num_bits == 4
+        and quantization_args.type == QuantizationType.FLOAT
+    )
+
+
 def calculate_qparams(
-    min_vals: Tensor, max_vals: Tensor, quantization_args: QuantizationArgs
+    min_vals: Tensor,
+    max_vals: Tensor,
+    quantization_args: QuantizationArgs,
+    global_scale: Optional[Tensor] = None,
 ) -> Tuple[FloatTensor, IntTensor]:
     """
     :param min_vals: tensor of min value(s) to calculate scale(s) and zero point(s)
@@ -62,7 +76,11 @@ def calculate_qparams(
     :param max_vals: tensor of max value(s) to calculate scale(s) and zero point(s)
         from
     :param quantization_args: settings to quantization
-    :return: tuple of the calculated scale(s) and zero point(s)
+    :param global_scale: additional global scale to scale the locally generated scale
+        currently only applied/supported for Fp4
+
+    :return: tuple of the calculated scale(s) and zero point(s). For FP4, the calculated
+        scale if of dtype FP8
     """
     # based on the implementations for consuming quantized values,
     # 0.0 must always be representable within the quantized range
@@ -73,14 +91,40 @@ def calculate_qparams(
 
     bit_min, bit_max = calculate_range(quantization_args, device)
     bit_range = bit_max - bit_min
-    zp_dtype = quantization_args.pytorch_dtype()
+
+    if is_fp4(quantization_args=quantization_args):
+        zp_dtype = FP8_E4M3_DATA.dtype
+    else:
+        zp_dtype = quantization_args.pytorch_dtype()
 
     if quantization_args.symmetric:
         max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
-        scales = max_val_pos / (float(bit_range) / 2)
-        scales = torch.clamp(scales, min=torch.finfo(torch.float32).eps)
+
+        if is_fp4(quantization_args=quantization_args) and global_scale is not None:
+            # Conditionally scale the generated local scale by a global_scale
+            scales = global_scale * (max_val_pos / FP4_E2M1_DATA.max)
+            scales = scales.to(FP8_E4M3_DATA.dtype)
+        else:
+            scales = max_val_pos / (float(bit_range) / 2)
+
+        if scales.dtype == FP8_E4M3_DATA.dtype:
+            # torch.clamp not supported for FP8
+            # use the next largest fp8 value from 0
+            scales = torch.where(
+                scales == 0,
+                torch.tensor(0.125, dtype=FP8_E4M3_DATA.dtype, device=device),
+                scales,
+            )
+        else:
+            scales = torch.clamp(scales, min=torch.finfo(torch.float32).eps)
+
         zero_points = torch.zeros(scales.shape, device=device, dtype=min_vals.dtype)
     else:
+        if is_fp4(quantization_args=quantization_args):
+            raise NotImplementedError(
+                "Asymmetric Quantization is not supported for FP4"
+            )
+
         scales = (max_vals - min_vals) / float(bit_range)
         scales = torch.clamp(scales, min=torch.finfo(torch.float32).eps)
         zero_points = bit_min - (min_vals / scales)
@@ -144,14 +188,16 @@ def calculate_range(quantization_args: QuantizationArgs, device: str) -> Tuple:
         q_max = torch.tensor(bit_range / 2 - 1, device=device)
         q_min = torch.tensor(-bit_range / 2, device=device)
     elif quantization_args.type == QuantizationType.FLOAT:
-        if quantization_args.num_bits != 8:
-            raise ValueError(
-                "Floating point quantization is only supported for 8 bits,"
-                f"got {quantization_args.num_bits}"
+        if quantization_args.num_bits == 8:
+            q_max = torch.tensor(FP8_E4M3_DATA.max, device=device)
+            q_min = torch.tensor(FP8_E4M3_DATA.min, device=device)
+        elif quantization_args.num_bits == 4:
+            q_max = torch.tensor(FP4_E2M1_DATA.max, device=device)
+            q_min = torch.tensor(FP4_E2M1_DATA.min, device=device)
+        else:
+            raise NotImplementedError(
+                "Range calculation only supported for 4 and 8 bits"
             )
-        fp_range_info = torch.finfo(FP8_DTYPE)
-        q_max = torch.tensor(fp_range_info.max, device=device)
-        q_min = torch.tensor(fp_range_info.min, device=device)
     else:
         raise ValueError(f"Invalid quantization type {quantization_args.type}")
 
@@ -249,7 +295,10 @@ def iter_named_leaf_modules(model: Module) -> Generator[Tuple[str, Module], None
 
 
 def iter_named_quantizable_modules(
-    model: Module, include_children: bool = True, include_attn: bool = False
+    model: Module,
+    include_children: bool = True,
+    include_attn: bool = False,
+    include_mlp: bool = False,
 ) -> Generator[Tuple[str, Module], None, None]:
     """
     Yield name and submodule of
@@ -281,6 +330,9 @@ def iter_named_quantizable_modules(
                     yield name, submodule
         if include_attn:
             if name.endswith("self_attn"):
+                yield name, submodule
+        if include_mlp:
+            if name.endswith("mlp"):
                 yield name, submodule
 
 
@@ -396,3 +448,24 @@ def parse_out_kv_cache_args(
         kv_cache_args = None
 
     return kv_cache_args, quant_scheme_to_layers
+
+
+def generate_global_scale(
+    input_tensor: torch.Tensor,
+    scale_data: Optional[FloatArgs] = FP8_E4M3_DATA,
+    quant_data: Optional[FloatArgs] = FP4_E2M1_DATA,
+    dtype: Optional[torch.dtype] = torch.float32,
+):
+    """
+    Generate a global scale for an entire tensor (input_tensor).
+    Goal of the scale is to ensure that the quantization (local) scale
+    falls into the approproiate dtype range.
+
+    E.g. for NVFP4, group (local) scales are in dtype FP8. The global_scale
+    attempts to use the entire FP8 dtype range while mapping a per-group max
+    to the FP4 max.
+    """
+    scale_dtype = scale_data.dtype
+    tensor_amax = torch.abs(input_tensor.data).max().to(dtype)
+    global_scale = scale_data.max * quant_data.max / tensor_amax
+    return global_scale.to(dtype)

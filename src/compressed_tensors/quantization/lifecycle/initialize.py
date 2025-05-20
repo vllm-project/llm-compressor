@@ -16,24 +16,33 @@
 import logging
 import math
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from compressed_tensors.quantization.lifecycle.forward import (
     wrap_module_forward_quantized,
 )
 from compressed_tensors.quantization.quant_args import (
+    FP4_E2M1_DATA,
+    FP8_E4M3_DATA,
     ActivationOrdering,
     QuantizationArgs,
     QuantizationStrategy,
+    QuantizationType,
 )
 from compressed_tensors.quantization.quant_config import QuantizationStatus
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
+from compressed_tensors.quantization.utils import (
+    generate_global_scale,
+    is_fp4,
+    is_kv_cache_quant_scheme,
+    iter_named_quantizable_modules,
+)
 from compressed_tensors.utils import (
     disable_hf_hook,
     get_execution_device,
     register_offload_parameter,
+    update_parameter_data,
 )
 from torch.nn import Module, Parameter
 
@@ -42,6 +51,7 @@ __all__ = [
     "initialize_module_for_quantization",
     "is_attention_module",
     "KVCacheScaleType",
+    "update_fused_layer_weight_global_scales",
 ]
 
 
@@ -170,7 +180,24 @@ def _initialize_scale_zero_point(
     # TODO: consider erroring out in the future as if the dtype if not one fo these,
     # there is likely bug
 
-    if scale_dtype not in [torch.float16, torch.bfloat16, torch.float32]:
+    if is_fp4(quantization_args=quantization_args) and base_name == "weight":
+        scale_dtype = FP8_E4M3_DATA.dtype
+        # When applying weight-only FP4 quantization, generate a global_scale
+        # This scale is applied during runtime to ensure that the generated
+        # local scale falls properly within the FP8 range (i.e max value is FP8_max)
+        # which is the expected dtype of NVFP4A16 scales
+        value = generate_global_scale(input_tensor=module.weight)
+        value = value.to(device)
+        init_global_scale = Parameter(value, requires_grad=False)
+        register_offload_parameter(
+            module, f"{base_name}_global_scale", init_global_scale
+        )
+
+    if scale_dtype not in [
+        torch.float16,
+        torch.bfloat16,
+        torch.float32,
+    ] and not is_fp4(quantization_args=quantization_args):
         scale_dtype = torch.float16
 
     # initializes empty scale, zero point, and g_idx parameters for the module
@@ -181,7 +208,11 @@ def _initialize_scale_zero_point(
     register_offload_parameter(module, f"{base_name}_scale", init_scale)
 
     if force_zero_point or not quantization_args.symmetric:
-        zp_dtype = quantization_args.pytorch_dtype()
+        if is_fp4(quantization_args=quantization_args):
+            zp_dtype = FP8_E4M3_DATA.dtype
+        else:
+            zp_dtype = quantization_args.pytorch_dtype()
+
         init_zero_point = Parameter(
             torch.zeros(expected_shape, device=device, dtype=zp_dtype),
             requires_grad=False,
@@ -219,3 +250,88 @@ def _initialize_attn_scales(module: Module) -> None:
         requires_grad=False,
     )
     register_offload_parameter(module, KVCacheScaleType.VALUE.value, init_scale)
+
+
+# TODO: Potentially introduce an argument to turn this off
+# Only relevant for NVFP4A16 currently
+def update_fused_layer_weight_global_scales(model: torch.nn.Module):
+    """
+    When running NVFP4A16 quantization, update the global scale
+    such that q,k,v layers are treated as one tensor with the same
+    global_scale and gate_proj/up_proj layers are treated as one tensor
+    with the same global scale. This is requirement currently being set
+    by vLLM and may be removed in the future OR potentially make it
+    an optional step.
+
+    :param model: model to quantize
+    """
+
+    def _is_attention_module(module: Module):
+        return "attention" in module.__class__.__name__.lower() and (
+            hasattr(module, "k_proj")
+            or hasattr(module, "v_proj")
+            or hasattr(module, "qkv_proj")
+        )
+
+    def _is_mlp_module(module: Module):
+        return "mlp" in module.__class__.__name__.lower() and (
+            hasattr(module, "gate_proj") or hasattr(module, "up_proj")
+        )
+
+    def _valid_fp4_quant(layer_list: List[torch.nn.Linear]):
+        """
+        Return True if all the linear layers in the layer_list are
+        NVFP4A16 quantized.
+        """
+        for layer in layer_list:
+            scheme = getattr(layer, "quantization_scheme", None)
+            if scheme is None:
+                return False
+
+            weight_quant_args = scheme.weights
+
+            if weight_quant_args is None:
+                return False
+
+            if not is_fp4(quantization_args=weight_quant_args):
+                return False
+        return True
+
+    for name, submodule in iter_named_quantizable_modules(
+        model,
+        include_attn=True,
+        include_mlp=True,
+    ):
+
+        if _is_attention_module(submodule):
+
+            if not _valid_fp4_quant(
+                [submodule.q_proj, submodule.v_proj, submodule.k_proj]
+            ):
+                continue
+
+            q_weight = submodule.q_proj.weight.data
+            v_weight = submodule.v_proj.weight.data
+            k_weight = submodule.k_proj.weight.data
+
+            value = generate_global_scale(
+                input_tensor=torch.cat((q_weight, v_weight, k_weight), dim=0)
+            )
+
+            update_parameter_data(submodule.q_proj, value, "weight_global_scale")
+            update_parameter_data(submodule.k_proj, value, "weight_global_scale")
+            update_parameter_data(submodule.v_proj, value, "weight_global_scale")
+
+        if _is_mlp_module(submodule):
+            if not _valid_fp4_quant([submodule.gate_proj, submodule.up_proj]):
+                continue
+
+            gate_data = submodule.gate_proj.weight.data
+            up_data = submodule.up_proj.weight.data
+
+            value = generate_global_scale(
+                input_tensor=torch.cat((gate_data, up_data), dim=0)
+            )
+
+            update_parameter_data(submodule.gate_proj, value, "weight_global_scale")
+            update_parameter_data(submodule.up_proj, value, "weight_global_scale")
