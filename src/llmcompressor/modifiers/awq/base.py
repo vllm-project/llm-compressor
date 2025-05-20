@@ -311,13 +311,24 @@ class AWQModifier(Modifier, QuantizationMixin):
                             continue
 
                         # exclude v_proj/o_proj mappings whose shapes are incompatible
+                        # exclude fused qkv_proj/o_proj mappings when shapes are not all equal
                         # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                         if (
-                            ".v_proj" in layer_name
-                            and ".o_proj" in balance_name
-                            and isinstance(smooth_layer, torch.nn.Linear)
+                            isinstance(smooth_layer, torch.nn.Linear)
                             and isinstance(balance_layer, torch.nn.Linear)
-                            and smooth_layer.weight.shape != balance_layer.weight.shape
+                            and ".o_proj" in balance_name
+                            and (
+                                (
+                                    ".v_proj" in layer_name
+                                    and smooth_layer.out_features
+                                    != balance_layer.in_features
+                                )
+                                or (
+                                    ".qkv_proj" in layer_name
+                                    and smooth_layer.out_features
+                                    != 3 * balance_layer.in_features
+                                )
+                            )
                         ):
                             num_skipped_oproj_mappings += 1
                             continue
@@ -490,15 +501,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # in this case, default to scaling the last output features
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            weight = module.weight
-                            if module.out_features == scales.numel():
-                                weight.div_(scales.view(-1, 1))
-                            else:
-                                weight[-scales.size(0) :].div_(scales.view(-1, 1))
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                weight,
+                                module.weight[-scales.size(0) :].div_(
+                                    scales.view(-1, 1)
+                                ),
                             )
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
