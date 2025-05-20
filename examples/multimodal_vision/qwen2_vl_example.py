@@ -11,7 +11,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = TraceableQwen2VLForConditionalGeneration.from_pretrained(
+model = Qwen2VLForConditionalGeneration.from_pretrained(
     model_id,
     device_map="auto",
     torch_dtype="auto",
