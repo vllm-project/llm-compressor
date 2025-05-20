@@ -94,7 +94,7 @@ def trace_subgraphs(
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets)
+    tracer = get_tracer(model, ancestors)
     concrete_args = populate_concrete_args(model, sample_input)
 
     with contextlib.ExitStack() as stack:
@@ -141,7 +141,7 @@ def trace_subgraphs(
     return subgraphs
 
 
-def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
+def get_tracer(model: Module, ancestors: Set[Module]) -> HFTracer:
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
@@ -151,14 +151,12 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
     modules may result in meta tensors being added to the model graph
 
     :param model: model being traced
-    :param sequential_targets: modules which are sequential targets
+    :param ancestors: modules which are ancestors of sequential targets
     :param ignore: modules to ignore during tracing, in the future will specify
-        functions and methods to skip during tracing
+        functions and methods to skip during tracing TODO
     """
-    ancestors = get_sequential_ancestors(model, sequential_targets)
-    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
-
     # check unlikely case that ancestors have direct params which are offloaded
+    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
     offloaded_ancestors = offloaded_modules & ancestors
     if offloaded_ancestors:
         names = set(module.__class__.__name__ for module in offloaded_ancestors)
@@ -180,6 +178,8 @@ def get_tracer(model: Module, sequential_targets: Set[Module]) -> HFTracer:
                 return super().create_arg(a)
 
         def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
+            # TODO: cleanup
+            nonlocal ancestors
             return module not in ancestors or module in offloaded_modules
 
     return SequentialTracer()
