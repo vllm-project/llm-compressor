@@ -32,14 +32,12 @@ import torch.nn as nn
 from transformers.cache_utils import Cache, StaticCache, HybridCache
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.utils import (
-    add_start_docstrings,
     logging,
     is_torch_flex_attn_available,
 )
 from transformers.processing_utils import Unpack
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.models.gemma3.modeling_gemma3 import (
-    GEMMA3_START_DOCSTRING,
     Gemma3ForConditionalGeneration,
     Gemma3CausalLMOutputWithPast,
     CausalLMOutputWithPast,
@@ -276,10 +274,7 @@ def bidirectional_mask(token_type_ids: torch.Tensor,
         )
     return causal_mask
 
-@add_start_docstrings(
-    """The GEMMA3 model which consists of a vision backbone and a language model.""",
-    GEMMA3_START_DOCSTRING,
-)
+
 class Gemma3ForConditionalGeneration(Gemma3ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
