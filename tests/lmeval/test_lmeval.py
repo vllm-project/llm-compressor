@@ -66,11 +66,10 @@ class TestLMEval:
 
     def set_up(self, test_data_file: str):
         eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
-        
-        '''
+
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
-        '''
+
         self.model = eval_config["model"]
         self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
         self.lmeval = LmEvalConfig(**eval_config.get("lmeval", {}))
@@ -182,28 +181,16 @@ class TestLMEval:
 
     def tear_down(self):
         timer = get_singleton_manager()
+        # fetch dictionary of measurements, where keys are func names
+        # and values are the time it took to run the method, each
+        # time it was called
         measurements = timer.measurements
-
         if measurements:
             p = Path(TIMINGS_DIR)
             p.mkdir(parents=True, exist_ok=True)
 
-            # Flatten measurements to long-form DataFrame
-            rows = []
-            for func_name, times in measurements.items():
-                for t in times:
-                    rows.append({"function": func_name, "time": t})
+            df = pd.DataFrame(measurements)
+            df.to_csv(p / f"{self.save_dir}.csv", index=False)
 
-            df = pd.DataFrame(rows)
-
-            # Use just the name of the save_dir to avoid directory collisions
-            name = Path(self.save_dir).name
-            timing_file = p / f"{name}.csv"
-
-            print(f"[INFO] Writing timing log to: {timing_file}")
-            df.to_csv(timing_file, index=False)
-
-        # Remove the model directory only (not the timing directory)
-        if self.save_dir and os.path.isdir(self.save_dir):
-            print(f"[INFO] Removing model directory: {self.save_dir}")
+        if self.save_dir is not None and os.path.isdir(self.save_dir):
             shutil.rmtree(self.save_dir)
