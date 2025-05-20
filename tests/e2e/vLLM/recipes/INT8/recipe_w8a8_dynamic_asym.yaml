@@ -8,7 +8,6 @@ quant_stage:
       - - ['re:.*gate_proj', 're:.*up_proj']
         - re:.*post_attention_layernorm
     GPTQModifier:
-      sequential_update: false
       ignore: [lm_head]
       config_groups:
         group_0:
