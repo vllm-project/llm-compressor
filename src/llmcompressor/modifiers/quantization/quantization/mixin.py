@@ -50,6 +50,10 @@ class QuantizationMixin(HooksMixin):
             - Remove calibration hooks
             - Apply freeze status
             - Keep quantization enabled for future steps
+        NOTE: QuantizationMixin does not update scales and zero-points on its own,
+          as this is not desired for all Modifiers inheriting from it. Modifier must
+          explicitly call `update_weight_zp_scale`.
+          See QuantizationModifier.on_start method for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
