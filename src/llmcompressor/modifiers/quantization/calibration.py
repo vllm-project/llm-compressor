@@ -7,7 +7,7 @@ from compressed_tensors.quantization import (
     QuantizationStatus,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
+from compressed_tensors.quantization.utils import is_fp4, is_kv_cache_quant_scheme
 from compressed_tensors.utils import align_module_device, update_parameter_data
 from loguru import logger
 from torch.nn import Module
@@ -54,8 +54,14 @@ def initialize_observer(
     quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
     if quantization_args is not None and not quantization_args.dynamic:
+        global_scale = getattr(module, f"{base_name}_global_scale", None)
+        if global_scale is not None:
+            assert base_name == "weight" and is_fp4(quantization_args=quantization_args)
+
         observer = Observer.load_from_registry(
-            quantization_args.observer, quantization_args=quantization_args
+            quantization_args.observer,
+            quantization_args=quantization_args,
+            global_scale=global_scale,
         )
         module.register_module(f"{base_name}_observer", observer)
 
