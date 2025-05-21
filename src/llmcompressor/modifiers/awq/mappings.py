@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from torch.nn import Module
+from loguru import logger
 
-__all__ = ["AWQMapping", "AWQ_MAPPING_REGISTRY"]
+__all__ = ["AWQMapping", "AWQ_MAPPING_REGISTRY", "get_layer_mappings_from_architecture"]
 
 
 @dataclass
@@ -58,9 +59,12 @@ _phi_mappings = [
 ]
 
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
-    "Llama": _default_mappings,
-    "Qwen": _default_mappings,
-    "Phi": _phi_mappings,
+    "LlamaForCausalLM": _default_mappings,
+    "Qwen2ForCausalLM": _default_mappings,
+    "Qwen3ForCausalLM": _default_mappings,
+    "MistralForCausalLM": _default_mappings,
+    "Phi3ForCausalLM": _phi_mappings,
+    "Phi3VForCausalLM": _phi_mappings,
 }
 
 
@@ -85,3 +89,18 @@ class ResolvedMapping:
     balance_names: Optional[List[str]] = None
     parent: Optional[Module] = None
     parent_name: Optional[str] = None
+
+
+def get_layer_mappings_from_architecture(architecture: str) -> List[AWQMapping]:
+    """
+    :param architecture: str: The architecture of the model
+    :return: list: The layer mappings for the given architecture
+    """
+
+    if architecture not in AWQ_MAPPING_REGISTRY:
+        logger.info(
+            f"Architecture {architecture} not found in mappings. "
+            f"Using default mappings: {_default_mappings}"
+        )
+
+    return AWQ_MAPPING_REGISTRY.get(architecture, _default_mappings)

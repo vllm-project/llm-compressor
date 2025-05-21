@@ -27,7 +27,7 @@ from llmcompressor.utils.pytorch.module import (
     get_parent_by_name,
 )
 
-from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
+from .mappings import get_layer_mappings_from_architecture, AWQMapping, ResolvedMapping
 
 __all__ = ["AWQModifier"]
 
@@ -120,7 +120,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: Union[str, List[str], None] = None
-    mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
+    mappings: Optional[List[AWQMapping]] = None
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
@@ -211,6 +211,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
             QuantizationMixin.initialize_quantization(self, state.model)
+
+        if self.mappings is None:
+            logger.info("No AWQModifier.mappings provided, inferring from model...")
+            self.mappings = get_layer_mappings_from_architecture(
+                architecture=state.model.__class__.__name__
+            )
 
         self._set_resolved_mappings(state.model)
 
