@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from torch.nn import Module
 from loguru import logger
+from torch.nn import Module
 
 __all__ = ["AWQMapping", "AWQ_MAPPING_REGISTRY", "get_layer_mappings_from_architecture"]
 
