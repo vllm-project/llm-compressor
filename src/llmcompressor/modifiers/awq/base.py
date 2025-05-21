@@ -226,8 +226,6 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self._set_resolved_mappings(state.model)
 
-        self._set_module_kwargs(state.model, state.data.calib)
-
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
@@ -389,7 +387,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         def cache_activation_hook_fn(
             module: torch.nn.Module,
             args: Tuple[torch.Tensor, ...],
-            kwargs: Dict[str, Any],
+            **kwargs,
         ):
             activations = args[0]  # assume input is first arg
             values = inspect.signature(module.forward).bind(*args, **kwargs)
