@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -11,7 +11,6 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
-from torch.utils.hooks import RemovableHandle
 from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
@@ -21,9 +20,11 @@ from llmcompressor.modifiers.awq.mappings import (
     ResolvedMapping,
     get_layer_mappings_from_architecture,
 )
+from llmcompressor.modifiers.awq.helpers import accumulate_mean
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
@@ -134,9 +135,11 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
-    _activations: Dict[str, List[torch.Tensor]] = PrivateAttr(default_factory=dict)
-    _activation_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
-    _module_kwargs: Dict = PrivateAttr(default_factory=dict)
+    _activations: Dict[Module, IntermediatesCache] = PrivateAttr(
+        default_factory=IntermediatesCache
+    )
+    _sample_means: Dict[Module, float] = PrivateAttr(default_factory=dict)
+    _sample_counts: Dict[Module, int] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_model_after(model: "AWQModifier") -> "AWQModifier":
@@ -271,8 +274,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.end_calibration(self, state.model)
 
         # remove activation hooks
-        self.remove_hooks(self._activation_hooks)
-        self._activation_hooks.clear()
+        self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -285,6 +287,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             self.on_end(state, None)
 
         self._activations.clear()
+        self._sample_means.clear()
+        self._sample_counts.clear()
         self._resolved_mappings.clear()
 
         return True
@@ -382,30 +386,24 @@ class AWQModifier(Modifier, QuantizationMixin):
         calculate the dynamic range during calibration
         """
 
-        def create_cache_activation_hook(smooth_layer_name):
-            def cache_activation_hook_fn(
-                _module: torch.nn.Module,
-                args: Tuple[torch.Tensor, ...],
-                _output: torch.Tensor,
-            ):
-                # Assume that first argument is the input
-                inp = args[0].cpu().detach()
+        def cache_activation_hook_fn(
+            _module: torch.nn.Module,
+            args: Tuple[torch.Tensor, ...],
+            kwargs: Dict[str, Any],
+        ):
+            sample = args[0]  # assume input is first arg
+            values = inspect.signature(_module.forward).bind(*args, **kwargs)
 
-                if smooth_layer_name in self._activations:
-                    self._activations[smooth_layer_name].append(inp)
-                else:
-                    self._activations[smooth_layer_name] = [inp]
-
-            return cache_activation_hook_fn
+            self._activations[_module].append(values)
+            self._sample_means, self._sample_counts = accumulate_mean(
+                sample, self._sample_means, self._sample_counts
+            )
 
         for mapping in self._resolved_mappings:
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
-            layer = mapping.balance_layers[0]
-            hook = self.register_hook(
-                layer, create_cache_activation_hook(mapping.smooth_name), "forward"
-            )
-            self._activation_hooks.add(hook)
+            for parent in mapping.parent:
+                self.register_hook(parent, cache_activation_hook_fn, "forward_pre")
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module) -> None:
@@ -422,12 +420,14 @@ class AWQModifier(Modifier, QuantizationMixin):
             if mapping.smooth_name not in self._activations:
                 continue
 
-            activations = torch.cat(self._activations[mapping.smooth_name], dim=0)
-            del self._activations[mapping.smooth_name]
-
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
-            module2inspect = mapping.parent
+            parent_layer = mapping.parent
+
+            # NOTE: When using SequentialPipeline, not all the mappings
+            # will have cached activations in the segment being udpated
+            if parent_layer not in self._sample_counts:
+                continue
 
             # [STEP 1]: Compute per-channel mean of normalised weights
             # All layer weights are concatted together
@@ -444,37 +444,10 @@ class AWQModifier(Modifier, QuantizationMixin):
             # Gets the average rescaled magnitude for each output channel
             w_mean = w_scale.mean(0)
 
-            # [STEP 2]: Compute per-channel mean of the input activation with chunking
-            # move inp to cpu to avoid memory leak
-            inp = activations.to(weight.device)
-            inp_flat = activations.cpu().abs().view(-1, inp.shape[-1])
-            num_elements = inp_flat.size(0)
-            num_channels = inp_flat.size(1)
-            element_size_bytes = inp_flat.element_size() * 2  # multiplied by 2 for FP32
-
-            # Calculate chunk size dynamically based on max_chunk_memory
-            chunk_size = int(
-                self.max_chunk_memory // (element_size_bytes * num_channels)
-            )
-            chunk_size = min(chunk_size, num_elements)
-
-            # Use float32 for sum calculation
-            x_sum = torch.zeros(num_channels, dtype=torch.float32, device=inp.device)
-
-            for i in range(0, num_elements, chunk_size):
-                end = min(i + chunk_size, num_elements)
-                chunk_sum = inp_flat[i:end].to(torch.float32).sum(dim=0)
-                x_sum += chunk_sum.to(inp.device)
-
-            x_mean = (x_sum / num_elements).to(inp.dtype)
-
             with calibration_forward_context(model), HooksMixin.disable_hooks():
                 # [STEP 3]: Compute output of module
-                fp16_output = self._forward_input_with_kwargs(
-                    module=module2inspect,
-                    inputs=inp,
-                    input_kwargs=_sanitize_kwargs(self._module_kwargs, module2inspect),
-                )
+                # could cache from hook, rather than recomputing here
+                fp16_output = self._run_samples(parent_layer)
                 fp16_output = fp16_output.clip(
                     torch.finfo(fp16_output.dtype).min,
                     torch.finfo(fp16_output.dtype).max,
@@ -482,7 +455,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # [STEP 4]: Compute loss
                 best_scales = self._compute_best_scale(
-                    inp, w_mean, x_mean, module2inspect, balance_layers, fp16_output
+                    w_mean, parent_layer, balance_layers, fp16_output
                 )
 
             @torch.no_grad()
@@ -528,14 +501,24 @@ class AWQModifier(Modifier, QuantizationMixin):
                     smooth(layer)
                 smooth(smooth_layer)
 
+            # remove caches needed to smooth this mapping
+            del self._activations[parent_layer]
+            del self._sample_means[parent_layer]
+            del self._sample_counts[parent_layer]
+
         self._assert_all_activations_consumed()
+
+    def _run_samples(self, module: Module) -> torch.Tensor:
+        with align_module_device(module):
+            return torch.cat(
+                [module(**batch) for batch in self._activations[module]],
+                dim=0,
+            )
 
     def _compute_best_scale(
         self,
-        x: torch.Tensor,
         w_mean: torch.Tensor,
-        x_mean: torch.Tensor,
-        module2inspect: torch.nn.Module,
+        parent_layer: torch.nn.Module,
         linears2scale: List[torch.nn.Linear],
         fp16_output: torch.Tensor,
     ) -> torch.Tensor:
@@ -554,9 +537,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_scales = None
         best_error = float("inf")
 
-        org_sd = {k: v.cpu() for k, v in module2inspect.state_dict().items()}
+        org_sd = {k: v.cpu() for k, v in parent_layer.state_dict().items()}
 
-        device = x.device
+        device = get_execution_device(parent_layer)
+        x_mean = self._sample_means[parent_layer]
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
 
@@ -595,9 +579,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
 
             # W * X
-            int_w_output = self._forward_input_with_kwargs(
-                module=module2inspect, inputs=x, input_kwargs=self._module_kwargs
-            )
+            int_w_output = self._run_samples(parent_layer)
             int_w_output = int_w_output.clip(
                 torch.finfo(int_w_output.dtype).min,
                 torch.finfo(int_w_output.dtype).max,
@@ -611,7 +593,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 best_error = loss
                 best_ratio = ratio
                 best_scales = scales.clone()
-            module2inspect.load_state_dict(org_sd)
+            parent_layer.load_state_dict(org_sd)
 
         if best_ratio == -1:
             logger.debug(history)
@@ -666,123 +648,13 @@ class AWQModifier(Modifier, QuantizationMixin):
         Confirm all activations have been consumed
         If not, something has gone wrong
         """
-        if len(self._activations) > 0:
-            raise RuntimeError("Some cached activations were not used")
-
-    def _set_module_kwargs(self, model, dataloader) -> None:
-        _, modules = next(iter(get_layers("re:.*layers", model).items()))
-
-        samples = [batch["input_ids"] for batch in dataloader]
-
-        samples = torch.cat(samples, dim=0)
-
-        inps = []
-        layer_kwargs = {}
-
-        best_device = "cuda"
-        modules[0] = modules[0].to(best_device)
-
-        # get input and kwargs to layer 0
-        # with_kwargs is only supported in PyTorch 2.0
-        # use this Catcher hack for now
-        class Catcher(torch.nn.Module):
-            def __init__(self, module):
-                super().__init__()
-                self.module = module
-
-            def forward(self, *args, **kwargs):
-                # assume first input to forward is hidden states
-                if len(args) > 0:
-                    hidden_states = args[0]
-                    del args
-                else:
-                    first_key = list(kwargs.keys())[0]
-                    hidden_states = kwargs.pop(first_key)
-
-                inps.append(hidden_states)
-                layer_kwargs.update(kwargs)
-                raise ValueError  # early exit to break later inference
-
-        # patch layer 0 to catch input and kwargs
-        modules[0] = Catcher(modules[0])
-        try:
-            with calibration_forward_context(model):
-                model(samples.to(next(model.parameters()).device))
-        except ValueError:  # work with early exit
-            pass
-        modules[0] = modules[0].module  # restore
-
-        # Update the layer kwargs with `prepare_inputs_for_generation` method
-        # that takes care of everything to avoid unexpected errors.
-        layer_kwargs = model.prepare_inputs_for_generation(samples, **layer_kwargs)
-        # Pop the input_ids as they are not needed at all.
-        layer_kwargs.pop("input_ids")
-
-        del samples
-        inps = inps[0]
-
-        if layer_kwargs.get("attention_mask") is not None:
-            layer_kwargs["attention_mask"] = layer_kwargs["attention_mask"].to(
-                best_device
-            )
-
-        self._module_kwargs = layer_kwargs
-
-    def _forward_input_with_kwargs(
-        self,
-        module: Module,
-        inputs: torch.Tensor,
-        input_kwargs: Optional[Dict[str, Any]] = None,
-    ) -> torch.Tensor:
-        """
-        Forward pass with input arguments
-
-        :param module: module to run forward pass on
-        :param inputs: input tensor to pass to the module
-        :param input_kwargs: additional arguments to pass to the module
-        :return: the first output tensor from the forward pass
-        """
-        kwargs = input_kwargs or self._module_kwargs
-        kwargs = _sanitize_kwargs(kwargs, module)
-
-        inputs = inputs.to(get_execution_device(module))
-
-        return module(inputs, **kwargs)[0]
-
-
-def _sanitize_kwargs(input_kwargs: Dict[str, Any], module: Module) -> Dict[str, Any]:
-    """
-    Sanitize input keyword arguments to match the module's forward method signature,
-    excluding `use_cache` which is not desired to be passed into module.
-
-    Args:
-        inputs_kwargs (`dict`):
-            The input dictionary to pass to the model layer
-        module (`torch.nn.Module`):
-            Target module to quantize.
-    """
-
-    params = inspect.signature(module.forward).parameters
-
-    # Filter out any kwargs not in module.forward signature
-    sanitized_kwargs = {k: v for k, v in input_kwargs.items() if k in params}
-
-    # Edge Case: forward pass has optional dependencies that don't default to None.
-    # This is the case for `LlamaAttention.forward` which has input
-    #  `attention_mask: Optional[torch.Tensor],` (with no `= None` default)
-    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L246
-    for k, v in params.items():
-        if (
-            k not in sanitized_kwargs
-            and v.default is inspect.Parameter.empty
-            and str(v.annotation).startswith("typing.Optional")
+        if not (
+            len(self._activations)
+            == len(self._sample_counts)
+            == len(self._sample_means)
+            == 0
         ):
-            sanitized_kwargs[k] = None
-
-    # Exclude `use_cache` entirely
-    sanitized_kwargs.pop("use_cache", None)
-
-    return sanitized_kwargs
+            raise RuntimeError("Some cached activations were not used")
 
 
 def _pseudo_quantize_tensor(
