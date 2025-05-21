@@ -483,7 +483,6 @@ def _parse_recipe_from_md(file_path, yaml_str):
     """
     extract YAML front matter from markdown recipe card. Copied from
     llmcompressor.optim.helpers:_load_yaml_str_from_file
-    
     :param file_path: path to recipe file
     :param yaml_str: string read from file_path
     :return: parsed yaml_str with README info removed
