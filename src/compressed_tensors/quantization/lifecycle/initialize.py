@@ -304,6 +304,9 @@ def update_fused_layer_weight_global_scales(model: torch.nn.Module):
     ):
 
         if _is_attention_module(submodule):
+            # already fused/treated as one layer
+            if hasattr(submodule, "qkv_proj"):
+                continue
 
             if not _valid_fp4_quant(
                 [submodule.q_proj, submodule.v_proj, submodule.k_proj]
