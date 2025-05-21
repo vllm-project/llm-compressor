@@ -16,6 +16,11 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.awq.mappings import (
+    AWQMapping,
+    ResolvedMapping,
+    get_layer_mappings_from_architecture,
+)
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -26,8 +31,6 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
-
-from .mappings import AWQMapping, ResolvedMapping, get_layer_mappings_from_architecture
 
 __all__ = ["AWQModifier"]
 
