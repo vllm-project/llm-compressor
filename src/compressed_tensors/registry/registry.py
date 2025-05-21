@@ -19,7 +19,7 @@ of neuralmagic utilities
 
 import importlib
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, List, Optional, TypeVar, Union
 
 
 __all__ = [
@@ -32,8 +32,9 @@ __all__ = [
 ]
 
 
-_ALIAS_REGISTRY: Dict[Type, Dict[str, str]] = defaultdict(dict)
-_REGISTRY: Dict[Type, Dict[str, Any]] = defaultdict(dict)
+_ALIAS_REGISTRY: Dict[type, Dict[str, str]] = defaultdict(dict)
+_REGISTRY: Dict[type, Dict[str, Any]] = defaultdict(dict)
+T = TypeVar("", bound="RegistryMixin")
 
 
 def standardize_lookup_name(name: str) -> str:
@@ -159,7 +160,7 @@ class RegistryMixin:
         )
 
     @classmethod
-    def load_from_registry(cls, name: str, **constructor_kwargs) -> object:
+    def load_from_registry(cls: type[T], name: str, **constructor_kwargs) -> T:
         """
         :param name: name of registered class to load
         :param constructor_kwargs: arguments to pass to the constructor retrieved
@@ -172,7 +173,7 @@ class RegistryMixin:
         return constructor(**constructor_kwargs)
 
     @classmethod
-    def get_value_from_registry(cls, name: str):
+    def get_value_from_registry(cls: type[T], name: str) -> T:
         """
         :param name: name to retrieve from the registry
         :return: value from retrieved the registry for the given name, raises
@@ -200,7 +201,7 @@ class RegistryMixin:
 
 
 def register(
-    parent_class: Type,
+    parent_class: type,
     value: Any,
     name: Optional[str] = None,
     alias: Union[List[str], str, None] = None,
@@ -240,7 +241,7 @@ def register(
 
 
 def get_from_registry(
-    parent_class: Type, name: str, require_subclass: bool = False
+    parent_class: type, name: str, require_subclass: bool = False
 ) -> Any:
     """
     :param parent_class: class that the name is registered under
@@ -276,7 +277,7 @@ def get_from_registry(
     return retrieved_value
 
 
-def registered_names(parent_class: Type) -> List[str]:
+def registered_names(parent_class: type) -> List[str]:
     """
     :param parent_class: class to look up the registry of
     :return: all names registered to the given class
@@ -284,7 +285,7 @@ def registered_names(parent_class: Type) -> List[str]:
     return list(_REGISTRY[parent_class].keys())
 
 
-def registered_aliases(parent_class: Type) -> List[str]:
+def registered_aliases(parent_class: type) -> List[str]:
     """
     :param parent_class: class to look up the registry of
     :return: all aliases registered to the given class
@@ -297,7 +298,7 @@ def registered_aliases(parent_class: Type) -> List[str]:
 
 
 def register_alias(
-    name: str, parent_class: Type, alias: Union[str, List[str], None] = None
+    name: str, parent_class: type, alias: Union[str, List[str], None] = None
 ):
     """
     Updates the mapping from the alias(es) to the given name.
@@ -352,7 +353,7 @@ def _import_and_get_value_from_module(module_path: str, value_name: str) -> Any:
     return value
 
 
-def _validate_subclass(parent_class: Type, child_class: Type):
+def _validate_subclass(parent_class: type, child_class: type):
     if not issubclass(child_class, parent_class):
         raise ValueError(
             f"class {child_class} is not a subclass of the class it is "
