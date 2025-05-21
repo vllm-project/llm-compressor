@@ -269,8 +269,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                 observer = None
 
         elif observer is None:
-            # default to minmax for non-dynamic cases
-            observer = "minmax"
+            # default to mse for non-dynamic cases
+            observer = "mse"
 
         # write back modified values
         model.strategy = strategy
