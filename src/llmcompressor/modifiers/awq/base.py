@@ -313,9 +313,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         # exclude v_proj->o_proj mappings whose shapes are incompatible
                         # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                         if (
-                            ".v_proj" in layer_name
-                            and ".o_proj" in balance_name
-                            and isinstance(smooth_layer, torch.nn.Linear)
+                            isinstance(smooth_layer, torch.nn.Linear)
                             and isinstance(balance_layer, torch.nn.Linear)
                             and ".o_proj" in balance_name
                             and (
