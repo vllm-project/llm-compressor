@@ -16,6 +16,11 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.awq.mappings import (
+    AWQMapping,
+    ResolvedMapping,
+    get_layer_mappings_from_architecture,
+)
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -26,8 +31,6 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
-
-from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 
 __all__ = ["AWQModifier"]
 
@@ -120,7 +123,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: Union[str, List[str], None] = None
-    mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
+    mappings: Optional[List[AWQMapping]] = None
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
@@ -211,6 +214,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
             QuantizationMixin.initialize_quantization(self, state.model)
+
+        if self.mappings is None:
+            logger.info("No AWQModifier.mappings provided, inferring from model...")
+            self.mappings = get_layer_mappings_from_architecture(
+                architecture=state.model.__class__.__name__
+            )
 
         self._set_resolved_mappings(state.model)
 
@@ -500,13 +509,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # in this case, default to scaling the last output features
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            update_offload_parameter(
-                                module,
-                                "weight",
-                                module.weight[-scales.size(0) :].div_(
-                                    scales.view(-1, 1)
-                                ),
-                            )
+                            weight = module.weight
+                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
