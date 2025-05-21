@@ -506,13 +506,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # in this case, default to scaling the last output features
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            update_offload_parameter(
-                                module,
-                                "weight",
-                                module.weight[-scales.size(0) :].div_(
-                                    scales.view(-1, 1)
-                                ),
-                            )
+                            weight = module.weight
+                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
