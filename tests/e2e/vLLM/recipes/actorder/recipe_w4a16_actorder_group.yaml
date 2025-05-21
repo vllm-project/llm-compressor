@@ -12,6 +12,3 @@ quant_stage:
             group_size: 128
             actorder: "group"
           targets: ["Linear"]
-          observer: "mse"
-          observer_kwargs:
-            maxshrink: 0.3
