@@ -483,6 +483,7 @@ def _parse_recipe_from_md(file_path, yaml_str):
     """
     extract YAML front matter from markdown recipe card. Copied from
     llmcompressor.optim.helpers:_load_yaml_str_from_file
+    
     :param file_path: path to recipe file
     :param yaml_str: string read from file_path
     :return: parsed yaml_str with README info removed
@@ -517,9 +518,11 @@ def get_yaml_serializable_stage_dict(modifiers: List[Dict[str, Any]]) -> Dict[st
     This is needed to conform to our recipe structure during yaml serialization
     where each stage, modifier_groups, and modifiers are represented as
     valid yaml dictionaries.
+
     Note: This function assumes that modifier groups do not contain the same
     modifier type more than once in a group. This assumption is also held by
     Recipe.create_instance(...) method.
+
     :param modifiers: A list of dictionaries where each dictionary
         holds all information about a modifier
     :return: A dictionary where the keys are the group names and the values
