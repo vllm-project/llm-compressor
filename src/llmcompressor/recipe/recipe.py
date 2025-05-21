@@ -15,7 +15,6 @@ from llmcompressor.recipe.stage import RecipeStage
 
 __all__ = [
     "Recipe",
-    "RecipeTuple",
     "RecipeInput",
     "RecipeStageInput",
     "RecipeArgsInput",
@@ -164,50 +163,39 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_recipe(
-        recipe: Union[str, "Recipe", "RecipeTuple"], shift: Optional[int] = None
+        recipe: Union[str, "Recipe"], 
+        target_stages: Optional[List[str]] = None, 
+        override_args: Optional[Dict[str, Any]] = None,
     ) -> "Recipe":
         """
-        Simplify a RecipeTuple by removing stages that are not in the target_stages
+        Simplify a Recipe by removing stages that are not in the target_stages
         and shifting the start and end of the recipe by the shift amount
 
-
-        Using a RecipeTuple instance with shift:
-        >>> recipe_str = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 0.0
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe = Recipe.create_instance(recipe_str)
-        >>> recipe_tuple = RecipeTuple(recipe, ["test"], {})
-        >>> simplified = Recipe.simplify_recipe(recipe_tuple)
-
-        :param recipe: The Recipe or RecipeTuple instance to simplify
+        :param recipe: The Recipe instance to simplify
+        :param target_stages: The stages to target when simplifying the recipe
+        :param override_args: The arguments used to override existing recipe args
         :return: The simplified Recipe instance
         """
         if isinstance(recipe, str):
             recipe = Recipe.create_instance(recipe)
 
-        if isinstance(recipe, Recipe):
+        if not target_stages and not override_args:
             return recipe
 
-        # RecipeTuple case
         stages = []
-        stage_names = recipe.target_stages
+        stage_names = target_stages
         if stage_names is None:
-            stages = recipe.recipe.stages
+            stages = recipe.stages
         else:
-            for stage in recipe.recipe.stages:
+            for stage in recipe.stages:
                 if any(stage.group in stage_name for stage_name in stage_names):
                     stages.append(stage)
 
         # default args in recipe
-        args = recipe.recipe.args if isinstance(recipe, RecipeTuple) else recipe.args
+        args = recipe.args
 
         # overwrite with args passed in through CLI
-        for key, val in recipe.override_args.items():
+        for key, val in override_args.items():
             args[key] = val
         version = recipe.version if isinstance(recipe, Recipe) else None
 
@@ -220,50 +208,23 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_combine_recipes(
-        recipes: List[Union[str, "Recipe", "RecipeTuple"]],
+        recipes: List[Union[str, "Recipe"]],
     ) -> "Recipe":
         """
         A method to combine multiple recipes into one recipe
         Automatically calculates the start and end of the combined recipe
         and shifts the start and end of the recipes accordingly
 
-        Using two RecipeTuple instances:
-        >>> recipe_str_1 = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 0.0
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe_str_2 = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 3.0
-        ...             end: 5.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe_1, recipe_2 = (Recipe.create_instance(recipe_str_1),
-        ... Recipe.create_instance(recipe_str_2))
-        >>> combined = Recipe.simplify_combine_recipes(
-        ... [RecipeTuple(recipe_1, ["test"], {}), RecipeTuple(recipe_2, ["test"], {})])
-        >>> len(combined.stages)
-        2
-
-        :param recipes: The list of Recipe/RecipeTuple instances to combine
+        :param recipes: The list of Recipe instances to combine
         :return: The combined Recipe instance
         """
 
         combined = Recipe()
 
         for recipe in recipes:
-            simplified = Recipe.simplify_recipe(
-                recipe=recipe,
-            )
-            combined.version = simplified.version
-            combined.stages.extend(simplified.stages)
-            combined.args.update(simplified.args)
+            combined.version = recipe.version
+            combined.stages.extend(recipe.stages)
+            combined.args.update(recipe.args)
 
         return combined
 
@@ -498,101 +459,3 @@ class Recipe(RecipeBase):
 RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
 RecipeStageInput = Union[str, List[str], List[List[str]]]
 RecipeArgsInput = Union[Dict[str, Any], List[Dict[str, Any]]]
-
-
-@dataclass
-class RecipeTuple:
-    """
-    A simple dataclass to hold a recipe, its target_stages, and override_args
-
-    :param recipe: The Recipe instance to hold
-    :param target_stages: The stages to target when simplifying the recipe
-        (Note: Stages not in the target_stages will be removed during
-        simplification)
-    :param override_args: The args used to override existing recipe args
-        associated with the supplied `recipe`
-    """
-
-    recipe: Recipe
-    target_stages: List[str]
-    override_args: Dict[str, Any]
-
-
-def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
-    # try loading as json first, then yaml
-    # if both fail, raise a ValueError
-    try:
-        ret = json.loads(content)
-    except json.JSONDecodeError:
-        try:
-            ret = yaml.safe_load(content)
-        except yaml.YAMLError as err:
-            raise ValueError(f"Could not parse recipe from string {content}") from err
-
-    if not isinstance(ret, dict):
-        raise ValueError(
-            f"Could not parse recipe from string {content}. If you meant load from "
-            "a file, please make sure that the specified file path exists"
-        )
-    return ret
-
-
-def _parse_recipe_from_md(file_path, yaml_str):
-    """
-    extract YAML front matter from markdown recipe card. Copied from
-    llmcompressor.optim.helpers:_load_yaml_str_from_file
-
-    :param file_path: path to recipe file
-    :param yaml_str: string read from file_path
-    :return: parsed yaml_str with README info removed
-    """
-    # extract YAML front matter from markdown recipe card
-    # adapted from
-    # https://github.com/jonbeebe/frontmatter/blob/master/frontmatter
-    yaml_delim = r"(?:---|\+\+\+)"
-    yaml = r"(.*?)"
-    re_pattern = r"^\s*" + yaml_delim + yaml + yaml_delim
-    regex = re.compile(re_pattern, re.S | re.M)
-    result = regex.search(yaml_str)
-
-    if result:
-        yaml_str = result.group(1)
-    else:
-        # fail if we know whe should have extracted front matter out
-        raise RuntimeError(
-            "Could not extract YAML front matter from recipe card:" " {}".format(
-                file_path
-            )
-        )
-    return yaml_str
-
-
-def get_yaml_serializable_stage_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    This function is used to convert a list of modifiers into a dictionary
-    where the keys are the group names and the values are the modifiers
-    which in turn are dictionaries with the modifier type as the key and
-    the modifier args as the value.
-
-    This is needed to conform to our recipe structure during yaml serialization
-    where each stage, modifier_groups, and modifiers are represented as
-    valid yaml dictionaries.
-
-    Note: This function assumes that modifier groups do not contain the same
-    modifier type more than once in a group. This assumption is also held by
-    Recipe.create_instance(...) method.
-
-    :param modifiers: A list of dictionaries where each dictionary
-        holds all information about a modifier
-    :return: A dictionary where the keys are the group names and the values
-        are the modifiers which in turn are dictionaries with the modifier
-        type as the key and the modifier args as the value.
-    """
-    stage_dict = {}
-    for modifier in modifiers:
-        group_name = f"{modifier['group']}_modifiers"
-        modifier_type = modifier["type"]
-        if group_name not in stage_dict:
-            stage_dict[group_name] = {}
-        stage_dict[group_name][modifier_type] = modifier["args"]
-    return stage_dict

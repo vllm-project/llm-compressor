@@ -7,7 +7,6 @@ from llmcompressor.recipe.recipe import (
     RecipeArgsInput,
     RecipeInput,
     RecipeStageInput,
-    RecipeTuple,
 )
 
 __all__ = ["RecipeContainer"]
@@ -20,12 +19,12 @@ class RecipeContainer:
     to update the recipes and compile them into a single recipe.
 
     :param compiled_recipe: the compiled recipe from the recipes list
-    :param recipes: the list of RecipeTuple instances to be compiled
+    :param recipes: the list of Recipes instances to be compiled
     :param applied_stages: list of recipe stages that have already been applied
     """
 
     compiled_recipe: Optional[Recipe] = None
-    recipes: List[RecipeTuple] = field(default_factory=list)
+    recipes: List[Recipe] = field(default_factory=list)
     applied_stages: List[str] = field(default_factory=list)
 
     def prepend(
@@ -34,8 +33,8 @@ class RecipeContainer:
         recipe_stage: Optional[RecipeStageInput] = None,
         recipe_args: Optional[RecipeArgsInput] = None,
     ):
-        recipe_tuples = self._prepare_tuples(recipe, recipe_stage, recipe_args)
-        self.recipes = recipe_tuples + self.recipes
+        recipes = self._prepare_recipes(recipe, recipe_stage, recipe_args)
+        self.recipes = recipes + self.recipes
         self._check_compile_recipe()
 
     def append(
@@ -44,8 +43,8 @@ class RecipeContainer:
         recipe_stage: Optional[RecipeStageInput] = None,
         recipe_args: Optional[RecipeArgsInput] = None,
     ):
-        recipe_tuples = self._prepare_tuples(recipe, recipe_stage, recipe_args)
-        self.recipes = self.recipes + recipe_tuples
+        recipes = self._prepare_recipes(recipe, recipe_stage, recipe_args)
+        self.recipes = self.recipes + recipes
         self._check_compile_recipe()
 
     def get_modifiers(self) -> List[Modifier]:
@@ -54,12 +53,12 @@ class RecipeContainer:
 
         return self.compiled_recipe.create_modifier()
 
-    def _prepare_tuples(
+    def _prepare_recipes(
         self,
         recipe: Optional[RecipeInput] = None,
         recipe_stage: Optional[RecipeStageInput] = None,
         recipe_args: Optional[RecipeArgsInput] = None,
-    ) -> List[RecipeTuple]:
+    ) -> List[Recipe]:
         if recipe is None or (isinstance(recipe, list) and len(recipe) == 0):
             return []
 
@@ -101,7 +100,7 @@ class RecipeContainer:
 
         # create tuples
         return [
-            RecipeTuple(rec, stage, args)
+            Recipe.simplify_recipe(rec, stage, args)
             for rec, stage, args in zip(recipe, recipe_stage, recipe_args)
         ]
 
