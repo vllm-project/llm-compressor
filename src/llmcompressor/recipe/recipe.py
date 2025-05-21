@@ -1,7 +1,6 @@
 import json
 import os
 import re
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
@@ -163,8 +162,8 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_recipe(
-        recipe: Union[str, "Recipe"], 
-        target_stages: Optional[List[str]] = None, 
+        recipe: Union[str, "Recipe"],
+        target_stages: Optional[List[str]] = None,
         override_args: Optional[Dict[str, Any]] = None,
     ) -> "Recipe":
         """
@@ -459,6 +458,7 @@ class Recipe(RecipeBase):
 RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
 RecipeStageInput = Union[str, List[str], List[List[str]]]
 RecipeArgsInput = Union[Dict[str, Any], List[Dict[str, Any]]]
+
 
 def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
     # try loading as json first, then yaml
