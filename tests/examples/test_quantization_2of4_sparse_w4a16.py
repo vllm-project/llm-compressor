@@ -36,9 +36,9 @@ class TestQuantization24SparseW4A16:
         readme = ReadMe(readme_path)
 
         command = readme.get_code_block_content(position=2, lang="shell")
-        assert command.startswith("python"), (
-            "Expected shell command to start with 'python'"
-        )
+        assert command.startswith(
+            "python"
+        ), "Expected shell command to start with 'python'"
 
         command = shlex.split(command)
         result = copy_and_run_command(tmp_path, example_dir, command)
@@ -62,18 +62,16 @@ class TestQuantization24SparseW4A16:
         }
 
         for stage, stage_info in stages.items():
-            stage_path = (
-                tmp_path / example_dir / output_dir / stage_info["path"]
-            )
+            stage_path = tmp_path / example_dir / output_dir / stage_info["path"]
             recipe_path = stage_path / "recipe.yaml"
             config_path = stage_path / "config.json"
 
-            assert recipe_path.exists(), (
-                f"Missing recipe file in {stage}: {recipe_path}"
-            )
-            assert config_path.exists(), (
-                f"Missing config file in {stage}: {config_path}"
-            )
+            assert (
+                recipe_path.exists()
+            ), f"Missing recipe file in {stage}: {recipe_path}"
+            assert (
+                config_path.exists()
+            ), f"Missing config file in {stage}: {config_path}"
 
             config = AutoConfig.from_pretrained(stage_path)
             assert config is not None, f"Failed to load config in {stage}"
@@ -82,13 +80,9 @@ class TestQuantization24SparseW4A16:
             if stage == "quantization":
                 actual_format = quant_config.get("format")
             else:
-                actual_format = quant_config.get(
-                    "sparsity_config", {}
-                ).get("format")
+                actual_format = quant_config.get("sparsity_config", {}).get("format")
 
-            assert actual_format, (
-                f"Missing expected format field in {stage} config"
-            )
+            assert actual_format, f"Missing expected format field in {stage} config"
             assert actual_format == stage_info["format"], (
                 f"Unexpected format in {stage}: got '{actual_format}', "
                 f"expected '{stage_info['format']}'"

@@ -24,15 +24,15 @@ class AWQMapping:
 
 
 _default_mappings = [
-    # AWQMapping(
-    #     "re:.*input_layernorm",
-    #     ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
-    # ),
-    # AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
-    # AWQMapping(
-    #     "re:.*post_attention_layernorm",
-    #     ["re:.*gate_proj", "re:.*up_proj"],
-    # ),
+    AWQMapping(
+        "re:.*input_layernorm",
+        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+    ),
+    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm",
+        ["re:.*gate_proj", "re:.*up_proj"],
+    ),
     AWQMapping(
         "re:.*up_proj",
         ["re:.*down_proj"],

@@ -302,8 +302,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        pbar = tqdm(enumerate(self.mappings), desc="Resolving Mappings")
-        for mapping_idx, mapping in pbar:
+        for mapping_idx, mapping in enumerate(self.mappings):
             smooth_layers = get_layers(mapping.smooth_layer, model)
             smooth_names = [
                 smooth_name
@@ -318,7 +317,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             pbar = tqdm(smooth_names)
             for smooth_name in pbar:
                 pbar.set_description(
-                    f"Mapping {mapping_idx+1}/{len(self.mappings)}: resolving smoothing layers"
+                    f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
                     f" ({num_skipped_mappings} skipped)"
                 )
                 smooth_layer = smooth_layers[smooth_name]
@@ -389,7 +388,6 @@ class AWQModifier(Modifier, QuantizationMixin):
                         parent_name=parent_name,
                     )
                 )
-        breakpoint()
         self._resolved_mappings = resolved_mappings
         return
 
