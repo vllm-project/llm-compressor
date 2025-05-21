@@ -27,7 +27,7 @@ from llmcompressor.utils.pytorch.module import (
     get_parent_by_name,
 )
 
-from .mappings import get_layer_mappings_from_architecture, AWQMapping, ResolvedMapping
+from .mappings import AWQMapping, ResolvedMapping, get_layer_mappings_from_architecture
 
 __all__ = ["AWQModifier"]
 
