@@ -15,12 +15,12 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.awq.helpers import accumulate_mean
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
     get_layer_mappings_from_architecture,
 )
-from llmcompressor.modifiers.awq.helpers import accumulate_mean
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -138,8 +138,8 @@ class AWQModifier(Modifier, QuantizationMixin):
     _activations: Dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=IntermediatesCache
     )
-    _sample_means: Dict[Module, float] = PrivateAttr(default_factory=dict)
-    _sample_counts: Dict[Module, int] = PrivateAttr(default_factory=dict)
+    _activation_means: Dict[Module, float] = PrivateAttr(default_factory=dict)
+    _activation_counts: Dict[Module, int] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_model_after(model: "AWQModifier") -> "AWQModifier":
@@ -287,8 +287,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             self.on_end(state, None)
 
         self._activations.clear()
-        self._sample_means.clear()
-        self._sample_counts.clear()
+        self._activation_means.clear()
+        self._activation_counts.clear()
         self._resolved_mappings.clear()
 
         return True
@@ -387,23 +387,22 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
 
         def cache_activation_hook_fn(
-            _module: torch.nn.Module,
+            module: torch.nn.Module,
             args: Tuple[torch.Tensor, ...],
             kwargs: Dict[str, Any],
         ):
-            sample = args[0]  # assume input is first arg
-            values = inspect.signature(_module.forward).bind(*args, **kwargs)
+            activations = args[0]  # assume input is first arg
+            values = inspect.signature(module.forward).bind(*args, **kwargs)
 
-            self._activations[_module].append(values)
-            self._sample_means, self._sample_counts = accumulate_mean(
-                sample, self._sample_means, self._sample_counts
+            self._activations[module].append(values)
+            self._activation_means, self._activation_counts = accumulate_mean(
+                activations, self._activation_means, self._activation_counts
             )
 
         for mapping in self._resolved_mappings:
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
-            for parent in mapping.parent:
-                self.register_hook(parent, cache_activation_hook_fn, "forward_pre")
+            self.register_hook(mapping.parent, cache_activation_hook_fn, "forward_pre")
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module) -> None:
@@ -426,7 +425,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             # NOTE: When using SequentialPipeline, not all the mappings
             # will have cached activations in the segment being udpated
-            if parent_layer not in self._sample_counts:
+            if parent_layer not in self._activation_counts:
                 continue
 
             # [STEP 1]: Compute per-channel mean of normalised weights
@@ -503,8 +502,8 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             # remove caches needed to smooth this mapping
             del self._activations[parent_layer]
-            del self._sample_means[parent_layer]
-            del self._sample_counts[parent_layer]
+            del self._activation_means[parent_layer]
+            del self._activation_counts[parent_layer]
 
         self._assert_all_activations_consumed()
 
@@ -540,7 +539,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         org_sd = {k: v.cpu() for k, v in parent_layer.state_dict().items()}
 
         device = get_execution_device(parent_layer)
-        x_mean = self._sample_means[parent_layer]
+        x_mean = self._activation_means[parent_layer]
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
 
@@ -650,8 +649,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         if not (
             len(self._activations)
-            == len(self._sample_counts)
-            == len(self._sample_means)
+            == len(self._activation_counts)
+            == len(self._activation_means)
             == 0
         ):
             raise RuntimeError("Some cached activations were not used")
