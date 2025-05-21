@@ -16,6 +16,11 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.awq.mappings import (
+    AWQMapping,
+    ResolvedMapping,
+    get_layer_mappings_from_architecture,
+)
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -26,8 +31,6 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
-
-from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 
 __all__ = ["AWQModifier"]
 
@@ -120,7 +123,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: Union[str, List[str], None] = None
-    mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
+    mappings: Optional[List[AWQMapping]] = None
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
@@ -212,6 +215,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         if QuantizationMixin.has_config(self):
             QuantizationMixin.initialize_quantization(self, state.model)
 
+        if self.mappings is None:
+            logger.info("No AWQModifier.mappings provided, inferring from model...")
+            self.mappings = get_layer_mappings_from_architecture(
+                architecture=state.model.__class__.__name__
+            )
+
         self._set_resolved_mappings(state.model)
 
         self._set_module_kwargs(state.model, state.data.calib)
@@ -293,77 +302,94 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        num_skipped_oproj_mappings = 0
-        for mapping in self.mappings:
-            to_smooth_layers = get_layers(mapping.smooth_layer, model)
-            for layer_name, smooth_layer in to_smooth_layers.items():
-                # always exclude `.weight_observer`, only want `.weight`
-                if layer_name not in self.ignore and not layer_name.endswith(
-                    "_observer"
-                ):
-                    balance_layers, balance_names = [], []
-                    for balance_suffix in mapping.balance_layers:
-                        # find the submodule that matches the activation layer
-                        balance_name, balance_layer = get_matching_layer(
-                            balance_suffix, layer_name, model
-                        )
-                        if not balance_layer:
-                            continue
+        pbar = tqdm(enumerate(self.mappings), desc="Resolving Mappings")
+        for mapping_idx, mapping in pbar:
+            smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_names = [
+                smooth_name
+                for smooth_name in smooth_layers
+                if (
+                    smooth_name not in self.ignore
+                    and not smooth_name.endswith("_observer")
+                )
+            ]
 
-                        # exclude v_proj->o_proj mappings whose shapes are incompatible
-                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-                        if (
-                            isinstance(smooth_layer, torch.nn.Linear)
-                            and isinstance(balance_layer, torch.nn.Linear)
-                            and ".o_proj" in balance_name
-                            and (
-                                (
-                                    ".v_proj" in layer_name
-                                    and smooth_layer.out_features
-                                    != balance_layer.in_features
-                                )
-                                or (
-                                    ".qkv_proj" in layer_name
-                                    and smooth_layer.out_features
-                                    != 3 * balance_layer.in_features
-                                )
+            num_skipped_mappings = 0
+            pbar = tqdm(smooth_names)
+            for smooth_name in pbar:
+                pbar.set_description(
+                    f"Mapping {mapping_idx+1}/{len(self.mappings)}: resolving smoothing layers"
+                    f" ({num_skipped_mappings} skipped)"
+                )
+                smooth_layer = smooth_layers[smooth_name]
+
+                balance_layers, balance_names = [], []
+                for balance_suffix in mapping.balance_layers:
+                    # find the submodule that matches the activation layer
+                    parent_name, parent_module = get_parent_by_name(
+                        layer_name=smooth_name, model=model
+                    )
+                    balance_name, balance_layer = get_matching_layer(
+                        balance_suffix,
+                        smooth_name,
+                        parent_module,
+                    )
+                    if not balance_layer:
+                        continue
+                    balance_name = f"{parent_name}.{balance_name}"
+
+                    # exclude v_proj->o_proj mappings whose shapes are incompatible
+                    # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+                    if (
+                        ".v_proj" in smooth_name
+                        and ".o_proj" in balance_name
+                        and isinstance(smooth_layer, torch.nn.Linear)
+                        and isinstance(balance_layer, torch.nn.Linear)
+                        and ".o_proj" in balance_name
+                        and (
+                            (
+                                ".v_proj" in smooth_name
+                                and smooth_layer.out_features
+                                != balance_layer.in_features
                             )
-                        ):
-                            num_skipped_oproj_mappings += 1
-                            continue
-
-                        balance_layers.append(balance_layer)
-                        balance_names.append(balance_name)
-
-                    if len(balance_layers) == 0:
+                            or (
+                                ".qkv_proj" in smooth_name
+                                and smooth_layer.out_features
+                                != 3 * balance_layer.in_features
+                            )
+                        )
+                    ):
+                        num_skipped_mappings += 1
                         continue
 
-                    # each mapping can contain multiple layers to balance, but only
-                    # one layer to smooth
-                    if len(balance_layers) == 1:
-                        # for single balance layer, parent is the balance layer
-                        parent_name, parent = balance_name, balance_layer
-                    else:
-                        # for multiple balance layers,
-                        # parent of any balance layer is the parent
-                        parent_name, parent = get_parent_by_name(
-                            layer_name=balance_name, model=model
-                        )
-                    resolved_mappings.append(
-                        ResolvedMapping(
-                            layer_name,
-                            smooth_layer,
-                            balance_layers,
-                            balance_names=balance_names,
-                            parent=parent,
-                            parent_name=parent_name,
-                        )
+                    balance_layers.append(balance_layer)
+                    balance_names.append(balance_name)
+
+                if len(balance_layers) == 0:
+                    continue
+
+                # each mapping can contain multiple layers to balance, but only
+                # one layer to smooth
+                elif len(balance_layers) == 1:
+                    # for single balance layer, parent is the balance layer
+                    parent_name, parent = balance_name, balance_layer
+                else:
+                    # for multiple balance layers,
+                    # parent of any balance layer is the parent
+                    parent_name, parent = get_parent_by_name(
+                        layer_name=balance_name, model=model
                     )
-        if num_skipped_oproj_mappings > 0:
-            logger.info(
-                f"Excluded {num_skipped_oproj_mappings} from resolved "
-                "mappings due to shape mismatch"
-            )
+                resolved_mappings.append(
+                    ResolvedMapping(
+                        smooth_name,
+                        smooth_layer,
+                        balance_layers,
+                        balance_names=balance_names,
+                        parent=parent,
+                        parent_name=parent_name,
+                    )
+                )
+        breakpoint()
         self._resolved_mappings = resolved_mappings
         return
 
@@ -500,13 +526,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                             # in this case, default to scaling the last output features
                             # because the desired smooth layer is v_proj
                             # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
-                            update_offload_parameter(
-                                module,
-                                "weight",
-                                module.weight[-scales.size(0) :].div_(
-                                    scales.view(-1, 1)
-                                ),
-                            )
+                            weight = module.weight
+                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
