@@ -135,11 +135,13 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
-    _activations: Dict[Module, IntermediatesCache] = PrivateAttr(
+    _parent_kwargs_cache: Dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=IntermediatesCache
     )
-    _activation_means: Dict[Module, float] = PrivateAttr(default_factory=dict)
-    _activation_counts: Dict[Module, int] = PrivateAttr(default_factory=dict)
+    # Dict[smooth_name, (activation_means, activation_counts)]
+    _smooth_activation_cache: Dict[str, Tuple[float, int]] = PrivateAttr(
+        default_factory=dict
+    )
 
     @model_validator(mode="after")
     def validate_model_after(model: "AWQModifier") -> "AWQModifier":
@@ -284,9 +286,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
-        self._activations.clear()
-        self._activation_means.clear()
-        self._activation_counts.clear()
+        self._parent_kwargs_cache.clear()
+        self._smooth_activation_cache.clear()
         self._resolved_mappings.clear()
 
         return True
@@ -384,27 +385,46 @@ class AWQModifier(Modifier, QuantizationMixin):
         calculate the dynamic range during calibration
         """
 
-        def cache_activation_hook_fn(
+        def cache_parent_kwargs_hook(
             module: torch.nn.Module,
             args: Tuple[torch.Tensor, ...],
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
-            activations = values.args[0]
+            self._parent_kwargs_cache[module].append(values.arguments)
 
-            self._activations[module].append(values.arguments)
-            self._activation_means, self._activation_counts = accumulate_mean(
-                activations, self._activation_means, self._activation_counts
-            )
+        def create_cache_smooth_activations_hook_fn(smooth_name):
+            def cache_smooth_activations_hook(
+                _module: torch.nn.Module,
+                args: Tuple[torch.Tensor, ...],
+                _output: torch.Tensor,
+            ):
+                # Assume that first argument is the input
+                inp = args[0].cpu().detach()
+
+                self._smooth_activation_cache[smooth_name] = accumulate_mean(
+                    inp,
+                    self._smooth_activation_cache.get(smooth_name, (0.0, 0)),
+                )
+
+            return cache_smooth_activations_hook
 
         for mapping in self._resolved_mappings:
+            # parent kwargs needed for future forward passes
+            self.register_hook(
+                mapping.parent,
+                cache_parent_kwargs_hook,
+                "forward_pre",
+                with_kwargs=True,
+            )
+
+            # input activations to balance layers needed for loss function
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
             self.register_hook(
-                mapping.parent,
-                cache_activation_hook_fn,
-                "forward_pre",
-                with_kwargs=True,
+                mapping.balance_layers[0],
+                create_cache_smooth_activations_hook_fn(mapping.smooth_name),
+                "forward",
             )
 
     @torch.no_grad()
@@ -419,17 +439,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         for mapping in tqdm(self._resolved_mappings, desc="Smoothing"):
             # NOTE: When using SequentialPipeline, not all the mappings
             # will have cached activations in the segment being udpated
-            if mapping.smooth_name not in self._activations:
+            if mapping.smooth_name not in self._smooth_activation_cache:
                 continue
 
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
             parent_layer = mapping.parent
-
-            # NOTE: When using SequentialPipeline, not all the mappings
-            # will have cached activations in the segment being udpated
-            if parent_layer not in self._activation_counts:
-                continue
 
             # [STEP 1]: Compute per-channel mean of normalised weights
             # All layer weights are concatted together
@@ -504,16 +519,15 @@ class AWQModifier(Modifier, QuantizationMixin):
                 smooth(smooth_layer)
 
             # remove caches needed to smooth this mapping
-            del self._activations[parent_layer]
-            del self._activation_means[parent_layer]
-            del self._activation_counts[parent_layer]
+            del self._smooth_activation_cache[smooth_layer]
 
+        self._parent_kwargs_cache.clear()
         self._assert_all_activations_consumed()
 
     def _run_samples(self, module: Module) -> torch.Tensor:
         with align_module_device(module):
             return torch.cat(
-                [module(**batch) for batch in self._activations[module]],
+                [module(**batch) for batch in self._parent_kwargs_cache[module]],
                 dim=0,
             )
 
@@ -542,7 +556,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         org_sd = {k: v.cpu() for k, v in parent_layer.state_dict().items()}
 
         device = get_execution_device(parent_layer)
-        x_mean = self._activation_means[parent_layer]
+        x_mean = self._smooth_activation_cache[parent_layer][0]
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
 
@@ -651,10 +665,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         If not, something has gone wrong
         """
         if not (
-            len(self._activations)
-            == len(self._activation_counts)
-            == len(self._activation_means)
-            == 0
+            len(self._parent_kwargs_cache) == len(self._smooth_activation_cache) == 0
         ):
             raise RuntimeError("Some cached activations were not used")
 
