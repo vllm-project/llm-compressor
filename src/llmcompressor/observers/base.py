@@ -6,7 +6,6 @@ from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationStrategy,
-    QuantizationType,
 )
 from compressed_tensors.quantization.utils import is_fp4
 from compressed_tensors.registry.registry import RegistryMixin

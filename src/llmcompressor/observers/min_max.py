@@ -62,7 +62,7 @@ class MinMaxObserver(Observer):
             max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
 
         # early stopping, save some computation and memory
-        if self.averaging_constant == 1.0:
+        if self.averaging_constant == 1.0 and not calculate_global_scale:
             return calculate_qparams(
                 min_vals=min_val,
                 max_vals=max_val,

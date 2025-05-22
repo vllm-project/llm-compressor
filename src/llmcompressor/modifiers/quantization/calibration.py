@@ -5,7 +5,6 @@ from compressed_tensors.quantization import (
     KVCacheScaleType,
     QuantizationScheme,
     QuantizationStatus,
-    QuantizationType,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_fp4, is_kv_cache_quant_scheme
@@ -57,7 +56,7 @@ def initialize_observer(
     if quantization_args is not None and not quantization_args.dynamic:
         global_scale = getattr(module, f"{base_name}_global_scale", None)
         if global_scale is not None:
-            assert base_name == "weight" and is_fp4(quantization_args=quantization_args)
+            assert is_fp4(quantization_args=quantization_args)
 
         observer = Observer.load_from_registry(
             quantization_args.observer,
@@ -92,7 +91,7 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
 
         if base_name == "input" and hasattr(module, "input_global_scale"):
-            update_parameter_data(module, updated_scale, "input_global_scale")
+            update_parameter_data(module, updated_scale, f"{base_name}_global_scale")
         else:
             # update scale and zero point
             update_parameter_data(module, updated_scale, f"{base_name}_scale")
