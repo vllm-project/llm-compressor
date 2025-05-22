@@ -135,11 +135,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
-    _parent_kwargs_cache: Dict[Module, IntermediatesCache] = PrivateAttr(
-        default_factory=IntermediatesCache
-    )
-    # Dict[smooth_name, (activation_means, activation_counts)]
-    _smooth_activation_cache: Dict[str, Tuple[float, int]] = PrivateAttr(
+    # Cache list of kwargs for each parent module, one dict for each batch
+    _parent_kwargs_cache: Dict[Module, List[Dict]] = PrivateAttr(default_factory=dict)
+    # Dict[smooth name, (activation means, activation counts)]
+    _smooth_activation_cache: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
 
@@ -400,23 +399,26 @@ class AWQModifier(Modifier, QuantizationMixin):
                 _output: torch.Tensor,
             ):
                 # Assume that first argument is the input
-                inp = args[0].cpu().detach()
+                inp = args[0].cpu().detach().squeeze()
 
                 self._smooth_activation_cache[smooth_name] = accumulate_mean(
                     inp,
-                    self._smooth_activation_cache.get(smooth_name, (0.0, 0)),
+                    self._smooth_activation_cache.get(smooth_name, None),
                 )
 
             return cache_smooth_activations_hook
 
         for mapping in self._resolved_mappings:
             # parent kwargs needed for future forward passes
-            self.register_hook(
-                mapping.parent,
-                cache_parent_kwargs_hook,
-                "forward_pre",
-                with_kwargs=True,
-            )
+            # same parent may appear multiple times in resolved mappings
+            if mapping.parent not in self._parent_kwargs_cache:
+                self._parent_kwargs_cache[mapping.parent] = []
+                self.register_hook(
+                    mapping.parent,
+                    cache_parent_kwargs_hook,
+                    "forward_pre",
+                    with_kwargs=True,
+                )
 
             # input activations to balance layers needed for loss function
             # storing inputs to first balance layer is sufficient
@@ -527,7 +529,10 @@ class AWQModifier(Modifier, QuantizationMixin):
     def _run_samples(self, module: Module) -> torch.Tensor:
         with align_module_device(module):
             return torch.cat(
-                [module(**batch) for batch in self._parent_kwargs_cache[module]],
+                [
+                    module(**batch_kwargs)[0]
+                    for batch_kwargs in self._parent_kwargs_cache[module]
+                ],
                 dim=0,
             )
 
