@@ -22,17 +22,19 @@ class MovingAverageMSEObserver(Observer):
         quantization_args: QuantizationArgs,
         averaging_constant: float = 0.01,
         grid: float = 100.0,
-        maxshrink: float = 0.80,
         norm: float = 2.4,
         global_scale: Optional[torch.Tensor] = None,
     ):
         super().__init__(quantization_args=quantization_args, global_scale=global_scale)
 
+        kwargs = quantization_args.observer_kwargs or {}
+        self.maxshrink = kwargs.get("maxshrink", 0.20)
+        self.patience = kwargs.get("patience", 5)
+
         self.min_val = {}
         self.max_val = {}
         self.averaging_constant = averaging_constant
         self.grid = grid
-        self.maxshrink = maxshrink
         self.norm = norm
 
     def calculate_mse_min_max(
@@ -62,6 +64,10 @@ class MovingAverageMSEObserver(Observer):
         )
         min_val = torch.ones_like(absolute_min_val)
         max_val = torch.zeros_like(absolute_max_val)
+
+        # Early stopping params
+        no_improve_count = 0
+
         for i in range(int(self.maxshrink * self.grid)):
             p = 1 - i / self.grid
             shrinked_min_val = p * absolute_min_val
@@ -94,6 +100,12 @@ class MovingAverageMSEObserver(Observer):
                 best[tmp] = err[tmp]
                 min_val[tmp] = shrinked_min_val[tmp]
                 max_val[tmp] = shrinked_max_val[tmp]
+                no_improve_count = 0
+            else:
+                no_improve_count += 1
+                if no_improve_count >= self.patience:
+                    break
+
         return min_val, max_val
 
     def calculate_qparams(

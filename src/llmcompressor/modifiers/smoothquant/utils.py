@@ -28,9 +28,6 @@ MIXTRAL_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
         balance_layers=["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
         smooth_layers="re:.*input_layernorm",
     ),
-    LayerMap(
-        balance_layers=["re:.*gate"], smooth_layers="re:.*post_attention_layernorm"
-    ),
 ]
 BLOOM_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
     LayerMap(
@@ -67,9 +64,6 @@ DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS: List[LayerMap] = [
     LayerMap(
         balance_layers=["re:.*q_proj", "re:.*kv_a_proj_with_mqa"],
         smooth_layers="re:.*input_layernorm",
-    ),
-    LayerMap(
-        balance_layers=["re:.*gate"], smooth_layers="re:.*post_attention_layernorm"
     ),
 ]
 
