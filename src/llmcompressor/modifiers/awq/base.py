@@ -16,6 +16,11 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.awq.mappings import (
+    AWQMapping,
+    ResolvedMapping,
+    get_layer_mappings_from_architecture,
+)
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -26,8 +31,6 @@ from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
     get_parent_by_name,
 )
-
-from .mappings import AWQ_MAPPING_REGISTRY, AWQMapping, ResolvedMapping
 
 __all__ = ["AWQModifier"]
 
@@ -120,7 +123,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: Union[str, List[str], None] = None
-    mappings: List[AWQMapping] = AWQ_MAPPING_REGISTRY["Llama"]
+    mappings: Optional[List[AWQMapping]] = None
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
@@ -211,6 +214,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
             QuantizationMixin.initialize_quantization(self, state.model)
+
+        if self.mappings is None:
+            logger.info("No AWQModifier.mappings provided, inferring from model...")
+            self.mappings = get_layer_mappings_from_architecture(
+                architecture=state.model.__class__.__name__
+            )
 
         self._set_resolved_mappings(state.model)
 
@@ -310,14 +319,24 @@ class AWQModifier(Modifier, QuantizationMixin):
                         if not balance_layer:
                             continue
 
-                        # exclude v_proj/o_proj mappings whose shapes are incompatible
+                        # exclude v_proj->o_proj mappings whose shapes are incompatible
                         # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                         if (
-                            ".v_proj" in layer_name
-                            and ".o_proj" in balance_name
-                            and isinstance(smooth_layer, torch.nn.Linear)
+                            isinstance(smooth_layer, torch.nn.Linear)
                             and isinstance(balance_layer, torch.nn.Linear)
-                            and smooth_layer.weight.shape != balance_layer.weight.shape
+                            and ".o_proj" in balance_name
+                            and (
+                                (
+                                    ".v_proj" in layer_name
+                                    and smooth_layer.out_features
+                                    != balance_layer.in_features
+                                )
+                                or (
+                                    ".qkv_proj" in layer_name
+                                    and smooth_layer.out_features
+                                    != 3 * balance_layer.in_features
+                                )
+                            )
                         ):
                             num_skipped_oproj_mappings += 1
                             continue
@@ -466,33 +485,38 @@ class AWQModifier(Modifier, QuantizationMixin):
                     inp, w_mean, x_mean, module2inspect, balance_layers, fp16_output
                 )
 
-            scales = best_scales
-
             @torch.no_grad()
             def smooth(module):
                 with align_module_device(module):
+                    scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
-                        module.weight.mul_(scales.view(1, -1).to(module.weight.device))
+                        update_offload_parameter(
+                            module,
+                            "weight",
+                            module.weight.mul_(scales.view(1, -1)),
+                        )
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
                             update_offload_parameter(
                                 module,
                                 "weight",
-                                module.weight.div(scales.to(module.weight.device)),
+                                module.weight.div_(scales),
                             )
                         else:
-                            update_offload_parameter(
-                                module,
-                                "weight",
-                                module.weight.div(
-                                    scales.view(-1, 1).to(module.weight.device)
-                                ),
-                            )
+                            # NOTE: edge case when smooth layer number of out_features
+                            # is not equal to balance layer number of in_features
+                            # e.g. when fused qkv_proj is used to smooth o_proj
+                            # in this case, default to scaling the last output features
+                            # because the desired smooth layer is v_proj
+                            # https://github.com/casper-hansen/AutoAWQ/blob/main/awq/quantize/scale.py#L123
+                            weight = module.weight
+                            weight[-scales.size(0) :].div_(scales.view(-1, 1))
+                            update_offload_parameter(module, "weight", weight)
                         if hasattr(module, "bias") and module.bias is not None:
                             update_offload_parameter(
                                 module,
                                 "bias",
-                                module.bias.div(scales.to(module.bias.device)),
+                                module.bias.div_(scales),
                             )
 
             parent = get_fsdp_parent(mapping.smooth_name, model)
