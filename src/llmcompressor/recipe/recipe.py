@@ -221,9 +221,12 @@ class Recipe(RecipeBase):
         combined = Recipe()
 
         for recipe in recipes:
-            combined.version = recipe.version
-            combined.stages.extend(recipe.stages)
-            combined.args.update(recipe.args)
+            simplified = Recipe.simplify_recipe(
+                recipe=recipe,
+            )
+            combined.version = simplified.version
+            combined.stages.extend(simplified.stages)
+            combined.args.update(simplified.args)
 
         return combined
 
