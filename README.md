@@ -23,7 +23,7 @@ Big updates have landed in LLM Compressor! Check out these exciting new features
 
 ### Supported Formats
 * Activation Quantization: W8A8 (int8 and fp8)
-* Mixed Precision: W4A16, W8A16, FP4A16
+* Mixed Precision: W4A16, W8A16, NVFP4A16
 * 2:4 Semi-structured and Unstructured Sparsity
 
 ### Supported Algorithms
