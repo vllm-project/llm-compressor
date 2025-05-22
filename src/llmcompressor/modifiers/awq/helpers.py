@@ -1,18 +1,20 @@
-from typing import Tuple
+from typing import Tuple, Optional
 
 import torch
 
-AWQ_PRECISION = torch.float32
-
 
 def accumulate_mean(
-    inp: torch.Tensor, prev_mean_and_count: Tuple[float, int]
+    inp: torch.Tensor,
+    prev_mean_and_count: Optional[Tuple[torch.FloatTensor, int]],
 ) -> Tuple[float, int]:
-    prev_mean, prev_count = prev_mean_and_count
+    sum_added = inp.sum(dim=0)
     num_added = inp.size(0)
-    input_sum = inp.to(AWQ_PRECISION).sum()
+    if prev_mean_and_count is None:
+        return sum_added, num_added
+
+    prev_mean, prev_count = prev_mean_and_count
 
     prev_sum = prev_mean * prev_count
-    count = prev_count + num_added
+    new_count = prev_count + num_added
 
-    return (prev_sum + input_sum) / count, count
+    return (prev_sum + sum_added) / new_count, new_count
