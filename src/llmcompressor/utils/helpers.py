@@ -1025,6 +1025,9 @@ def DisableQuantization(module: torch.nn.Module):
 
 @contextlib.contextmanager
 def eval_context(module: torch.nn.Module):
+    """
+    Disable pytorch training mode for the given module
+    """
     restore_value = module.training
     try:
         module.train(False)  # equivalent to eval()
@@ -1036,6 +1039,11 @@ def eval_context(module: torch.nn.Module):
 
 @contextlib.contextmanager
 def disable_hf_kernels(model: PreTrainedModel):
+    """
+    In transformers>=4.50.0, some module forward methods may be
+    replaced by calls to hf hub kernels. This has the potential
+    to bypass hooks added by LLM Compressor
+    """
     if hasattr(model, "config"):
         with patch_attr(model.config, "disable_custom_kernels", True):
             yield
@@ -1052,6 +1060,7 @@ def calibration_forward_context(model: PreTrainedModel):
     - Remove gradient calculations
     - Disable the KV cache
     - Disable train mode and enable eval mode
+    - Disable hf kernels which could bypass hooks
     """
     with torch.no_grad(), DisableKVCache(model), eval_context(
         model
