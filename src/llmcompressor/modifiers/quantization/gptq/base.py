@@ -26,6 +26,7 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
@@ -109,7 +110,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    actorder: Optional[ActivationOrdering] = None
+    actorder: Optional[Union[ActivationOrdering, Sentinel]] = None
     offload_hessians: bool = False
 
     # private variables
@@ -131,23 +132,29 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
 
-        # Resolve config with `self.actorder`
-        for scheme in config.config_groups.values():
-            assert isinstance(scheme, QuantizationScheme)  # (1)
-            if scheme.weights is not None:
-                existing = scheme.weights.actorder
-                assert isinstance(existing, (ActivationOrdering, type(None)))  # (2)
-                if existing is not None and existing != self.actorder:
-                    raise ValueError(
-                        "Cannot resolve activation ordering when both "
-                        "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
-                        "both are provided. Either set `GPTQModifier.actorder = None` "
-                        "or remove `actorder` from config groups"
-                    )
-                scheme.weights.actorder = self.actorder
+        def resolve_actorder(existing):
+            # sentinel default only overrides if existing is None
+            if self.actorder == Sentinel("static"):
+                return ActivationOrdering.STATIC if existing is None else existing
 
-        # (1) QuantizationConfig.model_post_init
-        # (2) QuantizationScheme.validate_actorder
+            # user-provided value always attempts to override
+            if self.actorder is not None:
+                if existing is None or self.actorder == existing:
+                    return self.actorder
+                raise ValueError(
+                    "Cannot resolve activation ordering when both "
+                    "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
+                    "are provided and differ. Either set `GPTQModifier.actorder = "
+                    "None` or remove `actorder` from config groups."
+                )
+
+            # setting `GPTQModifier.actorder = None` does nothing
+            return existing
+
+        for scheme in config.config_groups.values():
+            assert isinstance(scheme, QuantizationScheme)
+            if scheme.weights is not None:
+                scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
 
         return config
 
