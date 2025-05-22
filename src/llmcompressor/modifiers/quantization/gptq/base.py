@@ -134,7 +134,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         def resolve_actorder(existing):
             # sentinel default only overrides if existing is None
-            if self.actorder == Sentinel("STATIC"):
+            if self.actorder == Sentinel("static"):
                 return ActivationOrdering.STATIC if existing is None else existing
 
             # user-provided value always attempts to override
