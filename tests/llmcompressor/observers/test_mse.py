@@ -46,7 +46,7 @@ def test_mse_observer_symmetric_scale_range():
     tensor *= 127
 
     num_bits = 8
-    weights = QuantizationArgs(num_bits=num_bits, symmetric=True)
+    weights = QuantizationArgs(num_bits=num_bits, symmetric=True, observer="mse")
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, quantization_args=weights)
