@@ -55,7 +55,6 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             concatenate_data=concatenate_data,
             splits=splits,
             tokenizer=tokenizer,
-            output_dir=self.output,
         )
 
         oneshot_model = oneshot(
@@ -70,6 +69,7 @@ class TestOneshotAndFinetuneWithTokenizer(unittest.TestCase):
             max_steps=max_steps,
             stage="test_train_stage",
             **model_and_data_kwargs,
+            output_dir=self.output,
         )
 
         input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(

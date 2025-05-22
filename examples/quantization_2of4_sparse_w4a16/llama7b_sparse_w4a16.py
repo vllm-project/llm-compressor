@@ -68,7 +68,6 @@ oneshot_applied_model = oneshot(
     model=model,
     **oneshot_kwargs,
     stage="sparsity_stage",
-    output_dir=output_dir,
 )
 
 # Sparse finetune
@@ -76,7 +75,6 @@ finetune_applied_model = train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
     **training_kwargs,
-    output_dir=output_dir,
     stage="finetuning_stage",
 )
 

@@ -7,6 +7,9 @@ from compressed_tensors.compressors import ModelCompressor
 from parameterized import parameterized_class
 from transformers import AutoConfig
 
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    get_model_compressor,
+)
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_oneshot_configs"
@@ -34,17 +37,21 @@ class TestOneshotAndFinetune(unittest.TestCase):
             output_dir=self.output,
         )
 
-        train_args = dict(
-            num_train_epochs=self.num_train_epochs,
-            precision="bfloat16",
-            bf16=True,
-        )
         oneshot_model = oneshot(
             model=self.model,
             **oneshot_args,
             stage="test_oneshot_stage",
         )
 
+        compressor = get_model_compressor(model=oneshot_model, save_compressed=True)
+        if compressor is not None:
+            compressor.decompress_model(oneshot_model)
+
+        train_args = dict(
+            num_train_epochs=self.num_train_epochs,
+            precision="bfloat16",
+            bf16=True,
+        )
         train(
             model=oneshot_model,
             **oneshot_args,
