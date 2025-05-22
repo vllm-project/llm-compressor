@@ -1,0 +1,16 @@
+quant_stage:
+  quant_modifiers:
+    SmoothQuantModifier:
+      smoothing_strength: 0.8
+      mappings:
+      - - ['re:.*q_proj', 're:.*k_proj', 're:.*v_proj']
+        - re:.*input_layernorm
+      - - ['re:.*gate_proj', 're:.*up_proj']
+        - re:.*post_attention_layernorm
+    GPTQModifier:
+      ignore: [lm_head]
+      config_groups:
+        group_0:
+          weights: {num_bits: 8, type: int, symmetric: true, strategy: channel}
+          input_activations: {num_bits: 8, symmetric: false, dynamic: true, strategy: token, type: int}
+          targets: [Linear] 
