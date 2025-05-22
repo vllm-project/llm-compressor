@@ -387,12 +387,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         def cache_activation_hook_fn(
             module: torch.nn.Module,
             args: Tuple[torch.Tensor, ...],
-            **kwargs,
+            kwargs,
         ):
-            activations = args[0]  # assume input is first arg
             values = inspect.signature(module.forward).bind(*args, **kwargs)
+            activations = values.args[0]
 
-            self._activations[module].append(values)
+            self._activations[module].append(values.arguments)
             self._activation_means, self._activation_counts = accumulate_mean(
                 activations, self._activation_means, self._activation_counts
             )
@@ -400,7 +400,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         for mapping in self._resolved_mappings:
             # storing inputs to first balance layer is sufficient
             # other balance layers get the same input
-            self.register_hook(mapping.parent, cache_activation_hook_fn, "forward_pre")
+            self.register_hook(
+                mapping.parent,
+                cache_activation_hook_fn,
+                "forward_pre",
+                with_kwargs=True,
+            )
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module) -> None:
