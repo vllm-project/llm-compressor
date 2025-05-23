@@ -56,7 +56,7 @@ def initialize_observer(
     if quantization_args is not None and not quantization_args.dynamic:
         global_scale = getattr(module, f"{base_name}_global_scale", None)
         if global_scale is not None:
-            assert base_name == "weight" and is_fp4(quantization_args=quantization_args)
+            assert is_fp4(quantization_args=quantization_args)
 
         observer = Observer.load_from_registry(
             quantization_args.observer,
@@ -90,9 +90,12 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         observer = getattr(module, f"{base_name}_observer")
         updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
 
-        # update scale and zero point
-        update_parameter_data(module, updated_scale, f"{base_name}_scale")
-        update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+        if base_name == "input" and hasattr(module, "input_global_scale"):
+            update_parameter_data(module, updated_scale, f"{base_name}_global_scale")
+        else:
+            # update scale and zero point
+            update_parameter_data(module, updated_scale, f"{base_name}_scale")
+            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
 def update_weight_zp_scale(module: Module):

@@ -87,7 +87,12 @@ class Observer(Module, RegistryMixin):
         if observed is not None:
             group_size = self.quantization_args.group_size
 
-            if self.quantization_args.strategy == QuantizationStrategy.TENSOR:
+            if self.quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
+                self._scale, self._zero_point = self.calculate_qparams(
+                    observed, calculate_global_scale=True
+                )
+
+            elif self.quantization_args.strategy == QuantizationStrategy.TENSOR:
                 # re-calculate scale and zero point, update the stored value
                 self._scale, self._zero_point = self.calculate_qparams(observed)
 
