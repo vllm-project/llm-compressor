@@ -52,7 +52,3 @@ def apply(**kwargs):
         "for sequential stages."
     )
     raise ValueError(message)
-
-
-def compress(**kwargs):
-    apply(**kwargs)
