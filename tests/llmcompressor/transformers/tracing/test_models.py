@@ -1,13 +1,16 @@
 import pytest
-from transformers import AutoModelForCausalLM, WhisperForConditionalGeneration
-
-from llmcompressor.transformers.tracing import (
-    TraceableIdefics3ForConditionalGeneration,
-    TraceableLlavaForConditionalGeneration,
-    TraceableMllamaForConditionalGeneration,
-    TraceableQwen2_5_VLForConditionalGeneration,
-    TraceableQwen2VLForConditionalGeneration,
+import torch
+from transformers import (
+    AutoModelForCausalLM,
+    Gemma3ForConditionalGeneration,
+    Idefics3ForConditionalGeneration,
+    LlavaForConditionalGeneration,
+    MllamaForConditionalGeneration,
+    Qwen2_5_VLForConditionalGeneration,
+    Qwen2VLForConditionalGeneration,
+    WhisperForConditionalGeneration,
 )
+
 from llmcompressor.transformers.tracing.debug import trace
 
 
@@ -18,14 +21,25 @@ from llmcompressor.transformers.tracing.debug import trace
     ],
 )
 def test_text_trace(model_id, model_class, targets):
-    trace(
+    model, subgraphs, sample_input = trace(
         model_id,
         model_class,
         targets,
         ignore=[],
         modality="text",
         trust_remote_code=True,
+        skip_weights=False,
+        device_map="auto",
     )
+
+    standard_output = model(**sample_input)
+    subgraph_output = run_subgraphs(model, subgraphs, sample_input)
+
+    for name, value in standard_output.items():
+        if isinstance(value, torch.Tensor):
+            subgraph_value = subgraph_output[name]
+            assert subgraph_value.device == value.device
+            assert torch.allclose(subgraph_value, value)
 
 
 @pytest.mark.parametrize(
@@ -33,52 +47,69 @@ def test_text_trace(model_id, model_class, targets):
     [
         (
             "HuggingFaceM4/Idefics3-8B-Llama3",
-            TraceableIdefics3ForConditionalGeneration,
+            Idefics3ForConditionalGeneration,
             ["LlamaDecoderLayer"],
             [],
         ),
         (
             "llava-hf/llava-1.5-7b-hf",
-            TraceableLlavaForConditionalGeneration,
+            LlavaForConditionalGeneration,
             ["LlamaDecoderLayer"],
             [],
         ),
         (
             "meta-llama/Llama-3.2-11B-Vision-Instruct",
-            TraceableMllamaForConditionalGeneration,
+            MllamaForConditionalGeneration,
             ["MllamaSelfAttentionDecoderLayer"],
             [],
         ),
         # skip phi3_v because of its processor is annoying and requires special code
         (
             "mgoin/pixtral-12b",
-            TraceableLlavaForConditionalGeneration,
+            LlavaForConditionalGeneration,
             ["MistralDecoderLayer"],
             [],
         ),
         (
             "Qwen/Qwen2.5-VL-7B-Instruct",
-            TraceableQwen2_5_VLForConditionalGeneration,
+            Qwen2_5_VLForConditionalGeneration,
             ["Qwen2_5_VLDecoderLayer"],
             [],
         ),
         (
             "Qwen/Qwen2-VL-2B-Instruct",
-            TraceableQwen2VLForConditionalGeneration,
+            Qwen2VLForConditionalGeneration,
             ["Qwen2VLDecoderLayer"],
+            [],
+        ),
+        (
+            "google/gemma-3-4b-it",
+            Gemma3ForConditionalGeneration,
+            ["Gemma3DecoderLayer"],
             [],
         ),
     ],
 )
 def test_vision_trace(model_id, model_class, targets, ignore):
-    trace(
+    model, subgraphs, sample_input = trace(
         model_id,
         model_class,
         targets,
         ignore=ignore,
         modality="vision",
         trust_remote_code=True,
+        skip_weights=False,
+        device_map="auto",
     )
+
+    standard_output = model(**sample_input)
+    subgraph_output = run_subgraphs(model, subgraphs, sample_input)
+
+    for name, value in standard_output.items():
+        if isinstance(value, torch.Tensor):
+            subgraph_value = subgraph_output[name]
+            assert subgraph_value.device == value.device
+            assert torch.allclose(subgraph_value, value)
 
 
 @pytest.mark.parametrize(
@@ -87,7 +118,7 @@ def test_vision_trace(model_id, model_class, targets, ignore):
         (
             "openai/whisper-large-v3",
             WhisperForConditionalGeneration,
-            None,
+            ["WhisperDecoderLayer"],
             [],
         ),
     ],
@@ -96,11 +127,33 @@ def test_audio_trace(model_id, model_class, targets, ignore):
     pytest.importorskip("librosa")
     pytest.importorskip("soundfile")
 
-    trace(
+    model, subgraphs, sample_input = trace(
         model_id,
         model_class,
         targets,
         ignore=ignore,
         modality="audio",
         trust_remote_code=True,
+        skip_weights=False,
+        device_map="auto",
     )
+
+    subgraph_output = run_subgraphs(model, subgraphs, sample_input)
+    standard_output = model(**sample_input)
+
+    for name, value in standard_output.items():
+        if isinstance(value, torch.Tensor):
+            subgraph_value = subgraph_output[name]
+            assert subgraph_value.device == value.device
+            assert torch.allclose(subgraph_value, value)
+
+
+def run_subgraphs(model, subgraphs, inputs):
+    namespace = dict()
+    namespace.update(inputs)
+    for subgraph in subgraphs:
+        inputs = {name: namespace[name] for name in subgraph.input_names}
+        output = subgraph.forward(model, **inputs)
+        namespace.update(output)
+
+    return output

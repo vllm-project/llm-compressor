@@ -1,15 +1,14 @@
 import requests
 import torch
 from PIL import Image
-from transformers import AutoProcessor
+from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.tracing import TraceableMllamaForConditionalGeneration
 
 # Load model.
 model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-model = TraceableMllamaForConditionalGeneration.from_pretrained(
+model = MllamaForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
