@@ -4,8 +4,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-#MODEL_ID = "meta-llama/Llama-3.3-70B-Instruct"
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "meta-llama/Llama-3.3-70B-Instruct"
+#MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
@@ -19,7 +19,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 20
+NUM_CALIBRATION_SAMPLES = 2
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -76,6 +76,6 @@ print("==========================================\n\n")
 """
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-NVFP4"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-NVFP4-v4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
