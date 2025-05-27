@@ -162,7 +162,7 @@ class TestLMEval:
                 continue
             actual_val = metrics.get(metric_key)
             higher_is_better = results["higher_is_better"][self.lmeval.task].get(
-                metric_key.split[","][0], True
+                metric_key.split(",")[0], True
             )
             stderr_key = metric_key.replace(",", "_stderr,")
             std_err = self.lmeval.metrics.get(stderr_key)
