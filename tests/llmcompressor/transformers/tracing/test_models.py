@@ -1,5 +1,4 @@
 import pytest
-import torch
 from transformers import (
     AutoModelForCausalLM,
     Gemma3ForConditionalGeneration,
