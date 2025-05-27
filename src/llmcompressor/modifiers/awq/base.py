@@ -137,7 +137,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache list of kwargs for each parent module, one dict for each batch
     _parent_kwargs_cache: Dict[Module, List[Dict]] = PrivateAttr(default_factory=dict)
-    # Dict[smooth name, (activation means, activation counts)]
+    # Dict[smooth layer name, (activation means, activation counts)]
     _smooth_activation_cache: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
@@ -446,7 +446,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
-            parent_layer = mapping.parent
+            parent_module = mapping.parent
 
             # [STEP 1]: Compute per-channel mean of normalised weights
             # All layer weights are concatted together
@@ -466,15 +466,16 @@ class AWQModifier(Modifier, QuantizationMixin):
             with calibration_forward_context(model), HooksMixin.disable_hooks():
                 # [STEP 3]: Compute output of module
                 # could cache from hook, rather than recomputing here
-                fp16_output = self._run_samples(parent_layer)
+                fp16_output = self._run_samples(parent_module)
                 fp16_output = fp16_output.clip(
                     torch.finfo(fp16_output.dtype).min,
                     torch.finfo(fp16_output.dtype).max,
                 )
+                x_mean = self._smooth_activation_cache[mapping.smooth_name][0]
 
                 # [STEP 4]: Compute loss
                 best_scales = self._compute_best_scale(
-                    w_mean, parent_layer, balance_layers, fp16_output
+                    x_mean, w_mean, parent_module, balance_layers, fp16_output
                 )
 
             @torch.no_grad()
@@ -521,9 +522,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 smooth(smooth_layer)
 
             # remove caches needed to smooth this mapping
-            del self._smooth_activation_cache[smooth_layer]
+            del self._smooth_activation_cache[mapping.smooth_name]
 
-        self._parent_kwargs_cache.clear()
         self._assert_all_activations_consumed()
 
     def _run_samples(self, module: Module) -> torch.Tensor:
@@ -538,8 +538,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _compute_best_scale(
         self,
+        x_mean: torch.Tensor,
         w_mean: torch.Tensor,
-        parent_layer: torch.nn.Module,
+        parent_module: torch.nn.Module,
         linears2scale: List[torch.nn.Linear],
         fp16_output: torch.Tensor,
     ) -> torch.Tensor:
@@ -558,10 +559,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_scales = None
         best_error = float("inf")
 
-        org_sd = {k: v.cpu() for k, v in parent_layer.state_dict().items()}
+        org_sd = {k: v.cpu() for k, v in parent_module.state_dict().items()}
 
-        device = get_execution_device(parent_layer)
-        x_mean = self._smooth_activation_cache[parent_layer][0]
+        device = get_execution_device(parent_module)
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
 
@@ -600,11 +600,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
 
             # W * X
-            int_w_output = self._run_samples(parent_layer)
-            int_w_output = int_w_output.clip(
-                torch.finfo(int_w_output.dtype).min,
-                torch.finfo(int_w_output.dtype).max,
-            )
+            with HooksMixin.disable_hooks():
+                int_w_output = self._run_samples(parent_module)
+                int_w_output = int_w_output.clip(
+                    torch.finfo(int_w_output.dtype).min,
+                    torch.finfo(int_w_output.dtype).max,
+                )
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_output, int_w_output, device)
@@ -614,7 +615,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 best_error = loss
                 best_ratio = ratio
                 best_scales = scales.clone()
-            parent_layer.load_state_dict(org_sd)
+            parent_module.load_state_dict(org_sd)
 
         if best_ratio == -1:
             logger.debug(history)
@@ -669,9 +670,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         Confirm all activations have been consumed
         If not, something has gone wrong
         """
-        if not (
-            len(self._parent_kwargs_cache) == len(self._smooth_activation_cache) == 0
-        ):
+        self._parent_kwargs_cache = {k: [] for k in self._parent_kwargs_cache}
+        if len(self._smooth_activation_cache) != 0:
             raise RuntimeError("Some cached activations were not used")
 
 
