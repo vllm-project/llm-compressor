@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -24,7 +24,6 @@ from llmcompressor.modifiers.awq.mappings import (
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
