@@ -181,29 +181,16 @@ class Recipe(RecipeBase):
         if not target_stages and not override_args:
             return recipe
 
-        stages = []
-        stage_names = target_stages
-        if stage_names is None:
-            stages = recipe.stages
-        else:
-            for stage in recipe.stages:
-                if any(stage.group in stage_name for stage_name in stage_names):
-                    stages.append(stage)
-
-        # default args in recipe
-        args = recipe.args
-
-        # overwrite with args passed in through CLI
-        for key, val in override_args.items():
-            args[key] = val
-        version = recipe.version if isinstance(recipe, Recipe) else None
-
-        simplified = Recipe()
-        simplified.version = version
-        simplified.args = args
-        simplified.stages = stages
-
-        return simplified
+        # Filter stages if target_stages are provided
+        if target_stages:
+            recipe.stages = [
+                stage for stage in recipe.stages
+                if any(stage.group in stage_name for stage_name in target_stages)
+            ]
+        # Apply argument overrides if provided
+        if override_args:
+            recipe.args = {**recipe.args, **override_args}
+        return recipe
 
     @staticmethod
     def simplify_combine_recipes(

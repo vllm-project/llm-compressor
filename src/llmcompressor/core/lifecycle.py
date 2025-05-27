@@ -139,8 +139,6 @@ class CompressionLifecycle:
                 mod_data.append(data)
 
         self.finalized = True
-        applied_stage_names = [mod.unique_id for mod in self.modifiers if mod.applied]
-        self.recipe_container.update_applied_stages(applied_stage_names)
 
         logger.info(
             "Compression lifecycle finalized for {} modifiers", len(self.modifiers)

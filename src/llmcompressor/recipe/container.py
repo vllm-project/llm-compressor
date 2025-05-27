@@ -20,22 +20,10 @@ class RecipeContainer:
 
     :param compiled_recipe: the compiled recipe from the recipes list
     :param recipes: the list of Recipes instances to be compiled
-    :param applied_stages: list of recipe stages that have already been applied
     """
 
     compiled_recipe: Optional[Recipe] = None
     recipes: List[Recipe] = field(default_factory=list)
-    applied_stages: List[str] = field(default_factory=list)
-
-    def prepend(
-        self,
-        recipe: Optional[RecipeInput] = None,
-        recipe_stage: Optional[RecipeStageInput] = None,
-        recipe_args: Optional[RecipeArgsInput] = None,
-    ):
-        recipes = self._prepare_recipes(recipe, recipe_stage, recipe_args)
-        self.recipes = recipes + self.recipes
-        self._check_compile_recipe()
 
     def append(
         self,
@@ -103,17 +91,6 @@ class RecipeContainer:
             Recipe.simplify_recipe(rec, stage, args)
             for rec, stage, args in zip(recipe, recipe_stage, recipe_args)
         ]
-
-    def update_applied_stages(self, new_stages: List[str]):
-        """
-        Updates the applied_stages list with new stages, indicating their structure
-        has already been applied
-
-        :param new_stages: new stage names to add
-        """
-        for stage in new_stages:
-            if stage not in self.applied_stages:
-                self.applied_stages.append(stage)
 
     def _check_compile_recipe(self):
         """
