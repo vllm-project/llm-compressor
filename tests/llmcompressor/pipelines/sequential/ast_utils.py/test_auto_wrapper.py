@@ -2,7 +2,7 @@ import ast
 import textwrap
 from types import SimpleNamespace
 
-from llmcompressor.pipelines.sequential.ast_utils.AutoWrapper import AutoWrapper
+from llmcompressor.pipelines.sequential.ast_utils.auto_wrapper import AutoWrapper
 
 
 def test_static_if():

@@ -4,8 +4,8 @@ from typing import Any, Dict, List, Union
 
 from loguru import logger
 
-from .ControlFlowAnalyzer import ControlFlowAnalyzer
-from .NameAnalyzer import NameAnalyzer
+from .control_flow_analyzer import ControlFlowAnalyzer
+from .name_analyzer import NameAnalyzer
 
 
 class AutoWrapper(ast.NodeTransformer):

@@ -8,7 +8,7 @@ from typing import List
 
 import torch
 
-from llmcompressor.pipelines.sequential.ast_utils.AutoWrapper import AutoWrapper
+from llmcompressor.pipelines.sequential.ast_utils.auto_wrapper import AutoWrapper
 from llmcompressor.utils import patch_attr
 
 
