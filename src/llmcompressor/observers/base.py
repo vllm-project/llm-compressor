@@ -145,6 +145,14 @@ class Observer(Module, RegistryMixin):
                     dim={0, 1},
                 )
 
+            elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
+                # TODO (#1475) add support for block-wise quantization
+                raise NotImplementedError(
+                    "Block-wise quantization is not yet supported, "
+                    "consider group-wise quantization instead. More info at "
+                    "https://github.com/vllm-project/llm-compressor/issues/1475"
+                )
+
         return self._scale, self._zero_point
 
     def get_qparams_along_dim(
