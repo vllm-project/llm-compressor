@@ -149,7 +149,6 @@ def get_dataset_kwargs(modality: str) -> Dict[str, str]:
 
 
 def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tensor]:
-    # TODO: needs a little bit more automagic, doesn't seem to work for idefics3
     for name, value in sample.items():
         if name in ("input_ids", "attention_mask") and torch.tensor(value).ndim == 1:
             sample[name] = torch.tensor([value], device=device)
