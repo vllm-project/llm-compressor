@@ -13,7 +13,6 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 DATASET_ID = "mit-han-lab/pile-val-backup"
 DATASET_SPLIT = "validation"
 

@@ -1,0 +1,8 @@
+cadence: "nightly"
+test_type: "regression"
+model: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+scheme: W8A8_static_asym_activations
+recipe: tests/e2e/vLLM/recipes/INT8/recipe_w8a8_static_asym.yaml
+save_dir: TinyLlama-1.1B-Chat-v1.0-W8A8-Static-Asym
