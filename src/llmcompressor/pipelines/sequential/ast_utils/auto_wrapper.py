@@ -56,54 +56,6 @@ class AutoWrapper(ast.NodeTransformer):
                 self._local_names.add(arg.arg)
         return super().generic_visit(node)
 
-    def visit_If(self, node: ast.If) -> Union[ast.If, ast.Assign]:
-        """
-        Attempt to statically evaluate the condition of the `if` statement. If the
-        condition can not be statically evaluated, then wrap the `if` statement if
-        possible
-
-        :param node: `if` statement which may be wrapped
-        :return: if the `if` statement cannot be statically evaluated, return the
-            `if` statement with the condition replaced by `True` or `False`.
-            Otherwise, return a wrapper function call
-        """
-        try:
-            value = bool(self._eval_expr(node.test))
-
-        except Exception:
-            return self._wrap_if_possible(node)
-
-        else:
-            node.test = ast.Constant(value=value)
-            return super().generic_visit(node)
-
-    def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
-        if any(isinstance(elem, ast.Starred) for elem in node.elts):
-            return self._wrap_if_possible(node)
-
-        return super().generic_visit(node)
-
-    def visit_Call(self, node: ast.Call) -> ast.Call:
-        # check for variadic starred
-        if any(isinstance(elem, ast.Starred) for elem in node.args):
-            return self._wrap_if_possible(node)
-
-        # attempt to evaluate caller and check against ignore list
-        try:
-            caller = self._eval_expr(node.func)
-
-        except Exception:
-            caller = None
-
-        finally:
-            if (
-                isinstance(caller, (FunctionType, MethodType))
-                and caller.__name__ in self.ignore
-            ):
-                return self._wrap_if_possible(node)
-
-        return super().generic_visit(node)
-
     def visit_Name(self, node: ast.Name):
         """
         Add any new names in `self._local_names`
@@ -124,6 +76,60 @@ class AutoWrapper(ast.NodeTransformer):
                 self._local_names.remove(target.id)
 
         return ret
+
+    def visit_If(self, node: ast.If) -> Union[ast.If, ast.Assign]:
+        """
+        Attempt to statically evaluate the condition of the `if` statement. If the
+        condition can not be statically evaluated (1), then attmept to wrap the `if`
+        statement
+
+        :param node: `if` statement which may be wrapped
+        :return: if the `if` statement cannot be statically evaluated, return the
+            `if` statement with the condition replaced by `True` or `False`.
+            Otherwise, return a wrapper function call
+        """
+        try:
+            value = bool(self._eval_expr(node.test))
+
+        except Exception:
+            return self._wrap_if_possible(node)
+
+        else:
+            node.test = ast.Constant(value=value)
+            return super().generic_visit(node)
+
+    def visit_Tuple(self, node: ast.Tuple) -> Union[ast.Tuple, ast.Call]:
+        """
+        (3) Wrap any tuples which use starred unpacking
+        """
+        if any(isinstance(elem, ast.Starred) for elem in node.elts):
+            return self._wrap_if_possible(node)
+
+        return super().generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> ast.Call:
+        """
+        Wrap any functions which use (4) variadic arguments or (2) match the ignore list
+        """
+        # check for variadic starred
+        if any(isinstance(elem, ast.Starred) for elem in node.args):
+            return self._wrap_if_possible(node)
+
+        # attempt to evaluate caller and check against ignore list
+        try:
+            caller = self._eval_expr(node.func)
+
+        except Exception:
+            caller = None
+
+        finally:
+            if (
+                isinstance(caller, (FunctionType, MethodType))
+                and caller.__name__ in self.ignore
+            ):
+                return self._wrap_if_possible(node)
+
+        return super().generic_visit(node)
 
     def _eval_expr(self, node: ast.expr) -> Any:
         """
@@ -218,8 +224,6 @@ class AutoWrapper(ast.NodeTransformer):
             )
         )
         body = [node, return_stmt]
-        # TODO: validate that we can skip
-        # body = [node] if isinstance(node, ast.Return) else [node, return_stmt]
 
         # build function definition, store in `_wrapper_fn_defs`
         fn_name = f"wrapped_{hash(node)}"
