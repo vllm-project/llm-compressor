@@ -121,14 +121,17 @@ def get_dataset_kwargs(modality: str) -> Dict[str, str]:
         "text": {
             "dataset": "ultrachat-200k",
             "splits": {"calibration": "test_sft[:1]"},
+            "max_seq_length": 4096,
         },
         "vision": {
             "dataset": "flickr",
             "splits": {"calibration": "test[:1]"},
+            "max_seq_length": 4096,
         },
         "audio": {
             "dataset": "peoples_speech",
             "splits": {"calibration": "test[:1]"},
+            "max_seq_length": 4096,
         },
     }
 
