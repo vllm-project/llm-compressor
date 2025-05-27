@@ -168,7 +168,7 @@ class Recipe(RecipeBase):
     ) -> "Recipe":
         """
         Simplify a Recipe by removing stages that are not in the target_stages
-        and shifting the start and end of the recipe by the shift amount
+        and updating args if overrides are provided
 
         :param recipe: The Recipe instance to simplify
         :param target_stages: The stages to target when simplifying the recipe
