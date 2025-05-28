@@ -56,7 +56,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev]
+        run: pip3 install -U pip setuptools && pip3 install .[test]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"

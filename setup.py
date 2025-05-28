@@ -79,6 +79,54 @@ def localversion_func(version: ScmVersion) -> str:
     return get_local_node_and_date(version)
 
 
+_deps = [
+    "loguru",
+    "pyyaml>=5.0.0",
+    "numpy>=1.17.0,<2.0",
+    "requests>=2.0.0",
+    "tqdm>=4.0.0",
+    "torch>=1.7.0",
+    "transformers>4.0,<5.0",
+    "datasets",
+    "accelerate>=0.20.3,!=1.1.0",
+    "pynvml",
+    "pillow",
+    (
+        "compressed-tensors==0.9.4"
+        if BUILD_TYPE == "release"
+        else "compressed-tensors>=0.9.5a2"
+    ),
+]
+
+_dev_deps = [
+    # testing framework
+    "pytest>=6.0.0",
+    "pytest-mock>=3.6.0",
+    "pytest-rerunfailures>=13.0",
+    "parameterized",
+    "lm_eval==0.4.5",
+    # example test dependencies
+    "beautifulsoup4~=4.12.3",
+    "cmarkgfm~=2024.1.14",
+    "trl>=0.10.1",
+    "pandas",
+    # linting, formatting, and type checking
+    "black~=24.4.2",
+    "isort~=5.13.2",
+    "mypy~=1.10.0",
+    "ruff~=0.4.8",
+    "flake8~=7.0.0",
+    # pre commit hooks
+    "pre-commit",
+]
+
+_test_deps = _dev_deps + [
+    "torchvision",
+    "librosa",
+    "soundfile",
+]
+
+
 setup(
     name="llmcompressor",
     use_scm_version={
@@ -109,47 +157,10 @@ setup(
     packages=find_packages(
         "src", include=["llmcompressor", "llmcompressor.*"], exclude=["*.__pycache__.*"]
     ),
-    install_requires=[
-        "loguru",
-        "pyyaml>=5.0.0",
-        "numpy>=1.17.0,<2.0",
-        "requests>=2.0.0",
-        "tqdm>=4.0.0",
-        "torch>=1.7.0",
-        # TODO (#1457) revert to "transformers>4.0,<5.0" after tests pass
-        "transformers>4.0,<4.52.0",
-        "datasets",
-        "accelerate>=0.20.3,!=1.1.0",
-        "pynvml",
-        "pillow",
-        (
-            "compressed-tensors==0.9.4"
-            if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.9.5a2"
-        ),
-    ],
+    install_requires=_deps,
     extras_require={
-        "dev": [
-            # testing framework
-            "pytest>=6.0.0",
-            "pytest-mock>=3.6.0",
-            "pytest-rerunfailures>=13.0",
-            "parameterized",
-            "lm_eval==0.4.5",
-            # example test dependencies
-            "beautifulsoup4~=4.12.3",
-            "cmarkgfm~=2024.1.14",
-            "trl>=0.10.1",
-            "pandas",
-            # linting, formatting, and type checking
-            "black~=24.4.2",
-            "isort~=5.13.2",
-            "mypy~=1.10.0",
-            "ruff~=0.4.8",
-            "flake8~=7.0.0",
-            # pre commit hooks
-            "pre-commit",
-        ]
+        "dev": _dev_deps,
+        "test": _test_deps,
     },
     entry_points={
         "console_scripts": [
