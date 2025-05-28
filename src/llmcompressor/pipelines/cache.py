@@ -50,6 +50,7 @@ class IntermediatesCache:
     def empty(cls, num_batches: int, offload_device: torch.device):
         """
         Construct an empty cache
+
         :param num_batches: the expected number of batches to be stored
         :param offload_device: device to offload values to
         """
