@@ -27,28 +27,32 @@ class Observer(Module, RegistryMixin):
     def __init__(
         self,
         quantization_args: QuantizationArgs,
-        global_scale: Optional[torch.Tensor] = None,
     ):
         self.quantization_args: QuantizationArgs = quantization_args
         super().__init__()
-        self.global_scale: Optional[torch.Tensor] = global_scale
         self._scale = None
         self._zero_point = None
         self._num_observed_tokens = None
 
     @torch.no_grad()
     def forward(
-        self, observed: Tensor, g_idx: Optional[Tensor] = None
+        self,
+        observed: Tensor,
+        g_idx: Optional[Tensor] = None,
+        global_scale: Optional[Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         maps directly to get_qparams
         :param observed: optional observed tensor from which to calculate
             quantization parameters
         :param g_idx: optional mapping from column index to group index
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point based on last observed value
         """
         self.record_observed_tokens(observed)
-        return self.get_qparams(observed=observed, g_idx=g_idx)
+        return self.get_qparams(
+            observed=observed, g_idx=g_idx, global_scale=global_scale
+        )
 
     def calculate_qparams(
         self,
@@ -73,6 +77,7 @@ class Observer(Module, RegistryMixin):
         self,
         observed: Optional[Tensor] = None,
         g_idx: Optional[Tensor] = None,
+        global_scale: Optional[Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Convenience function to wrap overwritten calculate_qparams
@@ -82,6 +87,7 @@ class Observer(Module, RegistryMixin):
         :param observed: optional observed tensor to calculate quantization parameters
             from
         :param g_idx: optional mapping from column index to group index
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point based on last observed value
         """
         if observed is not None:
@@ -91,7 +97,10 @@ class Observer(Module, RegistryMixin):
                 # re-calculate scale and zero point, update the stored value
                 self._scale, self._zero_point = self.calculate_qparams(observed)
 
-            elif self.quantization_args.strategy == QuantizationStrategy.GROUP:
+            elif self.quantization_args.strategy in (
+                QuantizationStrategy.TENSOR_GROUP,
+                QuantizationStrategy.GROUP,
+            ):
                 rows = observed.shape[0]
                 columns = observed.shape[1]
                 num_groups = int(ceil(columns / group_size))
@@ -128,6 +137,7 @@ class Observer(Module, RegistryMixin):
                         observed[:, start:end],
                         0,
                         tensor_id=group_index,
+                        global_scale=global_scale
                     )
 
                     self._scale[:, group_index] = scale.squeeze(1)
@@ -160,6 +170,7 @@ class Observer(Module, RegistryMixin):
         observed,
         dim: Union[int, Iterable[int]],
         tensor_id: Optional[Any] = None,
+        global_scale: Optional[Tensor] = None,
     ):
         if isinstance(dim, int):
             dim = [dim]
@@ -167,7 +178,10 @@ class Observer(Module, RegistryMixin):
 
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx not in dim)
         return self.calculate_qparams(
-            observed, reduce_dims=reduce_dims, tensor_id=tensor_id
+            observed,
+            reduce_dims=reduce_dims,
+            tensor_id=tensor_id,
+            global_scale=global_scale,
         )
 
     def record_observed_tokens(self, batch_tensor: Tensor):
