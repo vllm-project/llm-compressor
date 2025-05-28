@@ -69,7 +69,7 @@ def preprocess_and_tokenize(example):
     )
 
 
-ds = ds.map(preprocess_and_tokenize, remove_columns=ds["calibration"].column_names)
+ds = ds.map(preprocess_and_tokenize, remove_columns=ds.column_names)
 
 
 # Define a oneshot data collator for multimodal inputs.

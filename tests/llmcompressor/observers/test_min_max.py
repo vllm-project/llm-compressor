@@ -36,9 +36,9 @@ def test_min_max_observer(symmetric, expected_scale, expected_zero_point):
     tensor = torch.tensor([1, 1, 1, 1, 1])
     num_bits = 8
 
-    weights = QuantizationArgs(num_bits=num_bits,
-                               symmetric=symmetric,
-                               observer="minmax")
+    weights = QuantizationArgs(
+        num_bits=num_bits, symmetric=symmetric, observer="minmax"
+    )
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, quantization_args=weights)
