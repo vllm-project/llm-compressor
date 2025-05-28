@@ -1,4 +1,5 @@
 import inspect
+from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -24,6 +25,7 @@ from llmcompressor.modifiers.awq.mappings import (
 from llmcompressor.modifiers.quantization.calibration import update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
@@ -134,8 +136,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
-    # Cache list of kwargs for each parent module, one dict for each batch
-    _parent_kwargs_cache: Dict[Module, List[Dict]] = PrivateAttr(default_factory=dict)
+    # Cache list of forward input args for each parent module, one dict for each batch
+    _parent_args_cache: Dict[Module, IntermediatesCache] = PrivateAttr(
+        default=defaultdict(IntermediatesCache)
+    )
     # Dict[smooth layer name, (activation means, activation counts)]
     _smooth_activation_cache: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
@@ -284,7 +288,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
-        self._parent_kwargs_cache.clear()
+        self._parent_args_cache.clear()
         self._smooth_activation_cache.clear()
         self._resolved_mappings.clear()
 
@@ -389,7 +393,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
-            self._parent_kwargs_cache[module].append(values.arguments)
+            self._parent_args_cache[module].append(values.arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -410,8 +414,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         for mapping in self._resolved_mappings:
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
-            if mapping.parent not in self._parent_kwargs_cache:
-                self._parent_kwargs_cache[mapping.parent] = []
+            if mapping.parent not in self._parent_args_cache:
                 self.register_hook(
                     mapping.parent,
                     cache_parent_kwargs_hook,
@@ -523,6 +526,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             # remove caches needed to smooth this mapping
             del self._smooth_activation_cache[mapping.smooth_name]
 
+        self._parent_args_cache.clear()
         self._assert_all_activations_consumed()
 
     def _run_samples(self, module: Module) -> torch.Tensor:
@@ -530,7 +534,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             return torch.cat(
                 [
                     module(**batch_kwargs)[0]
-                    for batch_kwargs in self._parent_kwargs_cache[module]
+                    for batch_kwargs in self._parent_args_cache[module]
                 ],
                 dim=0,
             )
@@ -601,10 +605,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             # W * X
             with HooksMixin.disable_hooks():
                 int_w_output = self._run_samples(parent_module)
-                int_w_output = int_w_output.clip(
-                    torch.finfo(int_w_output.dtype).min,
-                    torch.finfo(int_w_output.dtype).max,
-                )
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_output, int_w_output, device)
@@ -669,7 +669,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         Confirm all activations have been consumed
         If not, something has gone wrong
         """
-        self._parent_kwargs_cache = {k: [] for k in self._parent_kwargs_cache}
         if len(self._smooth_activation_cache) != 0:
             raise RuntimeError("Some cached activations were not used")
 

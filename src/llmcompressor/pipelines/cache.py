@@ -121,12 +121,13 @@ class IntermediatesCache:
 
     def append(self, values: Dict[str, Any]):
         batch_index = len(self.batch_intermediates)
+        self.batch_intermediates.append({})
         self.update(batch_index, values)
 
     def iter(
         self, input_names: Optional[List[str]] = None
     ) -> Generator[Any, None, None]:
-        for batch_index in self.batch_intermediates:
+        for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
     def __iter__(self) -> Generator[Any, None, None]:
@@ -152,6 +153,9 @@ class IntermediatesCache:
         if isinstance(value, tuple):
             return tuple(self._onload_value(v) for v in value)
 
+        if isinstance(value, dict):
+            return {k: self._onload_value(v) for k, v in value.items()}
+
         return value
 
     def _offload_value(self, value: Any) -> IntermediateValue:
@@ -170,6 +174,11 @@ class IntermediatesCache:
         if isinstance(value, tuple):
             return IntermediateValue(
                 value=tuple(self._offload_value(v) for v in value), device=None
+            )
+
+        if isinstance(value, dict):
+            return IntermediateValue(
+                value={k: self._offload_value(v) for k, v in value.items()}, device=None
             )
 
         if not isinstance(
