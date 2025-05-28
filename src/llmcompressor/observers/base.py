@@ -87,56 +87,65 @@ class Observer(Module, RegistryMixin):
         if observed is not None:
             group_size = self.quantization_args.group_size
 
-            if self.quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
-                self._scale, self._zero_point = self.calculate_qparams(
-                    observed, calculate_global_scale=True
-                )
-
-            elif self.quantization_args.strategy == QuantizationStrategy.TENSOR:
+            if self.quantization_args.strategy == QuantizationStrategy.TENSOR:
                 # re-calculate scale and zero point, update the stored value
                 self._scale, self._zero_point = self.calculate_qparams(observed)
 
-            elif self.quantization_args.strategy == QuantizationStrategy.GROUP:
-                rows = observed.shape[0]
-                columns = observed.shape[1]
-                num_groups = int(ceil(columns / group_size))
-                self._scale = torch.empty(
-                    (rows, num_groups), dtype=observed.dtype, device=observed.device
-                )
-                if is_fp4(quantization_args=self.quantization_args):
-                    zp_dtype = FP8_E4M3_DATA.dtype
-                else:
-                    zp_dtype = self.quantization_args.pytorch_dtype()
-
-                self._zero_point = torch.empty(
-                    (rows, num_groups), dtype=zp_dtype, device=observed.device
-                )
-
-                # support column-order (default) quantization as well as other orderings
-                # such as activation ordering. Below checks if g_idx has initialized
-                is_column_order = g_idx is None or -1 in g_idx
-                if is_column_order:
-                    group_sizes = torch.full((num_groups,), group_size, dtype=torch.int)
-                else:
-                    group_indices, group_sizes = torch.unique(g_idx, return_counts=True)
-                    group_sizes = group_sizes[torch.argsort(group_indices)]
-
-                    perm = torch.argsort(g_idx)
-                    observed = safe_permute(observed, perm, dim=1)
-
-                # TODO: experiment with vectorizing for loop for performance
-                end = 0
-                for group_index, group_count in enumerate(group_sizes):
-                    start = end
-                    end = start + group_count
-                    scale, zero_point = self.get_qparams_along_dim(
-                        observed[:, start:end],
-                        0,
-                        tensor_id=group_index,
+            elif self.quantization_args.strategy in (
+                QuantizationStrategy.GROUP,
+                QuantizationStrategy.TENSOR_GROUP,
+            ):
+                # TODO: better condition?
+                if self.quantization_args.dynamic == "local":
+                    self._scale, self._zero_point = self.calculate_qparams(
+                        observed, calculate_global_scale=True
                     )
 
-                    self._scale[:, group_index] = scale.squeeze(1)
-                    self._zero_point[:, group_index] = zero_point.squeeze(1)
+                else:
+                    rows = observed.shape[0]
+                    columns = observed.shape[1]
+                    num_groups = int(ceil(columns / group_size))
+                    self._scale = torch.empty(
+                        (rows, num_groups), dtype=observed.dtype, device=observed.device
+                    )
+                    if is_fp4(quantization_args=self.quantization_args):
+                        zp_dtype = FP8_E4M3_DATA.dtype
+                    else:
+                        zp_dtype = self.quantization_args.pytorch_dtype()
+
+                    self._zero_point = torch.empty(
+                        (rows, num_groups), dtype=zp_dtype, device=observed.device
+                    )
+
+                    # support column-order (default) quantization and other orderings
+                    # such as activation ordering. Below checks if g_idx has initialized
+                    is_column_order = g_idx is None or -1 in g_idx
+                    if is_column_order:
+                        group_sizes = torch.full(
+                            (num_groups,), group_size, dtype=torch.int
+                        )
+                    else:
+                        group_indices, group_sizes = torch.unique(
+                            g_idx, return_counts=True
+                        )
+                        group_sizes = group_sizes[torch.argsort(group_indices)]
+
+                        perm = torch.argsort(g_idx)
+                        observed = safe_permute(observed, perm, dim=1)
+
+                    # TODO: experiment with vectorizing for loop for performance
+                    end = 0
+                    for group_index, group_count in enumerate(group_sizes):
+                        start = end
+                        end = start + group_count
+                        scale, zero_point = self.get_qparams_along_dim(
+                            observed[:, start:end],
+                            0,
+                            tensor_id=group_index,
+                        )
+
+                        self._scale[:, group_index] = scale.squeeze(1)
+                        self._zero_point[:, group_index] = zero_point.squeeze(1)
 
             elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
                 # assume observed is transposed, because its the output, hence use dim 0
