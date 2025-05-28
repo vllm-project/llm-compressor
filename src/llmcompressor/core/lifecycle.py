@@ -15,9 +15,9 @@ from llmcompressor.core.state import State
 from llmcompressor.modifiers import StageModifiers
 from llmcompressor.recipe import (
     RecipeArgsInput,
-    RecipeContainer,
     RecipeInput,
     RecipeStageInput,
+    Recipe
 )
 
 __all__ = ["CompressionLifecycle"]
@@ -30,14 +30,14 @@ class CompressionLifecycle:
 
     :param state: The current state of the compression process
     :type state: Optional[State]
-    :param recipe_container: The container for the compression recipe
-    :type recipe_container: RecipeContainer
+    :param recipe: The compression recipe
+    :type recipe: Recipe
     :param modifiers: The list of stage modifiers
     :type modifiers: List[StageModifiers]
     """
 
     state: State = field(default_factory=State)
-    recipe_container: RecipeContainer = field(default_factory=RecipeContainer)
+    recipe: Recipe = field(default_factory=Recipe)
     modifiers: List[StageModifiers] = field(default_factory=list)
 
     initialized_: bool = False
@@ -91,13 +91,16 @@ class CompressionLifecycle:
         :return: List of data returned from initialization of modifiers
         :rtype: List[Any]
         """
+
         self.state.update(**kwargs)
         if self.initialized_:  # TODO: do not initialize twice
             return
-
+        import pdb; pdb.set_trace()
         logger.debug("Initializing compression lifecycle")
-        self.recipe_container.append(recipe, recipe_stage, recipe_args)
-        self.modifiers = self.recipe_container.get_modifiers()
+        self.recipe = Recipe.prepare_recipe(recipe=recipe, 
+                                             recipe_stage=recipe_stage, 
+                                             recipe_args=recipe_args)
+        self.modifiers = self.recipe.create_modifier()
 
         mod_data = []
         for mod in self.modifiers:

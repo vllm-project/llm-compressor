@@ -117,7 +117,6 @@ class Recipe(RecipeBase):
         :return: The Recipe instance created from the path or modifiers,
             or a valid recipe string in yaml/json format
         """
-
         if isinstance(path_or_modifiers, Recipe):
             # already a recipe
             return path_or_modifiers
@@ -206,7 +205,6 @@ class Recipe(RecipeBase):
         """
 
         combined = Recipe()
-
         for recipe in recipes:
             simplified = Recipe.simplify_recipe(
                 recipe=recipe,
@@ -251,6 +249,23 @@ class Recipe(RecipeBase):
             modifiers.append(stage_modifiers)
 
         return modifiers
+    
+    def prepare_recipe(
+        recipe: Optional["RecipeInput"] = None,
+        recipe_stage: Optional["RecipeStageInput"] = None,
+        recipe_args: Optional["RecipeArgsInput"] = None
+    ) -> "Recipe":
+        if recipe is None or (isinstance(recipe, list) and len(recipe) == 0):
+            return None
+
+        # prepare recipe
+        if isinstance(recipe, Modifier) or isinstance(recipe, str) or(
+            isinstance(recipe, list)
+            and all(isinstance(mod, Modifier) for mod in recipe)
+        ):
+            recipe = Recipe.create_instance(recipe)
+        
+        return Recipe.simplify_recipe(recipe, recipe_stage, recipe_args)
 
     @model_validator(mode="before")
     @classmethod
