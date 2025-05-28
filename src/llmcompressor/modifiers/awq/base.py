@@ -1,5 +1,4 @@
 import inspect
-from collections import defaultdict
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -16,7 +15,6 @@ from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.awq.helpers import accumulate_mean
 from llmcompressor.modifiers.awq.mappings import (
     AWQMapping,
     ResolvedMapping,
@@ -112,10 +110,10 @@ class AWQModifier(Modifier, QuantizationMixin):
     :param ignore: list of layers to ignore, even if they match a regex in mappings.
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
-    :param group_size: number of weights to group together for scaling
+    :param offload_cache: whether to offload cached args, which reduces memory
+        requirements but requires more time to move data between cpu and execution
+        device. Consider setting to True if you are encountering OOM errors
     :param max_chunk_memory: maximum memory to use for each chunk of input activations
-    :param bits: number of bits to quantize the weights to
-    :param symmetric: whether to use symmetric quantization
     :param duo_scaling: whether to use duo scaling, which uses both input activations
         and weights to determine the scaling factor
     """
@@ -126,6 +124,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: Union[str, List[str], None] = None
     mappings: Optional[List[AWQMapping]] = None
+    offload_cache: bool = False
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
@@ -138,7 +137,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache list of forward input args for each parent module, one dict for each batch
     _parent_args_cache: Dict[Module, IntermediatesCache] = PrivateAttr(
-        default=defaultdict(IntermediatesCache)
+        default_factory=dict
     )
     # Dict[smooth layer name, (activation means, activation counts)]
     _smooth_activation_cache: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
@@ -242,7 +241,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
 
-        self._setup_activation_cache_hooks()
+        self._setup_activation_cache_hooks(
+            offload_device=(
+                "cpu" if self.offload_cache else get_execution_device(state.model)
+            )
+        )
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -381,7 +384,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         self._resolved_mappings = resolved_mappings
         return
 
-    def _setup_activation_cache_hooks(self) -> None:
+    def _setup_activation_cache_hooks(self, offload_device: torch.device) -> None:
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -404,7 +407,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # Assume that first argument is the input
                 inp = args[0].cpu().detach().squeeze()
 
-                self._smooth_activation_cache[smooth_name] = accumulate_mean(
+                self._smooth_activation_cache[smooth_name] = _accumulate_mean(
                     inp,
                     self._smooth_activation_cache.get(smooth_name, None),
                 )
@@ -415,6 +418,10 @@ class AWQModifier(Modifier, QuantizationMixin):
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
             if mapping.parent not in self._parent_args_cache:
+                self._parent_args_cache[mapping.parent] = IntermediatesCache(
+                    None,
+                    offload_device,
+                )
                 self.register_hook(
                     mapping.parent,
                     cache_parent_kwargs_hook,
@@ -526,7 +533,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             # remove caches needed to smooth this mapping
             del self._smooth_activation_cache[mapping.smooth_name]
 
-        self._parent_args_cache.clear()
+        for v in self._parent_args_cache.values():
+            v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
     def _run_samples(self, module: Module) -> torch.Tensor:
@@ -714,3 +722,20 @@ def _pseudo_quantize_tensor(
     w = w.reshape(org_w_shape)
 
     return w, scales, zeros
+
+
+def _accumulate_mean(
+    inp: torch.Tensor,
+    prev_mean_and_count: Optional[Tuple[torch.FloatTensor, int]],
+) -> Tuple[torch.FloatTensor, int]:
+    sum_added = inp.sum(dim=0)
+    num_added = inp.size(0)
+    if prev_mean_and_count is None:
+        return sum_added, num_added
+
+    prev_mean, prev_count = prev_mean_and_count
+
+    prev_sum = prev_mean * prev_count
+    new_count = prev_count + num_added
+
+    return (prev_sum + sum_added) / new_count, new_count
