@@ -69,7 +69,7 @@ class TestLMEval:
 
         if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
-        
+
         self.model = eval_config["model"]
         self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
         self.lmeval = LmEvalConfig(**eval_config.get("lmeval", {}))

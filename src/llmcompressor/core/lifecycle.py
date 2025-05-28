@@ -13,12 +13,7 @@ from loguru import logger
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
 from llmcompressor.modifiers import StageModifiers
-from llmcompressor.recipe import (
-    RecipeArgsInput,
-    RecipeInput,
-    RecipeStageInput,
-    Recipe
-)
+from llmcompressor.recipe import Recipe, RecipeArgsInput, RecipeInput, RecipeStageInput
 
 __all__ = ["CompressionLifecycle"]
 
@@ -95,8 +90,8 @@ class CompressionLifecycle:
         self.state.update(**kwargs)
         if self.initialized_:  # TODO: do not initialize twice
             return
-        self.recipe = Recipe.simplify_recipe(recipe=recipe, 
-                                             target_stage=recipe_stage, 
+        self.recipe = Recipe.simplify_recipe(recipe=recipe,
+                                             target_stage=recipe_stage,
                                              override_args=recipe_args)
         self.modifiers = self.recipe.create_modifier()
 

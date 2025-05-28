@@ -178,7 +178,7 @@ class Recipe(RecipeBase):
             return Recipe()
 
         # prepare recipe
-        if isinstance(recipe, Modifier) or isinstance(recipe, str) or(
+        if isinstance(recipe, Modifier) or isinstance(recipe, str) or (
             isinstance(recipe, list)
             and all(isinstance(mod, Modifier) for mod in recipe)
         ):
