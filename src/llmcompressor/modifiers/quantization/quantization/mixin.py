@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional, Set, Union
 
+import pandas as pd
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -13,6 +14,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.quantization.utils import iter_named_quantizable_modules
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
@@ -151,6 +153,16 @@ class QuantizationMixin(HooksMixin):
         self.remove_hooks(self._calibration_hooks)
         model.apply(freeze_module_quantization)  # remove observers
         model.apply(enable_quantization)  # keep quantization enabled
+        all_tracker = {}
+        for name, submodule in iter_named_quantizable_modules(
+            model, include_children=True
+        ):
+            tracker = getattr(submodule, "input_tracker", None)
+            if tracker is not None:
+                all_tracker[name] = tracker
+
+        df = pd.DataFrame(all_tracker)
+        df.to_csv("input_global_scale_v4.csv", index=False)
 
     def has_config(self) -> bool:
         """
@@ -212,7 +224,10 @@ class QuantizationMixin(HooksMixin):
             return
 
         scheme: QuantizationScheme = module.quantization_scheme
-        input = scheme.input_activations and not scheme.input_activations.dynamic
+        input = scheme.input_activations and scheme.input_activations.dynamic in (
+            False,
+            "local",
+        )
         weight = scheme.weights is not None
         output = scheme.output_activations and not scheme.output_activations.dynamic
         is_attention = is_attention_module(module)
@@ -241,7 +256,10 @@ class QuantizationMixin(HooksMixin):
                 continue
 
             scheme: QuantizationScheme = module.quantization_scheme
-            input = scheme.input_activations and not scheme.input_activations.dynamic
+            input = scheme.input_activations and scheme.input_activations.dynamic in (
+                False,
+                "local",
+            )
             output = scheme.output_activations and not scheme.output_activations.dynamic
             is_attention = is_attention_module(module)
 

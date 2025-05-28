@@ -53,16 +53,17 @@ def initialize_observer(
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
-    if quantization_args is not None and not quantization_args.dynamic:
+    if quantization_args is not None and quantization_args.dynamic in (False, "local"):
         global_scale = getattr(module, f"{base_name}_global_scale", None)
         if global_scale is not None:
-            assert base_name == "weight" and is_fp4(quantization_args=quantization_args)
+            assert is_fp4(quantization_args=quantization_args)
 
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
             global_scale=global_scale,
         )
+
         module.register_module(f"{base_name}_observer", observer)
 
 
@@ -88,11 +89,20 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
             )
 
         observer = getattr(module, f"{base_name}_observer")
-        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+        if base_name == "input":
+            tracker = getattr(module, f"{base_name}_tracker", [])
 
-        # update scale and zero point
-        update_parameter_data(module, updated_scale, f"{base_name}_scale")
-        update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+        if base_name == "input":
+            tracker.append(updated_scale.to("cpu"))
+            setattr(module, f"{base_name}_tracker", tracker)
+
+        if base_name == "input" and hasattr(module, "input_global_scale"):
+            update_parameter_data(module, updated_scale, f"{base_name}_global_scale")
+        else:
+            # update scale and zero point
+            update_parameter_data(module, updated_scale, f"{base_name}_scale")
+            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
 def update_weight_zp_scale(module: Module):
