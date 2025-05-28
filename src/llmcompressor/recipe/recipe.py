@@ -162,7 +162,7 @@ class Recipe(RecipeBase):
     @staticmethod
     def simplify_recipe(
         recipe: Optional["RecipeInput"] = None,
-        target_stages: Optional["RecipeStageInput"] = None,
+        target_stage: Optional["RecipeStageInput"] = None,
         override_args: Optional["RecipeArgsInput"] = None
     ) -> "Recipe":
         """
@@ -183,12 +183,11 @@ class Recipe(RecipeBase):
             and all(isinstance(mod, Modifier) for mod in recipe)
         ):
             recipe = Recipe.create_instance(recipe)
-
         # Filter stages if target_stages are provided
-        if target_stages:
+        if target_stage:
             recipe.stages = [
                 stage for stage in recipe.stages
-                if any(stage.group in stage_name for stage_name in target_stages)
+                if (stage.group in target_stage)
             ]
         # Apply argument overrides if provided
         if override_args:
@@ -253,23 +252,6 @@ class Recipe(RecipeBase):
             modifiers.append(stage_modifiers)
 
         return modifiers
-    
-    def prepare_recipe(
-        recipe: Optional["RecipeInput"] = None,
-        recipe_stage: Optional["RecipeStageInput"] = None,
-        recipe_args: Optional["RecipeArgsInput"] = None
-    ) -> "Recipe":
-        if recipe is None or (isinstance(recipe, list) and len(recipe) == 0):
-            return None
-
-        # prepare recipe
-        if isinstance(recipe, Modifier) or isinstance(recipe, str) or(
-            isinstance(recipe, list)
-            and all(isinstance(mod, Modifier) for mod in recipe)
-        ):
-            recipe = Recipe.create_instance(recipe)
-        
-        return Recipe.simplify_recipe(recipe, recipe_stage, recipe_args)
 
     @model_validator(mode="before")
     @classmethod
