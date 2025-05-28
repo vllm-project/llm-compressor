@@ -16,6 +16,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from compressed_tensors.quantization.quant_args import (
+    DynamicType,
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
@@ -104,22 +105,19 @@ NVFP4A16 = dict(
     weights=QuantizationArgs(
         num_bits=4,
         type=QuantizationType.FLOAT,
-        strategy=QuantizationStrategy.GROUP,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
         symmetric=True,
         dynamic=False,
         group_size=16,
     )
 )
 
-# TODO: the local scales are dynamic, the global scale is static/calibrated
-# We could potentially extend the dynamic kwarg so that is goes
-# beyond being just a boolean - however we may also want a dynamically
-# generated global scale, so we could use that to separate between the two
+
 NVFP4 = dict(
     weights=QuantizationArgs(
         num_bits=4,
         type=QuantizationType.FLOAT,
-        strategy=QuantizationStrategy.GROUP,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
         symmetric=True,
         dynamic=False,
         group_size=16,
@@ -129,7 +127,7 @@ NVFP4 = dict(
         type=QuantizationType.FLOAT,
         strategy=QuantizationStrategy.TENSOR_GROUP,
         symmetric=True,
-        dynamic=False,
+        dynamic=DynamicType.LOCAL,
         group_size=16,
     ),
 )

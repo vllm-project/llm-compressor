@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Union
 
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import DynamicType, QuantizationArgs
 from compressed_tensors.quantization.quant_scheme import (
     QuantizationScheme,
     preset_name_to_scheme,
@@ -251,7 +251,7 @@ class QuantizationConfig(BaseModel):
 
         for _, scheme in self.config_groups.items():
             if scheme.input_activations is not None:
-                if not scheme.input_activations.dynamic:
+                if scheme.input_activations.dynamic in (False, DynamicType.LOCAL):
                     return True
             if scheme.output_activations is not None:
                 if not scheme.output_activations.dynamic:

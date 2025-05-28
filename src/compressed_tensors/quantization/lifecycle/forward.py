@@ -18,6 +18,7 @@ from typing import Optional
 
 import torch
 from compressed_tensors.quantization.quant_args import (
+    DynamicType,
     QuantizationArgs,
     QuantizationStrategy,
     QuantizationType,
@@ -190,8 +191,8 @@ def _process_quantization(
     group_size = args.group_size
 
     if args.strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        if args.strategy == QuantizationStrategy.TENSOR_GROUP:
-            # only valid for activation; remove dim 0
+        n_dims = x.shape
+        if len(n_dims) > 2:
             x = x.squeeze(0)
 
         output_dtype = dtype if dtype is not None else x.dtype
@@ -255,7 +256,7 @@ def _process_quantization(
         if not is_column_order:
             output = safe_permute(output, torch.argsort(perm), dim=1)
 
-        if args.strategy == QuantizationStrategy.TENSOR_GROUP:
+        if len(n_dims) > 2:
             output = output.unsqueeze(0)
 
     else:  # covers channel, token and tensor strategies
@@ -359,7 +360,7 @@ def forward_quantize(
     g_idx = getattr(module, "weight_g_idx", None)
     global_scale = getattr(module, f"{base_name}_global_scale", None)
 
-    if args.dynamic or args.strategy == QuantizationStrategy.TENSOR_GROUP:
+    if args.dynamic in (True, DynamicType.LOCAL):
         # dynamic quantization - determine the scale/zp on the fly
         scale, zero_point = compute_dynamic_scales_and_zp(
             value=value, args=args, module=module, global_scale=global_scale

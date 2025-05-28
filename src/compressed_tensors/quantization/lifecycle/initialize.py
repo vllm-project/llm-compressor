@@ -156,13 +156,33 @@ def _initialize_scale_zero_point(
     force_zero_point: bool = True,
     scale_dtype: Optional[torch.dtype] = None,
 ):
-    if quantization_args.dynamic:
+    if quantization_args.dynamic is True:
         return
 
     # initialize on execution device to avoid performing quantized ops on cpu
     device = get_execution_device(module)
 
-    # infer expected scale/zero point shape
+    # 1. Create global_scales for tensor_group
+    if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
+        # TODO: should move to llmcompressor
+        if base_name == "weight":
+            # When applying weight-only FP4 quantization, generate a global_scale
+            # This scale is applied during runtime to ensure that the generated
+            # local scale falls properly within the FP8 range (i.e max value is FP8_max)
+            # which is the expected dtype of NVFP4A16 scales
+            value = generate_global_scale(input_tensor=module.weight)
+            value = value.to(device)
+            init_global_scale = Parameter(value, requires_grad=False)
+        else:
+            init_global_scale = Parameter(
+                torch.empty(1, dtype=torch.float32, device=device),
+                requires_grad=False,
+            )
+        register_offload_parameter(
+            module, f"{base_name}_global_scale", init_global_scale
+        )
+
+    # 2. Infer expected scale/zero point shape
     if quantization_args.strategy == QuantizationStrategy.TOKEN:
         expected_shape = (1, 1)
     else:
@@ -172,55 +192,35 @@ def _initialize_scale_zero_point(
         if quantization_args.strategy == QuantizationStrategy.CHANNEL:
             # (output_channels, 1)
             expected_shape = (weight_shape[0], 1)
-        elif quantization_args.strategy == QuantizationStrategy.GROUP:
+        elif quantization_args.strategy in (
+            QuantizationStrategy.TENSOR_GROUP,
+            QuantizationStrategy.GROUP,
+        ):
             num_groups = math.ceil(weight_shape[1] / quantization_args.group_size)
             expected_shape = (weight_shape[0], max(num_groups, 1))
 
+    # 3. Identify quantization scale and zp dtype
     scale_dtype = scale_dtype if scale_dtype is not None else module.weight.dtype
-    # TODO: consider erroring out in the future as if the dtype if not one fo these,
-    # there is likely bug
 
-    if is_fp4(quantization_args=quantization_args) and base_name == "weight":
-        assert quantization_args.strategy == QuantizationStrategy.GROUP
-        scale_dtype = FP8_E4M3_DATA.dtype
-        # When applying weight-only FP4 quantization, generate a global_scale
-        # This scale is applied during runtime to ensure that the generated
-        # local scale falls properly within the FP8 range (i.e max value is FP8_max)
-        # which is the expected dtype of NVFP4A16 scales
-        value = generate_global_scale(input_tensor=module.weight)
-        value = value.to(device)
-        init_global_scale = Parameter(value, requires_grad=False)
-        register_offload_parameter(
-            module, f"{base_name}_global_scale", init_global_scale
-        )
-
-    # initializes empty scale, zero point, and g_idx parameters for the module
-    if is_fp4(quantization_args=quantization_args) and base_name == "input":
-        assert quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP
-        scale_dtype = torch.float32
-        scale_name = f"{base_name}_global_scale"
+    if is_fp4(quantization_args=quantization_args):
+        scale_dtype = zp_dtype = FP8_E4M3_DATA.dtype
     else:
-        scale_name = f"{base_name}_scale"
+        # TODO: consider erroring out in the future as if the dtype if not one of these,
+        # there is likely bug
+        if scale_dtype not in [torch.float16, torch.bfloat16, torch.float32]:
+            scale_dtype = torch.float16
+        zp_dtype = quantization_args.pytorch_dtype()
 
-    if scale_dtype not in [
-        torch.float16,
-        torch.bfloat16,
-        torch.float32,
-    ] and not is_fp4(quantization_args=quantization_args):
-        scale_dtype = torch.float16
-
-    init_scale = Parameter(
-        torch.empty(expected_shape, dtype=scale_dtype, device=device),
-        requires_grad=False,
-    )
-    register_offload_parameter(module, scale_name, init_scale)
+    # 4. Initializes empty scale, zero point, and g_idx parameters for the module
+    # do not init scales for quantzation_args.dynamic == DynamicType.local
+    if not quantization_args.dynamic:
+        init_scale = Parameter(
+            torch.empty(expected_shape, dtype=scale_dtype, device=device),
+            requires_grad=False,
+        )
+        register_offload_parameter(module, f"{base_name}_scale", init_scale)
 
     if force_zero_point or not quantization_args.symmetric:
-        if is_fp4(quantization_args=quantization_args):
-            zp_dtype = FP8_E4M3_DATA.dtype
-        else:
-            zp_dtype = quantization_args.pytorch_dtype()
-
         init_zero_point = Parameter(
             torch.zeros(expected_shape, device=device, dtype=zp_dtype),
             requires_grad=False,

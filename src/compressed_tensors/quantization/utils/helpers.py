@@ -171,10 +171,10 @@ def compute_dynamic_scales_and_zp(
     elif args.strategy == QuantizationStrategy.TENSOR:
         reduce_dims = None
     elif args.strategy == QuantizationStrategy.TENSOR_GROUP:
-        # per group dynamic quantization - only valid for
-        # activations
+        if len(value.shape) > 2:
+            value = value.squeeze(0)
+
         dim = {0, 1}
-        value = value.squeeze(0)
         reduce_dims = tuple(idx for idx in range(3) if idx not in dim)
         keep_dims = False
         value = torch.reshape(
