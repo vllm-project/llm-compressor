@@ -161,9 +161,9 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_recipe(
-        recipe: Union[str, "Recipe"],
-        target_stages: Optional[List[str]] = None,
-        override_args: Optional[Dict[str, Any]] = None,
+        recipe: Optional["RecipeInput"] = None,
+        target_stages: Optional["RecipeStageInput"] = None,
+        override_args: Optional["RecipeArgsInput"] = None
     ) -> "Recipe":
         """
         Simplify a Recipe by removing stages that are not in the target_stages
@@ -174,11 +174,15 @@ class Recipe(RecipeBase):
         :param override_args: The arguments used to override existing recipe args
         :return: The simplified Recipe instance
         """
-        if isinstance(recipe, str):
-            recipe = Recipe.create_instance(recipe)
+        if recipe is None or (isinstance(recipe, list) and len(recipe) == 0):
+            return Recipe()
 
-        if not target_stages and not override_args:
-            return recipe
+        # prepare recipe
+        if isinstance(recipe, Modifier) or isinstance(recipe, str) or(
+            isinstance(recipe, list)
+            and all(isinstance(mod, Modifier) for mod in recipe)
+        ):
+            recipe = Recipe.create_instance(recipe)
 
         # Filter stages if target_stages are provided
         if target_stages:

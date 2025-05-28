@@ -95,11 +95,9 @@ class CompressionLifecycle:
         self.state.update(**kwargs)
         if self.initialized_:  # TODO: do not initialize twice
             return
-        import pdb; pdb.set_trace()
-        logger.debug("Initializing compression lifecycle")
-        self.recipe = Recipe.prepare_recipe(recipe=recipe, 
-                                             recipe_stage=recipe_stage, 
-                                             recipe_args=recipe_args)
+        self.recipe = Recipe.simplify_recipe(recipe=recipe, 
+                                             target_stages=recipe_stage, 
+                                             override_args=recipe_args)
         self.modifiers = self.recipe.create_modifier()
 
         mod_data = []
