@@ -113,7 +113,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     :param offload_device: offload cached args to this device, which reduces memory
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
-        to "cpu" if you are encountering OOM errors
+        to torch.device("cpu") if you are encountering OOM errors
     :param max_chunk_memory: maximum memory to use for each chunk of input activations
     :param duo_scaling: whether to use duo scaling, which uses both input activations
         and weights to determine the scaling factor
