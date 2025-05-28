@@ -17,6 +17,8 @@ class AutoWrapper(ast.NodeTransformer):
     2. Ignored functions (`_update_causal_mask`)
     3. Starred tuple unpacking
     4. Starred argument unpacking
+
+    See also: https://github.com/vllm-project/llm-compressor/pull/1411
     """
 
     def __init__(self, namespace: Dict[str, Any], ignore: List[str]):
@@ -58,7 +60,8 @@ class AutoWrapper(ast.NodeTransformer):
 
     def visit_Name(self, node: ast.Name):
         """
-        Add any new names in `self._local_names`
+        Add any new names in `self._local_names`,
+        which are used to determine function wrapper arguments
         """
         if isinstance(node.ctx, ast.Store):
             self._local_names.add(node.id)
@@ -67,7 +70,8 @@ class AutoWrapper(ast.NodeTransformer):
 
     def visit_Delete(self, node: ast.Delete):
         """
-        Remove any deleted names from `self._local_names`
+        Remove any deleted names from `self._local_names`,
+        which are used to determine function wrapper arguments
         """
         ret = super().visit_Delete(node)
 

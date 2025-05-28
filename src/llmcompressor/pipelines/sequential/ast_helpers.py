@@ -11,9 +11,19 @@ import torch
 from llmcompressor.pipelines.sequential.ast_utils.auto_wrapper import AutoWrapper
 from llmcompressor.utils import patch_attr
 
+__all__ = ["autowrap_forwards"]
+
 
 @contextlib.contextmanager
 def autowrap_forwards(modules: List[torch.nn.Module], ignore: List[str]):
+    """
+    Replace the `forward` method of the given modules with a recompiled version where
+    all untraceble code patterns are removed and replaced with torch.fx function
+    wrappers
+
+    :param modules: list of modules whose forward methods should be replaced
+    :param ignore: explicit list of function names to wrap
+    """
     with contextlib.ExitStack() as stack:
         for module in modules:
             if not isinstance(module, (torch.nn.ModuleList, torch.nn.ModuleDict)):
@@ -23,6 +33,17 @@ def autowrap_forwards(modules: List[torch.nn.Module], ignore: List[str]):
 
 @contextlib.contextmanager
 def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
+    """
+    Replace the `forward` method of the given module with a recompiled version where
+    all untraceble code patterns are removed and replaced with torch.fx function
+    wrappers.
+
+    For a list of untraceable code patterns and their explainations, see
+    https://github.com/vllm-project/llm-compressor/pull/1411
+
+    :param module: module whose forward method should be replaced
+    :param ignore: explicit list of function names to wrap
+    """
     # get source code of module forward
     source = inspect.getsource(module.forward)
     source = textwrap.dedent(source)

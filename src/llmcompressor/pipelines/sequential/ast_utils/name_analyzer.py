@@ -6,6 +6,30 @@ from llmcompressor.utils import patch_attr
 
 
 class NameAnalyzer(ast.NodeVisitor):
+    """
+    Determines the unbound, assigned, and conditionally assigned names associated with
+    a piece of code. This information is used to determine the arguments and return
+    values of the wrapper function
+
+    For example, for the following piece of code
+    ```python3
+    b = a + 1
+    if some_condition:
+        c = 5
+    ```
+
+    `a` is unbound, meaning that it must be an input of wrapper function
+    `b` is assigned, meaning that it must be an output of the wrapper function
+    `c` is conditionally assigned, meaning that it must be an output of the wrapper
+    function, and *might* be an input iff `c` already exists in the namespace
+
+    Note that names which are assigned to before being read are not considered unbound
+    ```python3
+    a = 2  # no longer unbound
+    b = a + 1
+    ```
+    """
+
     _unbound: Set[str]
     _assigned: Set[str]
     _conditionally_assigned: Set[str]
@@ -14,11 +38,17 @@ class NameAnalyzer(ast.NodeVisitor):
     def __init__(self, omit: Set[str]):
         self._omit = builtins.__dict__.keys() | omit
 
-    def analyze(self, tree: ast.AST) -> Tuple[Set[str], Set[str], Set[str]]:
+    def analyze(self, node: ast.AST) -> Tuple[Set[str], Set[str], Set[str]]:
+        """
+        Analyzes the use of names in the given piece of code
+
+        :param node: code to analyze
+        return: tuple of unbound names, assigned names, and conditionally assigned names
+        """
         self._unbound = set()
         self._assigned = set()
         self._conditionally_assigned = set()
-        self.visit(tree)
+        self.visit(node)
 
         return self._unbound, self._assigned, self._conditionally_assigned
 

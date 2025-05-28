@@ -3,11 +3,41 @@ from typing import List, Type
 
 
 class ControlFlowAnalyzer(ast.NodeVisitor):
+    """
+    Used to determine if a piece of code can be wrapped into a function. Includes any
+    code which includes `return`, `continue`, `break`, `await`, or `yield`
+    without the proper context.
+
+    For example, this code can be wrapped:
+    ```python3
+    while True:
+        if some_condition:
+            break
+    ```
+
+    Whereas the inner code cannot be wrapped without the `while` context
+    ```python3
+    def wrapped():
+        if some_condition:
+            break  # this control statement is now invalid
+
+    while True:
+        wrapped()
+    ```
+    """
+
     _contexts: List[Type]
     _is_valid: bool
     _context_types = (ast.For, ast.While, ast.FunctionDef, ast.AsyncFunctionDef)
 
     def is_valid(self, node: ast.AST) -> bool:
+        """
+        Returns False if a node contains control statements that are not in their
+        proper control flow context
+
+        :param node: code to analyze
+        :return: True iff the code does not contain invalid control statements
+        """
         self._contexts = []
         self._is_valid = True
         self.visit(node)
