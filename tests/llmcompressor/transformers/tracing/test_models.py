@@ -3,6 +3,7 @@ from transformers import (
     AutoModelForCausalLM,
     Gemma3ForConditionalGeneration,
     Idefics3ForConditionalGeneration,
+    Llama4ForConditionalGeneration,
     LlavaForConditionalGeneration,
     MllamaForConditionalGeneration,
     Qwen2_5_VLForConditionalGeneration,
@@ -20,6 +21,21 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
     [
         # --- text ---
         ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, None, "text", []),
+        (
+            "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+            AutoModelForCausalLM,
+            None,
+            "text",
+            [],
+        ),
+        (
+            "mistralai/Mixtral-8x7B-Instruct-v0.1",
+            AutoModelForCausalLM,
+            None,
+            "text",
+            [],
+        ),
+        ("RedHatAI/DeepSeek-V3-BF16", AutoModelForCausalLM, None, "text", []),
         # --- vision ---
         (
             "HuggingFaceM4/Idefics3-8B-Llama3",
@@ -68,6 +84,20 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "google/gemma-3-4b-it",
             Gemma3ForConditionalGeneration,
             ["Gemma3DecoderLayer"],
+            "vision",
+            [],
+        ),
+        (
+            "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+            Llama4ForConditionalGeneration,
+            "Llama4TextDecoderLayer",
+            "vision",
+            [],
+        ),
+        (
+            "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+            Llama4ForConditionalGeneration,
+            "Llama4TextDecoderLayer",
             "vision",
             [],
         ),
