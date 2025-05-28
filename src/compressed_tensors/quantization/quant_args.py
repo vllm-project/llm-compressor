@@ -98,6 +98,7 @@ class QuantizationStrategy(str, Enum):
     GROUP = "group"
     BLOCK = "block"
     TOKEN = "token"
+    TENSOR_GROUP = "tensor_group"
 
 
 class ActivationOrdering(Aliasable, str, Enum):
@@ -239,7 +240,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         if (
             group_size is not None
             and group_size > 0
-            and strategy != QuantizationStrategy.GROUP
+            and strategy
+            not in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
         ):
             raise ValueError("group_size requires strategy to be set to 'group'")
 

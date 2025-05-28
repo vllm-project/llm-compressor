@@ -189,7 +189,11 @@ def _process_quantization(
     q_min, q_max = calculate_range(args, x.device)
     group_size = args.group_size
 
-    if args.strategy == QuantizationStrategy.GROUP:
+    if args.strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+        if args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            # only valid for activation; remove dim 0
+            x = x.squeeze(0)
+
         output_dtype = dtype if dtype is not None else x.dtype
         output = torch.zeros_like(x).to(output_dtype)
         columns = output.shape[1]
@@ -250,6 +254,9 @@ def _process_quantization(
 
         if not is_column_order:
             output = safe_permute(output, torch.argsort(perm), dim=1)
+
+        if args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            output = output.unsqueeze(0)
 
     else:  # covers channel, token and tensor strategies
         if do_quantize:
@@ -352,9 +359,11 @@ def forward_quantize(
     g_idx = getattr(module, "weight_g_idx", None)
     global_scale = getattr(module, f"{base_name}_global_scale", None)
 
-    if args.dynamic:
+    if args.dynamic or args.strategy == QuantizationStrategy.TENSOR_GROUP:
         # dynamic quantization - determine the scale/zp on the fly
-        scale, zero_point = compute_dynamic_scales_and_zp(value=value, args=args)
+        scale, zero_point = compute_dynamic_scales_and_zp(
+            value=value, args=args, module=module, global_scale=global_scale
+        )
     else:
         # static quantization - get scale and zero point from layer
         scale = getattr(module, f"{base_name}_scale")
@@ -388,6 +397,7 @@ def _quantize(
         scale = scale.to(global_scale.dtype) / global_scale
 
     scaled = x / scale
+
     if zero_point is not None:
         scaled += zero_point.to(x.dtype)
 
@@ -398,6 +408,7 @@ def _quantize(
         q_max,
     )
     quantized_value = round_to_quantized_type(clamped_value, args)
+
     if dtype is not None:
         quantized_value = quantized_value.to(dtype)
 
@@ -422,6 +433,7 @@ def _dequantize(
 
     if zero_point is not None:
         dequant_value = dequant_value - zero_point.to(scale.dtype)
+
     dequant_value = dequant_value * scale
 
     if dtype is not None:

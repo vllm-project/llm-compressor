@@ -111,6 +111,29 @@ NVFP4A16 = dict(
     )
 )
 
+# TODO: the local scales are dynamic, the global scale is static/calibrated
+# We could potentially extend the dynamic kwarg so that is goes
+# beyond being just a boolean - however we may also want a dynamically
+# generated global scale, so we could use that to separate between the two
+NVFP4 = dict(
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=16,
+    ),
+    input_activations=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.FLOAT,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        symmetric=True,
+        dynamic=False,
+        group_size=16,
+    ),
+)
+
 # 8 bit integer weights and 8 bit activations quantization
 INT8_W8A8 = dict(
     weights=QuantizationArgs(
@@ -237,4 +260,5 @@ PRESET_SCHEMES = {
     "FP8": FP8,
     "FP8_DYNAMIC": FP8_DYNAMIC,
     "NVFP4A16": NVFP4A16,
+    "NVFP4": NVFP4,
 }

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import math
 from typing import Generator, List, Optional, Tuple
 
 import torch
@@ -103,7 +104,9 @@ def calculate_qparams(
         if is_fp4(quantization_args=quantization_args) and global_scale is not None:
             # Conditionally scale the generated local scale by a global_scale
             scales = global_scale * (max_val_pos / FP4_E2M1_DATA.max)
+            scales = torch.clamp(scales, max=FP8_E4M3_DATA.max, min=FP8_E4M3_DATA.min)
             scales = scales.to(FP8_E4M3_DATA.dtype)
+
         else:
             scales = max_val_pos / (float(bit_range) / 2)
 
@@ -143,7 +146,12 @@ def calculate_qparams(
     return scales, zero_points
 
 
-def compute_dynamic_scales_and_zp(value: Tensor, args: QuantizationArgs):
+def compute_dynamic_scales_and_zp(
+    value: Tensor,
+    args: QuantizationArgs,
+    module: torch.nn.Module,
+    global_scale: Optional[Tensor] = None,
+):
     """
     Returns the computed scales and zero points for dynamic activation
     quantization.
@@ -155,24 +163,41 @@ def compute_dynamic_scales_and_zp(value: Tensor, args: QuantizationArgs):
         reduced dimensions
     :return: tuple of scale and zero point derived from the observed tensor
     """
+
+    keep_dims = True
     if args.strategy == QuantizationStrategy.TOKEN:
         dim = {1, 2}
         reduce_dims = tuple(idx for idx in range(value.ndim) if idx not in dim)
     elif args.strategy == QuantizationStrategy.TENSOR:
         reduce_dims = None
+    elif args.strategy == QuantizationStrategy.TENSOR_GROUP:
+        # per group dynamic quantization - only valid for
+        # activations
+        dim = {0, 1}
+        value = value.squeeze(0)
+        reduce_dims = tuple(idx for idx in range(3) if idx not in dim)
+        keep_dims = False
+        value = torch.reshape(
+            value,
+            (
+                value.shape[0],
+                math.ceil(value.shape[1] / args.group_size),
+                args.group_size,
+            ),
+        )
     else:
         raise ValueError(
-            f"One of {QuantizationStrategy.TOKEN} or {QuantizationStrategy.TENSOR} ",
-            "must be used for dynamic quantization",
+            "Dynamic quantization is only supported for ",
+            f"{QuantizationStrategy.TOKEN, QuantizationStrategy.TENSOR, QuantizationStrategy.TENSOR_GROUP}",
         )
 
     if not reduce_dims:
         min_val, max_val = torch.aminmax(value)
     else:
-        min_val = torch.amin(value, dim=reduce_dims, keepdims=True)
-        max_val = torch.amax(value, dim=reduce_dims, keepdims=True)
+        min_val = torch.amin(value, dim=reduce_dims, keepdims=keep_dims)
+        max_val = torch.amax(value, dim=reduce_dims, keepdims=keep_dims)
 
-    return calculate_qparams(min_val, max_val, args)
+    return calculate_qparams(min_val, max_val, args, global_scale=global_scale)
 
 
 def calculate_range(quantization_args: QuantizationArgs, device: str) -> Tuple:
