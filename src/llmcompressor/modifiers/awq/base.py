@@ -110,9 +110,10 @@ class AWQModifier(Modifier, QuantizationMixin):
     :param ignore: list of layers to ignore, even if they match a regex in mappings.
         It should match the name of layers whose outputs are scaled to achieve
         smoothing (the second entry of the mappings list).
-    :param offload_cache: whether to offload cached args, which reduces memory
+    :param offload_device: offload cached args to this device, which reduces memory
         requirements but requires more time to move data between cpu and execution
-        device. Consider setting to True if you are encountering OOM errors
+        device. Defaults to None, so cached args are not offloaded. Consider setting
+        to "cpu" if you are encountering OOM errors
     :param max_chunk_memory: maximum memory to use for each chunk of input activations
     :param duo_scaling: whether to use duo scaling, which uses both input activations
         and weights to determine the scaling factor
@@ -124,7 +125,7 @@ class AWQModifier(Modifier, QuantizationMixin):
     # User-provided vars (in addition to QuantizationMixin args)
     sequential_targets: Union[str, List[str], None] = None
     mappings: Optional[List[AWQMapping]] = None
-    offload_cache: bool = False
+    offload_device: Optional[torch.device] = None
     max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
@@ -241,11 +242,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
 
-        self._setup_activation_cache_hooks(
-            offload_device=(
-                "cpu" if self.offload_cache else get_execution_device(state.model)
-            )
-        )
+        self._setup_activation_cache_hooks()
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -384,7 +381,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         self._resolved_mappings = resolved_mappings
         return
 
-    def _setup_activation_cache_hooks(self, offload_device: torch.device) -> None:
+    def _setup_activation_cache_hooks(self) -> None:
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -420,7 +417,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             if mapping.parent not in self._parent_args_cache:
                 self._parent_args_cache[mapping.parent] = IntermediatesCache(
                     None,
-                    offload_device,
+                    self.offload_device,
                 )
                 self.register_hook(
                     mapping.parent,

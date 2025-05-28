@@ -27,7 +27,8 @@ class IntermediatesCache:
     """
     Cache which stores intermediate values (activations) produced by batched, sequential
     execution of models. Values are offloaded to the `offload_device` when stored in
-    the cache and onloaded to their original device when fetched from the cache
+    the cache and onloaded to their original device when fetched from the cache. If
+    `offload_device` is None, values will not be offloaded at all.
 
     Currently supports nested offloading of dataclass instances and tuples
 
@@ -35,15 +36,25 @@ class IntermediatesCache:
     """
 
     batch_intermediates: List[IntermediateValues]
-    offload_device: torch.device
+    offload_device: Optional[torch.device]
 
     def __init__(
         self,
         batch_intermediates: Optional[List[IntermediateValues]] = None,
-        offload_device: torch.device = "cpu",
+        offload_device: Optional[torch.device] = "cpu",
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
+
+    @classmethod
+    def empty(cls, num_batches: int, offload_device: torch.device):
+        """
+        Construct an empty cache
+        :param num_batches: the expected number of batches to be stored
+        :param offload_device: device to offload values to
+        """
+        batch_intermediates = [{} for _ in range(num_batches)]
+        return cls(batch_intermediates, offload_device)
 
     @classmethod
     def from_dataloader(
@@ -51,7 +62,7 @@ class IntermediatesCache:
         dataloader: torch.utils.data.DataLoader,
         model_device: torch.device,
         mask_padding: bool = True,
-        offload_device: torch.device = torch.device("cpu"),
+        offload_device: Optional[torch.device] = torch.device("cpu"),
     ):
         """
         Initialize a cache with data from the provided dataloader
@@ -161,7 +172,12 @@ class IntermediatesCache:
     def _offload_value(self, value: Any) -> IntermediateValue:
         if isinstance(value, torch.Tensor):
             return IntermediateValue(
-                value=value.to(device=self.offload_device), device=value.device
+                value=(
+                    value
+                    if self.offload_device is None
+                    else value.to(device=self.offload_device)
+                ),
+                device=value.device,
             )
 
         if is_dataclass(value):
