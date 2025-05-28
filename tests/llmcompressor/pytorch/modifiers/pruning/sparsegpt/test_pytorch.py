@@ -95,7 +95,7 @@ class TestSetQuantInGPTQ(unittest.TestCase):
                         "num_bits": 8,
                         "symmetric": False,
                         "strategy": "token",
-                        "dynamic": "true",
+                        "dynamic": True,
                         "kwargs": {},
                     },
                     "weights": {
