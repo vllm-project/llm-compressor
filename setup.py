@@ -79,51 +79,6 @@ def localversion_func(version: ScmVersion) -> str:
     return get_local_node_and_date(version)
 
 
-_deps = [
-    "loguru",
-    "pyyaml>=5.0.0",
-    "numpy>=1.17.0,<2.0",
-    "requests>=2.0.0",
-    "tqdm>=4.0.0",
-    "torch>=1.7.0",
-    "transformers>4.0,<5.0",
-    "datasets",
-    "accelerate>=0.20.3,!=1.1.0",
-    "pynvml",
-    "pillow",
-    (
-        "compressed-tensors==0.9.4"
-        if BUILD_TYPE == "release"
-        else "compressed-tensors>=0.9.5a2"
-    ),
-]
-
-_dev_deps = [
-    # testing framework
-    "pytest>=6.0.0",
-    "pytest-mock>=3.6.0",
-    "pytest-rerunfailures>=13.0",
-    "parameterized",
-    "lm_eval==0.4.5",
-    # test dependencies
-    "beautifulsoup4~=4.12.3",
-    "cmarkgfm~=2024.1.14",
-    "trl>=0.10.1",
-    "pandas",
-    "torchvision",
-    "librosa",
-    "soundfile",
-    # linting, formatting, and type checking
-    "black~=24.4.2",
-    "isort~=5.13.2",
-    "mypy~=1.10.0",
-    "ruff~=0.4.8",
-    "flake8~=7.0.0",
-    # pre commit hooks
-    "pre-commit",
-]
-
-
 setup(
     name="llmcompressor",
     use_scm_version={
@@ -154,8 +109,50 @@ setup(
     packages=find_packages(
         "src", include=["llmcompressor", "llmcompressor.*"], exclude=["*.__pycache__.*"]
     ),
-    install_requires=_deps,
-    extras_require={"dev": _dev_deps},
+    install_requires=[
+        "loguru",
+        "pyyaml>=5.0.0",
+        "numpy>=1.17.0,<2.0",
+        "requests>=2.0.0",
+        "tqdm>=4.0.0",
+        "torch>=1.7.0",
+        "transformers>4.0,<5.0",
+        "datasets",
+        "accelerate>=0.20.3,!=1.1.0",
+        "pynvml",
+        "pillow",
+        (
+            "compressed-tensors==0.9.4"
+            if BUILD_TYPE == "release"
+            else "compressed-tensors>=0.9.5a2"
+        ),
+    ],
+    extras_require={
+        "dev": [
+            # testing framework
+            "pytest>=6.0.0",
+            "pytest-mock>=3.6.0",
+            "pytest-rerunfailures>=13.0",
+            "parameterized",
+            "lm_eval==0.4.5",
+            # test dependencies
+            "beautifulsoup4~=4.12.3",
+            "cmarkgfm~=2024.1.14",
+            "trl>=0.10.1",
+            "pandas",
+            "torchvision",
+            "librosa",
+            "soundfile",
+            # linting, formatting, and type checking
+            "black~=24.4.2",
+            "isort~=5.13.2",
+            "mypy~=1.10.0",
+            "ruff~=0.4.8",
+            "flake8~=7.0.0",
+            # pre commit hooks
+            "pre-commit",
+        ]
+    },
     entry_points={
         "console_scripts": [
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
