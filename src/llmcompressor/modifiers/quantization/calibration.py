@@ -2,6 +2,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import (
+    DynamicType,
     KVCacheScaleType,
     QuantizationScheme,
     QuantizationStatus,
@@ -54,7 +55,10 @@ def initialize_observer(
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
-    if quantization_args is not None and not quantization_args.dynamic:
+    if quantization_args is not None and quantization_args.dynamic in (
+        False,
+        DynamicType.LOCAL,
+    ):
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
@@ -89,6 +93,7 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
         quant_args = getattr(quantization_scheme, arg_name, None)
 
+        # We always calculate quantizaton parameters by default and no global parameters
         should_calculate_gparam = False
         should_calculate_qparams = True
 

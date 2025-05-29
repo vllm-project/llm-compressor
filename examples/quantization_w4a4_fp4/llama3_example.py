@@ -4,8 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-MODEL_ID = "meta-llama/Llama-3.3-70B-Instruct"
-# MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(

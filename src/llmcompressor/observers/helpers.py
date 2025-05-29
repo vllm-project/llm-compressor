@@ -28,6 +28,9 @@ def get_observer_token_count(module: torch.nn.Module) -> Counter:
     return token_counts
 
 
+# TODO: we have a similar function in ct already
+# consolidate when adding weight global scale
+# generation
 def calculate_gparam(
     updated_min_val: torch.Tensor,
     updated_max_val: torch.Tensor,
