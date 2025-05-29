@@ -4,7 +4,6 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from pydantic import ValidationError
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
-from llmcompressor.modifiers.awq.base import _sanitize_kwargs
 from llmcompressor.modifiers.factory import ModifierFactory
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
@@ -165,22 +164,3 @@ def test_validate():
             ),
         }
     )
-
-
-@pytest.mark.unit
-def test_sanitize_kwargs():
-    module = torch.nn.Linear(10, 20)
-
-    # Test with kwargs that are not a dictionary
-    with pytest.raises(AttributeError):
-        _sanitize_kwargs("not a dictionary", module)
-
-    # Test with kwargs that are not in the signature of the forward method
-    kwargs = {"not_in_signature": 123}
-    sanitized_kwargs = _sanitize_kwargs(kwargs, module)
-    assert sanitized_kwargs == {}
-
-    # Test with kwargs that are in the signature of the forward method
-    kwargs = {"input": torch.randn(1, 10)}
-    sanitized_kwargs = _sanitize_kwargs(kwargs, module)
-    assert sanitized_kwargs == kwargs
