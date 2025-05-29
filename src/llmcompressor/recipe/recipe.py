@@ -163,7 +163,7 @@ class Recipe(RecipeBase):
     def simplify_recipe(
         recipe: Optional["RecipeInput"] = None,
         target_stage: Optional["RecipeStageInput"] = None,
-        override_args: Optional["RecipeArgsInput"] = None
+        override_args: Optional["RecipeArgsInput"] = None,
     ) -> "Recipe":
         """
         Simplify a Recipe by removing stages that are not in the target_stages
@@ -178,16 +178,19 @@ class Recipe(RecipeBase):
             return Recipe()
 
         # prepare recipe
-        if isinstance(recipe, Modifier) or isinstance(recipe, str) or (
-            isinstance(recipe, list)
-            and all(isinstance(mod, Modifier) for mod in recipe)
+        if (
+            isinstance(recipe, Modifier)
+            or isinstance(recipe, str)
+            or (
+                isinstance(recipe, list)
+                and all(isinstance(mod, Modifier) for mod in recipe)
+            )
         ):
             recipe = Recipe.create_instance(recipe)
         # Filter stages if target_stages are provided
         if target_stage:
             recipe.stages = [
-                stage for stage in recipe.stages
-                if (stage.group in target_stage)
+                stage for stage in recipe.stages if (stage.group in target_stage)
             ]
         # Apply argument overrides if provided
         if override_args:
