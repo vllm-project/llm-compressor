@@ -90,7 +90,7 @@ class CompressionLifecycle:
         self.state.update(**kwargs)
         if self.initialized_:  # TODO: do not initialize twice
             return
-        
+
         logger.debug("Initializing compression lifecycle")
         self.recipe = Recipe.simplify_recipe(
             recipe=recipe, target_stage=recipe_stage, override_args=recipe_args
