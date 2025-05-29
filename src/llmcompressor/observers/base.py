@@ -146,7 +146,7 @@ class Observer(Module, RegistryMixin):
                         observed[:, start:end],
                         0,
                         tensor_id=group_index,
-                        global_scale=global_scale
+                        global_scale=global_scale,
                     )
 
                     self._scale[:, group_index] = scale.squeeze(1)
