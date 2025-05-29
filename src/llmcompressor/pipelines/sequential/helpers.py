@@ -2,7 +2,7 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 
 import torch
 from compressed_tensors import has_offloaded_params
@@ -84,17 +84,16 @@ def trace_subgraphs(
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
     :param sequential_targets: list of patterns matching sequential targets
-    :param ignore: modules to ignore during tracing, in the future will specify
-        functions and methods to skip during tracing
+    :param ignore: function and method names to skip during tracing
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    ignore = ["_update_causal_mask"]
     targets = match_modules(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
+    offloaded = set(m for m in model.modules() if has_offloaded_params(m))
 
     # initialize arguments
-    tracer = get_tracer(model, ancestors)
+    tracer = SequentialTracer(ancestors, offloaded)
     concrete_args = populate_concrete_args(model, sample_input)
 
     with contextlib.ExitStack() as stack:
@@ -132,6 +131,9 @@ def trace_subgraphs(
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
 
+    # As currently implemented, `topological_partition` generates an extra subgraph at
+    # the beginning which does not contain a target. This adds a little more runtime,
+    # and could be folded into the first subgraph in the future
     if len(subgraphs) != len(targets) + 1:
         logger.warning(
             f"Expected {len(targets)} subgraphs, but only traced {len(subgraphs)}. "
@@ -141,7 +143,7 @@ def trace_subgraphs(
     return subgraphs
 
 
-def get_tracer(model: Module, ancestors: Set[Module]) -> HFTracer:
+class SequentialTracer(HFTracer):
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
     inside of sequential targets, nor any modules which are not call graph ancestors of
@@ -150,39 +152,38 @@ def get_tracer(model: Module, ancestors: Set[Module]) -> HFTracer:
     Tracing within sequential targets is unnecessary, and tracing within offloaded
     modules may result in meta tensors being added to the model graph
 
-    :param model: model being traced
     :param ancestors: modules which are ancestors of sequential targets
-    :param ignore: modules to ignore during tracing, in the future will specify
-        functions and methods to skip during tracing TODO
+    :param offloaded: modules which have offloaded params and should not be traced
     """
-    # check unlikely case that ancestors have direct params which are offloaded
-    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
-    offloaded_ancestors = offloaded_modules & ancestors
-    if offloaded_ancestors:
-        names = set(module.__class__.__name__ for module in offloaded_ancestors)
-        logger.warning(
-            "The following modules are call graph ancestors of sequential targets,"
-            f"but also contain offloaded modules: {names}.\n"
-            "These modules will not be traced, and any sequential target children will "
-            "be executed jointly, which may lead to OOM errors"
-        )
 
-    class SequentialTracer(HFTracer):
-        def create_arg(self, a: Any) -> Argument:
-            # special extension allows models which depend on config values to be traced
-            if isinstance(a, PretrainedConfig):
-                kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
-                return self.create_node("call_function", a.__class__, (), kwargs)
+    def __init__(self, ancestors: Set[Module], offloaded: Set[Module]):
+        super().__init__()
+        self.ancestors = ancestors
+        self.offloaded = offloaded
 
-            else:
-                return super().create_arg(a)
+        # check unlikely case that ancestors have direct params which are offloaded
+        offloaded_ancestors = offloaded & ancestors
+        if offloaded_ancestors:
+            names = set(module.__class__.__name__ for module in offloaded_ancestors)
+            logger.warning(
+                "The following modules are call graph ancestors of sequential targets,"
+                f"but also contain offloaded modules: {names}.\n"
+                "These modules will not be traced, and any sequential target children "
+                "will be executed jointly, which may lead to OOM errors"
+            )
 
-        def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            # TODO: cleanup
-            nonlocal ancestors
-            return module not in ancestors or module in offloaded_modules
+    def create_arg(self, a: Any) -> Argument:
+        # special extension allows models which depend on config values to be traced
+        if isinstance(a, PretrainedConfig):
+            kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
+            return self.create_node("call_function", a.__class__, (), kwargs)
 
-    return SequentialTracer()
+        else:
+            return super().create_arg(a)
+
+    def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
+        # do not trace non-ancestors or modules with offloaded params
+        return module not in self.ancestors or module in self.offloaded
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
@@ -417,13 +418,13 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
 
 def get_targets_from_modifiers(
     modifiers: List[Modifier], model: PreTrainedModel
-) -> Tuple[List[str], List[str]]:
+) -> List[str]:
     """
-    Infer sequential targets and ignore list from modifiers list
+    Infer sequential targets from modifiers list
 
     :param model: model being calibrated
     :param modifiers: list of modifiers being applied during calibration
-    :return: list of sequential targets and list of modules to ignore for tracing
+    :return: list of sequential targets
     """
     # avoid circular import
     from llmcompressor.pipelines.registry import SEQUENTIAL_MODIFIERS
@@ -452,7 +453,7 @@ def get_targets_from_modifiers(
     else:
         sequential_targets = modifier.sequential_targets
 
-    return sequential_targets, modifier.ignore
+    return sequential_targets
 
 
 def add_line_numbers(text: str) -> str:

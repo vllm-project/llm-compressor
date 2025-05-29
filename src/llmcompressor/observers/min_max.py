@@ -22,9 +22,8 @@ class MinMaxObserver(Observer):
         self,
         quantization_args: QuantizationArgs,
         averaging_constant: float = 0.01,
-        global_scale: Optional[torch.Tensor] = None,
     ):
-        super().__init__(quantization_args=quantization_args, global_scale=global_scale)
+        super().__init__(quantization_args=quantization_args)
 
         self.min_val = {}
         self.max_val = {}
@@ -35,6 +34,7 @@ class MinMaxObserver(Observer):
         observed: torch.Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
+        global_scale: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.FloatTensor, torch.IntTensor]:
         """
         Updates the observed min and max using a moving average smoothed by the
@@ -46,6 +46,7 @@ class MinMaxObserver(Observer):
             reduced dimensions
         :param tensor_id: Optional id if different ranges of observed tensors are
             passed, useful for sharding tensors by group_size
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point derived from the observed tensor
         """
         tensor_id = tensor_id or "default"
@@ -62,7 +63,7 @@ class MinMaxObserver(Observer):
                 min_vals=min_val,
                 max_vals=max_val,
                 quantization_args=self.quantization_args,
-                global_scale=self.global_scale,
+                global_scale=global_scale,
             )
 
         running_min_val = self.min_val.get(tensor_id, None)
@@ -86,18 +87,25 @@ class MinMaxObserver(Observer):
             min_vals=updated_min_val,
             max_vals=updated_max_val,
             quantization_args=self.quantization_args,
-            global_scale=self.global_scale,
+            global_scale=global_scale,
         )
 
     def get_qparams_along_dim(
-        self, observed: torch.Tensor, dim: int, tensor_id: Optional[Any] = None
+        self,
+        observed: torch.Tensor,
+        dim: int,
+        tensor_id: Optional[Any] = None,
+        global_scale: Optional[torch.Tensor] = None,
     ):
         """
         Calculate quantization parameters along the specified dimension
         """
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
         return self.calculate_qparams(
-            observed, reduce_dims=reduce_dims, tensor_id=tensor_id
+            observed,
+            reduce_dims=reduce_dims,
+            tensor_id=tensor_id,
+            global_scale=global_scale,
         )
 
     def reset(self):

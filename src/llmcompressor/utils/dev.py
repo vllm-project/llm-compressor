@@ -34,6 +34,7 @@ def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausa
         SAFE_WEIGHTS_INDEX_NAME,
         WEIGHTS_INDEX_NAME,
         "*.msgpack",
+        "*.pt",
     ]
 
     @classmethod

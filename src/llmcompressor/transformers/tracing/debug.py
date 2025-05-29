@@ -15,9 +15,7 @@ from llmcompressor.args import DatasetArguments
 
 from llmcompressor.utils.dev import skip_weights_download
 
-__all__ = [
-    "get_model_class"
-]
+__all__ = ["get_model_class"]
 
 
 def parse_args():
@@ -37,7 +35,7 @@ def trace(
     model_id: str,
     model_class: Type[PreTrainedModel],
     sequential_targets: Optional[Union[List[str], str]] = None,
-    ignore: Union[List[str], str] = [],
+    ignore: Union[List[str], str] = ["_update_causal_mask"],
     modality: str = "text",
     trust_remote_code: bool = True,
     skip_weights: bool = True,
@@ -77,7 +75,7 @@ def trace(
     print("Loaded model")
 
     # Prepare sample data
-    dataset_args = DatasetArguments(**get_dataset_kwargs(modality))
+    dataset_args = DatasetArguments(**get_dataset_kwargs(modality, ignore))
     dataset = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
@@ -94,10 +92,6 @@ def trace(
     if isinstance(sequential_targets, str):
         sequential_targets = [sequential_targets]
 
-    # infer ignore
-    if isinstance(ignore, str):
-        ignore = [ignore]
-
     # Attempt trace
     print(
         "\nAttempting trace\n"
@@ -107,9 +101,11 @@ def trace(
         f"    split={dataset.split}\n"
         f"    inputs={sample.keys()}\n"
         f"    sequential_targets={sequential_targets}\n"
-        f"    ignore={ignore}\n"
+        f"    ignore={dataset_args.tracing_ignore}\n"
     )
-    subgraphs = trace_subgraphs(model, sample, sequential_targets, ignore)
+    subgraphs = trace_subgraphs(
+        model, sample, sequential_targets, dataset_args.tracing_ignore
+    )
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
     return model, subgraphs, sample
@@ -123,7 +119,7 @@ def get_model_class(model_class: str) -> Type[PreTrainedModel]:
     return model_cls
 
 
-def get_dataset_kwargs(modality: str) -> Dict[str, str]:
+def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
     dataset_kwargs = {
         "text": {
             "dataset": "ultrachat-200k",
@@ -141,11 +137,26 @@ def get_dataset_kwargs(modality: str) -> Dict[str, str]:
             "max_seq_length": 4096,
         },
     }
+    common_kwargs = {
+        "max_seq_length": 4096,
+        "tracing_ignore": ignore,
+    }
 
     if modality not in dataset_kwargs:
         raise ValueError(f"Modality must be one of {list(dataset_kwargs.keys())}")
 
-    return dataset_kwargs[modality]
+    return dataset_kwargs[modality] | common_kwargs
+
+
+def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tensor]:
+    for name, value in sample.items():
+        if name in ("input_ids", "attention_mask") and torch.tensor(value).ndim == 1:
+            sample[name] = torch.tensor([value], device=device)
+
+        else:
+            sample[name] = torch.tensor(value, device=device)
+
+    return sample
 
 
 def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tensor]:
@@ -161,6 +172,9 @@ def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tenso
 
 def main():
     args = parse_args()
+
+    if isinstance(args.ignore, str):
+        args.ignore = [args.ignore]
 
     trace(
         model_id=args.model_id,
