@@ -73,11 +73,14 @@ class Observer(Module, RegistryMixin):
         Run any logic specific to its observers after running calculate_qparams
         """
 
+    # TODO: use a different name?
     def get_qparams(
         self,
         observed: Optional[Tensor] = None,
         g_idx: Optional[Tensor] = None,
         global_scale: Optional[Tensor] = None,
+        should_calculate_gparam: bool = False,
+        should_calculate_qparams: bool = True,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Convenience function to wrap overwritten calculate_qparams
@@ -101,6 +104,14 @@ class Observer(Module, RegistryMixin):
                 QuantizationStrategy.TENSOR_GROUP,
                 QuantizationStrategy.GROUP,
             ):
+                # Global params are for the entire tensor
+                if should_calculate_gparam:
+                    return self.calculate_qparams(
+                        observed,
+                        should_calculate_gparam=True,
+                        should_calculate_qparams=False,
+                    )
+
                 rows = observed.shape[0]
                 columns = observed.shape[1]
                 num_groups = int(ceil(columns / group_size))
@@ -137,7 +148,7 @@ class Observer(Module, RegistryMixin):
                         observed[:, start:end],
                         0,
                         tensor_id=group_index,
-                        global_scale=global_scale
+                        global_scale=global_scale,
                     )
 
                     self._scale[:, group_index] = scale.squeeze(1)
