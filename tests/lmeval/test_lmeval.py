@@ -154,29 +154,46 @@ class TestLMEval:
             batch_size=self.lmeval.batch_size,
         )
 
-        metrics = results["results"][self.lmeval.task]
+        metrics: dict = results["results"][self.lmeval.task]
         for metric_key, expected_val in self.lmeval.metrics.items():
             # stderr metrics are only used as absolute tolerance
             # checks for actual values
             if "stderr" in metric_key:
                 continue
             actual_val = metrics.get(metric_key)
-            # If stderr is provided, use it as absolute tolerance
-            # Otherwise, default to a 5% relative tolerance
+            higher_is_better = results["higher_is_better"][self.lmeval.task].get(
+                metric_key.split(",")[0], True
+            )
             stderr_key = metric_key.replace(",", "_stderr,")
             std_err = self.lmeval.metrics.get(stderr_key)
+
+            # If stderr is provided, use it as absolute tolerance
+            # Otherwise, default to a 5% relative tolerance
             if std_err is None:
                 logger.info(
-                    f"Comparing {metric_key}: Expected {expected_val} "
-                    f"±5%, Got {actual_val}"
+                    f"Comparing {metric_key}: Expecting {expected_val} "
+                    f"relative tolerance ±5%, Got {actual_val}. "
+                    f"Higher is better: {higher_is_better}"
                 )
-                assert numpy.isclose(expected_val, actual_val, rtol=0.05)
+                # If higher is better, assert actual val >= expected val * (1 - stderr)
+                if higher_is_better:
+                    assert actual_val >= expected_val * (0.95)
+                # If higher is worse, assert actual val <= expected val * (1 + stderr)
+                else:
+                    assert actual_val <= expected_val * (1.05)
+
             else:
                 logger.info(
-                    f"Comparing {metric_key}: Expected {expected_val} "
-                    f"±{std_err*100}%, Got {actual_val}"
+                    f"Comparing {metric_key}: Expecting {expected_val} "
+                    f"absolute tolerance ±{std_err*100}%, Got {actual_val}. "
+                    f"Higher is better: {higher_is_better}"
                 )
-                assert numpy.isclose(expected_val, actual_val, atol=std_err)
+                # If higher is better, assert actual val >= expected val - stderr
+                if higher_is_better:
+                    assert actual_val >= expected_val - std_err
+                # If higher is worse, assert actual val <= expected val + stderr
+                else:
+                    assert actual_val <= expected_val + std_err
 
     def tear_down(self):
         timer = get_singleton_manager()

@@ -3,9 +3,11 @@ from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization.quant_args import (
+    FP8_E4M3_DATA,
     QuantizationArgs,
     QuantizationStrategy,
 )
+from compressed_tensors.quantization.utils import is_fp4
 from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import safe_permute
 from loguru import logger
@@ -22,7 +24,10 @@ class Observer(Module, RegistryMixin):
     pair
     """
 
-    def __init__(self, quantization_args: QuantizationArgs):
+    def __init__(
+        self,
+        quantization_args: QuantizationArgs,
+    ):
         self.quantization_args: QuantizationArgs = quantization_args
         super().__init__()
         self._scale = None
@@ -31,17 +36,23 @@ class Observer(Module, RegistryMixin):
 
     @torch.no_grad()
     def forward(
-        self, observed: Tensor, g_idx: Optional[Tensor] = None
+        self,
+        observed: Tensor,
+        g_idx: Optional[Tensor] = None,
+        global_scale: Optional[Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         maps directly to get_qparams
         :param observed: optional observed tensor from which to calculate
             quantization parameters
         :param g_idx: optional mapping from column index to group index
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point based on last observed value
         """
         self.record_observed_tokens(observed)
-        return self.get_qparams(observed=observed, g_idx=g_idx)
+        return self.get_qparams(
+            observed=observed, g_idx=g_idx, global_scale=global_scale
+        )
 
     def calculate_qparams(
         self,
@@ -66,6 +77,7 @@ class Observer(Module, RegistryMixin):
         self,
         observed: Optional[Tensor] = None,
         g_idx: Optional[Tensor] = None,
+        global_scale: Optional[Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Convenience function to wrap overwritten calculate_qparams
@@ -75,6 +87,7 @@ class Observer(Module, RegistryMixin):
         :param observed: optional observed tensor to calculate quantization parameters
             from
         :param g_idx: optional mapping from column index to group index
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point based on last observed value
         """
         if observed is not None:
@@ -84,7 +97,10 @@ class Observer(Module, RegistryMixin):
                 # re-calculate scale and zero point, update the stored value
                 self._scale, self._zero_point = self.calculate_qparams(observed)
 
-            elif self.quantization_args.strategy == QuantizationStrategy.GROUP:
+            elif self.quantization_args.strategy in (
+                QuantizationStrategy.TENSOR_GROUP,
+                QuantizationStrategy.GROUP,
+            ):
                 rows = observed.shape[0]
                 columns = observed.shape[1]
                 num_groups = int(ceil(columns / group_size))
@@ -100,7 +116,11 @@ class Observer(Module, RegistryMixin):
                 self._scale = torch.empty(
                     (rows, num_groups), dtype=observed.dtype, device=observed.device
                 )
-                zp_dtype = self.quantization_args.pytorch_dtype()
+                if is_fp4(quantization_args=self.quantization_args):
+                    zp_dtype = FP8_E4M3_DATA.dtype
+                else:
+                    zp_dtype = self.quantization_args.pytorch_dtype()
+
                 self._zero_point = torch.empty(
                     (rows, num_groups), dtype=zp_dtype, device=observed.device
                 )
@@ -126,6 +146,7 @@ class Observer(Module, RegistryMixin):
                         observed[:, start:end],
                         0,
                         tensor_id=group_index,
+                        global_scale=global_scale
                     )
 
                     self._scale[:, group_index] = scale.squeeze(1)
@@ -143,6 +164,14 @@ class Observer(Module, RegistryMixin):
                     dim={0, 1},
                 )
 
+            elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
+                # TODO (#1475) add support for block-wise quantization
+                raise NotImplementedError(
+                    "Block-wise quantization is not yet supported, "
+                    "consider group-wise quantization instead. More info at "
+                    "https://github.com/vllm-project/llm-compressor/issues/1475"
+                )
+
         return self._scale, self._zero_point
 
     def get_qparams_along_dim(
@@ -150,6 +179,7 @@ class Observer(Module, RegistryMixin):
         observed,
         dim: Union[int, Iterable[int]],
         tensor_id: Optional[Any] = None,
+        global_scale: Optional[Tensor] = None,
     ):
         if isinstance(dim, int):
             dim = [dim]
@@ -157,7 +187,10 @@ class Observer(Module, RegistryMixin):
 
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx not in dim)
         return self.calculate_qparams(
-            observed, reduce_dims=reduce_dims, tensor_id=tensor_id
+            observed,
+            reduce_dims=reduce_dims,
+            tensor_id=tensor_id,
+            global_scale=global_scale,
         )
 
     def record_observed_tokens(self, batch_tensor: Tensor):

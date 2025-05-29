@@ -55,7 +55,8 @@ def initialize_observer(
     # dont need observers for dynamic
     if quantization_args is not None and not quantization_args.dynamic:
         observer = Observer.load_from_registry(
-            quantization_args.observer, quantization_args=quantization_args
+            quantization_args.observer,
+            quantization_args=quantization_args,
         )
         module.register_module(f"{base_name}_observer", observer)
 
@@ -74,15 +75,19 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         if base_name == "weight":
             value = module.weight
             g_idx = getattr(module, "weight_g_idx", None)
+            global_scale = getattr(module, f"{base_name}_global_scale", None)
         elif value is not None:
             g_idx = None
+            global_scale = None
         else:
             raise ValueError(
                 "Must provide a value to observe if not using weight observer"
             )
 
         observer = getattr(module, f"{base_name}_observer")
-        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+        updated_scale, updated_zero_point = observer(
+            value, g_idx=g_idx, global_scale=global_scale
+        )
 
         # update scale and zero point
         update_parameter_data(module, updated_scale, f"{base_name}_scale")

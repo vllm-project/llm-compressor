@@ -3,7 +3,12 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import disable_quantization
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationScheme,
+    disable_quantization,
+)
+from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -21,6 +26,7 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
@@ -39,6 +45,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     |          block_size: 128
     |          dampening_frac: 0.001
     |          offload_hessians: False
+    |          actorder: static
     |          config_groups:
     |            group_0:
     |                targets:
@@ -51,7 +58,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     |                    symmetric: true
     |                    strategy: group
     |                    group_size: 128
-    |                    actorder: False
 
     Lifecycle:
         - on_initialize
@@ -70,6 +76,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
     :param block_size: Used to determine number of columns to compress in one pass
     :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
         diagonal norm
+    :param actorder: order in which weight columns are quantized. For more information,
+        on actorder options, see https://github.com/vllm-project/vllm/pull/8135
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
 
@@ -102,6 +110,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
+    actorder: Optional[Union[ActivationOrdering, Sentinel]] = None
     offload_hessians: bool = False
 
     # private variables
@@ -119,6 +128,35 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
 
         return True
+
+    def resolve_quantization_config(self) -> QuantizationConfig:
+        config = super().resolve_quantization_config()
+
+        def resolve_actorder(existing):
+            # sentinel default only overrides if existing is None
+            if self.actorder == Sentinel("static"):
+                return ActivationOrdering.STATIC if existing is None else existing
+
+            # user-provided value always attempts to override
+            if self.actorder is not None:
+                if existing is None or self.actorder == existing:
+                    return self.actorder
+                raise ValueError(
+                    "Cannot resolve activation ordering when both "
+                    "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
+                    "are provided and differ. Either set `GPTQModifier.actorder = "
+                    "None` or remove `actorder` from config groups."
+                )
+
+            # setting `GPTQModifier.actorder = None` does nothing
+            return existing
+
+        for scheme in config.config_groups.values():
+            assert isinstance(scheme, QuantizationScheme)
+            if scheme.weights is not None:
+                scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
+
+        return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -175,31 +213,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
             if not self.ended_:
                 self.on_end(state, None)
-
-    def on_end(self, state: State, event: Event, **kwargs):
-        """
-        Finish calibrating by removing observers and calibration hooks
-        """
-        self.ended_ = True
-        QuantizationMixin.end_calibration(self, state.model)
-        self.remove_hooks()  # remove gptq hooks
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        """
-        disable the quantization observers used by the OBCQ algorithm
-
-        :param state: session state storing input model and calibration data
-        """
-        if not self.ended_:
-            self.on_end(state, None)
-
-        if len(self._num_samples) > 0:
-            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
-
-        self._hessians = dict()
-        self._num_samples = dict()
-
-        return True
 
     def calibrate_module(
         self,
@@ -267,6 +280,31 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
             # self._hessians[module] already deleted by quantize_weight
             del self._num_samples[module]
+
+    def on_end(self, state: State, event: Event, **kwargs):
+        """
+        Finish calibrating by removing observers and calibration hooks
+        """
+        self.ended_ = True
+        QuantizationMixin.end_calibration(self, state.model)
+        self.remove_hooks()  # remove gptq hooks
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        """
+        disable the quantization observers used by the OBCQ algorithm
+
+        :param state: session state storing input model and calibration data
+        """
+        if not self.ended_:
+            self.on_end(state, None)
+
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
+        self._hessians = dict()
+        self._num_samples = dict()
+
+        return True
 
     @contextlib.contextmanager
     def _maybe_onload_hessian(self, module: torch.nn.Module):
