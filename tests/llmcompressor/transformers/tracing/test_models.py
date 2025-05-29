@@ -3,6 +3,7 @@ from transformers import (
     AutoModelForCausalLM,
     Gemma3ForConditionalGeneration,
     Idefics3ForConditionalGeneration,
+    Llama4ForConditionalGeneration,
     LlavaForConditionalGeneration,
     MllamaForConditionalGeneration,
     Qwen2_5_VLForConditionalGeneration,
@@ -86,21 +87,20 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "vision",
             [],
         ),
-        # TODO: add back once transformers is bumped
-        # (
-        #     "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-        #     Llama4ForConditionalGeneration,
-        #     "Llama4TextDecoderLayer",
-        #     "vision",
-        #     [],
-        # ),
-        # (
-        #     "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-        #     Llama4ForConditionalGeneration,
-        #     "Llama4TextDecoderLayer",
-        #     "vision",
-        #     [],
-        # ),
+        (
+            "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+            Llama4ForConditionalGeneration,
+            "Llama4TextDecoderLayer",
+            "vision",
+            [],
+        ),
+        (
+            "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+            Llama4ForConditionalGeneration,
+            "Llama4TextDecoderLayer",
+            "vision",
+            [],
+        ),
         # --- audio ---
         (
             "openai/whisper-large-v3",
