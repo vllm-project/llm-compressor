@@ -40,6 +40,8 @@ class Observer(Module, RegistryMixin):
         observed: Tensor,
         g_idx: Optional[Tensor] = None,
         global_scale: Optional[Tensor] = None,
+        should_calculate_gparam: bool = False,
+        should_calculate_qparams: bool = True,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         maps directly to get_qparams
@@ -51,7 +53,11 @@ class Observer(Module, RegistryMixin):
         """
         self.record_observed_tokens(observed)
         return self.get_qparams(
-            observed=observed, g_idx=g_idx, global_scale=global_scale
+            observed=observed,
+            g_idx=g_idx,
+            global_scale=global_scale,
+            should_calculate_gparam=should_calculate_gparam,
+            should_calculate_qparams=should_calculate_qparams,
         )
 
     def calculate_qparams(
