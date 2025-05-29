@@ -53,7 +53,7 @@ def test_min_max_observer_symmetric_scale_range():
     tensor *= 127
 
     num_bits = 8
-    weights = QuantizationArgs(num_bits=num_bits, symmetric=True)
+    weights = QuantizationArgs(num_bits=num_bits, symmetric=True, observer="minmax")
 
     observer = weights.observer
     observer = Observer.load_from_registry(observer, quantization_args=weights)
@@ -82,7 +82,7 @@ def test_min_max_observer_value_update():
 
     tensor = inp
     num_bits = 8
-    weights = QuantizationArgs(num_bits=num_bits, symmetric=True)
+    weights = QuantizationArgs(num_bits=num_bits, symmetric=True, observer="minmax")
     observer = weights.observer
     observer = Observer.load_from_registry(observer, quantization_args=weights)
     curr_max = 1
@@ -107,7 +107,7 @@ def test_g_idx():
     group_size = 2
     input_shape = (128, 512)
     tensor = torch.rand(input_shape)
-    weights = QuantizationArgs(num_bits=8, group_size=group_size)
+    weights = QuantizationArgs(num_bits=8, group_size=group_size, observer="minmax")
     g_idx = make_dummy_g_idx(tensor.shape[1], group_size)
 
     observer = weights.observer
