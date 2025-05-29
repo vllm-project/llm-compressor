@@ -27,9 +27,9 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
+    get_layer_by_name,
     get_layers,
     get_matching_layer,
-    get_layer_by_name,
 )
 
 __all__ = ["AWQModifier"]
