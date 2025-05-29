@@ -112,11 +112,13 @@ class Observer(Module, RegistryMixin):
             ):
                 # Global params are for the entire tensor
                 if should_calculate_gparam:
-                    return self.calculate_qparams(
+                    global_scale = self.calculate_qparams(
                         observed,
                         should_calculate_gparam=True,
                         should_calculate_qparams=False,
                     )
+                    if not should_calculate_qparams:
+                        return global_scale
 
                 rows = observed.shape[0]
                 columns = observed.shape[1]
@@ -189,6 +191,8 @@ class Observer(Module, RegistryMixin):
                     "https://github.com/vllm-project/llm-compressor/issues/1475"
                 )
 
+        if should_calculate_gparam:
+            return self._scale, self._zero_point, global_scale
         return self._scale, self._zero_point
 
     def get_qparams_along_dim(
