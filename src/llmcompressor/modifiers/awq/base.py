@@ -141,7 +141,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         default_factory=dict
     )
     # Dict[smooth layer name, (activation means, activation counts)]
-    _smooth_activation_cache: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
+    _smooth_activation_means: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
 
@@ -289,7 +289,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             self.on_end(state, None)
 
         self._parent_args_cache.clear()
-        self._smooth_activation_cache.clear()
+        self._smooth_activation_means.clear()
         self._resolved_mappings.clear()
 
         return True
@@ -404,9 +404,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # Assume that first argument is the input
                 inp = args[0].cpu().detach().squeeze()
 
-                self._smooth_activation_cache[smooth_name] = _accumulate_mean(
+                self._smooth_activation_means[smooth_name] = _accumulate_mean(
                     inp,
-                    self._smooth_activation_cache.get(smooth_name, None),
+                    self._smooth_activation_means.get(smooth_name, None),
                 )
 
             return cache_smooth_activations_hook
@@ -447,7 +447,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         for mapping in tqdm(self._resolved_mappings, desc="Smoothing"):
             # NOTE: When using SequentialPipeline, not all the mappings
             # will have cached activations in the segment being udpated
-            if mapping.smooth_name not in self._smooth_activation_cache:
+            if mapping.smooth_name not in self._smooth_activation_means:
                 continue
 
             smooth_layer = mapping.smooth_layer
@@ -477,7 +477,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     torch.finfo(fp16_output.dtype).min,
                     torch.finfo(fp16_output.dtype).max,
                 )
-                x_mean = self._smooth_activation_cache[mapping.smooth_name][0]
+                x_mean = self._smooth_activation_means[mapping.smooth_name][0]
 
                 # [STEP 4]: Compute loss
                 best_scales = self._compute_best_scale(
@@ -528,7 +528,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 smooth(smooth_layer)
 
             # remove caches needed to smooth this mapping
-            del self._smooth_activation_cache[mapping.smooth_name]
+            del self._smooth_activation_means[mapping.smooth_name]
 
         for v in self._parent_args_cache.values():
             v.batch_intermediates.clear()
@@ -674,7 +674,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         Confirm all activations have been consumed
         If not, something has gone wrong
         """
-        if len(self._smooth_activation_cache) != 0:
+        if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
 
 
