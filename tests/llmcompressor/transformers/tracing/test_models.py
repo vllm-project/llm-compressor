@@ -1,106 +1,149 @@
 import pytest
-from transformers import AutoModelForCausalLM, WhisperForConditionalGeneration
-
-from llmcompressor.transformers.tracing import (
-    TraceableIdefics3ForConditionalGeneration,
-    TraceableLlavaForConditionalGeneration,
-    TraceableMllamaForConditionalGeneration,
-    TraceableQwen2_5_VLForConditionalGeneration,
-    TraceableQwen2VLForConditionalGeneration,
+from transformers import (
+    AutoModelForCausalLM,
+    Gemma3ForConditionalGeneration,
+    Idefics3ForConditionalGeneration,
+    LlavaForConditionalGeneration,
+    MllamaForConditionalGeneration,
+    Qwen2_5_VLForConditionalGeneration,
+    Qwen2VLForConditionalGeneration,
+    WhisperForConditionalGeneration,
 )
+
+from llmcompressor.pipelines.sequential.helpers import match_modules
 from llmcompressor.transformers.tracing.debug import trace
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
 
 @pytest.mark.parametrize(
-    "model_id,model_class,targets",
+    "model_id,model_class,targets,modality,backends",
     [
-        ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, None),
-    ],
-)
-def test_text_trace(model_id, model_class, targets):
-    trace(
-        model_id,
-        model_class,
-        targets,
-        ignore=[],
-        modality="text",
-        trust_remote_code=True,
-    )
-
-
-@pytest.mark.parametrize(
-    "model_id,model_class,targets,ignore",
-    [
+        # --- text ---
+        ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, None, "text", []),
+        (
+            "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+            AutoModelForCausalLM,
+            None,
+            "text",
+            [],
+        ),
+        (
+            "mistralai/Mixtral-8x7B-Instruct-v0.1",
+            AutoModelForCausalLM,
+            None,
+            "text",
+            [],
+        ),
+        ("RedHatAI/DeepSeek-V3-BF16", AutoModelForCausalLM, None, "text", []),
+        # --- vision ---
         (
             "HuggingFaceM4/Idefics3-8B-Llama3",
-            TraceableIdefics3ForConditionalGeneration,
+            Idefics3ForConditionalGeneration,
             ["LlamaDecoderLayer"],
+            "vision",
             [],
         ),
         (
             "llava-hf/llava-1.5-7b-hf",
-            TraceableLlavaForConditionalGeneration,
+            LlavaForConditionalGeneration,
             ["LlamaDecoderLayer"],
+            "vision",
             [],
         ),
         (
             "meta-llama/Llama-3.2-11B-Vision-Instruct",
-            TraceableMllamaForConditionalGeneration,
+            MllamaForConditionalGeneration,
             ["MllamaSelfAttentionDecoderLayer"],
+            "vision",
             [],
         ),
         # skip phi3_v because of its processor is annoying and requires special code
         (
             "mgoin/pixtral-12b",
-            TraceableLlavaForConditionalGeneration,
+            LlavaForConditionalGeneration,
             ["MistralDecoderLayer"],
+            "vision",
             [],
         ),
         (
             "Qwen/Qwen2.5-VL-7B-Instruct",
-            TraceableQwen2_5_VLForConditionalGeneration,
+            Qwen2_5_VLForConditionalGeneration,
             ["Qwen2_5_VLDecoderLayer"],
-            [],
+            "vision",
+            ["torchvision"],
         ),
         (
             "Qwen/Qwen2-VL-2B-Instruct",
-            TraceableQwen2VLForConditionalGeneration,
+            Qwen2VLForConditionalGeneration,
             ["Qwen2VLDecoderLayer"],
+            "vision",
+            ["torchvision"],
+        ),
+        (
+            "google/gemma-3-4b-it",
+            Gemma3ForConditionalGeneration,
+            ["Gemma3DecoderLayer"],
+            "vision",
             [],
         ),
-    ],
-)
-def test_vision_trace(model_id, model_class, targets, ignore):
-    trace(
-        model_id,
-        model_class,
-        targets,
-        ignore=ignore,
-        modality="vision",
-        trust_remote_code=True,
-    )
-
-
-@pytest.mark.parametrize(
-    "model_id,model_class,targets,ignore",
-    [
+        # TODO: add back once transformers is bumped
+        # (
+        #     "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        #     Llama4ForConditionalGeneration,
+        #     "Llama4TextDecoderLayer",
+        #     "vision",
+        #     [],
+        # ),
+        # (
+        #     "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+        #     Llama4ForConditionalGeneration,
+        #     "Llama4TextDecoderLayer",
+        #     "vision",
+        #     [],
+        # ),
+        # --- audio ---
         (
             "openai/whisper-large-v3",
             WhisperForConditionalGeneration,
-            None,
-            [],
+            ["WhisperDecoderLayer"],
+            "audio",
+            ["librosa", "soundfile"],
         ),
     ],
 )
-def test_audio_trace(model_id, model_class, targets, ignore):
-    pytest.importorskip("librosa")
-    pytest.importorskip("soundfile")
+def test_model_trace(model_id, model_class, targets, modality, backends):
+    for backend in backends:
+        pytest.importorskip(backend)
 
-    trace(
+    model, subgraphs, sample_input = trace(
         model_id,
         model_class,
         targets,
-        ignore=ignore,
-        modality="audio",
+        modality=modality,
         trust_remote_code=True,
+        skip_weights=True,
+        device_map="cpu",
     )
+
+    target_modules = get_target_modules(model, targets)
+    assert len(subgraphs) == len(target_modules) + 1
+
+
+def get_target_modules(model, sequential_targets):
+    if sequential_targets is None:
+        sequential_targets = get_no_split_params(model)
+    if isinstance(sequential_targets, str):
+        sequential_targets = [sequential_targets]
+
+    return match_modules(model, sequential_targets)
+
+
+def run_subgraphs(model, subgraphs, inputs):
+    namespace = dict()
+    namespace.update(inputs)
+    for subgraph in subgraphs:
+        inputs = {name: namespace[name] for name in subgraph.input_names}
+        output = subgraph.forward(model, **inputs)
+        namespace.update(output)
+
+    return output

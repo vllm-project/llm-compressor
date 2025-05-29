@@ -1,15 +1,14 @@
 import requests
 import torch
 from PIL import Image
-from transformers import AutoProcessor
+from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.tracing import TraceableLlavaForConditionalGeneration
 
 # Load model.
 model_id = "llava-hf/llava-1.5-7b-hf"
-model = TraceableLlavaForConditionalGeneration.from_pretrained(
+model = LlavaForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
