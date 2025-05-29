@@ -1,18 +1,15 @@
 import threading
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Generator, Optional
 
 from llmcompressor.core.events import EventType
 from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.state import ModifiedState
-from llmcompressor.recipe import Recipe
 
 __all__ = [
     "create_session",
     "active_session",
     "reset_session",
-    "initialize",
-    "finalize",
     "callbacks",
     "LifecycleCallbacks",
 ]
@@ -24,7 +21,7 @@ _local_storage.session = _global_session
 
 
 @contextmanager
-def create_session() -> CompressionSession:
+def create_session() -> Generator[CompressionSession, None, None]:
     """
     Context manager to create and yield a new session for sparsification.
     This will set the active session to the new session for the duration
@@ -56,79 +53,6 @@ def reset_session():
     """
     session = active_session()
     session._lifecycle.reset()
-
-
-def initialize(
-    recipe: Union[str, List[str], "Recipe", List["Recipe"], None] = None,
-    recipe_stage: Union[str, List[str], None] = None,
-    recipe_args: Optional[Dict[str, Any]] = None,
-    model: Optional[Any] = None,
-    teacher_model: Optional[Any] = None,
-    optimizer: Optional[Any] = None,
-    attach_optim_callbacks: bool = True,
-    train_data: Optional[Any] = None,
-    val_data: Optional[Any] = None,
-    test_data: Optional[Any] = None,
-    calib_data: Optional[Any] = None,
-    copy_data: bool = True,
-    start: Optional[float] = None,
-    steps_per_epoch: Optional[int] = None,
-    batches_per_step: Optional[int] = None,
-    **kwargs,
-) -> ModifiedState:
-    """
-    A method to initialize the active session for sparsification
-
-    :param recipe: the recipe to use for the sparsification, can be a path to a
-        recipe file, a raw recipe string, a recipe object, or a list of recipe objects.
-    :param recipe_stage: the stage to target for the sparsification
-    :param recipe_args: the args to use for overriding the recipe defaults
-    :param model: the model to sparsify
-    :param teacher_model: the teacher model to use for knowledge distillation
-    :param optimizer: the optimizer to use for the sparsification
-    :param attach_optim_callbacks: True to attach the optimizer callbacks to the
-        sparsification lifecycle, False otherwise
-    :param train_data: the training data to use for the sparsification
-    :param val_data: the validation data to use for the sparsification
-    :param test_data: the testing data to use for the sparsification
-    :param calib_data: the calibration data to use for the sparsification
-    :param copy_data: True to copy the data, False otherwise
-    :param start: the start epoch to use for the sparsification
-    :param steps_per_epoch: the number of steps per epoch to use for the
-        sparsification
-    :param batches_per_step: the number of batches per step to use for
-        sparsification
-    :param kwargs: additional kwargs to pass to the lifecycle's initialize method
-    :return: the modified state of the active session after initializing
-    """
-    return active_session().initialize(
-        recipe=recipe,
-        recipe_stage=recipe_stage,
-        recipe_args=recipe_args,
-        model=model,
-        teacher_model=teacher_model,
-        optimizer=optimizer,
-        attach_optim_callbacks=attach_optim_callbacks,
-        train_data=train_data,
-        val_data=val_data,
-        test_data=test_data,
-        calib_data=calib_data,
-        copy_data=copy_data,
-        start=start,
-        steps_per_epoch=steps_per_epoch,
-        batches_per_step=batches_per_step,
-        **kwargs,
-    )
-
-
-def finalize(**kwargs) -> ModifiedState:
-    """
-    Method to finalize the active session for sparsification
-
-    :param kwargs: additional kwargs to pass to the lifecycle's finalize method
-    :return: the modified state of the active session after finalizing
-    """
-    return active_session().finalize(**kwargs)
 
 
 class LifecycleCallbacks:
@@ -211,6 +135,37 @@ class LifecycleCallbacks:
         """
         active_session()._log_model_info()
         return cls.event(EventType.BATCH_END, **kwargs)
+
+    @classmethod
+    def calibration_epoch_start(cls, **kwargs) -> ModifiedState:
+        """
+        Invoke a epoch start event for the active session during calibration. This event
+        should be called before calibration starts for one epoch
+
+        see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
+        """
+        return cls.event(EventType.CALIBRATION_EPOCH_START, **kwargs)
+
+    @classmethod
+    def sequential_epoch_end(cls, **kwargs) -> ModifiedState:
+        """
+        Invoke a sequential epoch end event for the active session. This event should be
+        called after one sequential layer has been calibrated/trained for one epoch
+
+        This is called after a sequential layer has been calibrated with one batch, see
+        `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
+        """
+        return cls.event(EventType.SEQUENTIAL_EPOCH_END, **kwargs)
+
+    @classmethod
+    def calibration_epoch_end(cls, **kwargs) -> ModifiedState:
+        """
+        Invoke a epoch end event for the active session during calibration. This event
+        should be called after the model has been calibrated for one epoch
+
+        see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
+        """
+        return cls.event(EventType.CALIBRATION_EPOCH_END, **kwargs)
 
 
 callbacks = LifecycleCallbacks

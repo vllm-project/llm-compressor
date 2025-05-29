@@ -1,6 +1,5 @@
 from typing import List, Optional
 
-from loguru import logger
 from pydantic import BaseModel, Field
 
 from llmcompressor.core.events import Event
@@ -50,41 +49,6 @@ class StageModifiers(ModifierInterface, BaseModel):
         """
         return self.group + "_" + str(self.index)
 
-    def check_initialized(self):
-        """
-        Check if all of the stage modifiers have been initialized, and log a warning
-        if not. This warning is expected when loading an input recipe during finetuning
-        """
-
-        at_least_one_initialized = False
-        for modifier in self.modifiers:
-            if modifier.initialized:
-                at_least_one_initialized = True
-        if not at_least_one_initialized:
-            modifier_names = [type(mod).__name__ for mod in self.modifiers]
-            logger.warning(
-                f"Found no initialized modifiers in stage {self.group}. "
-                "Found the following uninitialized modifiers: "
-                f"{modifier_names}"
-            )
-
-    def calculate_start(self) -> float:
-        """
-        :return: The minimum start time of all the stage modifiers
-        """
-        return min(
-            mod.calculate_start()
-            for mod in self.modifiers
-            if mod.calculate_start() >= 0
-        )
-
-    def calculate_end(self) -> float:
-        """
-        :return: The maximum end time of all the stage modifiers, or -1 if none of the
-        modifiers have set ends
-        """
-        return max(mod.calculate_end() for mod in self.modifiers)
-
     def initialize(self, state: "State", **kwargs):
         """
         Initialize all the stage modifiers
@@ -99,7 +63,8 @@ class StageModifiers(ModifierInterface, BaseModel):
 
         accelerator = kwargs.get("accelerator", None)
         for modifier in self.modifiers:
-            modifier.initialize(state, **kwargs)
+            if not modifier.initialized:
+                modifier.initialize(state, **kwargs)
             if accelerator:
                 accelerator.wait_for_everyone()
         state.loggers.system.info(tag="stage", string="Modifiers initialized")

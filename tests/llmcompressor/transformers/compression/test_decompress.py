@@ -1,8 +1,10 @@
 import copy
+import os
 import shutil
 import tempfile
 import unittest
 
+import torch
 from compressed_tensors import QUANTIZATION_CONFIG_NAME
 from compressed_tensors.compressors import ModelCompressor
 from compressed_tensors.quantization import QuantizationStatus
@@ -113,21 +115,22 @@ class TestDecompression(unittest.TestCase):
             )
             inputs = inputs.to(self.decompressed_model_manual.device)
 
-            decompressed_model_manual_output = self.tokenizer.batch_decode(
-                self.decompressed_model_manual.generate(**inputs, max_length=50)
+            decompressed_model_manual_output = self.decompressed_model_manual.generate(
+                **inputs, max_length=50
             )
 
-            decompressed_model_hf_quantizer_out = self.tokenizer.batch_decode(
+            decompressed_model_hf_quantizer_out = (
                 self.decompressed_model_hf_quantizer.generate(**inputs, max_length=50)
             )
 
-            assert (
-                decompressed_model_hf_quantizer_out == decompressed_model_manual_output
+            assert torch.equal(
+                decompressed_model_hf_quantizer_out, decompressed_model_manual_output
             )
 
     @classmethod
     def tearDownClass(self):
-        shutil.rmtree(self.test_dir)
+        if os.path.isdir(self.test_dir):
+            shutil.rmtree(self.test_dir)
         del self.dense_model
         del self.decompressed_model_hf_quantizer
         del self.decompressed_model_manual

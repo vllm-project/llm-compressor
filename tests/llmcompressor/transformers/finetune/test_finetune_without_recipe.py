@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 
@@ -20,7 +21,7 @@ class TestFinetuneWithoutRecipe(unittest.TestCase):
         self.output = "./finetune_output"
 
     def test_finetune_without_recipe(self):
-        from llmcompressor.transformers import train
+        from llmcompressor import train
 
         recipe_str = None
         device = "cuda:0"
@@ -41,4 +42,5 @@ class TestFinetuneWithoutRecipe(unittest.TestCase):
         )
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)

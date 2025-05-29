@@ -1,14 +1,12 @@
 name: Test Checks (Base/PyTorch)
 on:
+  pull_request:
+    branches:
+      - main
   push:
 
 env:
   CADENCE: "commit"
-  CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-  CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-  CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-  CLEARML_FILES_HOST: ${{ secrets.CLEARML_FILES_HOST }}
-  CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
 
 jobs:
 
@@ -19,16 +17,23 @@ jobs:
         with:
           python-version: '3.12'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running base tests"
@@ -41,16 +46,23 @@ jobs:
         with:
           python-version: '3.11'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running pytorch tests"
@@ -64,16 +76,23 @@ jobs:
         with:
           python-version: '3.10'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running pytorch tests"

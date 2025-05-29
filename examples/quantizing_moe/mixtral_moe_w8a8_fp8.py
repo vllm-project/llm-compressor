@@ -1,6 +1,7 @@
 from typing import List
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from packaging.version import Version
+from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -22,6 +23,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Dataset config parameters
 DATASET_ID = "open_platypus"
+DATASET_SPLIT = "train"
 MAX_SEQ_LENGTH = 2048
 NUM_CALIBRATION_SAMPLES = 512
 
@@ -41,6 +43,7 @@ oneshot(
     model=model,
     tokenizer=tokenizer,
     dataset=DATASET_ID,
+    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
     recipe=recipe,
     max_seq_length=MAX_SEQ_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
@@ -49,8 +52,15 @@ oneshot(
 )
 
 # Confirm generations of the quantized model look sane.
-print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
-print("==========================================")
+# Generation is broken for deepseek models when using the latest transformers package
+if Version(__version__) < Version("4.48"):
+    print("========== SAMPLE GENERATION ==============")
+    input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+    output = model.generate(input_ids, max_new_tokens=20)
+    print(tokenizer.decode(output[0]))
+    print("==========================================")
+else:
+    print(
+        "WARNING: cannot perform sample generation of "
+        "deepseek models with transformers >= 4.48"
+    )

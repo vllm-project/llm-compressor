@@ -36,11 +36,15 @@ Usage:
 import os
 import sys
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from loguru import logger
 
 __all__ = ["LoggerConfig", "configure_logger", "logger"]
+
+
+# used by `support_log_once``
+_logged_once = set()
 
 
 @dataclass
@@ -53,9 +57,9 @@ class LoggerConfig:
     metrics_disabled: bool = False
 
 
-def configure_logger(config: Optional[LoggerConfig] = None):
+def configure_logger(config: Optional[LoggerConfig] = None) -> None:
     """
-    Configure the metrics for LLM Compressor.
+    Configure the logger for LLM Compressor.
     This function sets up the console and file logging
     as per the specified or default parameters.
 
@@ -68,15 +72,15 @@ def configure_logger(config: Optional[LoggerConfig] = None):
 
     # env vars get priority
     if (disabled := os.getenv("LLM_COMPRESSOR_LOG_DISABLED")) is not None:
-        logger_config.disabled = disabled.lower()
+        logger_config.disabled = disabled.lower() == "true"
     if (clear_loggers := os.getenv("LLM_COMPRESSOR_CLEAR_LOGGERS")) is not None:
-        logger_config.clear_loggers = clear_loggers.lower()
+        logger_config.clear_loggers = clear_loggers.lower() == "true"
     if (console_log_level := os.getenv("LLM_COMPRESSOR_LOG_LEVEL")) is not None:
         logger_config.console_log_level = console_log_level.upper()
     if (log_file := os.getenv("LLM_COMPRESSOR_LOG_FILE")) is not None:
         logger_config.log_file = log_file
     if (log_file_level := os.getenv("LLM_COMPRESSOR_LOG_FILE_LEVEL")) is not None:
-        logger_config.log_file_level = log_file_level
+        logger_config.log_file_level = log_file_level.upper()
 
     if logger_config.disabled:
         logger.disable("llmcompressor")
@@ -93,30 +97,49 @@ def configure_logger(config: Optional[LoggerConfig] = None):
             sys.stdout,
             level=logger_config.console_log_level.upper(),
             format="{time} | {function} | {level} - {message}",
+            filter=support_log_once,
         )
 
     if logger_config.log_file or logger_config.log_file_level:
         log_file = logger_config.log_file or "llmcompressor.log"
         log_file_level = logger_config.log_file_level or "INFO"
         # log as json to the file for easier parsing
-        logger.add(log_file, level=log_file_level.upper(), serialize=True)
+        logger.add(
+            log_file,
+            level=log_file_level.upper(),
+            serialize=True,
+            filter=support_log_once,
+        )
 
     if logger_config.metrics_disabled or "METRIC" in logger._core.levels.keys():
         return
 
     # initialize metric logger on loguru
-    _initialize_metric_logging()
-
-
-def _initialize_metric_logging() -> None:
-    """
-    Initialize metric logging for loguru and metric-related libraries
-    Defaults to stdout
-    usage:
-        `logger.log("METRIC", "foo description, bar result")`
-
-    """
     logger.level("METRIC", no=38, color="<yellow>", icon="📈")
+
+
+def support_log_once(record: Dict[str, Any]) -> bool:
+    """
+    Support logging only once using `.bind(log_once=True)`
+
+    ```
+    logger.bind(log_once=False).info("This will log multiple times")
+    logger.bind(log_once=False).info("This will log multiple times")
+    logger.bind(log_once=True).info("This will only log once")
+    logger.bind(log_once=True).info("This will only log once")  # skipped
+    ```
+    """
+    log_once = record["extra"].get("log_once", False)
+    level = getattr(record["level"], "name", "none")
+    message = str(level) + record["message"]
+
+    if log_once and message in _logged_once:
+        return False
+
+    if log_once:
+        _logged_once.add(message)
+
+    return True
 
 
 # invoke logger setup on import with default values enabling console logging with INFO

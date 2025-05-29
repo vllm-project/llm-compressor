@@ -1,9 +1,9 @@
 import warnings
 from dataclasses import dataclass, fields, is_dataclass
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Generator, List, Optional, Union
 
 import torch
-import tqdm
+from tqdm import tqdm
 
 
 @dataclass
@@ -20,26 +20,30 @@ class IntermediateValue:
     device: Union[torch.device, None]
 
 
+IntermediateValues = Dict[str, IntermediateValue]
+
+
 class IntermediatesCache:
     """
     Cache which stores intermediate values (activations) produced by batched, sequential
     execution of models. Values are offloaded to the `offload_device` when stored in
-    the cache and onloaded to their original device when fetched from the cache
+    the cache and onloaded to their original device when fetched from the cache. If
+    `offload_device` is None, values will not be offloaded at all.
 
     Currently supports nested offloading of dataclass instances and tuples
 
     Construct using `empty` and `from_dataloader` class methods
     """
 
-    batch_intermediates: List[Dict[str, IntermediateValue]]
-    offload_device: torch.device
+    batch_intermediates: List[IntermediateValues]
+    offload_device: Optional[torch.device]
 
     def __init__(
         self,
-        batch_intermediates: List[Dict[str, IntermediateValue]],
-        offload_device: torch.device,
+        batch_intermediates: Optional[List[IntermediateValues]] = None,
+        offload_device: Optional[torch.device] = "cpu",
     ):
-        self.batch_intermediates = batch_intermediates
+        self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
 
     @classmethod
@@ -59,7 +63,7 @@ class IntermediatesCache:
         dataloader: torch.utils.data.DataLoader,
         model_device: torch.device,
         mask_padding: bool = True,
-        offload_device: torch.device = torch.device("cpu"),
+        offload_device: Optional[torch.device] = torch.device("cpu"),
     ):
         """
         Initialize a cache with data from the provided dataloader
@@ -72,14 +76,14 @@ class IntermediatesCache:
         """
         # note: list comprehesion was found to not improve performance
         batch_intermediates = []
-        for batch in tqdm.tqdm(dataloader, desc="Preparing intermediates cache"):
-            intermediate = {}
+        for batch in tqdm(dataloader, desc="Preparing cache"):
+            values = {}
             for key, value in batch.items():
-                if mask_padding and key == "input_ids":
+                if mask_padding and (key == "input_ids") and "attention_mask" in batch:
                     value = cls._mask_padding(value, batch["attention_mask"])
-                intermediate[key] = IntermediateValue(value=value, device=model_device)
+                values[key] = IntermediateValue(value=value, device=model_device)
 
-            batch_intermediates.append(intermediate)
+            batch_intermediates.append(values)
 
         return cls(batch_intermediates, offload_device)
 
@@ -127,6 +131,23 @@ class IntermediatesCache:
         for name in consumed_names:
             del intermediates[name]
 
+    def append(self, values: Dict[str, Any]):
+        batch_index = len(self.batch_intermediates)
+        self.batch_intermediates.append({})
+        self.update(batch_index, values)
+
+    def iter(
+        self, input_names: Optional[List[str]] = None
+    ) -> Generator[Any, None, None]:
+        for batch_index in range(len(self.batch_intermediates)):
+            yield self.fetch(batch_index, input_names)
+
+    def __iter__(self) -> Generator[Any, None, None]:
+        yield from self.iter()
+
+    def __len__(self) -> int:
+        return len(self.batch_intermediates)
+
     def _onload_value(self, intermediate: IntermediateValue) -> Any:
         value = intermediate.value
         device = intermediate.device
@@ -134,29 +155,33 @@ class IntermediatesCache:
         if isinstance(value, torch.Tensor):
             return value.to(device=device)
 
-        elif is_dataclass(value):
+        if is_dataclass(value):
             for field in fields(value):  # `asdict` is recursive, not applicable here
                 v = getattr(value, field.name)
                 setattr(value, field.name, self._onload_value(v))
 
             return value
 
-        elif isinstance(value, tuple):
+        if isinstance(value, tuple):
             return tuple(self._onload_value(v) for v in value)
 
-        elif isinstance(value, (int, str, float, bool)) or value is None:
-            return value
+        if isinstance(value, dict):
+            return {k: self._onload_value(v) for k, v in value.items()}
 
-        else:
-            return value
+        return value
 
     def _offload_value(self, value: Any) -> IntermediateValue:
         if isinstance(value, torch.Tensor):
             return IntermediateValue(
-                value=value.to(device=self.offload_device), device=value.device
+                value=(
+                    value
+                    if self.offload_device is None
+                    else value.to(device=self.offload_device)
+                ),
+                device=value.device,
             )
 
-        elif is_dataclass(value):
+        if is_dataclass(value):
             for field in fields(value):  # `asdict` is recursive, not applicable here
                 v = getattr(value, field.name)
                 setattr(value, field.name, self._offload_value(v))
@@ -168,12 +193,17 @@ class IntermediatesCache:
                 value=tuple(self._offload_value(v) for v in value), device=None
             )
 
-        if isinstance(value, (int, str, float, bool)) or value is None:
-            return IntermediateValue(value=value, device=None)
+        if isinstance(value, dict):
+            return IntermediateValue(
+                value={k: self._offload_value(v) for k, v in value.items()}, device=None
+            )
 
-        else:
+        if not isinstance(
+            value, (int, str, float, bool, torch.dtype, torch.device, type(None))
+        ):
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
-            return IntermediateValue(value=value, device=None)
+
+        return IntermediateValue(value=value, device=None)
 
     @staticmethod
     def _mask_padding(

@@ -28,28 +28,6 @@ class ModifierInterface(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def check_initialized(self):
-        """
-        Check if the modifier has been initialized and
-        raise an error if not
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def calculate_start(self) -> float:
-        """
-        :return: the start step for the modifier
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def calculate_end(self) -> float:
-        """
-        :return: the end step for the modifier
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
     def initialize(self, state: State, **kwargs):
         """
         Initialize the modifier

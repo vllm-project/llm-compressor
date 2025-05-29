@@ -1,6 +1,7 @@
 import torch
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from packaging.version import Version
+from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
 from llmcompressor import oneshot
 from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
@@ -35,8 +36,8 @@ MAX_SEQUENCE_LENGTH = 2048
 
 
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
-ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+ds = ds.shuffle(seed=42)
 
 
 def preprocess(example):
@@ -84,11 +85,18 @@ oneshot(
 )
 
 # Confirm generations of the quantized model look sane.
-print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
-print("==========================================")
+# Generation is broken for deepseek models when using the latest transformers package
+if Version(__version__) < Version("4.48"):
+    print("========== SAMPLE GENERATION ==============")
+    input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+    output = model.generate(input_ids, max_new_tokens=20)
+    print(tokenizer.decode(output[0]))
+    print("==========================================")
+else:
+    print(
+        "WARNING: cannot perform sample generation of "
+        "deepseek models with transformers >= 4.48"
+    )
 
 
 # Run the model on vLLM

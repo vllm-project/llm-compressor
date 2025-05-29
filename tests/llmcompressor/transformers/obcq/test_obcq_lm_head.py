@@ -16,7 +16,7 @@ class TestLMHead(unittest.TestCase):
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            "Xenova/llama2.c-stories15M", device_map=self.device
+            "nm-testing/llama2.c-stories15M", device_map=self.device
         )
 
         self.kwargs = {
@@ -44,7 +44,8 @@ class TestLMHead(unittest.TestCase):
 
         state = State()
         state.update(model=self.model, device=self.device, calib_data=self.dataloader)
-        modifier.on_initialize(state)
+        modifier.initialize(state)
+        modifier.on_start(state, None)
 
         assert len(self.model.lm_head._forward_hooks) <= 0
 
@@ -56,7 +57,8 @@ class TestLMHead(unittest.TestCase):
 
         state = State()
         state.update(model=self.model, device=self.device, calib_data=self.dataloader)
-        modifier.on_initialize(state)
+        modifier.initialize(state)
+        modifier.on_start(state, None)
 
         assert len(self.model.lm_head._forward_hooks) == 1
 

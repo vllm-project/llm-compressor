@@ -8,18 +8,14 @@ on:
 
 env:
   CADENCE: "commit"
-  CLEARML_WEB_HOST: ${{ secrets.CLEARML_WEB_HOST }}
-  CLEARML_API_HOST: ${{ secrets.CLEARML_API_HOST }}
-  CLEARML_API_ACCESS_KEY: ${{ secrets.CLEARML_API_ACCESS_KEY }}
-  CLEARML_FILES_HOST: ${{ secrets.CLEARML_FILES_HOST }}
-  CLEARML_API_SECRET_KEY: ${{ secrets.CLEARML_API_SECRET_KEY }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
 
     outputs:
-      changes-present: ${{ steps.changed-files.outputs.any_modified }}
+      matched-changes: ${{ steps.changed-files.outputs.all_changed_files }}
 
     steps:
       - name: Checkout
@@ -28,44 +24,52 @@ jobs:
           fetch-depth: 0
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v45
+        uses: neuralmagic/nm-actions/actions/changed-files@14cecb6bf54cc9919b1d3f64881a364401b2ae62 # v1.16.0
         with:
-          files: |
-            **
-            !examples/**
-            !tests/e2e/**
-            !tests/lmeval/**
-            !tests/examples/**
-            !**/*.md
-            !.github/**
-            .github/workflows/test-check-transformers.yaml
+          include-patterns: |-
+            ^src/
+            ^tests/
+            ^\.github/workflows/test-check-transformers\.yaml$
+            ^MANIFEST\.in$
+            ^setup\.py$
+          exclude-patterns: |-
+            ^tests/e2e/
+            ^tests/lmeval/
+            ^tests/examples/
+            \.md$
 
       - name: Log relevant output
         run: |
-          echo "changes-present: ${{ steps.changed-files.outputs.any_modified }}"
-          echo "all modified files: ${{ steps.changed-files.outputs.all_modified_files }}"
+          echo "all changed files: ${{ steps.changed-files.outputs.all_changed_files }}"
         shell: bash
 
   transformers-tests:
     needs: [detect-changes]
     runs-on: gcp-k8s-vllm-l4-solo
-    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.changes-present == 'true'
+    if: (contains(github.event.pull_request.labels.*.name, 'ready') || github.event_name == 'push') && needs.detect-changes.outputs.matched-changes != ''
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.9'
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install dependencies"
         run: pip3 install -U pip setuptools && pip3 install .[dev]
       - uses: actions/checkout@v4
         with:
           repository: "neuralmagic/compressed-tensors"
           path: "compressed-tensors"
+          fetch-depth: 0
+          fetch-tags: true
       - name: "⚙️ Install compressed-tensors dependencies"
         id: install
         run: |
-          pip3 uninstall -y compressed-tensors compressed-tensors-nightly
-          pip3 install ./compressed-tensors/
+          pip3 uninstall -y compressed-tensors
+          export GIT_CEILING_DIRECTORIES="$(pwd)"
+          cd compressed-tensors
+          BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
       - name: "🔬 Running transformers tests"
@@ -88,8 +92,15 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest tests/llmcompressor/transformers/sparsification -v
-          pytest tests/llmcompressor/transformers/test_clear_ml.py -v
       - name: Running OBCQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/obcq
+      - name: Running Tracing Tests
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        run: |
+          pytest -v tests/llmcompressor/transformers/tracing
+      - name: Running KV Cache Tests
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        run: |
+          pytest -v tests/llmcompressor/transformers/kv_cache

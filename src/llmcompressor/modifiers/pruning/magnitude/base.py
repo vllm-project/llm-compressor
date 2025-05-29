@@ -55,7 +55,7 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
         if "use_hooks" in kwargs:
             self._use_hooks = kwargs["use_hooks"]
 
-        if not state.model or not state.start_event:
+        if not state.model:
             return False
 
         self.scheduler_function_ = PruningSchedulerFactory.create_scheduler(

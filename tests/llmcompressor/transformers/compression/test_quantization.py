@@ -49,13 +49,14 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.test_dir)
+        if os.path.isdir(cls.test_dir):
+            shutil.rmtree(cls.test_dir)
         del cls.model
         torch.cuda.empty_cache()
 
     @staticmethod
     def _run_oneshot(model, recipe, dataset, output_dir):
-        num_calibration_samples = 512
+        num_calibration_samples = 64
         max_seq_length = 512
         pad_to_max_length = False
 
@@ -67,8 +68,7 @@ class TestQuantizationMatches(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=recipe,
             pad_to_max_length=pad_to_max_length,
-            clear_sparse_session=False,
-            splits={"calibration": "train_gen[:5%]"},
+            splits={"calibration": "train_gen[:1%]"},
             save_compressed=False,
         )
         return model
@@ -123,10 +123,10 @@ class TestQuantizationMatches(unittest.TestCase):
             assert o_zp.dtype == n_zp.dtype
             assert torch.equal(o_zp, n_zp)
 
-    def _get_dataloader(self, data_args, tokenizer):
+    def _get_dataloader(self, dataset_args, tokenizer):
         dataset_manager = TextGenerationDataset.load_from_registry(
-            data_args.dataset,
-            data_args=data_args,
+            dataset_args.dataset,
+            dataset_args=dataset_args,
             split="train_gen[:5%]",
             processor=tokenizer,
         )
@@ -142,12 +142,14 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @torch.no_grad()
     def test_perplexity(self):
+        if self.ppl_threshold is None:
+            pytest.skip("Skipping perplexity calculation.")
         tokenizer = AutoTokenizer.from_pretrained(self.model_stub)
-        data_args = DatasetArguments(
+        dataset_args = DatasetArguments(
             dataset="ultrachat-200k",
             max_seq_length=self.max_seq_length,
         )
-        dataloader = self._get_dataloader(data_args, tokenizer)
+        dataloader = self._get_dataloader(dataset_args, tokenizer)
 
         total_ppl = 0.0
         total_non_nan = 0

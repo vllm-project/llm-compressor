@@ -9,9 +9,8 @@ from loguru import logger
 from pydantic import Field, model_validator
 
 from llmcompressor.modifiers import Modifier, StageModifiers
-from llmcompressor.recipe.args import RecipeArgs
 from llmcompressor.recipe.base import RecipeBase
-from llmcompressor.recipe.metadata import RecipeMetaData
+from llmcompressor.recipe.modifier import RecipeModifier
 from llmcompressor.recipe.stage import RecipeStage
 
 __all__ = [
@@ -61,20 +60,29 @@ class Recipe(RecipeBase):
         """
         logger.info("Creating recipe from modifiers")
 
-        # validate Modifiers
         if isinstance(modifiers, Modifier):
-            modifiers: List[Modifier] = [modifiers]
+            modifiers = [modifiers]
 
         if any(not isinstance(modifier, Modifier) for modifier in modifiers):
             raise ValueError("modifiers must be a list of Modifier instances")
 
-        recipe_string: str = create_recipe_string_from_modifiers(
-            modifiers=modifiers,
-            modifier_group_name=modifier_group_name,
-        )
+        group_name = modifier_group_name or "default"
 
-        # modifier group name already included in the recipe string
-        return cls.create_instance(path_or_modifiers=recipe_string)
+        recipe_modifiers: List[RecipeModifier] = [
+            RecipeModifier(
+                type=modifier.__class__.__name__,
+                group=group_name,
+                args=modifier.model_dump(exclude_unset=True),
+            )
+            for modifier in modifiers
+        ]
+        # assume one stage for modifier instances
+        stages: List[RecipeStage] = [
+            RecipeStage(group=group_name, modifiers=recipe_modifiers)
+        ]
+        recipe = cls()
+        recipe.stages = stages
+        return recipe
 
     @classmethod
     def create_instance(
@@ -174,20 +182,15 @@ class Recipe(RecipeBase):
         ... '''
         >>> recipe = Recipe.create_instance(recipe_str)
         >>> recipe_tuple = RecipeTuple(recipe, ["test"], {})
-        >>> simplified = Recipe.simplify_recipe(recipe_tuple, shift=2)
-        >>> simplified.stages[0].modifiers[0].args_evaluated["start"]
-        2.0
+        >>> simplified = Recipe.simplify_recipe(recipe_tuple)
 
         :param recipe: The Recipe or RecipeTuple instance to simplify
-        :param shift: The amount to shift the start and end of the recipe by,
-            defaults to None (No shift)
         :return: The simplified Recipe instance
         """
         if isinstance(recipe, str):
             recipe = Recipe.create_instance(recipe)
 
         if isinstance(recipe, Recipe):
-            recipe.evaluate(shift=shift)
             return recipe
 
         # RecipeTuple case
@@ -197,7 +200,7 @@ class Recipe(RecipeBase):
             stages = recipe.recipe.stages
         else:
             for stage in recipe.recipe.stages:
-                if stage.group in stage_names:
+                if any(stage.group in stage_name for stage_name in stage_names):
                     stages.append(stage)
 
         # default args in recipe
@@ -210,12 +213,8 @@ class Recipe(RecipeBase):
 
         simplified = Recipe()
         simplified.version = version
-        simplified.args = RecipeArgs(args)
+        simplified.args = args
         simplified.stages = stages
-        simplified.evaluate(args=args, shift=shift)
-        simplified.metadata = (
-            recipe.metadata if isinstance(recipe, Recipe) else recipe.recipe.metadata
-        )
 
         return simplified
 
@@ -261,82 +260,16 @@ class Recipe(RecipeBase):
         for recipe in recipes:
             simplified = Recipe.simplify_recipe(
                 recipe=recipe,
-                shift=combined.calculate_end(),
             )
             combined.version = simplified.version
             combined.stages.extend(simplified.stages)
             combined.args.update(simplified.args)
-            combined.combine_metadata(simplified.metadata)
 
         return combined
 
     version: str = None
-    args: RecipeArgs = Field(default_factory=RecipeArgs)
+    args: Dict[str, Any] = Field(default_factory=dict)
     stages: List[RecipeStage] = Field(default_factory=list)
-    metadata: RecipeMetaData = None
-    args_evaluated: RecipeArgs = Field(default_factory=RecipeArgs)
-
-    def calculate_start(self) -> int:
-        """
-        Calculate and return the start epoch of the recipe.
-        The start epoch is the minimum start epoch of all stages.
-        Must have at least one stage to calculate the start epoch
-
-        :return: The start epoch of the stage
-        """
-        return min(
-            stage.calculate_start()
-            for stage in self.stages
-            if stage.calculate_start() >= 0
-        )
-
-    def calculate_end(self) -> int:
-        """
-        Calculate and return the end epoch of the recipe.
-        The end epoch is the maximum end epoch of all stages.
-
-        :return: The end of the recipe, the maximum end of all stages. If no stages
-            found, or no stages had ends, returns 0
-        """
-        if len(self.stages) == 0:
-            return 0
-        end = max(stage.calculate_end() for stage in self.stages)
-        return max(0, end)
-
-    def evaluate(
-        self, args: Optional[Dict[str, Any]] = None, shift: Optional[int] = None
-    ):
-        """
-        Evaluate the recipe by evaluating all stages and combining the args
-        with existing recipe_args
-
-        Evaluate with no shift:
-        >>> recipe_str = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: eval(start_epoch)
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe = Recipe.create_instance(recipe_str)
-        >>> recipe.evaluate({"start_epoch": 1})
-        >>> recipe.stages[0].modifiers[0].args_evaluated["start"]
-        1.0
-
-        Evaluate with shift:
-        >>> recipe.evaluate({"start_epoch": 2}, shift=2)
-        >>> recipe.stages[0].modifiers[0].args_evaluated["start"]
-        4.0
-
-        :param args: The args to evaluate the recipe with
-        :param shift: The amount to shift the start and end of the recipe by,
-            defaults to None (No shift)
-        """
-        args = self.args.combine(args) if self.args else RecipeArgs(**(args or {}))
-        self.args_evaluated = args.evaluate()
-        for stage in self.stages:
-            stage.evaluate(self.args_evaluated, shift)
 
     def create_modifier(self) -> List["StageModifiers"]:
         """
@@ -359,8 +292,6 @@ class Recipe(RecipeBase):
 
         :return: A list of StageModifiers for each stage in the recipe
         """
-        if not self.args_evaluated:
-            self.evaluate()
         modifiers = []
 
         for index, stage in enumerate(self.stages):
@@ -392,7 +323,7 @@ class Recipe(RecipeBase):
         args = {}
         for key, val in values.items():
             args[key] = val
-        formatted_values["args"] = RecipeArgs(args)
+        formatted_values["args"] = args
 
         return formatted_values
 
@@ -478,22 +409,6 @@ class Recipe(RecipeBase):
 
         return stages
 
-    def combine_metadata(self, metadata: Optional[RecipeMetaData]):
-        """
-        Combines the metadata of the recipe with the supplied metadata
-        If the recipe already has metadata, the supplied metadata will
-        be used to update missing metadata
-
-        :param metadata: The metadata to combine with the recipe
-        """
-        if metadata is None:
-            return
-
-        if self.metadata is None:
-            self.metadata = metadata
-        else:
-            self.metadata.update_missing_metadata(metadata)
-
     def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """
         :return: A dictionary representation of the recipe
@@ -551,7 +466,7 @@ class Recipe(RecipeBase):
         yaml_recipe_dict = {}
 
         # populate recipe level attributes
-        recipe_level_attributes = ["version", "args", "metadata"]
+        recipe_level_attributes = ["version", "args"]
 
         for attribute in recipe_level_attributes:
             if attribute_value := original_recipe_dict.get(attribute):
@@ -650,67 +565,6 @@ def _parse_recipe_from_md(file_path, yaml_str):
             )
         )
     return yaml_str
-
-
-def create_recipe_string_from_modifiers(
-    modifiers: List[Modifier],
-    modifier_group_name: Optional[str] = None,
-) -> str:
-    """
-    Create a recipe string from a list of Modifier instances
-
-    (Note: this pathway assumes there's only one stage in the recipe
-    associated by the modifier_group_name, if None, a dummy default
-    group_name will be assigned.)
-
-    :param modifiers: The list of Modifier instances
-    :param modifier_group_name: The stage_name of the recipe,
-        if `oneshot` or `train` the run_type of the recipe will be
-        inferred from the modifier_group_name, if None, a dummy default
-        group_name will be assigned.
-    :return: A string in yaml format from which the recipe can be created
-    """
-
-    # Recipe(s) are yaml/json strings of the following format:
-    # run_type_stage: # should contain oneshot/train
-    #    modifiers:
-    #        ModifierTypeOne:
-    #            start: 0.0
-    #            end: 2.0
-    #            ...
-    #        ModifierTypeTwo:
-    #            ...
-
-    # Create a recipe string from the modifiers
-    default_group_name: str = "DEFAULT"
-    modifier_group_name: str = modifier_group_name or default_group_name
-
-    recipe_dict = {
-        f"{modifier_group_name}_stage": {
-            f"{default_group_name}_modifiers": {
-                modifier.__class__.__name__: modifier.model_dump(exclude_unset=True)
-                for modifier in modifiers
-            }
-        }
-    }
-    recipe_str: str = yaml.dump(recipe_dict, sort_keys=False)
-    return recipe_str
-
-
-def get_modifiers_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any]:
-    group_dict = {}
-
-    for modifier in modifiers:
-        modifier_type = modifier["type"]
-        modifier_group = modifier["group"]
-
-        if modifier_group not in group_dict:
-            group_dict[modifier_group] = []
-
-        modifier_dict = {modifier_type: modifier["args"]}
-        group_dict[modifier_group].append(modifier_dict)
-
-    return group_dict
 
 
 def get_yaml_serializable_stage_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any]:

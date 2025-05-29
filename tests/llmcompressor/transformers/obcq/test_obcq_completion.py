@@ -1,3 +1,4 @@
+import os
 import shutil
 import unittest
 
@@ -26,14 +27,14 @@ class TestOBCQCompletion(unittest.TestCase):
         from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        data_args = DatasetArguments(
+        dataset_args = DatasetArguments(
             dataset=dataset_name,
             max_seq_length=512,
             pad_to_max_length=False,
         )
         dataset_manager = TextGenerationDataset.load_from_registry(
-            data_args.dataset,
-            data_args=data_args,
+            dataset_args.dataset,
+            dataset_args=dataset_args,
             split="train",
             processor=tokenizer,
         )
@@ -60,7 +61,6 @@ class TestOBCQCompletion(unittest.TestCase):
             num_calibration_samples=self.num_samples,
             pad_to_max_length=False,
             output_dir=self.output,
-            clear_sparse_session=False,
             precision="bfloat16",
         )
 
@@ -91,7 +91,8 @@ class TestOBCQCompletion(unittest.TestCase):
         self.assertLess(avg_new_ppl, self.perplexity)
 
     def tearDown(self):
-        shutil.rmtree(self.output)
+        if os.path.isdir(self.output):
+            shutil.rmtree(self.output)
 
 
 @requires_gpu

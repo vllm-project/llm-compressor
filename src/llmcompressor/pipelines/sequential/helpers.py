@@ -1,21 +1,29 @@
+import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Set, Union
+from typing import Any, Dict, List, Optional, Set
 
+import torch
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
+from loguru import logger
 from torch.fx import Graph, GraphModule, Node
+from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.helpers import calibration_forward_context, preserve_attr
+from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
-__all__ = ["trace_subgraphs", "Subgraph"]
+from .ast_helpers import autowrap_forwards
+
+__all__ = ["trace_subgraphs", "Subgraph", "get_targets_from_modifiers"]
 
 
 @dataclass
@@ -32,16 +40,33 @@ class Subgraph:
     graph: Graph
     input_names: Set[str]
     consumed_names: Set[str]
+    _code: Optional[PythonCode] = None
 
-    def compile_forward(self) -> Callable[[Any], Any]:
+    def forward(self, *args, **kwargs) -> Dict[str, Any]:
         """
-        Generate and compile code for executing this subgraph
+        Execute the operations within the subgraph
 
-        :return: function which, when called, executes this subgraph
+        :param \\*args: argument inputs to subgraph forward function
+        :param \\**kwargs: keyword inputs to subgraph forward function
+        :return keyword outputs of subgraph forward function (non-consumed variables):
         """
-        code = self.graph.python_code("self")
-        exec(code.src, code.globals)
-        return code.globals.get("forward")
+        if self._code is None:
+            self._code = self.graph.python_code("self")
+            exec(self._code.src, self._code.globals)
+
+        forward_fn = self._code.globals.get("forward")
+
+        try:
+            outputs = forward_fn(*args, **kwargs)
+        except Exception as exception:
+            raise RuntimeError(
+                "Raised an exception during execution of the following code:\n"
+                f"```\n{add_line_numbers(self._code.src)}\n```\n"
+                "This is likely due to a violation of shape assumptions made when "
+                "tracing"
+            ) from exception
+
+        return outputs
 
 
 def trace_subgraphs(
@@ -59,22 +84,31 @@ def trace_subgraphs(
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
     :param sequential_targets: list of patterns matching sequential targets
-    :param ignore: list of patterns matching modules to ignore during tracing
+    :param ignore: function and method names to skip during tracing
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    sequential_targets = match_modules(model, sequential_targets)
-    ignore = match_modules(model, ignore)
+    targets = match_modules(model, sequential_targets)
+    ancestors = get_sequential_ancestors(model, targets)
+    offloaded = set(m for m in model.modules() if has_offloaded_params(m))
 
     # initialize arguments
-    tracer = get_tracer(model, sequential_targets, ignore)
+    tracer = SequentialTracer(ancestors, offloaded)
     concrete_args = populate_concrete_args(model, sample_input)
 
-    # trace
-    with (
-        calibration_forward_context(model),
-        HooksMixin.disable_hooks(),
-    ):
+    with contextlib.ExitStack() as stack:
+        # calibration context
+        stack.enter_context(calibration_forward_context(model))
+        stack.enter_context(HooksMixin.disable_hooks())
+
+        # flags useful for tracing
+        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
+        stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
+
+        # autowrap forwards
+        stack.enter_context(autowrap_forwards(ancestors, ignore))
+        stack.enter_context(patch_attr(type(model), "forward", model.forward.__func__))
+
         graph = GraphModule(
             model,
             tracer.trace(
@@ -93,63 +127,63 @@ def trace_subgraphs(
     graph.device = model.device
 
     # perform subgraph partition
-    partitions = topological_partition(graph, sequential_targets)
+    partitions = topological_partition(graph, targets)
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
+
+    # As currently implemented, `topological_partition` generates an extra subgraph at
+    # the beginning which does not contain a target. This adds a little more runtime,
+    # and could be folded into the first subgraph in the future
+    if len(subgraphs) != len(targets) + 1:
+        logger.warning(
+            f"Expected {len(targets)} subgraphs, but only traced {len(subgraphs)}. "
+            "This is likely due to having wrapped code which calls sequential targets"
+        )
 
     return subgraphs
 
 
-def get_tracer(
-    model: Module, sequential_targets: Set[Module], ignore: Set[Module]
-) -> HFTracer:
+class SequentialTracer(HFTracer):
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
-    inside of sequential targets, ignored targets, or offloaded modules.
+    inside of sequential targets, nor any modules which are not call graph ancestors of
+    sequential targets
 
-    Tracing within sequential targets and ignored targets is unnecessary, and tracing
-    within offloaded modules may result in meta tensors being added to the model graph
+    Tracing within sequential targets is unnecessary, and tracing within offloaded
+    modules may result in meta tensors being added to the model graph
 
-    :param model: model being traced
-    :param sequential_targets: modules which are sequential targets
-    :param ignore: modules which are ignored
+    :param ancestors: modules which are ancestors of sequential targets
+    :param offloaded: modules which have offloaded params and should not be traced
     """
-    # TODO: redefine skip_trace_modules to all non-ancestors of sequential_targets
-    offloaded_modules = set(m for m in model.modules() if has_offloaded_params(m))
-    skip_trace_modules = sequential_targets | offloaded_modules | ignore
 
-    class SequentialTracer(HFTracer):
-        def create_arg(self, a: Any) -> Argument:
-            # special extension allows models which depend on config values to be traced
-            if isinstance(a, PretrainedConfig):
-                kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
-                return self.create_node("call_function", a.__class__, (), kwargs)
+    def __init__(self, ancestors: Set[Module], offloaded: Set[Module]):
+        super().__init__()
+        self.ancestors = ancestors
+        self.offloaded = offloaded
 
-            else:
-                return super().create_arg(a)
-
-        def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-            return module in skip_trace_modules or super().is_leaf_module(
-                module, module_qualified_name
+        # check unlikely case that ancestors have direct params which are offloaded
+        offloaded_ancestors = offloaded & ancestors
+        if offloaded_ancestors:
+            names = set(module.__class__.__name__ for module in offloaded_ancestors)
+            logger.warning(
+                "The following modules are call graph ancestors of sequential targets,"
+                f"but also contain offloaded modules: {names}.\n"
+                "These modules will not be traced, and any sequential target children "
+                "will be executed jointly, which may lead to OOM errors"
             )
 
-        def trace(self, root: Union[Module, Callable], *args, **kwargs) -> Graph:
-            if isinstance(root, Module):
-                with preserve_attr(type(root), "forward"):
-                    # due to a bug in Tracer.create_args_for_root (_patch_function),
-                    # we must unwrap function wrappers prior to tracing, for example
-                    # the `deprecate_kwarg` by transformers which wraps forward
+    def create_arg(self, a: Any) -> Argument:
+        # special extension allows models which depend on config values to be traced
+        if isinstance(a, PretrainedConfig):
+            kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
+            return self.create_node("call_function", a.__class__, (), kwargs)
 
-                    # we override the class method because the
-                    # class method is the one being traced
-                    type(root).forward = inspect.unwrap(type(root).forward)
+        else:
+            return super().create_arg(a)
 
-                    return super().trace(root, *args, **kwargs)
-
-            else:
-                return super().trace(root, *args, **kwargs)
-
-    return SequentialTracer()
+    def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
+        # do not trace non-ancestors or modules with offloaded params
+        return module not in self.ancestors or module in self.offloaded
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
@@ -380,3 +414,74 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
         for name, module in model.named_modules()
         if find_name_or_class_matches(name, module, target_names)
     )
+
+
+def get_targets_from_modifiers(
+    modifiers: List[Modifier], model: PreTrainedModel
+) -> List[str]:
+    """
+    Infer sequential targets from modifiers list
+
+    :param model: model being calibrated
+    :param modifiers: list of modifiers being applied during calibration
+    :return: list of sequential targets
+    """
+    # avoid circular import
+    from llmcompressor.pipelines.registry import SEQUENTIAL_MODIFIERS
+
+    sequential_modifiers = [
+        modifier for modifier in modifiers if isinstance(modifier, SEQUENTIAL_MODIFIERS)
+    ]
+
+    if len(sequential_modifiers) >= 2:
+        types = [type(modifier) for modifier in sequential_modifiers]
+        logger.warning(
+            "Cannot infer sequential targets from multiple sequential modifiers "
+            f"({types}). Defaulting to {types[0]}"
+        )
+    elif len(sequential_modifiers) <= 0:
+        types = [type(modifier) for modifier in modifiers]
+        raise ValueError(f"Cannot infer sequential targets from list of {types}")
+
+    modifier = sequential_modifiers[0]
+
+    # infer sequential targets
+    if modifier.sequential_targets is None:
+        sequential_targets = get_no_split_params(model)
+    elif isinstance(modifier.sequential_targets, str):
+        sequential_targets = [modifier.sequential_targets]
+    else:
+        sequential_targets = modifier.sequential_targets
+
+    return sequential_targets
+
+
+def add_line_numbers(text: str) -> str:
+    lines = text.splitlines()
+    numbered_lines = [f"{i + 1} {line}" for i, line in enumerate(lines)]
+    return "\n".join(numbered_lines)
+
+
+def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]:
+    """
+    Find modules which are call graph ancestors of the given sequential targets
+
+    :param model: model containing sequential targets
+    :param targets: sequential targets to find ancestors of
+    :return: call graph ancestors of sequential targets
+    """
+    ancestors = set()
+
+    def is_ancestor(module: Module) -> bool:
+        if module in ancestors or module in targets:
+            return True
+
+        # eagerly compute list in order to avoid early stopping and :. missing ancestors
+        _is_ancestor = any([is_ancestor(child) for child in module.children()])
+        if _is_ancestor:
+            ancestors.add(module)
+
+        return _is_ancestor
+
+    is_ancestor(model)
+    return ancestors

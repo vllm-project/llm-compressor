@@ -11,8 +11,7 @@ from loguru import logger
 from pydantic import PrivateAttr
 
 from llmcompressor.core import State
-from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.obcq.sgpt_sparsify import (
     accumulate_hessian,
     make_empty_hessian,
@@ -23,7 +22,7 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 __all__ = ["SparseGPTModifier"]
 
 
-class SparseGPTModifier(SparsityModifierMixin, Modifier):
+class SparseGPTModifier(SparsityModifierBase):
     """
     Modifier for applying the one-shot SparseGPT algorithm to a model
 
@@ -41,9 +40,6 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
     Lifecycle:
         - on_initialize
             - register_hook(module, calibrate_module, "forward")
-            - run_sequential / run_layer_sequential / run_basic
-                - make_empty_hessian
-                - accumulate_hessian
         - on_sequential_batch_end
             - sparsify_weight
         - on_finalize
@@ -90,6 +86,14 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
+        """
+        Calibration hook used to accumulate the hessian of the input to the module
+
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
+        """
         # Assume that the first argument is the input
         inp = args[0]
 
@@ -108,10 +112,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._num_samples[module],
             )
 
-    def on_sequential_batch_end(self):
+    def compress_modules(self):
         """
-        Sparsify modules
-        TODO: implement with event callback
+        Sparsify modules which have been calibrated
         """
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
@@ -119,11 +122,9 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
             num_samples = self._num_samples[module]
 
             logger.info(f"Sparsifying {name} using {num_samples} samples")
-            with (
-                torch.no_grad(),
-                align_module_device(module),
-                CompressionLogger(module) as comp_logger,
-            ):
+            with torch.no_grad(), align_module_device(module), CompressionLogger(
+                module
+            ) as comp_logger:
                 loss, sparsified_weight = sparsify_weight(
                     module=module,
                     hessians_dict=self._hessians,
@@ -154,7 +155,13 @@ class SparseGPTModifier(SparsityModifierMixin, Modifier):
                 self._hessians[module] = self._hessians[module].to(device="cpu")
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        self.remove_hooks()
+        # TODO: modify lifecycle to end on finalize
+        if not self.ended_:
+            self.on_end(state, None)  # remove hooks
+
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
         self._hessians = dict()
         self._num_samples = dict()
         self._module_names = dict()
