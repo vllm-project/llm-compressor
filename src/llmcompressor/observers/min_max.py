@@ -88,7 +88,7 @@ class MinMaxObserver(Observer):
 
         if should_calculate_gparam:
             global_scale = calculate_gparam(
-                updated_min_val=updated_max_val, updated_max_val=updated_max_val
+                updated_min_val=updated_min_val, updated_max_val=updated_max_val
             )
             if not should_calculate_qparams:
                 return global_scale
