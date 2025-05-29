@@ -20,21 +20,19 @@ class MovingAverageMSEObserver(Observer):
     def __init__(
         self,
         quantization_args: QuantizationArgs,
-        averaging_constant: float = 0.01,
-        grid: float = 100.0,
-        norm: float = 2.4,
+        
     ):
         super().__init__(quantization_args=quantization_args)
 
         kwargs = quantization_args.observer_kwargs or {}
         self.maxshrink = kwargs.get("maxshrink", 0.20)
         self.patience = kwargs.get("patience", 5)
+        self.averaging_constant = kwargs.get("averaging_constant", 0.01)
+        self.grid = kwargs.get("grid", 100.0)
+        self.norm = kwargs.get("norm", 2.4)
 
         self.min_val = {}
         self.max_val = {}
-        self.averaging_constant = averaging_constant
-        self.grid = grid
-        self.norm = norm
 
     def calculate_mse_min_max(
         self,
