@@ -213,7 +213,7 @@ class CompressionSession:
         """
         :return: serialized string of the current compiled recipe
         """
-        recipe = self.lifecycle.recipe_container.compiled_recipe
+        recipe = self.lifecycle.recipe
 
         if recipe is not None and hasattr(recipe, "yaml"):
             return recipe.yaml()
