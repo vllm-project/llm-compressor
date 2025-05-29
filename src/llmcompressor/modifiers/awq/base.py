@@ -29,7 +29,7 @@ from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_matching_layer,
-    get_parent_by_name,
+    get_layer_by_name,
 )
 
 __all__ = ["AWQModifier"]
@@ -330,9 +330,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 balance_layers, balance_names = [], []
                 for balance_suffix in mapping.balance_layers:
                     # find the submodule that matches the activation layer
-                    parent_name, parent_module = get_parent_by_name(
-                        layer_name=smooth_name, model=model
-                    )
+                    parent_name = ".".join(smooth_name.split(".")[:-1])
+                    parent_module = get_layer_by_name(parent_name, model)
                     balance_name, balance_layer = get_matching_layer(
                         balance_suffix,
                         smooth_name,
@@ -380,9 +379,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 else:
                     # for multiple balance layers,
                     # parent of any balance layer is the parent
-                    parent_name, parent = get_parent_by_name(
-                        layer_name=balance_name, model=model
-                    )
+                    parent_name = ".".join(balance_name.split(".")[:-1])
+                    parent = get_layer_by_name(parent_name, model)
+
                 resolved_mappings.append(
                     ResolvedMapping(
                         smooth_name,
@@ -413,14 +412,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
                 _module: torch.nn.Module,
-                args: Tuple[torch.Tensor, ...],
+                args: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
                 _output: torch.Tensor,
             ):
-                # Assume that first argument is the input
-                inp = args[0].cpu().detach().squeeze()
+                if not isinstance(args, Tuple):
+                    print(f"GOT unexpected args {args}")
+                inp = args[0] if isinstance(args, Tuple) else args
 
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    inp,
+                    inp.cpu().detach().squeeze(),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
 
@@ -459,12 +459,14 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         :param model: model to apply smoothing to
         """
-        for mapping in tqdm(self._resolved_mappings, desc="Smoothing"):
-            # NOTE: When using SequentialPipeline, not all the mappings
-            # will have cached activations in the segment being udpated
-            if mapping.smooth_name not in self._smooth_activation_means:
-                continue
-
+        # NOTE: When using SequentialPipeline, not all the mappings
+        # will have cached activations in the segment being udpated
+        mappings_to_smooth = [
+            mapping
+            for mapping in self._resolved_mappings
+            if mapping.smooth_name in self._smooth_activation_means
+        ]
+        for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
@@ -551,10 +553,14 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _run_samples(self, module: Module) -> torch.Tensor:
         with align_module_device(module):
+            outputs = [
+                module(**batch_kwargs)
+                for batch_kwargs in self._parent_args_cache[module]
+            ]
             return torch.cat(
                 [
-                    module(**batch_kwargs)[0]
-                    for batch_kwargs in self._parent_args_cache[module]
+                    output[0] if isinstance(output, Tuple) else output
+                    for output in outputs
                 ],
                 dim=0,
             )
