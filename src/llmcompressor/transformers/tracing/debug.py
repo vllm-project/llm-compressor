@@ -159,17 +159,6 @@ def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tenso
     return sample
 
 
-def collate_sample(sample: Dict[str, Any], device: str) -> Dict[str, torch.Tensor]:
-    for name, value in sample.items():
-        if name in ("input_ids", "attention_mask") and torch.tensor(value).ndim == 1:
-            sample[name] = torch.tensor([value], device=device)
-
-        else:
-            sample[name] = torch.tensor(value, device=device)
-
-    return sample
-
-
 def main():
     args = parse_args()
 
