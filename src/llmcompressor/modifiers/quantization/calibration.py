@@ -5,7 +5,6 @@ from compressed_tensors.quantization import (
     KVCacheScaleType,
     QuantizationScheme,
     QuantizationStatus,
-    QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
@@ -85,48 +84,14 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
                 "Must provide a value to observe if not using weight observer"
             )
 
-        quantization_scheme = getattr(module, "quantization_scheme", None)
-        should_calculate_gparam = False
-        should_calculate_qparams = True
-
-        # TODO: will update to be the case for both weight and input in a follow-up
-        # weight global calculate is currently done in ct right now; s
-        # should be moved here to unify global scale calculations
-        if (
-            quantization_scheme.strategy == QuantizationStrategy.TENSOR_GROUP
-            and base_name == "input"
-        ):
-            should_calculate_gparam = True
-            should_calculate_qparams = False
-
         observer = getattr(module, f"{base_name}_observer")
-        observer_outputs = observer(
-            value,
-            g_idx=g_idx,
-            global_scale=global_scale,
-            should_calculate_gparam=should_calculate_gparam,
-            should_calculate_qparams=should_calculate_qparams,
+        updated_scale, updated_zero_point = observer(
+            value, g_idx=g_idx, global_scale=global_scale
         )
 
-        if should_calculate_qparams:
-            if should_calculate_gparam:
-                updated_scale, updated_zero_point, updated_global_scale = (
-                    observer_outputs
-                )
-            else:
-                updated_scale, updated_zero_point = observer_outputs
-        else:
-            updated_global_scale = observer_outputs
-
-        if should_calculate_gparam:
-            update_parameter_data(
-                module, updated_global_scale, f"{base_name}_global_scale"
-            )
-
-        if should_calculate_qparams:
-            # update scale and zero point
-            update_parameter_data(module, updated_scale, f"{base_name}_scale")
-            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+        # update scale and zero point
+        update_parameter_data(module, updated_scale, f"{base_name}_scale")
+        update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
 def update_weight_zp_scale(module: Module):

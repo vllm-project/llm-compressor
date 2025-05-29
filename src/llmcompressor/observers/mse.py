@@ -6,7 +6,6 @@ from compressed_tensors.quantization.utils import calculate_qparams
 from torch import FloatTensor, IntTensor, Tensor
 
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.helpers import calculate_gparam
 
 __all__ = ["MovingAverageMSEObserver"]
 
@@ -116,8 +115,6 @@ class MovingAverageMSEObserver(Observer):
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
         global_scale: Optional[torch.Tensor] = None,
-        should_calculate_gparam: bool = False,
-        should_calculate_qparams: bool = True,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Updates the mse-clipped min and max values of the observed tensor using
@@ -152,23 +149,12 @@ class MovingAverageMSEObserver(Observer):
         self.min_val[tensor_id] = updated_min_val
         self.max_val[tensor_id] = updated_max_val
 
-        if should_calculate_gparam:
-            global_scale = calculate_gparam(
-                updated_min_val=updated_max_val, updated_max_val=updated_max_val
-            )
-            if not should_calculate_qparams:
-                return global_scale
-
-        scale, zero_point = calculate_qparams(
+        return calculate_qparams(
             min_vals=updated_min_val,
             max_vals=updated_max_val,
             quantization_args=self.quantization_args,
             global_scale=global_scale,
         )
-
-        if should_calculate_gparam:
-            return scale, zero_point, global_scale
-        return scale, zero_point
 
     def get_qparams_along_dim(
         self,
