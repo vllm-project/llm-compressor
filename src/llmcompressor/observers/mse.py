@@ -23,9 +23,8 @@ class MovingAverageMSEObserver(Observer):
         averaging_constant: float = 0.01,
         grid: float = 100.0,
         norm: float = 2.4,
-        global_scale: Optional[torch.Tensor] = None,
     ):
-        super().__init__(quantization_args=quantization_args, global_scale=global_scale)
+        super().__init__(quantization_args=quantization_args)
 
         kwargs = quantization_args.observer_kwargs or {}
         self.maxshrink = kwargs.get("maxshrink", 0.20)
@@ -41,6 +40,7 @@ class MovingAverageMSEObserver(Observer):
         self,
         observed: Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
+        global_scale: Optional[torch.Tensor] = None,
     ):
         """
         Computes the mse-clipped min and max values of the observed tensor by
@@ -49,6 +49,7 @@ class MovingAverageMSEObserver(Observer):
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
             returned values will be shaped (1,) along the reduced dimensions
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of min and max values derived from the observed tensor
         """
         from compressed_tensors.quantization.lifecycle import fake_quantize
@@ -77,14 +78,14 @@ class MovingAverageMSEObserver(Observer):
                 min_vals=shrinked_min_val,
                 max_vals=shrinked_max_val,
                 quantization_args=self.quantization_args,
-                global_scale=self.global_scale,
+                global_scale=global_scale,
             )
             q = fake_quantize(
                 observed,
                 candidate_scales,
                 candidate_zero_points,
                 self.quantization_args,
-                global_scale=self.global_scale,
+                global_scale=global_scale,
             )
 
             q -= observed
@@ -113,6 +114,7 @@ class MovingAverageMSEObserver(Observer):
         observed: Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
+        global_scale: Optional[torch.Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Updates the mse-clipped min and max values of the observed tensor using
@@ -124,6 +126,7 @@ class MovingAverageMSEObserver(Observer):
             reduced dimensions
         :param tensor_id: Optional id if different ranges of observed tensors are
             passed, useful for sharding tensors by group_size
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point derived from the observed tensor
         """
         min_val, max_val = self.calculate_mse_min_max(observed, reduce_dims)
@@ -150,15 +153,22 @@ class MovingAverageMSEObserver(Observer):
             min_vals=updated_min_val,
             max_vals=updated_max_val,
             quantization_args=self.quantization_args,
-            global_scale=self.global_scale,
+            global_scale=global_scale,
         )
 
     def get_qparams_along_dim(
-        self, observed, dim: int, tensor_id: Optional[Any] = None
+        self,
+        observed,
+        dim: int,
+        tensor_id: Optional[Any] = None,
+        global_scale: Optional[torch.Tensor] = None,
     ):
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
         return self.calculate_qparams(
-            observed, reduce_dims=reduce_dims, tensor_id=tensor_id
+            observed,
+            reduce_dims=reduce_dims,
+            tensor_id=tensor_id,
+            global_scale=global_scale,
         )
 
     def reset(self):
