@@ -25,17 +25,17 @@ class AWQMapping:
 
 _default_mappings = [
     AWQMapping(
-        "re:.*input_layernorm",
-        ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
     ),
-    AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
     AWQMapping(
-        "re:.*post_attention_layernorm",
-        ["re:.*gate_proj", "re:.*up_proj"],
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
     ),
     AWQMapping(
-        "re:.*up_proj",
-        ["re:.*down_proj"],
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
     ),
 ]
 
@@ -44,17 +44,17 @@ _default_mappings = [
 #  gate and up proj layers into a single gate_up_proj layer
 _phi_mappings = [
     AWQMapping(
-        "re:.*input_layernorm",
-        ["re:.*qkv_proj"],
+        "re:.*input_layernorm$",
+        ["re:.*qkv_proj$"],
     ),
-    AWQMapping("re:.*qkv_proj", ["re:.*o_proj"]),
+    AWQMapping("re:.*qkv_proj$", ["re:.*o_proj$"]),
     AWQMapping(
-        "re:.*post_attention_layernorm",
-        ["re:.*gate_up_proj"],
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_up_proj$"],
     ),
     AWQMapping(
-        "re:.*gate_up_proj",
-        ["re:.*down_proj"],
+        "re:.*gate_up_proj$",
+        ["re:.*down_proj$"],
     ),
 ]
 

@@ -56,32 +56,36 @@ def test_set_resolved_mappings():
     )
     model = torch.nn.ModuleDict(
         {
-            "self_attn": self_attn,
-            "input_layernorm": torch.nn.LayerNorm(4),
-            "mlp": mlp,
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "self_attn": self_attn,
+                    "input_layernorm": torch.nn.LayerNorm(4),
+                    "mlp": mlp,
+                }
+            )
         }
     )
     awq._set_resolved_mappings(model)
     for mapping in awq._resolved_mappings:
         if "input_layernorm" in mapping.smooth_name:
             assert set(mapping.balance_names) == {
-                "self_attn.q_proj",
-                "self_attn.k_proj",
-                "self_attn.v_proj",
+                "decoder.self_attn.q_proj",
+                "decoder.self_attn.k_proj",
+                "decoder.self_attn.v_proj",
             }
             assert set(mapping.balance_layers) == {
                 self_attn.q_proj,
                 self_attn.k_proj,
                 self_attn.v_proj,
             }
-            assert mapping.parent_name == "self_attn"
+            assert mapping.parent_name == "decoder.self_attn"
             assert mapping.parent == self_attn
         if "self_attn.v_proj" in mapping.smooth_name:
-            assert set(mapping.balance_names) == {"self_attn.o_proj"}
-            assert mapping.parent_name == "self_attn.o_proj"
+            assert set(mapping.balance_names) == {"decoder.self_attn.o_proj"}
+            assert mapping.parent_name == "decoder.self_attn.o_proj"
         if "mlp.up_proj" in mapping.smooth_name:
-            assert set(mapping.balance_names) == {"mlp.down_proj"}
-            assert mapping.parent_name == "mlp.down_proj"
+            assert set(mapping.balance_names) == {"decoder.mlp.down_proj"}
+            assert mapping.parent_name == "decoder.mlp.down_proj"
 
     # make sure we exclude case where o_proj/v_proj shapes are mismatched
     awq = AWQModifier(
@@ -92,12 +96,16 @@ def test_set_resolved_mappings():
     )
     model = torch.nn.ModuleDict(
         {
-            "self_attn": torch.nn.ModuleDict(
+            "decoder": torch.nn.ModuleDict(
                 {
-                    "q_proj": torch.nn.Linear(4, 2),
-                    "k_proj": torch.nn.Linear(4, 2),
-                    "v_proj": torch.nn.Linear(4, 2),
-                    "o_proj": torch.nn.Linear(4, 4),
+                    "self_attn": torch.nn.ModuleDict(
+                        {
+                            "q_proj": torch.nn.Linear(4, 2),
+                            "k_proj": torch.nn.Linear(4, 2),
+                            "v_proj": torch.nn.Linear(4, 2),
+                            "o_proj": torch.nn.Linear(4, 4),
+                        }
+                    )
                 }
             )
         }
