@@ -104,6 +104,15 @@ class Observer(Module, RegistryMixin):
                 rows = observed.shape[0]
                 columns = observed.shape[1]
                 num_groups = int(ceil(columns / group_size))
+                if num_groups * group_size != columns:
+                    logger.bind(log_once=True).warning(
+                        "Attempting to quantize a module weight whose columns "
+                        f"({columns}) are not divisible by group_size ({group_size}). "
+                        "This scheme is not supported by vLLM, please consider "
+                        "adjusting the group_size for modules with this number of "
+                        "columns",
+                    )
+
                 self._scale = torch.empty(
                     (rows, num_groups), dtype=observed.dtype, device=observed.device
                 )
