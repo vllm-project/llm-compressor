@@ -75,10 +75,6 @@ class LifecycleCallbacks:
                 f"Use the corresponding method instead."
             )
 
-        # skip event callbacks if no recipe was provided
-        if not active_session().lifecycle.recipe_container.check_any_recipe_exists():
-            return
-
         return active_session().event(event_type, **kwargs)
 
     @classmethod
