@@ -38,8 +38,8 @@ def q_config_kwargs(config_0, config_1):
 @pytest.mark.parametrize(
     "has_actorder,actorder,config_0,config_1,expected_0,expected_1",
     [
-        # defaults to None if nothing provided
-        (False, None, None, None, None, None),
+        # defaults to "static" if nothing provided
+        (False, "N/A", None, None, "static", "static"),
         # modifier overrides config if no config provided
         (True, "group", None, None, "group", "group"),
         # modifier overrides if config partially matches anyways
@@ -48,13 +48,13 @@ def q_config_kwargs(config_0, config_1):
         # modifier errors if conflict with config
         (True, "group", None, "static", "error", "error"),
         (True, "group", "static", None, "error", "error"),
-        # modifier does not override if not provided
-        (False, "N/A", None, None, None, None),
-        (False, "N/A", None, "static", None, "static"),
-        (False, "N/A", "static", None, "static", None),
+        # modifier overrides to static if nothing is provided
+        (False, "N/A", None, "static", "static", "static"),
+        (False, "N/A", "static", None, "static", "static"),
         (False, "N/A", "static", "static", "static", "static"),
-        (False, "N/A", None, "group", None, "group"),
-        (False, "N/A", "group", None, "group", None),
+        # modifier does not override set config vaules if nothing is provided
+        (False, "N/A", None, "group", "static", "group"),
+        (False, "N/A", "group", None, "group", "static"),
         (False, "N/A", "group", "group", "group", "group"),
     ],
 )
