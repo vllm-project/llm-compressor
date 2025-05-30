@@ -1,7 +1,6 @@
 import json
 import os
 import re
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
@@ -15,7 +14,6 @@ from llmcompressor.recipe.stage import RecipeStage
 
 __all__ = [
     "Recipe",
-    "RecipeTuple",
     "RecipeInput",
     "RecipeStageInput",
     "RecipeArgsInput",
@@ -119,7 +117,6 @@ class Recipe(RecipeBase):
         :return: The Recipe instance created from the path or modifiers,
             or a valid recipe string in yaml/json format
         """
-
         if isinstance(path_or_modifiers, Recipe):
             # already a recipe
             return path_or_modifiers
@@ -164,99 +161,56 @@ class Recipe(RecipeBase):
 
     @staticmethod
     def simplify_recipe(
-        recipe: Union[str, "Recipe", "RecipeTuple"], shift: Optional[int] = None
+        recipe: Optional["RecipeInput"] = None,
+        target_stage: Optional["RecipeStageInput"] = None,
+        override_args: Optional["RecipeArgsInput"] = None,
     ) -> "Recipe":
         """
-        Simplify a RecipeTuple by removing stages that are not in the target_stages
-        and shifting the start and end of the recipe by the shift amount
+        Simplify a Recipe by removing stages that are not in the target_stages
+        and updating args if overrides are provided
 
-
-        Using a RecipeTuple instance with shift:
-        >>> recipe_str = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 0.0
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe = Recipe.create_instance(recipe_str)
-        >>> recipe_tuple = RecipeTuple(recipe, ["test"], {})
-        >>> simplified = Recipe.simplify_recipe(recipe_tuple)
-
-        :param recipe: The Recipe or RecipeTuple instance to simplify
+        :param recipe: The Recipe instance to simplify
+        :param target_stages: The stages to target when simplifying the recipe
+        :param override_args: The arguments used to override existing recipe args
         :return: The simplified Recipe instance
         """
-        if isinstance(recipe, str):
+        if recipe is None or (isinstance(recipe, list) and len(recipe) == 0):
+            return Recipe()
+
+        # prepare recipe
+        if (
+            isinstance(recipe, Modifier)
+            or isinstance(recipe, str)
+            or (
+                isinstance(recipe, list)
+                and all(isinstance(mod, Modifier) for mod in recipe)
+            )
+        ):
             recipe = Recipe.create_instance(recipe)
-
-        if isinstance(recipe, Recipe):
-            return recipe
-
-        # RecipeTuple case
-        stages = []
-        stage_names = recipe.target_stages
-        if stage_names is None:
-            stages = recipe.recipe.stages
-        else:
-            for stage in recipe.recipe.stages:
-                if any(stage.group in stage_name for stage_name in stage_names):
-                    stages.append(stage)
-
-        # default args in recipe
-        args = recipe.recipe.args if isinstance(recipe, RecipeTuple) else recipe.args
-
-        # overwrite with args passed in through CLI
-        for key, val in recipe.override_args.items():
-            args[key] = val
-        version = recipe.version if isinstance(recipe, Recipe) else None
-
-        simplified = Recipe()
-        simplified.version = version
-        simplified.args = args
-        simplified.stages = stages
-
-        return simplified
+        # Filter stages if target_stages are provided
+        if target_stage:
+            recipe.stages = [
+                stage for stage in recipe.stages if (stage.group in target_stage)
+            ]
+        # Apply argument overrides if provided
+        if override_args:
+            recipe.args = {**recipe.args, **override_args}
+        return recipe
 
     @staticmethod
     def simplify_combine_recipes(
-        recipes: List[Union[str, "Recipe", "RecipeTuple"]],
+        recipes: List[Union[str, "Recipe"]],
     ) -> "Recipe":
         """
         A method to combine multiple recipes into one recipe
         Automatically calculates the start and end of the combined recipe
         and shifts the start and end of the recipes accordingly
 
-        Using two RecipeTuple instances:
-        >>> recipe_str_1 = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 0.0
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe_str_2 = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 3.0
-        ...             end: 5.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe_1, recipe_2 = (Recipe.create_instance(recipe_str_1),
-        ... Recipe.create_instance(recipe_str_2))
-        >>> combined = Recipe.simplify_combine_recipes(
-        ... [RecipeTuple(recipe_1, ["test"], {}), RecipeTuple(recipe_2, ["test"], {})])
-        >>> len(combined.stages)
-        2
-
-        :param recipes: The list of Recipe/RecipeTuple instances to combine
+        :param recipes: The list of Recipe instances to combine
         :return: The combined Recipe instance
         """
 
         combined = Recipe()
-
         for recipe in recipes:
             simplified = Recipe.simplify_recipe(
                 recipe=recipe,
@@ -500,24 +454,6 @@ RecipeStageInput = Union[str, List[str], List[List[str]]]
 RecipeArgsInput = Union[Dict[str, Any], List[Dict[str, Any]]]
 
 
-@dataclass
-class RecipeTuple:
-    """
-    A simple dataclass to hold a recipe, its target_stages, and override_args
-
-    :param recipe: The Recipe instance to hold
-    :param target_stages: The stages to target when simplifying the recipe
-        (Note: Stages not in the target_stages will be removed during
-        simplification)
-    :param override_args: The args used to override existing recipe args
-        associated with the supplied `recipe`
-    """
-
-    recipe: Recipe
-    target_stages: List[str]
-    override_args: Dict[str, Any]
-
-
 def _load_json_or_yaml_string(content: str) -> Dict[str, Any]:
     # try loading as json first, then yaml
     # if both fail, raise a ValueError
@@ -541,7 +477,6 @@ def _parse_recipe_from_md(file_path, yaml_str):
     """
     extract YAML front matter from markdown recipe card. Copied from
     llmcompressor.optim.helpers:_load_yaml_str_from_file
-
     :param file_path: path to recipe file
     :param yaml_str: string read from file_path
     :return: parsed yaml_str with README info removed
@@ -573,7 +508,6 @@ def get_yaml_serializable_stage_dict(modifiers: List[Dict[str, Any]]) -> Dict[st
     where the keys are the group names and the values are the modifiers
     which in turn are dictionaries with the modifier type as the key and
     the modifier args as the value.
-
     This is needed to conform to our recipe structure during yaml serialization
     where each stage, modifier_groups, and modifiers are represented as
     valid yaml dictionaries.
