@@ -98,7 +98,7 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         should_calculate_qparams = True
 
         # TODO: will update to be the case for both weight and input in a follow-up
-        # weight global calculate is currently done in ct right now; s
+        # weight global calculate is currently done in ct right now;
         # should be moved here to unify global scale calculations
         if (
             quant_args.strategy == QuantizationStrategy.TENSOR_GROUP
