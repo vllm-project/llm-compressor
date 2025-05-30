@@ -113,26 +113,17 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
             g_idx=g_idx,
             global_scale=global_scale,
             should_calculate_gparam=should_calculate_gparam,
-            should_calculate_qparams=should_calculate_qparams,
         )
 
-        if should_calculate_qparams:
-            if should_calculate_gparam:
-                updated_scale, updated_zero_point, updated_global_scale = (
-                    observer_outputs
-                )
-            else:
-                updated_scale, updated_zero_point = observer_outputs
-        else:
-            updated_global_scale = observer_outputs
-
         if should_calculate_gparam:
+            updated_global_scale = observer_outputs
             update_parameter_data(
                 module, updated_global_scale, f"{base_name}_global_scale"
             )
 
         if should_calculate_qparams:
             # update scale and zero point
+            updated_scale, updated_zero_point = observer_outputs
             update_parameter_data(module, updated_scale, f"{base_name}_scale")
             update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 

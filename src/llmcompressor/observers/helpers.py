@@ -8,7 +8,7 @@ from compressed_tensors.quantization.quant_args import (
     FloatArgs,
 )
 
-__all__ = ["get_observer_token_count", "calculate_gparam"]
+__all__ = ["get_observer_token_count", "generate_gparam"]
 
 
 def get_observer_token_count(module: torch.nn.Module) -> Counter:
@@ -31,7 +31,7 @@ def get_observer_token_count(module: torch.nn.Module) -> Counter:
 # TODO: we have a similar function in ct already
 # consolidate when adding weight global scale
 # generation
-def calculate_gparam(
+def generate_gparam(
     updated_min_val: torch.Tensor,
     updated_max_val: torch.Tensor,
     scale_data: Optional[FloatArgs] = FP8_E4M3_DATA,

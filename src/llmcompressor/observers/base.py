@@ -41,7 +41,6 @@ class Observer(Module, RegistryMixin):
         g_idx: Optional[Tensor] = None,
         global_scale: Optional[Tensor] = None,
         should_calculate_gparam: bool = False,
-        should_calculate_qparams: bool = True,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         maps directly to get_qparams
@@ -52,12 +51,12 @@ class Observer(Module, RegistryMixin):
         :return: tuple of scale and zero point based on last observed value
         """
         self.record_observed_tokens(observed)
+        if should_calculate_gparam:
+            return self.get_gparam(observed=observed)
         return self.get_qparams(
             observed=observed,
             g_idx=g_idx,
             global_scale=global_scale,
-            should_calculate_gparam=should_calculate_gparam,
-            should_calculate_qparams=should_calculate_qparams,
         )
 
     def calculate_qparams(
@@ -74,19 +73,39 @@ class Observer(Module, RegistryMixin):
         """
         raise NotImplementedError(f"{self.__class__} must implement calculate_qparams")
 
+    def calculate_gparam(
+        self,
+        observed: Tensor,
+    ) -> torch.Tensor:
+        """
+        :param observed: observed tensor to calculate quantization parameters for
+        :return: global scale derived from the observed tensor
+        """
+        raise NotImplementedError(f"{self.__class__} must implement calculate_gparam")
+
     def post_calculate_qparams(self) -> None:
         """
         Run any logic specific to its observers after running calculate_qparams
         """
 
-    # TODO: use a different name?
+    def get_gparam(self, observed: Tensor):
+        """
+        Function to derive a global scale parameter
+        :param observed: observed tensor to calculate global parameters
+            from
+        :return: derived global scale
+        """
+        if self.quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            return self.calculate_gparam(observed)
+        raise NotImplementedError(
+            "global parameter generation is only supported for TENSOR_GROUP"
+        )
+
     def get_qparams(
         self,
         observed: Optional[Tensor] = None,
         g_idx: Optional[Tensor] = None,
         global_scale: Optional[Tensor] = None,
-        should_calculate_gparam: bool = False,
-        should_calculate_qparams: bool = True,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Convenience function to wrap overwritten calculate_qparams
@@ -110,16 +129,6 @@ class Observer(Module, RegistryMixin):
                 QuantizationStrategy.TENSOR_GROUP,
                 QuantizationStrategy.GROUP,
             ):
-                # Global params are for the entire tensor
-                if should_calculate_gparam:
-                    global_scale = self.calculate_qparams(
-                        observed,
-                        should_calculate_gparam=True,
-                        should_calculate_qparams=False,
-                    )
-                    if not should_calculate_qparams:
-                        return global_scale
-
                 rows = observed.shape[0]
                 columns = observed.shape[1]
                 num_groups = int(ceil(columns / group_size))
@@ -191,8 +200,6 @@ class Observer(Module, RegistryMixin):
                     "https://github.com/vllm-project/llm-compressor/issues/1475"
                 )
 
-        if should_calculate_gparam:
-            return self._scale, self._zero_point, global_scale
         return self._scale, self._zero_point
 
     def get_qparams_along_dim(

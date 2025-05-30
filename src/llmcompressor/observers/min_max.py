@@ -6,7 +6,7 @@ from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import deprecated
 
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.helpers import calculate_gparam
+from llmcompressor.observers.helpers import generate_gparam
 
 __all__ = ["MinMaxObserver", "MovingAverageMinMaxObserver"]
 
@@ -30,15 +30,12 @@ class MinMaxObserver(Observer):
         self.max_val = {}
         self.averaging_constant = averaging_constant
 
-    def calculate_qparams(
+    def calculate_updated_min_max(
         self,
         observed: torch.Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
-        global_scale: Optional[torch.Tensor] = None,
-        should_calculate_gparam: bool = False,
-        should_calculate_qparams: bool = True,
-    ) -> Tuple[torch.FloatTensor, torch.IntTensor]:
+    ):
         """
         Updates the observed min and max using a moving average smoothed by the
         averaging_constant. Set the averaging_constant to 1.0 to disable averaging.
@@ -49,8 +46,7 @@ class MinMaxObserver(Observer):
             reduced dimensions
         :param tensor_id: Optional id if different ranges of observed tensors are
             passed, useful for sharding tensors by group_size
-        :param global_scale: optional scale to further scale local quantization scales
-        :return: tuple of scale and zero point derived from the observed tensor
+        :return: updated min and max values
         """
         tensor_id = tensor_id or "default"
 
@@ -62,12 +58,7 @@ class MinMaxObserver(Observer):
 
         # early stopping, save some computation and memory
         if self.averaging_constant == 1.0:
-            return calculate_qparams(
-                min_vals=min_val,
-                max_vals=max_val,
-                quantization_args=self.quantization_args,
-                global_scale=global_scale,
-            )
+            return min_val, max_val
 
         running_min_val = self.min_val.get(tensor_id, None)
         running_max_val = self.max_val.get(tensor_id, None)
@@ -85,24 +76,52 @@ class MinMaxObserver(Observer):
 
         self.min_val[tensor_id] = updated_min_val
         self.max_val[tensor_id] = updated_max_val
+        return updated_min_val, updated_max_val
 
-        if should_calculate_gparam:
-            global_scale = calculate_gparam(
-                updated_min_val=updated_min_val, updated_max_val=updated_max_val
-            )
-            if not should_calculate_qparams:
-                return global_scale
+    def calculate_gparam(self, observed: torch.Tensor) -> torch.Tensor:
+        """
+        Generate a global scale using the observed min and max.
 
-        scale, zero_point = calculate_qparams(
+        :param observed: observed tensor to calculate quantization parameters for
+        :return: updated global scale derived from the observed tensor
+        """
+
+        updated_min_val, updated_max_val = self.calculate_updated_min_max(
+            observed=observed
+        )
+        return generate_gparam(
+            updated_min_val=updated_min_val, updated_max_val=updated_max_val
+        )
+
+    def calculate_qparams(
+        self,
+        observed: torch.Tensor,
+        reduce_dims: Optional[Tuple[int]] = None,
+        tensor_id: Optional[Any] = None,
+        global_scale: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.FloatTensor, torch.IntTensor]:
+        """
+        Generate a scale and zero-point using the observed min and max.
+
+        :param observed: observed tensor to calculate quantization parameters for
+        :param reduce_dims: optional tuple of dimensions to reduce along,
+            returned scale and zero point will be shaped (1,) along the
+            reduced dimensions
+        :param tensor_id: Optional id if different ranges of observed tensors are
+            passed, useful for sharding tensors by group_size
+        :param global_scale: optional scale to further scale local quantization scales
+        :return: tuple of scale and zero point derived from the observed tensor
+        """
+
+        updated_min_val, updated_max_val = self.calculate_updated_min_max(
+            observed=observed, tensor_id=tensor_id, reduce_dims=reduce_dims
+        )
+        return calculate_qparams(
             min_vals=updated_min_val,
             max_vals=updated_max_val,
             quantization_args=self.quantization_args,
             global_scale=global_scale,
         )
-
-        if should_calculate_gparam:
-            return scale, zero_point, global_scale
-        return scale, zero_point
 
     def get_qparams_along_dim(
         self,
