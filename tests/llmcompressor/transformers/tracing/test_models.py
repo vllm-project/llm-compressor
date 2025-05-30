@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from transformers import (
     AutoModelForCausalLM,
@@ -16,6 +18,10 @@ from llmcompressor.transformers.tracing.debug import trace
 from llmcompressor.utils.pytorch.module import get_no_split_params
 
 
+@pytest.mark.skipif(
+    os.getenv("HF_TOKEN") is None,
+    reason="Skipping tracing tests requiring gated model access",
+)
 @pytest.mark.parametrize(
     "model_id,model_class,targets,modality,backends",
     [
