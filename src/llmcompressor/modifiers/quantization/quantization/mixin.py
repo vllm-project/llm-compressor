@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
 from compressed_tensors.quantization import (
+    DynamicType,
     QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
@@ -212,7 +213,10 @@ class QuantizationMixin(HooksMixin):
             return
 
         scheme: QuantizationScheme = module.quantization_scheme
-        input = scheme.input_activations and not scheme.input_activations.dynamic
+        input = scheme.input_activations and scheme.input_activations.dynamic in (
+            False,
+            DynamicType.LOCAL,
+        )
         weight = scheme.weights is not None
         output = scheme.output_activations and not scheme.output_activations.dynamic
         is_attention = is_attention_module(module)
@@ -241,7 +245,10 @@ class QuantizationMixin(HooksMixin):
                 continue
 
             scheme: QuantizationScheme = module.quantization_scheme
-            input = scheme.input_activations and not scheme.input_activations.dynamic
+            input = scheme.input_activations and scheme.input_activations.dynamic in (
+                False,
+                DynamicType.LOCAL,
+            )
             output = scheme.output_activations and not scheme.output_activations.dynamic
             is_attention = is_attention_module(module)
 

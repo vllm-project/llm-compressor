@@ -61,13 +61,13 @@ def infer_quantization_format(
         )
         is_weight_only = len(input_args) == 0 and len(weight_args) > 0
 
-        if is_weight_only:  # w4a16 and w8a16
-            if (
-                weight_args[0].num_bits == 4
-                and weight_args[0].type == QuantizationType.FLOAT.value
-            ):
-                return CompressionFormat.nvfp4_pack_quantized
+        if (
+            weight_args[0].num_bits == 4
+            and weight_args[0].type == QuantizationType.FLOAT.value
+        ):
+            return CompressionFormat.nvfp4_pack_quantized
 
+        if is_weight_only:  # w4a16 and w8a16
             is_valid_pack = all(
                 weight_arg.num_bits in [4, 8]
                 and weight_arg.type == QuantizationType.INT.value

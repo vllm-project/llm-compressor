@@ -40,6 +40,7 @@ class Observer(Module, RegistryMixin):
         observed: Tensor,
         g_idx: Optional[Tensor] = None,
         global_scale: Optional[Tensor] = None,
+        should_calculate_gparam: bool = False,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         maps directly to get_qparams
@@ -50,8 +51,12 @@ class Observer(Module, RegistryMixin):
         :return: tuple of scale and zero point based on last observed value
         """
         self.record_observed_tokens(observed)
+        if should_calculate_gparam:
+            return self.get_gparam(observed=observed)
         return self.get_qparams(
-            observed=observed, g_idx=g_idx, global_scale=global_scale
+            observed=observed,
+            g_idx=g_idx,
+            global_scale=global_scale,
         )
 
     def calculate_qparams(
@@ -68,10 +73,33 @@ class Observer(Module, RegistryMixin):
         """
         raise NotImplementedError(f"{self.__class__} must implement calculate_qparams")
 
+    def calculate_gparam(
+        self,
+        observed: Tensor,
+    ) -> torch.Tensor:
+        """
+        :param observed: observed tensor to calculate quantization parameters for
+        :return: global scale derived from the observed tensor
+        """
+        raise NotImplementedError(f"{self.__class__} must implement calculate_gparam")
+
     def post_calculate_qparams(self) -> None:
         """
         Run any logic specific to its observers after running calculate_qparams
         """
+
+    def get_gparam(self, observed: Tensor):
+        """
+        Function to derive a global scale parameter
+        :param observed: observed tensor to calculate global parameters
+            from
+        :return: derived global scale
+        """
+        if self.quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            return self.calculate_gparam(observed)
+        raise NotImplementedError(
+            "global parameter generation is only supported for TENSOR_GROUP"
+        )
 
     def get_qparams(
         self,
