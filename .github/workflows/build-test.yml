@@ -59,7 +59,7 @@ jobs:
         needs: [TEST]
         uses: ./.github/workflows/upload.yml
         with:
-            label: k8s-util
+            label: gcp-k8s-util
             timeout: 40
             run_id: ${{ github.run_id }}
             push_to_pypi: ${{ inputs.push_to_pypi }}
