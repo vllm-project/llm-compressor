@@ -1,5 +1,8 @@
+import os
+from datetime import datetime
 from typing import Optional
 
+from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel
 
@@ -82,6 +85,7 @@ class Oneshot:
 
     def __init__(
         self,
+        log_dir: Optional[str] = "sparse_logs",
         **kwargs,
     ):
         """
@@ -100,6 +104,15 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
 
         """
+        # Set up logging
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+            date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            logger.add(
+                f"{log_dir}/oneshot_{date_str}.log",
+                level="DEBUG",
+            )
+
         model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
