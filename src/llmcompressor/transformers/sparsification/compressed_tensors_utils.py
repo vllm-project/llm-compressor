@@ -299,7 +299,7 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
     if existing_recipe is not None:
         recipes_to_save.append(existing_recipe)
 
-    new_recipe = active_session().lifecycle.recipe_container.compiled_recipe
+    new_recipe = active_session().lifecycle.recipe
     if new_recipe is not None:
         recipes_to_save.append(new_recipe)
 

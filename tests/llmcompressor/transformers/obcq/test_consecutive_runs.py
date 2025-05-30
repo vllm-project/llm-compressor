@@ -56,7 +56,7 @@ class TestConsecutiveRuns(unittest.TestCase):
         assert qat_active(first_model)
 
         session = active_session()
-        session_recipe = session.lifecycle.recipe_container.compiled_recipe
+        session_recipe = session.lifecycle.recipe
         stages = [stage.group for stage in session_recipe.stages]
         self.assertEqual(len(stages), 1)
         session.reset()
