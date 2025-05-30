@@ -4,15 +4,14 @@ from io import BytesIO
 import torch
 from datasets import load_dataset
 from qwen_vl_utils import process_vision_info
-from transformers import AutoProcessor
+from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.tracing import TraceableQwen2VLForConditionalGeneration
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = TraceableQwen2VLForConditionalGeneration.from_pretrained(
+model = Qwen2VLForConditionalGeneration.from_pretrained(
     model_id,
     device_map="auto",
     torch_dtype="auto",
@@ -69,7 +68,7 @@ def preprocess_and_tokenize(example):
     )
 
 
-ds = ds.map(preprocess_and_tokenize, remove_columns=ds["calibration"].column_names)
+ds = ds.map(preprocess_and_tokenize, remove_columns=ds.column_names)
 
 
 # Define a oneshot data collator for multimodal inputs.
