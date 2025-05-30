@@ -27,7 +27,8 @@ class MinMaxObserver(Observer):
 
         self.min_val = {}
         self.max_val = {}
-        self.averaging_constant = averaging_constant
+        kwargs = quantization_args.observer_kwargs or {}
+        self.averaging_constant = kwargs.get("averaging_constant", averaging_constant)
 
     def calculate_qparams(
         self,
