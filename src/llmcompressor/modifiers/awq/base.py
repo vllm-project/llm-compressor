@@ -27,9 +27,9 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import (
+    get_layer_by_name,
     get_layers,
     get_matching_layer,
-    get_parent_by_name,
 )
 
 __all__ = ["AWQModifier"]
@@ -307,77 +307,91 @@ class AWQModifier(Modifier, QuantizationMixin):
         repeat for model.layer.1 and so on
         """
         resolved_mappings: list[ResolvedMapping] = []
-        num_skipped_oproj_mappings = 0
-        for mapping in self.mappings:
-            to_smooth_layers = get_layers(mapping.smooth_layer, model)
-            for layer_name, smooth_layer in to_smooth_layers.items():
-                # always exclude `.weight_observer`, only want `.weight`
-                if layer_name not in self.ignore and not layer_name.endswith(
-                    "_observer"
-                ):
-                    balance_layers, balance_names = [], []
-                    for balance_suffix in mapping.balance_layers:
-                        # find the submodule that matches the activation layer
-                        balance_name, balance_layer = get_matching_layer(
-                            balance_suffix, layer_name, model
-                        )
-                        if not balance_layer:
-                            continue
+        for mapping_idx, mapping in enumerate(self.mappings):
+            smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_names = [
+                smooth_name
+                for smooth_name in smooth_layers
+                if (
+                    smooth_name not in self.ignore
+                    and not smooth_name.endswith("_observer")
+                )
+            ]
 
-                        # exclude v_proj->o_proj mappings whose shapes are incompatible
-                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-                        if (
-                            isinstance(smooth_layer, torch.nn.Linear)
-                            and isinstance(balance_layer, torch.nn.Linear)
-                            and ".o_proj" in balance_name
-                            and (
-                                (
-                                    ".v_proj" in layer_name
-                                    and smooth_layer.out_features
-                                    != balance_layer.in_features
-                                )
-                                or (
-                                    ".qkv_proj" in layer_name
-                                    and smooth_layer.out_features
-                                    != 3 * balance_layer.in_features
-                                )
+            num_skipped_mappings = 0
+            pbar = tqdm(smooth_names)
+            for smooth_name in pbar:
+                pbar.set_description(
+                    f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
+                    f" ({num_skipped_mappings} skipped)"
+                )
+                smooth_layer = smooth_layers[smooth_name]
+
+                balance_layers, balance_names = [], []
+                for balance_suffix in mapping.balance_layers:
+                    # find the submodule that matches the activation layer
+                    parent_name = ".".join(smooth_name.split(".")[:-1])
+                    parent_module = get_layer_by_name(parent_name, model)
+                    balance_name, balance_layer = get_matching_layer(
+                        balance_suffix,
+                        smooth_name,
+                        parent_module,
+                    )
+                    if not balance_layer:
+                        continue
+                    balance_name = f"{parent_name}.{balance_name}"
+
+                    # exclude v_proj->o_proj mappings whose shapes are incompatible
+                    # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+                    if (
+                        ".v_proj" in smooth_name
+                        and ".o_proj" in balance_name
+                        and isinstance(smooth_layer, torch.nn.Linear)
+                        and isinstance(balance_layer, torch.nn.Linear)
+                        and ".o_proj" in balance_name
+                        and (
+                            (
+                                ".v_proj" in smooth_name
+                                and smooth_layer.out_features
+                                != balance_layer.in_features
                             )
-                        ):
-                            num_skipped_oproj_mappings += 1
-                            continue
-
-                        balance_layers.append(balance_layer)
-                        balance_names.append(balance_name)
-
-                    if len(balance_layers) == 0:
+                            or (
+                                ".qkv_proj" in smooth_name
+                                and smooth_layer.out_features
+                                != 3 * balance_layer.in_features
+                            )
+                        )
+                    ):
+                        num_skipped_mappings += 1
                         continue
 
-                    # each mapping can contain multiple layers to balance, but only
-                    # one layer to smooth
-                    if len(balance_layers) == 1:
-                        # for single balance layer, parent is the balance layer
-                        parent_name, parent = balance_name, balance_layer
-                    else:
-                        # for multiple balance layers,
-                        # parent of any balance layer is the parent
-                        parent_name, parent = get_parent_by_name(
-                            layer_name=balance_name, model=model
-                        )
-                    resolved_mappings.append(
-                        ResolvedMapping(
-                            layer_name,
-                            smooth_layer,
-                            balance_layers,
-                            balance_names=balance_names,
-                            parent=parent,
-                            parent_name=parent_name,
-                        )
+                    balance_layers.append(balance_layer)
+                    balance_names.append(balance_name)
+
+                if len(balance_layers) == 0:
+                    continue
+
+                # each mapping can contain multiple layers to balance, but only
+                # one layer to smooth
+                elif len(balance_layers) == 1:
+                    # for single balance layer, parent is the balance layer
+                    parent_name, parent = balance_name, balance_layer
+                else:
+                    # for multiple balance layers,
+                    # parent of any balance layer is the parent
+                    parent_name = ".".join(balance_name.split(".")[:-1])
+                    parent = get_layer_by_name(parent_name, model)
+
+                resolved_mappings.append(
+                    ResolvedMapping(
+                        smooth_name,
+                        smooth_layer,
+                        balance_layers,
+                        balance_names=balance_names,
+                        parent=parent,
+                        parent_name=parent_name,
                     )
-        if num_skipped_oproj_mappings > 0:
-            logger.info(
-                f"Excluded {num_skipped_oproj_mappings} from resolved "
-                "mappings due to shape mismatch"
-            )
+                )
         self._resolved_mappings = resolved_mappings
         return
 
@@ -398,14 +412,15 @@ class AWQModifier(Modifier, QuantizationMixin):
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
                 _module: torch.nn.Module,
-                args: Tuple[torch.Tensor, ...],
+                args: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
                 _output: torch.Tensor,
             ):
-                # Assume that first argument is the input
-                inp = args[0].cpu().detach().squeeze()
+                if not isinstance(args, Tuple):
+                    print(f"GOT unexpected args {args}")
+                inp = args[0] if isinstance(args, Tuple) else args
 
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    inp,
+                    inp.cpu().detach().squeeze(),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
 
@@ -444,12 +459,14 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         :param model: model to apply smoothing to
         """
-        for mapping in tqdm(self._resolved_mappings, desc="Smoothing"):
-            # NOTE: When using SequentialPipeline, not all the mappings
-            # will have cached activations in the segment being udpated
-            if mapping.smooth_name not in self._smooth_activation_means:
-                continue
-
+        # NOTE: When using SequentialPipeline, not all the mappings
+        # will have cached activations in the segment being udpated
+        mappings_to_smooth = [
+            mapping
+            for mapping in self._resolved_mappings
+            if mapping.smooth_name in self._smooth_activation_means
+        ]
+        for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
@@ -536,10 +553,14 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _run_samples(self, module: Module) -> torch.Tensor:
         with align_module_device(module):
+            outputs = [
+                module(**batch_kwargs)
+                for batch_kwargs in self._parent_args_cache[module]
+            ]
             return torch.cat(
                 [
-                    module(**batch_kwargs)[0]
-                    for batch_kwargs in self._parent_args_cache[module]
+                    output[0] if isinstance(output, Tuple) else output
+                    for output in outputs
                 ],
                 dim=0,
             )
