@@ -5,6 +5,7 @@ from transformers import (
     Idefics3ForConditionalGeneration,
     Llama4ForConditionalGeneration,
     LlavaForConditionalGeneration,
+    Mistral3ForConditionalGeneration,
     MllamaForConditionalGeneration,
     Qwen2_5_VLForConditionalGeneration,
     Qwen2VLForConditionalGeneration,
@@ -79,6 +80,13 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             ["Qwen2VLDecoderLayer"],
             "vision",
             ["torchvision"],
+        ),
+        (
+            "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
+            Mistral3ForConditionalGeneration,
+            ["MistralDecoderLayer"],
+            "vision",
+            [],
         ),
         (
             "google/gemma-3-4b-it",
