@@ -1,3 +1,6 @@
+import json
+import os
+
 import requests
 import torch
 from PIL import Image
@@ -12,6 +15,11 @@ model = Mistral3ForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+
+# Use a custom calibration chat template, rather than the overly-verbose default
+file_path = os.path.join(os.path.dirname(__file__), "mistral3_chat_template.json")
+with open(file_path, "r") as file:
+    processor.chat_template = json.load(file)["chat_template"]
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
@@ -70,8 +78,8 @@ image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
 raw_image = Image.open(requests.get(image_url, stream=True).raw)
 
 inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda")
-breakpoint()
-output = model.generate(**data_collator(inputs), max_new_tokens=100)
+inputs["pixel_values"] = inputs["pixel_values"].to(model.dtype)  # fix dtype
+output = model.generate(**inputs, max_new_tokens=100)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
 
