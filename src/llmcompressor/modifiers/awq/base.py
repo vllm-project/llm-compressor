@@ -26,11 +26,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import (
-    get_layer_by_name,
-    get_layers,
-    get_matching_layer,
-)
+from llmcompressor.utils.pytorch.module import get_layer_by_name, get_layers
 
 __all__ = ["AWQModifier"]
 
@@ -327,59 +323,54 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
                 smooth_layer = smooth_layers[smooth_name]
 
+                smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
+                smooth_parent = get_layer_by_name(smooth_parent_name, model)
+
                 balance_layers, balance_names = [], []
-                for balance_suffix in mapping.balance_layers:
-                    # find the submodule that matches the activation layer
-                    parent_name = ".".join(smooth_name.split(".")[:-1])
-                    parent_module = get_layer_by_name(parent_name, model)
-                    balance_name, balance_layer = get_matching_layer(
-                        balance_suffix,
-                        smooth_name,
-                        parent_module,
-                    )
-                    if not balance_layer:
-                        continue
-                    balance_name = f"{parent_name}.{balance_name}"
+                for balance_regex in mapping.balance_layers:
+                    # find the submodules that match the activation layer
+                    for balance_suffix, balance_layer in get_layers(
+                        balance_regex,
+                        smooth_parent,
+                    ).items():
+                        balance_name = f"{smooth_parent_name}.{balance_suffix}"
 
-                    # exclude v_proj->o_proj mappings whose shapes are incompatible
-                    # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-                    if (
-                        ".v_proj" in smooth_name
-                        and ".o_proj" in balance_name
-                        and isinstance(smooth_layer, torch.nn.Linear)
-                        and isinstance(balance_layer, torch.nn.Linear)
-                        and ".o_proj" in balance_name
-                        and (
-                            (
-                                ".v_proj" in smooth_name
-                                and smooth_layer.out_features
-                                != balance_layer.in_features
+                        # exclude v_proj->o_proj mappings whose shapes are incompatible
+                        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+                        if (
+                            ".v_proj" in smooth_name
+                            and ".o_proj" in balance_name
+                            and isinstance(smooth_layer, torch.nn.Linear)
+                            and isinstance(balance_layer, torch.nn.Linear)
+                            and ".o_proj" in balance_name
+                            and (
+                                (
+                                    ".v_proj" in smooth_name
+                                    and smooth_layer.out_features
+                                    != balance_layer.in_features
+                                )
+                                or (
+                                    ".qkv_proj" in smooth_name
+                                    and smooth_layer.out_features
+                                    != 3 * balance_layer.in_features
+                                )
                             )
-                            or (
-                                ".qkv_proj" in smooth_name
-                                and smooth_layer.out_features
-                                != 3 * balance_layer.in_features
-                            )
-                        )
-                    ):
-                        num_skipped_mappings += 1
-                        continue
+                        ):
+                            num_skipped_mappings += 1
+                            continue
 
-                    balance_layers.append(balance_layer)
-                    balance_names.append(balance_name)
+                        balance_layers.append(balance_layer)
+                        balance_names.append(balance_name)
 
                 if len(balance_layers) == 0:
                     continue
 
-                # each mapping can contain multiple layers to balance, but only
-                # one layer to smooth
                 elif len(balance_layers) == 1:
                     # for single balance layer, parent is the balance layer
                     parent_name, parent = balance_name, balance_layer
                 else:
-                    # for multiple balance layers,
-                    # parent of any balance layer is the parent
-                    parent_name = ".".join(balance_name.split(".")[:-1])
+                    # for multiple balance layers, find lowest common parent
+                    parent_name = get_lowest_common_parent(balance_names)
                     parent = get_layer_by_name(parent_name, model)
 
                 resolved_mappings.append(
@@ -487,12 +478,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # could cache from hook, rather than recomputing here
                 fp16_output = self._run_samples(parent_module)
                 if fp16_output.shape[0] == 0:
-                    breakpoint()
                     logger.info(
                         f"Skipping smooth_layer {mapping.smooth_name}, no activations "
-                        "found to scale. This occurs in MoE models when calibration "
-                        "samples don't activate certain experts."
+                        "found to scale. This can occasionally occur in MoE models "
+                        "when certain experts are not activated by calibration samples."
                     )
+                    del self._smooth_activation_means[mapping.smooth_name]
+                    continue
 
                 x_mean = self._smooth_activation_means[mapping.smooth_name][0]
 
@@ -757,3 +749,17 @@ def _accumulate_mean(
     new_count = prev_count + num_added
 
     return (prev_sum + sum_added) / new_count, new_count
+
+
+def get_lowest_common_parent(names: List[str]) -> str:
+    """
+    Given a list of names, returns the lowest-scope common parent
+    Slight alteration from os.path.commonprefix
+    https://docs.python.org/3/library/os.path.html#os.path.commonprefix
+    """
+    s1 = min(names)
+    s2 = max(names)
+    for i, c in enumerate(s1):
+        if c != s2[i]:
+            return s1[:i].rstrip(".")
+    return s1

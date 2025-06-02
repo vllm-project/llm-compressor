@@ -39,6 +39,22 @@ _default_mappings = [
     ),
 ]
 
+_moe_default_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*mlp.experts.*.gate_proj$", "re:.*mlp.experts.*.up_proj$"],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 # Phi merges
 #  q, k, and v proj layers into a single qkv_proj layer
 #  gate and up proj layers into a single gate_up_proj layer
@@ -62,7 +78,7 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "LlamaForCausalLM": _default_mappings,
     "Qwen2ForCausalLM": _default_mappings,
     "Qwen3ForCausalLM": _default_mappings,
-    "Qwen3MoeForCausalLM": _default_mappings,
+    "Qwen3MoeForCausalLM": _moe_default_mappings,
     "MistralForCausalLM": _default_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
