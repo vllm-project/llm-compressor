@@ -106,7 +106,6 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         assert weight_args.num_bits == 4
 
         # Check a specific layer is quantized
-        print(model_loaded)
         targetted_linear_layer = model_loaded.model.layers[0].self_attn.k_proj
         assert hasattr(targetted_linear_layer, "quantization_scheme")
 
