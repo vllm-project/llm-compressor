@@ -412,15 +412,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
                 _module: torch.nn.Module,
-                args: Union[torch.Tensor, Tuple[torch.Tensor, ...]],
+                args: Tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
-                if not isinstance(args, Tuple):
-                    print(f"GOT unexpected args {args}")
-                inp = args[0] if isinstance(args, Tuple) else args
-
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
-                    inp.cpu().detach().squeeze(),
+                    args[0].cpu().detach().squeeze(),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
 
@@ -490,10 +486,14 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # [STEP 3]: Compute output of module
                 # could cache from hook, rather than recomputing here
                 fp16_output = self._run_samples(parent_module)
-                fp16_output = fp16_output.clip(
-                    torch.finfo(fp16_output.dtype).min,
-                    torch.finfo(fp16_output.dtype).max,
-                )
+                if fp16_output.shape[0] == 0:
+                    breakpoint()
+                    logger.info(
+                        f"Skipping smooth_layer {mapping.smooth_name}, no activations "
+                        "found to scale. This occurs in MoE models when calibration "
+                        "samples don't activate certain experts."
+                    )
+
                 x_mean = self._smooth_activation_means[mapping.smooth_name][0]
 
                 # [STEP 4]: Compute loss
