@@ -4,8 +4,11 @@ import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import deprecated
+from loguru import logger
 
 from llmcompressor.observers.base import Observer
+
+DEFAULT_AVERAGING_CONSTANT = 0.01
 
 __all__ = ["MinMaxObserver", "MovingAverageMinMaxObserver"]
 
@@ -21,14 +24,19 @@ class MinMaxObserver(Observer):
     def __init__(
         self,
         quantization_args: QuantizationArgs,
-        averaging_constant: float = 0.01,
+        ignore_averaging_constant: bool = False,
     ):
         super().__init__(quantization_args=quantization_args)
 
         self.min_val = {}
         self.max_val = {}
         kwargs = quantization_args.observer_kwargs or {}
-        self.averaging_constant = kwargs.get("averaging_constant", averaging_constant)
+        self.averaging_constant = kwargs.get(
+            "averaging_constant", DEFAULT_AVERAGING_CONSTANT
+        )
+        if ignore_averaging_constant:
+            logger.info("Ignoring averaging constant, setting it to 1.0")
+            self.averaging_constant = 1.0
 
     def calculate_qparams(
         self,

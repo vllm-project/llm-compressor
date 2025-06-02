@@ -3,9 +3,16 @@ from typing import Any, Optional, Tuple
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams
+from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 
 from llmcompressor.observers.base import Observer
+
+DEFAULT_MAXSHRINK = 0.20
+DEFAULT_PATIENCE = 5
+DEFAULT_AVERAGING_CONSTANT = 0.01
+DEFAULT_GRID = 100.0
+DEFAULT_NORM = 2.4
 
 __all__ = ["MovingAverageMSEObserver"]
 
@@ -20,20 +27,22 @@ class MovingAverageMSEObserver(Observer):
     def __init__(
         self,
         quantization_args: QuantizationArgs,
-        maxshrink: float = 0.20,
-        patience: int = 5,
-        averaging_constant: float = 0.01,
-        grid: float = 100.0,
-        norm: float = 2.4,
+        ignore_averaging_constant: bool = False,
     ):
         super().__init__(quantization_args=quantization_args)
 
         kwargs = quantization_args.observer_kwargs or {}
-        self.maxshrink = kwargs.get("maxshrink", maxshrink)
-        self.patience = kwargs.get("patience", patience)
-        self.averaging_constant = kwargs.get("averaging_constant", averaging_constant)
-        self.grid = kwargs.get("grid", grid)
-        self.norm = kwargs.get("norm", norm)
+        self.maxshrink = kwargs.get("maxshrink", DEFAULT_MAXSHRINK)
+        self.patience = kwargs.get("patience", DEFAULT_PATIENCE)
+        self.averaging_constant = kwargs.get(
+            "averaging_constant", DEFAULT_AVERAGING_CONSTANT
+        )
+        self.grid = kwargs.get("grid", DEFAULT_GRID)
+        self.norm = kwargs.get("norm", DEFAULT_NORM)
+
+        if ignore_averaging_constant:
+            logger.info("Ignoring averaging constant, setting it to 1.0")
+            self.averaging_constant = 1.0
 
         self.min_val = {}
         self.max_val = {}
