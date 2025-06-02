@@ -1,11 +1,11 @@
 import torch
+import transformers
 from datasets import load_dataset
 from loguru import logger
 from transformers import AutoProcessor
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
-from llmcompressor.transformers.tracing import get_model_class
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
@@ -16,7 +16,7 @@ def _load_model_and_processor(
     model_class: str,
     device: str,
 ):
-    pretrained_model_class = get_model_class(model_class)
+    pretrained_model_class = getattr(transformers, model_class)
     loaded_model = pretrained_model_class.from_pretrained(
         model, device_map=device, torch_dtype="auto"
     )
