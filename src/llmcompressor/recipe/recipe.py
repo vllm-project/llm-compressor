@@ -31,6 +31,11 @@ class Recipe(RecipeBase):
     when serializing a recipe, yaml will be used by default.
     """
 
+    version: str = None
+    args: Dict[str, Any] = Field(default_factory=dict)
+    stage: List[RecipeStage] = Field(default_factory=list)
+    modifiers: List[Modifier] = Field(default_factory=list)
+
     @classmethod
     def from_modifiers(
         cls,
@@ -66,20 +71,12 @@ class Recipe(RecipeBase):
 
         group_name = modifier_group_name or "default"
 
-        recipe_modifiers: List[RecipeModifier] = [
-            RecipeModifier(
-                type=modifier.__class__.__name__,
-                group=group_name,
-                args=modifier.model_dump(exclude_unset=True),
-            )
-            for modifier in modifiers
-        ]
-        # assume one stage for modifier instances
-        stages: List[RecipeStage] = [
-            RecipeStage(group=group_name, modifiers=recipe_modifiers)
-        ]
         recipe = cls()
-        recipe.stages = stages
+
+        # assume one stage for modifier instances
+        recipe.stage = group_name
+        recipe.modifiers = modifiers
+        
         return recipe
 
     @classmethod
@@ -89,7 +86,7 @@ class Recipe(RecipeBase):
         modifier_group_name: Optional[str] = None,
     ) -> "Recipe":
         """
-        Create a recipe instance from a file, string, or RecipeModifier objects
+        Create a recipe instance from a file, string, or Modifier objects
 
 
         Using a recipe string or file is supported:
@@ -117,15 +114,18 @@ class Recipe(RecipeBase):
         :return: The Recipe instance created from the path or modifiers,
             or a valid recipe string in yaml/json format
         """
+
+        # recipe instance
         if isinstance(path_or_modifiers, Recipe):
-            # already a recipe
             return path_or_modifiers
 
+        # modifiers instance
         if isinstance(path_or_modifiers, (Modifier, list)):
             return cls.from_modifiers(
                 modifiers=path_or_modifiers, modifier_group_name=modifier_group_name
             )
 
+        #string instance
         if not os.path.isfile(path_or_modifiers):
             # not a local file
             # assume it's a string
@@ -139,16 +139,18 @@ class Recipe(RecipeBase):
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
+        # file path instance
         with open(path_or_modifiers, "r") as file:
             content = file.read().strip()
-            if path_or_modifiers.lower().endswith(".md"):
+            file_name = path_or_modifiers.lower()
+            if file_name.endswith(".md"):
                 content = _parse_recipe_from_md(path_or_modifiers, content)
 
-            if path_or_modifiers.lower().endswith(".json"):
+            if file_name.endswith(".json"):
                 obj = json.loads(content)
-            elif path_or_modifiers.lower().endswith(
+            elif file_name.endswith(
                 ".yaml"
-            ) or path_or_modifiers.lower().endswith(".yml"):
+            ) or file_name.endswith(".yml"):
                 obj = yaml.safe_load(content)
             else:
                 try:
@@ -220,10 +222,6 @@ class Recipe(RecipeBase):
             combined.args.update(simplified.args)
 
         return combined
-
-    version: str = None
-    args: Dict[str, Any] = Field(default_factory=dict)
-    stages: List[RecipeStage] = Field(default_factory=list)
 
     def create_modifier(self) -> List["StageModifiers"]:
         """
