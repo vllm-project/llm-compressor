@@ -79,7 +79,7 @@ def test_quant_format(strategy, group_size, sc, zp):
         "dummy.weight_zero_point": torch.tensor(zp, dtype=torch.float32),
     }
     if group_size is not None:
-        dense_state_dict["dummy.weight_g_idx"] = make_dummy_g_idx(512, group_size)
+        dense_state_dict["dummy.weight_g_idx"] = make_dummy_g_idx(1024, group_size)
 
     quant_config = get_dummy_quant_config(strategy=strategy, group_size=group_size)
 
