@@ -7,10 +7,8 @@ import yaml
 from loguru import logger
 from pydantic import Field, model_validator
 
-from llmcompressor.modifiers import Modifier, StageModifiers
+from llmcompressor.modifiers import Modifier
 from llmcompressor.recipe.base import RecipeBase
-from llmcompressor.recipe.modifier import RecipeModifier
-from llmcompressor.recipe.stage import RecipeStage
 
 __all__ = [
     "Recipe",
@@ -31,10 +29,10 @@ class Recipe(RecipeBase):
     when serializing a recipe, yaml will be used by default.
     """
 
-    version: str = None
+    version: Optional[str] = None
     args: Dict[str, Any] = Field(default_factory=dict)
-    stage: List[RecipeStage] = Field(default_factory=list)
-    modifiers: List[Modifier] = Field(default_factory=list)
+    stage: str = "default"
+    modifiers: List[Dict[str, Any]] = Field(default_factory=list)
 
     @classmethod
     def from_modifiers(
@@ -71,12 +69,10 @@ class Recipe(RecipeBase):
 
         group_name = modifier_group_name or "default"
 
-        recipe = cls()
-
         # assume one stage for modifier instances
-        recipe.stage = group_name
+        recipe = cls()
+        recipe.stages = group_name
         recipe.modifiers = modifiers
-        
         return recipe
 
     @classmethod
@@ -86,7 +82,7 @@ class Recipe(RecipeBase):
         modifier_group_name: Optional[str] = None,
     ) -> "Recipe":
         """
-        Create a recipe instance from a file, string, or Modifier objects
+        Create a recipe instance from a file, string, or RecipeModifier objects
 
 
         Using a recipe string or file is supported:
@@ -114,18 +110,15 @@ class Recipe(RecipeBase):
         :return: The Recipe instance created from the path or modifiers,
             or a valid recipe string in yaml/json format
         """
-
-        # recipe instance
         if isinstance(path_or_modifiers, Recipe):
+            # already a recipe
             return path_or_modifiers
 
-        # modifiers instance
         if isinstance(path_or_modifiers, (Modifier, list)):
             return cls.from_modifiers(
                 modifiers=path_or_modifiers, modifier_group_name=modifier_group_name
             )
 
-        #string instance
         if not os.path.isfile(path_or_modifiers):
             # not a local file
             # assume it's a string
@@ -139,18 +132,16 @@ class Recipe(RecipeBase):
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
-        # file path instance
         with open(path_or_modifiers, "r") as file:
             content = file.read().strip()
-            file_name = path_or_modifiers.lower()
-            if file_name.endswith(".md"):
+            if path_or_modifiers.lower().endswith(".md"):
                 content = _parse_recipe_from_md(path_or_modifiers, content)
 
-            if file_name.endswith(".json"):
+            if path_or_modifiers.lower().endswith(".json"):
                 obj = json.loads(content)
-            elif file_name.endswith(
+            elif path_or_modifiers.lower().endswith(
                 ".yaml"
-            ) or file_name.endswith(".yml"):
+            ) or path_or_modifiers.lower().endswith(".yml"):
                 obj = yaml.safe_load(content)
             else:
                 try:
@@ -160,6 +151,34 @@ class Recipe(RecipeBase):
                         f"Could not parse recipe from path {path_or_modifiers}"
                     )
             return Recipe.model_validate(obj)
+
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_from_dict(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        version = values.get("version")
+        args = values.get("args", {})
+        modifiers: List[Dict[str, Any]] = []
+        stage = "default"
+
+        for key, value in values.items():
+            if key.endswith("_stage") and isinstance(value, dict):
+                stage = key.replace("_stage", "")
+                for mod_group_key, mod_defs in value.items():
+                    if mod_group_key.endswith("_modifiers") and isinstance(mod_defs, dict):
+                        for mod_type, mod_args in mod_defs.items():
+                            modifiers.append({
+                                "type": mod_type,
+                                "group": stage,
+                                "args": mod_args,
+                            })
+        return {
+            "version": version,
+            "args": args,
+            "stage": stage,
+            "modifiers": modifiers,
+        }
+
 
     @staticmethod
     def simplify_recipe(
@@ -180,20 +199,19 @@ class Recipe(RecipeBase):
             return Recipe()
 
         # prepare recipe
-        if (
-            isinstance(recipe, Modifier)
-            or isinstance(recipe, str)
-            or (
-                isinstance(recipe, list)
-                and all(isinstance(mod, Modifier) for mod in recipe)
-            )
-        ):
+        else:
             recipe = Recipe.create_instance(recipe)
-        # Filter stages if target_stages are provided
+            import pdb; pdb.set_trace()
+        
+        # Filter modifiers based on target_stage
+        target_modifiers = []
         if target_stage:
-            recipe.stages = [
-                stage for stage in recipe.stages if (stage.group in target_stage)
-            ]
+            recipe.stage = target_stage
+            for modifier in recipe.modifiers:
+                if modifier["group"] in target_stage or modifier["group"] == "default":
+                    target_modifiers.append(modifier)
+                pdb.set_trace()
+            recipe.modifiers = target_modifiers
         # Apply argument overrides if provided
         if override_args:
             recipe.args = {**recipe.args, **override_args}
@@ -223,7 +241,7 @@ class Recipe(RecipeBase):
 
         return combined
 
-    def create_modifier(self) -> List["StageModifiers"]:
+    def create_modifier(self) -> List[Modifier]:
         """
         Create and return a list of StageModifiers for each stage in the recipe
 
@@ -246,120 +264,13 @@ class Recipe(RecipeBase):
         """
         modifiers = []
 
-        for index, stage in enumerate(self.stages):
+        for index, stage in enumerate(self.modifiers):
             stage_modifiers = stage.create_modifier()
             stage_modifiers.index = index
             stage_modifiers.group = stage.group
             modifiers.append(stage_modifiers)
 
         return modifiers
-
-    @model_validator(mode="before")
-    @classmethod
-    def remap_stages(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        stages = []
-
-        modifiers = RecipeStage.extract_dict_modifiers(values)
-        if modifiers:
-            default_stage = {"modifiers": modifiers, "group": "default"}
-            stages.append(default_stage)
-
-        extracted = Recipe.extract_dict_stages(values)
-        stages.extend(extracted)
-        formatted_values = {}
-
-        # fill out stages
-        formatted_values["stages"] = stages
-
-        # fill out any default argument values
-        args = {}
-        for key, val in values.items():
-            args[key] = val
-        formatted_values["args"] = args
-
-        return formatted_values
-
-    @staticmethod
-    def extract_dict_stages(values: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Extract stages from a dict of values, acceptable dictionary structures
-        are shown below
-
-        Accepted stage formats:
-        - stages:
-          first_stage:
-            modifiers: ...
-          second_stage:
-            modifiers: ...
-
-        - first_stage:
-          modifiers: ...
-        - second_stage:
-          modifiers: ...
-
-        Accepted modifier formats default stage:
-        - modifiers:
-          - ModifierTypeOne
-            ...
-          - ModifierTypeTwo
-            ...
-
-        - first_modifiers:
-          - ModifierTypeOne
-            ...
-          - ModifierTypeTwo
-            ...
-
-        >>> values = {
-        ... "stages": {
-        ...     "first_stage": {
-        ...         "modifiers": {
-        ...             "ModifierTypeOne": {
-        ...                 "start": 0.0,
-        ...                 "end": 2.0,
-        ...                 }
-        ...         }
-        ...     }
-        ... }
-        ... }
-        >>> Recipe.extract_dict_stages(values) # doctest: +NORMALIZE_WHITESPACE
-        [{'modifiers': {'ModifierTypeOne': {'start': 0.0, 'end': 2.0}},
-        'group': 'first_stage'}]
-
-        :param values: The values dict to extract stages from
-        :return: A list of stages, where each stage is a dict of
-            modifiers and their group
-        """
-
-        stages = []
-        remove_keys = []
-
-        default_modifiers = RecipeStage.extract_dict_modifiers(values)
-        if default_modifiers:
-            default_stage = {"modifiers": default_modifiers, "group": "default"}
-            stages.append(default_stage)
-
-        if "stages" in values and values["stages"]:
-            assert isinstance(
-                values["stages"], dict
-            ), f"stages must be a dict, given {values['stages']}"
-            remove_keys.append("stages")
-
-            for key, value in values["stages"].items():
-                assert isinstance(value, dict), f"stage must be a dict, given {value}"
-                value["group"] = key
-                stages.append(value)
-
-        for key, value in list(values.items()):
-            if key.endswith("_stage"):
-                remove_keys.append(key)
-                value["group"] = key.rsplit("_stage", 1)[0]
-                stages.append(value)
-
-        for key in remove_keys:
-            del values[key]
-
-        return stages
 
     def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """
