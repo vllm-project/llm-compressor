@@ -53,6 +53,7 @@ class FP4_E2M1_DATA(FloatArgs):
     min = -6.0
 
     @staticmethod
+    @torch.compile
     def cast_to_fp4(x):
         sign = torch.sign(x)
         x = torch.abs(x)

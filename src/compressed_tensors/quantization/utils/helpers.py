@@ -81,7 +81,7 @@ def calculate_qparams(
         currently only applied/supported for Fp4
 
     :return: tuple of the calculated scale(s) and zero point(s). For FP4, the calculated
-        scale if of dtype FP8
+        scale is of dtype FP8
     """
     # based on the implementations for consuming quantized values,
     # 0.0 must always be representable within the quantized range
@@ -490,7 +490,6 @@ def generate_global_scale(
     attempts to use the entire FP8 dtype range while mapping a per-group max
     to the FP4 max.
     """
-    scale_dtype = scale_data.dtype
     tensor_amax = torch.abs(input_tensor.data).max().to(dtype)
     global_scale = scale_data.max * quant_data.max / tensor_amax
     return global_scale.to(dtype)
