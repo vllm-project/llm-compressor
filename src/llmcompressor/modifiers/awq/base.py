@@ -370,8 +370,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     parent_name, parent = balance_name, balance_layer
                 else:
                     # for multiple balance layers, find lowest common parent
-                    parent_name = get_lowest_common_parent(balance_names)
-                    parent = get_layer_by_name(parent_name, model)
+                    parent_name, parent = get_lowest_common_parent(balance_names, model)
 
                 resolved_mappings.append(
                     ResolvedMapping(
@@ -751,15 +750,24 @@ def _accumulate_mean(
     return (prev_sum + sum_added) / new_count, new_count
 
 
-def get_lowest_common_parent(names: List[str]) -> str:
+def get_lowest_common_parent(names: List[str], module: Module) -> str:
     """
-    Given a list of names, returns the lowest-scope common parent
+    Given a list of names, returns the lowest-scope common parent,
+    excluding parents of type ModuleList, which don't seem to play
+    nicely with hooks.
     Slight alteration from os.path.commonprefix
     https://docs.python.org/3/library/os.path.html#os.path.commonprefix
     """
     s1 = min(names)
     s2 = max(names)
+    parent_name = s1
     for i, c in enumerate(s1):
         if c != s2[i]:
-            return s1[:i].rstrip(".")
-    return s1
+            parent_name = s1[:i].rstrip(".")
+            break
+
+    while parent_name != "":
+        parent = get_layer_by_name(parent_name, module)
+        if not isinstance(parent, torch.nn.ModuleList):
+            return parent_name, parent
+        parent_name = ".".join(parent_name.split(".")[:-1])
