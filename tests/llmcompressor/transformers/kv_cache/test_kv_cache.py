@@ -7,6 +7,7 @@ from compressed_tensors.quantization.lifecycle import KVCacheScaleType
 from compressed_tensors.quantization.utils.helpers import iter_named_quantizable_modules
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
@@ -214,13 +215,6 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
     recipe = """
     quant_stage:
         quant_modifiers:
-            QuantizationModifier:
-                kv_cache_scheme:
-                    num_bits: {num_bits}
-                    type: {_type}
-                    strategy: {strategy}
-                    dynamic: {dynamic}
-                    symmetric: {symmetric}
             GPTQModifier:
                 ignore: ["lm_head"]
                 config_groups:
@@ -232,12 +226,24 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
                             strategy: "channel"
                             actorder: False
                         targets: ["Linear"]
+                kv_cache_scheme:
+                    num_bits: {num_bits}
+                    type: {_type}
+                    strategy: {strategy}
+                    dynamic: {dynamic}
+                    symmetric: {symmetric}
     """
 
     output_dir, _ = next(kv_cache_fixture(recipe, tmp_path))
 
     with init_empty_weights():
-        model = AutoModelForCausalLM.from_pretrained(output_dir)
+        # TODO: There is a bug in `apply_quantization_config` which means that, if using
+        # CompressedLinears, the compression status is inferred to `compressed` and
+        # therefore the attention kvcache parameters never undergo initializations
+        model = AutoModelForCausalLM.from_pretrained(
+            output_dir,
+            quantization_config=CompressedTensorsConfig(run_compressed=False),
+        )
 
     counts = 0
     for name, submodule in iter_named_quantizable_modules(

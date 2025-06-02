@@ -8,6 +8,7 @@ on:
 
 env:
   CADENCE: "commit"
+  HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
 
 jobs:
   detect-changes:
@@ -95,7 +96,11 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/obcq
+      - name: Running Tracing Tests
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        run: |
+          pytest -v tests/llmcompressor/transformers/tracing
       - name: Running KV Cache Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/kv_cache -k "not test_kv_cache_gptq_model_state_dict_attr"
+          pytest -v tests/llmcompressor/transformers/kv_cache

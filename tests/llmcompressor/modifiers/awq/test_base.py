@@ -1,5 +1,7 @@
 import pytest
 import torch
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from pydantic import ValidationError
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.factory import ModifierFactory
@@ -7,7 +9,7 @@ from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 
 @pytest.mark.unit
-class test_awq_is_registered:
+def test_awq_is_registered():
     """Ensure AWQModifier is registered in ModifierFactory"""
 
     setup_modifier_factory()
@@ -16,6 +18,7 @@ class test_awq_is_registered:
         type_="AWQModifier",
         allow_experimental=False,
         allow_registered=True,
+        scheme="W4A16_ASYM",
     )
 
     assert isinstance(modifier, AWQModifier), "AWQModifier not registered"
@@ -34,7 +37,8 @@ def test_set_resolved_mappings():
                 "re:.*up_proj",
                 ["re:.*down_proj"],
             ),
-        ]
+        ],
+        scheme="W4A16_ASYM",
     )
     self_attn = torch.nn.ModuleDict(
         {
@@ -83,7 +87,8 @@ def test_set_resolved_mappings():
     awq = AWQModifier(
         mappings=[
             AWQMapping("re:.*v_proj", ["re:.*o_proj"]),
-        ]
+        ],
+        scheme="W4A16_ASYM",
     )
     model = torch.nn.ModuleDict(
         {
@@ -99,3 +104,63 @@ def test_set_resolved_mappings():
     )
     awq._set_resolved_mappings(model)
     assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_validate():
+    with pytest.raises(ValidationError):
+        AWQModifier(scheme="W8A8")
+
+    with pytest.raises(ValidationError):
+        AWQModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=4,
+                        group_size=64,
+                    ),
+                ),
+                "group_1": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=4,
+                        group_size=128,
+                    ),
+                ),
+            }
+        )
+
+    with pytest.raises(ValidationError):
+        AWQModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=4,
+                        group_size=128,
+                    ),
+                ),
+                "group_1": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=8,
+                        group_size=128,
+                    ),
+                ),
+            }
+        )
+
+    # valid configuration
+    AWQModifier(
+        config_groups={
+            "group_0": QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
+            ),
+            "group_1": QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
+            ),
+        }
+    )

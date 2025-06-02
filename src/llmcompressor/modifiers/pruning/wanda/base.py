@@ -10,8 +10,7 @@ from loguru import logger
 from pydantic import PrivateAttr
 
 from llmcompressor.core import State
-from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.obcq.sgpt_mixin import SparsityModifierMixin
+from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.pruning.wanda.wanda_sparsify import (
     accumulate_row_scalars,
     make_empty_row_scalars,
@@ -22,7 +21,7 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 __all__ = ["WandaPruningModifier"]
 
 
-class WandaPruningModifier(SparsityModifierMixin, Modifier):
+class WandaPruningModifier(SparsityModifierBase):
     """
     Modifier for applying the one-shot WANDA algorithm to a model
     from the paper: https://arxiv.org/abs/2306.11695
@@ -74,6 +73,14 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
         args: Tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
+        """
+        Calibration hook used to accumulate the row scalars of the input to the module
+
+        :param module: module being calibrated
+        :param args: inputs to the module, the first element of which is the
+            cannonical input
+        :param _output: uncompressed module output, unused
+        """
         # Assume that the first argument is the input
         inp = args[0]
 
@@ -91,12 +98,10 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
             self._num_samples[module],
         )
 
-    def on_sequential_batch_end(self):
+    def compress_modules(self):
         """
-        Sparsify modules
-        TODO: implement with event callback
+        Sparsify modules which have been calibrated
         """
-
         for module in list(self._num_samples.keys()):
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
@@ -120,7 +125,13 @@ class WandaPruningModifier(SparsityModifierMixin, Modifier):
             del self._num_samples[module]
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        self.remove_hooks()
+        # TODO: modify lifecycle to end on finalize
+        if not self.ended_:
+            self.on_end(state, None)  # remove hooks
+
+        if len(self._num_samples) > 0:
+            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
+
         self._row_scalars = dict()
         self._num_samples = dict()
         self._module_names = dict()

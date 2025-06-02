@@ -1,22 +1,21 @@
 import requests
 import torch
 from PIL import Image
-from transformers import AutoProcessor
+from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.tracing import TraceableMllamaForConditionalGeneration
 
 # Load model.
 model_id = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-model = TraceableMllamaForConditionalGeneration.from_pretrained(
+model = MllamaForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "flickr30k"
-DATASET_SPLIT = {"calibration": "test[:512]"}
+DATASET_SPLIT = "test"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -42,7 +41,7 @@ oneshot(
     model=model,
     tokenizer=model_id,
     dataset=DATASET_ID,
-    splits=DATASET_SPLIT,
+    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,

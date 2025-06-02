@@ -135,11 +135,14 @@ setup(
             "pytest-rerunfailures>=13.0",
             "parameterized",
             "lm_eval==0.4.5",
-            # example test dependencies
+            # test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
             "trl>=0.10.1",
             "pandas",
+            "torchvision",
+            "librosa",
+            "soundfile",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",

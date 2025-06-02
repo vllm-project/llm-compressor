@@ -171,3 +171,18 @@ class DatasetArguments(CustomDatasetArguments):
             "will execute code present on the Hub on your local machine."
         },
     )
+    pipeline: Optional[str] = field(
+        default="independent",
+        metadata={
+            "help": "Calibration pipeline used to calibrate model"
+            "Options: ['basic', 'datafree', 'sequential', 'layer_sequential', "
+            "independent]"
+        },
+    )
+    tracing_ignore: List[str] = field(
+        default_factory=lambda: ["_update_causal_mask"],
+        metadata={
+            "help": "List of functions to ignore during tracing, either "
+            "{module}.{method_name} or {function_name}"
+        },
+    )

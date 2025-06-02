@@ -213,12 +213,23 @@ class CompressionSession:
         """
         :return: serialized string of the current compiled recipe
         """
-        recipe = self.lifecycle.recipe_container.compiled_recipe
+        recipe = self.lifecycle.recipe
 
         if recipe is not None and hasattr(recipe, "yaml"):
             return recipe.yaml()
 
         logger.warning("Recipe not found in session - it may have been reset")
+
+    def get_modifiers(self):
+        """
+        Get all modifiers across all stages
+        """
+        stage_modifiers = self.lifecycle.modifiers
+        return [
+            modifier
+            for stage_modifier in stage_modifiers
+            for modifier in stage_modifier.modifiers
+        ]  # noqa: E127
 
     def _log_model_info(self):
         # Log model level logs if cadence reached

@@ -1,13 +1,11 @@
 import unittest
 
 import pytest
-from compressed_tensors.quantization import QuantizationScheme
+import torch
 from parameterized import parameterized
 
 from llmcompressor.modifiers.obcq import SparseGPTModifier
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
-from llmcompressor.modifiers.quantization.quantization import QuantizationModifier
-from llmcompressor.utils.pytorch.module import qat_active
 from tests.llmcompressor.modifiers.conf import (
     LifecyleTestingHarness,
     setup_modifier_factory,
@@ -53,7 +51,8 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
             sparsity=sparsities, block_size=128, targets=targets
         )
         testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
-        modifier.initialize(testing_harness.get_state())  # falls back to basic pipeline
+        modifier.initialize(testing_harness.get_state())
+        modifier.on_start(testing_harness.get_state(), None)
 
         model = testing_harness.state.model
         num_hooks = len(modifier._hooks)
@@ -62,50 +61,27 @@ class TestSuccessfulLayerwiseRecipe(unittest.TestCase):
 
 
 @pytest.mark.unit
-class TestCreateDefaultQuantModifier(unittest.TestCase):
+class TestApplyQuantization(unittest.TestCase):
     def setUp(self):
         setup_modifier_factory()
 
     def test_create_default_quant_modifier(self):
-        modifier = GPTQModifier(block_size=128)
-        assert modifier._quantization_modifier is None
+        modifier = GPTQModifier(block_size=128, targets=["Linear"], scheme="FP8")
 
-        testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier._check_build_quant_modifier(testing_harness.get_state().model)
-        assert modifier.quantize
-        assert isinstance(modifier._quantization_modifier, QuantizationModifier)
-        modifier._quantization_modifier.create_init_config()
-        default_config_group_name = "group_0"
-        should_be_default_quant_scheme = modifier._quantization_modifier.config_groups[
-            default_config_group_name
-        ]
-        assert should_be_default_quant_scheme.input_activations is None
-        assert should_be_default_quant_scheme.weights is None
-
-
-@pytest.mark.unit
-class TestSetQuantIfModifierAlreadyExists(unittest.TestCase):
-    def setUp(self):
-        setup_modifier_factory()
-
-    def test_set_quant_if_modifer_already_exists(self):
-        model = LinearNet()
-        scheme = QuantizationScheme(
-            targets=["Linear"],
-            input_activations=dict(num_bits=8, symmetric=True),
-            weights=dict(num_bits=4, symmetric=False),
-        )
-
-        modifier = QuantizationModifier(config_groups={"group_0": scheme})
-        testing_harness = LifecyleTestingHarness(model=model, start=-1)
-
-        assert not qat_active(testing_harness.get_state().model)
+        testing_harness = LifecyleTestingHarness(model=LinearNet(), start=-1)
         modifier.initialize(testing_harness.get_state())
-        assert qat_active(testing_harness.get_state().model)
+        modifier.on_start(testing_harness.get_state(), None)
 
-        modifier = GPTQModifier(block_size=128)
-        assert not modifier._quantization_modifier
-        assert modifier.quantize
+        model = testing_harness.state.model
+        for module in model.modules():
+            if isinstance(module, torch.nn.Linear):
+                assert hasattr(module, "quantization_scheme")
+                assert hasattr(module, "input_observer")
+                assert hasattr(module, "weight_observer")
+                pre_hooks = list(module._forward_pre_hooks.values())
+                post_hooks = list(module._forward_hooks.values())
+                assert pre_hooks[0].__name__ == "calibrate_input_hook"
+                assert post_hooks[0].__name__ == "calibrate_module"
 
 
 class TestSetQuantInGPTQ(unittest.TestCase):
@@ -119,7 +95,7 @@ class TestSetQuantInGPTQ(unittest.TestCase):
                         "num_bits": 8,
                         "symmetric": False,
                         "strategy": "token",
-                        "dynamic": "true",
+                        "dynamic": True,
                         "kwargs": {},
                     },
                     "weights": {
@@ -131,24 +107,17 @@ class TestSetQuantInGPTQ(unittest.TestCase):
                 }
             }
         }
-        self.quant_config = {"QuantizationModifier": self.quant_kwargs}
 
     def test_set_quant_in_gptq(self):
-        modifier = GPTQModifier(block_size=128, quantize=self.quant_config)
-        assert modifier._quantization_modifier is None
+        modifier = GPTQModifier(block_size=128, **self.quant_kwargs)
+        config = modifier.resolve_quantization_config()
 
-        testing_harness = LifecyleTestingHarness(model=LinearNet())
-        modifier._check_build_quant_modifier(testing_harness.get_state().model)
-        assert modifier.quantize
-        self.assertIsInstance(modifier._quantization_modifier, QuantizationModifier)
-
-        dict_scheme = dict(modifier._quantization_modifier.config_groups)
         self._check_config(
-            dict(dict_scheme["config_group_0"].weights),
+            dict(config.config_groups["config_group_0"].weights),
             self.quant_kwargs["config_groups"]["config_group_0"]["weights"],
         )
         self._check_config(
-            dict(dict_scheme["config_group_0"].input_activations),
+            dict(config.config_groups["config_group_0"].input_activations),
             self.quant_kwargs["config_groups"]["config_group_0"]["input_activations"],
         )
 

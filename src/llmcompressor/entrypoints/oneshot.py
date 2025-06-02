@@ -1,11 +1,15 @@
 from typing import List, Optional, Union, TYPE_CHECKING
+import os
+from datetime import datetime
 
+from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizerBase, ProcessorMixin
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.pipelines.registry import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -83,6 +87,7 @@ class Oneshot:
 
     def __init__(
         self,
+        log_dir: Optional[str] = "sparse_logs",
         **kwargs,
     ):
         """
@@ -101,6 +106,15 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
 
         """
+        # Set up logging
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+            date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            logger.add(
+                f"{log_dir}/oneshot_{date_str}.log",
+                level="DEBUG",
+            )
+
         model_args, dataset_args, recipe_args, _, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
@@ -159,21 +173,24 @@ class Oneshot:
         """
 
         session = active_session()
+        session.reset()
 
-        session_kwargs = dict(
+        # (Helen INFERENG-661): validate recipe modifiers before intialization
+        session.initialize(
             model=self.model,
+            start=-1,
             recipe=self.recipe,
+            recipe_stage=recipe_stage,
             recipe_args=self.recipe_args.recipe_args,
             calib_data=calibration_dataloader,
-            start=-1,  # oneshot-specific argument
-            copy_data=False,
-            min_tokens_per_module=getattr(self, "min_tokens_per_module", None),
-            recipe_stage=recipe_stage,
         )
 
-        session.reset()
-        session.initialize(**session_kwargs)
-        session.finalize(**session_kwargs)
+        user_pipeline = self.dataset_args.pipeline
+        modifiers = session.get_modifiers()
+        pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
+        pipeline(self.model, calibration_dataloader, self.dataset_args)
+
+        session.finalize()
 
 
 def oneshot(
