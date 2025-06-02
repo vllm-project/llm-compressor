@@ -88,7 +88,7 @@ class Recipe(BaseModel):
         modifier_group_name: Optional[str] = None,
     ) -> "Recipe":
         """
-        Create a recipe instance from a file, string, or Modifier objects
+        Create a recipe instance from a file, string, or RecipeModifier objects
 
 
         Using a recipe string or file is supported:
@@ -116,18 +116,15 @@ class Recipe(BaseModel):
         :return: The Recipe instance created from the path or modifiers,
             or a valid recipe string in yaml/json format
         """
-
-        # recipe instance
         if isinstance(path_or_modifiers, Recipe):
+            # already a recipe
             return path_or_modifiers
 
-        # modifiers instance
         if isinstance(path_or_modifiers, (Modifier, list)):
             return cls.from_modifiers(
                 modifiers=path_or_modifiers, modifier_group_name=modifier_group_name
             )
 
-        #string instance
         if not os.path.isfile(path_or_modifiers):
             # not a local file
             # assume it's a string
@@ -141,18 +138,16 @@ class Recipe(BaseModel):
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
-        # file path instance
         with open(path_or_modifiers, "r") as file:
             content = file.read().strip()
-            file_name = path_or_modifiers.lower()
-            if file_name.endswith(".md"):
+            if path_or_modifiers.lower().endswith(".md"):
                 content = _parse_recipe_from_md(path_or_modifiers, content)
 
-            if file_name.endswith(".json"):
+            if path_or_modifiers.lower().endswith(".json"):
                 obj = json.loads(content)
-            elif file_name.endswith(
+            elif path_or_modifiers.lower().endswith(
                 ".yaml"
-            ) or file_name.endswith(".yml"):
+            ) or path_or_modifiers.lower().endswith(".yml"):
                 obj = yaml.safe_load(content)
             else:
                 try:
