@@ -76,12 +76,13 @@ _phi_mappings = [
 
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "LlamaForCausalLM": _default_mappings,
-    "Qwen2ForCausalLM": _default_mappings,
-    "Qwen3ForCausalLM": _default_mappings,
-    "Qwen3MoeForCausalLM": _moe_default_mappings,
     "MistralForCausalLM": _default_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
+    "Qwen2ForCausalLM": _default_mappings,
+    "Qwen2MoeForCausalLM": _moe_default_mappings,
+    "Qwen3ForCausalLM": _default_mappings,
+    "Qwen3MoeForCausalLM": _moe_default_mappings,
 }
 
 
