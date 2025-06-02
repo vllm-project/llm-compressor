@@ -80,10 +80,8 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         if base_name == "weight":
             value = module.weight
             g_idx = getattr(module, "weight_g_idx", None)
-            global_scale = getattr(module, f"{base_name}_global_scale", None)
         elif value is not None:
             g_idx = None
-            global_scale = None
         else:
             raise ValueError(
                 "Must provide a value to observe if not using weight observer"
@@ -97,33 +95,24 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         should_calculate_gparam = False
         should_calculate_qparams = True
 
-        # TODO: will update to be the case for both weight and input in a follow-up
-        # weight global calculate is currently done in ct right now;
-        # should be moved here to unify global scale calculations
-        if (
-            quant_args.strategy == QuantizationStrategy.TENSOR_GROUP
-            and base_name == "input"
-        ):
+        # If running TENSOR_GROUP, generate a global_scale for the entire value/tensor
+        if quant_args.strategy == QuantizationStrategy.TENSOR_GROUP:
             should_calculate_gparam = True
             should_calculate_qparams = False
 
         observer = getattr(module, f"{base_name}_observer")
-        observer_outputs = observer(
-            value,
-            g_idx=g_idx,
-            global_scale=global_scale,
-            should_calculate_gparam=should_calculate_gparam,
-        )
 
         if should_calculate_gparam:
-            updated_global_scale = observer_outputs
-            update_parameter_data(
-                module, updated_global_scale, f"{base_name}_global_scale"
+            global_scale = observer(
+                value,
+                should_calculate_gparam=True,
             )
+            update_parameter_data(module, global_scale, f"{base_name}_global_scale")
 
         if should_calculate_qparams:
-            # update scale and zero point
-            updated_scale, updated_zero_point = observer_outputs
+            updated_scale, updated_zero_point = observer(
+                value, g_idx=g_idx, global_scale=global_scale
+            )
             update_parameter_data(module, updated_scale, f"{base_name}_scale")
             update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
