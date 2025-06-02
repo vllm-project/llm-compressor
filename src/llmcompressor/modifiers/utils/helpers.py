@@ -1,15 +1,16 @@
-from compressed_tensors.quantization.utils import (
-    is_fp4,
-    iter_named_quantizable_modules,
-)
-import torch
-from torch.nn import Module, Linear
-from compressed_tensors.utils import update_parameter_data
-from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
+from typing import List
 
-def update_fused_layer_weight_global_scales(model: torch.nn.Module):
+import torch
+from compressed_tensors.utils import align_module_device, update_parameter_data
+from compressed_tensors.quantization import QuantizationStrategy
+from torch.nn import Linear, Module
+
+__all__ = ["update_fused_layer_weight_global_scales"]
+
+
+def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
     """
-    When running NVFP4A16 quantization, update the global scale
+    When running NVFP4 quantization, update the global scale
     such that q,k,v layers are treated as one tensor with the same
     global_scale and gate_proj/up_proj layers are treated as one tensor
     with the same global scale. This is requirement currently being set
@@ -31,10 +32,10 @@ def update_fused_layer_weight_global_scales(model: torch.nn.Module):
             hasattr(module, "gate_proj") or hasattr(module, "up_proj")
         )
 
-    def _valid_fp4_quant(layer_list: List[Linear]):
+    def _valid_tensor_group_quant(layer_list: List[Linear]):
         """
         Return True if all the linear layers in the layer_list are
-        NVFP4A16 quantized.
+        TENSOR_GROUP quantized.
         """
         for layer in layer_list:
             scheme = getattr(layer, "quantization_scheme", None)
@@ -46,48 +47,51 @@ def update_fused_layer_weight_global_scales(model: torch.nn.Module):
             if weight_quant_args is None:
                 return False
 
-            if not is_fp4(quantization_args=weight_quant_args):
+            if weight_quant_args.strategy != QuantizationStrategy.TENSOR_GROUP:
                 return False
         return True
 
-    for name, submodule in iter_named_quantizable_modules(
-        model,
-        include_attn=True,
-        include_mlp=True,
-    ):
-
+    with align_module_device(submodule):
         if _is_attention_module(submodule):
             # already fused/treated as one layer
             if hasattr(submodule, "qkv_proj"):
-                continue
+                return
 
-            if not _valid_fp4_quant(
+            if not _valid_tensor_group_quant(
                 [submodule.q_proj, submodule.v_proj, submodule.k_proj]
             ):
-                continue
+                return
 
             q_weight = submodule.q_proj.weight.data
             v_weight = submodule.v_proj.weight.data
             k_weight = submodule.k_proj.weight.data
+            observer = getattr(submodule.q_proj, "weight_observer")
 
-            value = generate_global_scale(
-                input_tensor=torch.cat((q_weight, v_weight, k_weight), dim=0)
+            global_scale = observer(
+                torch.cat((q_weight, v_weight, k_weight), dim=0),
+                should_calculate_gparam=True,
             )
 
-            update_parameter_data(submodule.q_proj, value, "weight_global_scale")
-            update_parameter_data(submodule.k_proj, value, "weight_global_scale")
-            update_parameter_data(submodule.v_proj, value, "weight_global_scale")
+            update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
+            update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
+            update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
 
         if _is_mlp_module(submodule):
-            if not _valid_fp4_quant([submodule.gate_proj, submodule.up_proj]):
-                continue
+            if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
+                return
 
             gate_data = submodule.gate_proj.weight.data
             up_data = submodule.up_proj.weight.data
+            observer = getattr(submodule.gate_proj, "weight_observer")
 
-            value = generate_global_scale(
-                input_tensor=torch.cat((gate_data, up_data), dim=0)
+            global_scale = observer(
+                torch.cat((gate_data, up_data), dim=0),
+                should_calculate_gparam=True,
             )
 
-            update_parameter_data(submodule.gate_proj, value, "weight_global_scale")
-            update_parameter_data(submodule.up_proj, value, "weight_global_scale")
+            update_parameter_data(
+                submodule.gate_proj, global_scale, "weight_global_scale"
+            )
+            update_parameter_data(
+                submodule.up_proj, global_scale, "weight_global_scale"
+            )
