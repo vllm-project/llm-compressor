@@ -6,7 +6,7 @@ Observers are designed to be flexible and support a variety of quantization stra
 
 ## Base Class
 
-### [Observer](./observers/base.py)
+### [Observer](./base.py)
 Base class for all observers. 
 The base class handles:
 - Group-wise scale/zero_point computation
@@ -19,14 +19,11 @@ This class is not used directly but provides the scaffolding for all custom obse
 
 ## Implemented Observers
 
-### [MinMax](./observers/min_max.py)
+### [MinMax](./min_max.py)
 Computes `scale` and `zero_point` by tracking the minimum and maximum of the observed tensor. This is the simplest and most common observer. Works well for symmetric and asymmetric quantization.
 
-### [MSE](./observers/mse.py)
+### [MSE](./mse.py)
 Computes quantization parameters by minimizing the Mean Squared Error (MSE) between the original and quantized tensor. Optionally maintains a moving average of min/max values for smoother convergence.
-
-### [SmoothQuant Observer](./observers/smoothquant_observer.py)
-Used in conjunction with the `SmoothQuant` modifier. Tracks outlier activations and computes scales for pre-conditioning inputs before quantization. Applies smoothing to activations while preserving model semantics.
 
 ## Quantization Strategies
 
