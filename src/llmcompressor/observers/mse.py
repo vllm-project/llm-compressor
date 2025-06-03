@@ -24,7 +24,7 @@ class MovingAverageMSEObserver(Observer):
         patience: int = 5,
         averaging_constant: float = 0.01,
         grid: float = 100.0,
-        norm: float = 2.0,
+        norm: float = 2.4,
         **kwargs,
     ):
         super().__init__(quantization_args=quantization_args)
