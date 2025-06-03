@@ -67,14 +67,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
-
-
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
