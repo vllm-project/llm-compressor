@@ -63,11 +63,11 @@ def initialize_observer(
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
-            maxshrink=observer_kwargs.maxshrink,
-            patience=observer_kwargs.patience,
-            averaging_constant=observer_kwargs.averaging_constant,
-            grid=observer_kwargs.grid,
-            norm=observer_kwargs.norm,
+            maxshrink=observer_kwargs.get("maxshrink", None),
+            patience=observer_kwargs.get("patience", None),
+            averaging_constant=observer_kwargs.get("averaging_constant", None),
+            grid=observer_kwargs.get("grid", None),
+            norm=observer_kwargs.get("norm", None),
         )
         module.register_module(f"{base_name}_observer", observer)
 
