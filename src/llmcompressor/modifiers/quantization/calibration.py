@@ -76,7 +76,7 @@ def initialize_observer(
                 "averaging_constant", DEFAULT_AVERAGING_CONSTANT
             ),
             grid=observer_kwargs.get("grid", DEFAULT_GRID),
-            norm=observer_kwargs.get("norm", DEFAULT_NORM),
+            norm=observer_kwargs.get("norm", DEFAULT_NORM)
         )
         module.register_module(f"{base_name}_observer", observer)
 
