@@ -2,9 +2,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import (
+    DynamicType,
     KVCacheScaleType,
     QuantizationScheme,
     QuantizationStatus,
+    QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
@@ -53,7 +55,10 @@ def initialize_observer(
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
-    if quantization_args is not None and not quantization_args.dynamic:
+    if quantization_args is not None and quantization_args.dynamic in (
+        False,
+        DynamicType.LOCAL,
+    ):
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
@@ -84,14 +89,43 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
                 "Must provide a value to observe if not using weight observer"
             )
 
+        quantization_scheme = getattr(module, "quantization_scheme", None)
+        arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
+        quant_args = getattr(quantization_scheme, arg_name, None)
+
+        # We always calculate quantizaton parameters by default and no global parameters
+        should_calculate_gparam = False
+        should_calculate_qparams = True
+
+        # TODO: will update to be the case for both weight and input in a follow-up
+        # weight global calculate is currently done in ct right now;
+        # should be moved here to unify global scale calculations
+        if (
+            quant_args.strategy == QuantizationStrategy.TENSOR_GROUP
+            and base_name == "input"
+        ):
+            should_calculate_gparam = True
+            should_calculate_qparams = False
+
         observer = getattr(module, f"{base_name}_observer")
-        updated_scale, updated_zero_point = observer(
-            value, g_idx=g_idx, global_scale=global_scale
+        observer_outputs = observer(
+            value,
+            g_idx=g_idx,
+            global_scale=global_scale,
+            should_calculate_gparam=should_calculate_gparam,
         )
 
-        # update scale and zero point
-        update_parameter_data(module, updated_scale, f"{base_name}_scale")
-        update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+        if should_calculate_gparam:
+            updated_global_scale = observer_outputs
+            update_parameter_data(
+                module, updated_global_scale, f"{base_name}_global_scale"
+            )
+
+        if should_calculate_qparams:
+            # update scale and zero point
+            updated_scale, updated_zero_point = observer_outputs
+            update_parameter_data(module, updated_scale, f"{base_name}_scale")
+            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
 
 
 def update_weight_zp_scale(module: Module):
