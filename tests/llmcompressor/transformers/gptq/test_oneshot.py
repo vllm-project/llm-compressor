@@ -65,7 +65,7 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         import torch
 
         self.output = "./oneshot_output"
-        self.model = "roneneldan/TinyStories-1M"
+        self.model = "Xenova/llama2.c-stories110M"
         self.dataset = "open_platypus"
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
@@ -106,7 +106,7 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         assert weight_args.num_bits == 4
 
         # Check a specific layer is quantized
-        targetted_linear_layer = model_loaded.transformer.h[0].attn.attention.k_proj
+        targetted_linear_layer = model_loaded.model.layers[0].self_attn.k_proj
         assert hasattr(targetted_linear_layer, "quantization_scheme")
 
         # Check lm-head is not quantized
