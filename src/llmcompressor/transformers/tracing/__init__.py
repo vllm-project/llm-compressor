@@ -1,3 +1,3 @@
-from .debug import get_model_class
+from .debug import trace
 
-__all__ = ["get_model_class"]
+__all__ = ["trace"]

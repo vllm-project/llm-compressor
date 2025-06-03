@@ -7,7 +7,6 @@ import torch
 import transformers
 from transformers import AutoProcessor, PreTrainedModel
 
-from llmcompressor.transformers import tracing
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
 from llmcompressor.transformers import TextGenerationDataset
@@ -15,7 +14,7 @@ from llmcompressor.args import DatasetArguments
 
 from llmcompressor.utils.dev import skip_weights_download
 
-__all__ = ["get_model_class"]
+__all__ = ["trace"]
 
 
 def parse_args():
@@ -111,14 +110,6 @@ def trace(
     return model, subgraphs, sample
 
 
-def get_model_class(model_class: str) -> Type[PreTrainedModel]:
-    model_cls = getattr(tracing, model_class, getattr(transformers, model_class, None))
-    if model_cls is None:
-        raise ValueError(f"Could not import model class {model_class}")
-
-    return model_cls
-
-
 def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
     dataset_kwargs = {
         "text": {
@@ -167,7 +158,7 @@ def main():
 
     trace(
         model_id=args.model_id,
-        model_class=get_model_class(args.model_class),
+        model_class=getattr(transformers, args.model_class),
         sequential_targets=args.sequential_targets,
         ignore=args.ignore,
         modality=args.modality,
