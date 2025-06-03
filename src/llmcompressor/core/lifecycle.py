@@ -96,7 +96,6 @@ class CompressionLifecycle:
             recipe=recipe, target_stage=recipe_stage, override_args=recipe_args
         )
         self.modifiers = self.recipe.create_modifier()
-
         mod_data = []
         for mod in self.modifiers:
             data = mod.initialize(state=self.state, **kwargs)

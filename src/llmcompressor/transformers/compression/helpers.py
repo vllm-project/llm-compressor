@@ -16,6 +16,8 @@ from llmcompressor.pytorch.utils import get_linear_layers
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils.pytorch import get_layers, get_no_split_params
 
+from llmcompressor.modifiers import Modifier
+
 __ALL__ = [
     "tensor_follows_mask_structure",
     "infer_sparsity_structure_from_stage_modifiers",
