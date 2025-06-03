@@ -34,9 +34,6 @@ Best used when:
 - Calibration accuracy is critical
 - Quantization error needs to be tightly controlled
 
-### [SmoothQuant Observer](./observers/smoothquant_observer.py)
-Used in conjunction with the `SmoothQuant` modifier. Tracks outlier activations and computes scales for pre-conditioning inputs before quantization. Applies smoothing to activations while preserving model semantics.
-
 ## Quantization Strategies
 
 Observers support multiple quantization strategies via the `QuantizationArgs.strategy` field:
