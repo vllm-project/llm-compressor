@@ -70,7 +70,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         QuantizationMixin.start_calibration(self, state.model)
 
         modules = list(state.model.modules())
-        #TODO: this step can be combined with update_weight_zp_scale 
+        # TODO: this step can be combined with update_weight_zp_scale
         # once update_fused_layer_weight_global_scales is removed
         # and not required by vLLM
         for module in tqdm.tqdm(modules):

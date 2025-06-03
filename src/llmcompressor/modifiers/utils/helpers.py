@@ -1,8 +1,8 @@
 from typing import List
 
 import torch
-from compressed_tensors.utils import align_module_device, update_parameter_data
 from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.utils import align_module_device, update_parameter_data
 from torch.nn import Linear, Module
 
 __all__ = ["update_fused_layer_weight_global_scales"]
@@ -62,31 +62,32 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
             ):
                 return
 
-            q_weight = submodule.q_proj.weight.data
-            v_weight = submodule.v_proj.weight.data
-            k_weight = submodule.k_proj.weight.data
-            observer = getattr(submodule.q_proj, "weight_observer")
-
-            global_scale = observer(
-                torch.cat((q_weight, v_weight, k_weight), dim=0),
-                should_calculate_gparam=True,
+            global_scale = torch.min(
+                torch.cat(
+                    (
+                        submodule.q_proj.weight_global_scale.data,
+                        submodule.k_proj.weight_global_scale.data,
+                        submodule.v_proj.weight_global_scale.data,
+                    )
+                )
             )
 
             update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
             update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
             update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
 
+    with align_module_device(submodule):
         if _is_mlp_module(submodule):
             if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
                 return
 
-            gate_data = submodule.gate_proj.weight.data
-            up_data = submodule.up_proj.weight.data
-            observer = getattr(submodule.gate_proj, "weight_observer")
-
-            global_scale = observer(
-                torch.cat((gate_data, up_data), dim=0),
-                should_calculate_gparam=True,
+            global_scale = torch.min(
+                torch.cat(
+                    (
+                        submodule.gate_proj.weight_global_scale.data,
+                        submodule.up_proj.weight_global_scale.data,
+                    )
+                )
             )
 
             update_parameter_data(
