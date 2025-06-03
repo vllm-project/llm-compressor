@@ -25,6 +25,7 @@ class MinMaxObserver(Observer):
         self,
         quantization_args: QuantizationArgs,
         averaging_constant: float = DEFAULT_AVERAGING_CONSTANT,
+        **kwargs,
     ):
         super().__init__(quantization_args=quantization_args)
 

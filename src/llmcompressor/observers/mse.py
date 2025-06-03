@@ -31,6 +31,7 @@ class MovingAverageMSEObserver(Observer):
         averaging_constant: float = DEFAULT_AVERAGING_CONSTANT,
         grid: float = DEFAULT_GRID,
         norm: float = DEFAULT_NORM,
+        **kwargs,
     ):
         super().__init__(quantization_args=quantization_args)
 
