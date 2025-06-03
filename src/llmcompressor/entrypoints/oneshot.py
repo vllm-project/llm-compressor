@@ -340,7 +340,7 @@ def oneshot(
         preprocessing_num_workers = preprocessing_num_workers,
         min_tokens_per_module = min_tokens_per_module,
         trust_remote_code_data = trust_remote_code_data,
-        # Output parameters
+        # Miscellaneous arguments
         output_dir = output_dir,
         log_dir = log_dir,
         **kwargs
