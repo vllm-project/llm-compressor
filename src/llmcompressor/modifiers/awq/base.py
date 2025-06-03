@@ -338,9 +338,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                         # exclude v_proj->o_proj mappings whose shapes are incompatible
                         # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
                         if (
-                            ".v_proj" in smooth_name
-                            and ".o_proj" in balance_name
-                            and isinstance(smooth_layer, torch.nn.Linear)
+                            isinstance(smooth_layer, torch.nn.Linear)
                             and isinstance(balance_layer, torch.nn.Linear)
                             and ".o_proj" in balance_name
                             and (
@@ -406,6 +404,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 _output: torch.Tensor,
             ):
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
+                    # Assume that first argument is the input
                     args[0].cpu().detach().squeeze(),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
