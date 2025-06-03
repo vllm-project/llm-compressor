@@ -202,12 +202,13 @@ def test_get_lowest_common_parent():
     )
     model = torch.nn.ModuleDict(
         {
+            "embed_tokens": torch.nn.Linear(4, 2),
             "decoder": torch.nn.ModuleDict(
                 {
                     "self_attn": self_attn,
                     "mlp": mlp,
                 }
-            )
+            ),
         }
     )
 
@@ -225,3 +226,8 @@ def test_get_lowest_common_parent():
         ["decoder.mlp.experts.1.gate_proj", "decoder.self_attn.v_proj"], model
     )
     assert parent_name == "decoder" and parent == model["decoder"]
+
+    parent_name, parent = get_lowest_common_parent(
+        ["embed_tokens", "decoder.self_attn.v_proj"], model
+    )
+    assert parent_name == "" and parent == model

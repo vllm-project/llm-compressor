@@ -767,7 +767,9 @@ def get_lowest_common_parent(names: List[str], module: Module) -> Tuple[str, Mod
             parent_name = s1[:i].rstrip(".")
             break
 
-    while parent_name != "":
+    while True:
+        if parent_name == "":
+            return "", module
         parent = get_layer_by_name(parent_name, module)
         if not isinstance(parent, torch.nn.ModuleList):
             return parent_name, parent
