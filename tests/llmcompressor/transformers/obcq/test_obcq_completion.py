@@ -51,6 +51,9 @@ class TestOBCQCompletion(unittest.TestCase):
         from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils import tensors_to_device
+        from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+            get_model_compressor,  # avoid circular import
+        )
 
         oneshot(
             model=self.model,
@@ -65,6 +68,13 @@ class TestOBCQCompletion(unittest.TestCase):
         )
 
         first_tiny_model = get_session_model()
+        compressor = get_model_compressor(
+            model=first_tiny_model,
+            save_compressed=True,
+            skip_sparsity_compression_stats=False,
+        )
+        if compressor is not None:
+            compressor.decompress_model(first_tiny_model)
 
         dataset = "open_platypus"
 
