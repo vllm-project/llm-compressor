@@ -2,9 +2,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import (
+    DynamicType,
     KVCacheScaleType,
     QuantizationScheme,
     QuantizationStatus,
+    QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
@@ -27,6 +29,7 @@ __all__ = [
     "freeze_module_quantization",
     "apply_calibration_status",
     "reset_quantization_status",
+    "update_weight_global_scale",
 ]
 
 
@@ -53,7 +56,10 @@ def initialize_observer(
 
     quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
-    if quantization_args is not None and not quantization_args.dynamic:
+    if quantization_args is not None and quantization_args.dynamic in (
+        False,
+        DynamicType.LOCAL,
+    ):
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
@@ -61,7 +67,13 @@ def initialize_observer(
         module.register_module(f"{base_name}_observer", observer)
 
 
-def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] = None):
+def call_observer(
+    module: Module,
+    base_name: str,
+    value: Optional[torch.Tensor] = None,
+    should_calculate_gparam: bool = False,
+    should_calculate_qparams: bool = True,
+):
     """
     Call a module's attached input/weight/output observer using a provided value.
     Update the module's scale and zp using the observer's return values.
@@ -75,23 +87,49 @@ def call_observer(module: Module, base_name: str, value: Optional[torch.Tensor] 
         if base_name == "weight":
             value = module.weight
             g_idx = getattr(module, "weight_g_idx", None)
-            global_scale = getattr(module, f"{base_name}_global_scale", None)
         elif value is not None:
             g_idx = None
-            global_scale = None
         else:
             raise ValueError(
                 "Must provide a value to observe if not using weight observer"
             )
 
         observer = getattr(module, f"{base_name}_observer")
-        updated_scale, updated_zero_point = observer(
-            value, g_idx=g_idx, global_scale=global_scale
-        )
 
-        # update scale and zero point
-        update_parameter_data(module, updated_scale, f"{base_name}_scale")
-        update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+        if should_calculate_gparam:
+            global_scale = observer(
+                value,
+                should_calculate_gparam=True,
+            )
+            update_parameter_data(module, global_scale, f"{base_name}_global_scale")
+        else:
+            global_scale = getattr(module, f"{base_name}_global_scale", None)
+
+        if should_calculate_qparams:
+            updated_scale, updated_zero_point = observer(
+                value, g_idx=g_idx, global_scale=global_scale
+            )
+            update_parameter_data(module, updated_scale, f"{base_name}_scale")
+            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+
+
+def update_weight_global_scale(module: Module):
+    if getattr_chain(module, "quantization_scheme.weights", None) is None:
+        return
+
+    if (
+        getattr_chain(module, "quantization_scheme.weights.strategy", None)
+        != QuantizationStrategy.TENSOR_GROUP
+    ):
+        return
+
+    call_observer(
+        module,
+        base_name="weight",
+        should_calculate_gparam=True,
+        should_calculate_qparams=False,
+    )
+    module.weight_observer.reset()
 
 
 def update_weight_zp_scale(module: Module):
@@ -131,10 +169,24 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     if value.numel() == 0:
         return
 
+    quantization_scheme = getattr(module, "quantization_scheme", None)
+    quantization_args = getattr(quantization_scheme, f"{base_name}_activations", None)
+
+    calculate_qparams = True
+    calculate_gparam = False
+
+    if quantization_args is not None:
+        if quantization_args.dynamic in (True, DynamicType.LOCAL):
+            calculate_qparams = False
+        if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
+            calculate_gparam = True
+
     call_observer(
         module=module,
         base_name=base_name,
         value=value,
+        should_calculate_gparam=calculate_gparam,
+        should_calculate_qparams=calculate_qparams,
     )
 
 
