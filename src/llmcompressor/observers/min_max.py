@@ -7,8 +7,6 @@ from compressed_tensors.utils import deprecated
 
 from llmcompressor.observers.base import Observer
 
-DEFAULT_AVERAGING_CONSTANT = 0.01
-
 __all__ = ["MinMaxObserver", "MovingAverageMinMaxObserver"]
 
 
