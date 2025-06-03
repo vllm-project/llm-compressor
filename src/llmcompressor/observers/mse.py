@@ -7,12 +7,6 @@ from torch import FloatTensor, IntTensor, Tensor
 
 from llmcompressor.observers.base import Observer
 
-DEFAULT_MAXSHRINK = 0.20
-DEFAULT_PATIENCE = 5
-DEFAULT_AVERAGING_CONSTANT = 0.01
-DEFAULT_GRID = 100.0
-DEFAULT_NORM = 2.4
-
 __all__ = ["MovingAverageMSEObserver"]
 
 
@@ -26,11 +20,11 @@ class MovingAverageMSEObserver(Observer):
     def __init__(
         self,
         quantization_args: QuantizationArgs,
-        maxshrink: float = DEFAULT_MAXSHRINK,
-        patience: int = DEFAULT_PATIENCE,
-        averaging_constant: float = DEFAULT_AVERAGING_CONSTANT,
-        grid: float = DEFAULT_GRID,
-        norm: float = DEFAULT_NORM,
+        maxshrink: float,
+        patience: int,
+        averaging_constant: float,
+        grid: float,
+        norm: float,
         **kwargs,
     ):
         super().__init__(quantization_args=quantization_args)

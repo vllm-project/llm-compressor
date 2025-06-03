@@ -18,6 +18,12 @@ from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 from llmcompressor.utils.helpers import getattr_chain
 
+DEFAULT_MAXSHRINK = 0.20
+DEFAULT_PATIENCE = 5
+DEFAULT_AVERAGING_CONSTANT = 0.01
+DEFAULT_GRID = 100.0
+DEFAULT_NORM = 2.4
+
 __all__ = [
     "initialize_observer",
     "update_weight_zp_scale",
@@ -64,11 +70,13 @@ def initialize_observer(
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
-            maxshrink=observer_kwargs.get("maxshrink", None),
-            patience=observer_kwargs.get("patience", None),
-            averaging_constant=observer_kwargs.get("averaging_constant", None),
-            grid=observer_kwargs.get("grid", None),
-            norm=observer_kwargs.get("norm", None),
+            maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
+            patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
+            averaging_constant=observer_kwargs.get(
+                "averaging_constant", DEFAULT_AVERAGING_CONSTANT
+            ),
+            grid=observer_kwargs.get("grid", DEFAULT_GRID),
+            norm=observer_kwargs.get("norm", DEFAULT_NORM),
         )
         module.register_module(f"{base_name}_observer", observer)
 
