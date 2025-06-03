@@ -195,9 +195,8 @@ class Oneshot:
 
 
 def oneshot(
-    # Required model parameters
+    # Model arguments
     model: Union[str, PreTrainedModel],
-    # Optional model parameters
     distill_teacher: Optional[str] = None,
     config_name: Optional[str] = None,
     tokenizer: Optional[Union[str, PreTrainedTokenizerBase]] = None,
@@ -210,12 +209,12 @@ def oneshot(
     save_compressed: bool = True,
     oneshot_device: str = "cuda:0",
     model_revision: str = "main",
-    # Recipe parameters
+    # Recipe arguments
     recipe: Optional[Union[str, List[str]]] = None,
     recipe_args: Optional[List[str]] = None,
     clear_sparse_session: bool = False,
     stage: Optional[str] = None,
-    # Dataset parameters
+    # Dataset arguments
     dataset: Optional[Union[str, "Dataset", "DatasetDict"]] = None,
     dataset_config_name: Optional[str] = None,
     dataset_path: Optional[str] = None,
@@ -230,9 +229,9 @@ def oneshot(
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
     trust_remote_code_data: bool = False,
-    # Output parameters
+    # Miscellaneous arguments
     output_dir: Optional[str] = None,
-    # For backward compatibility
+    log_dir: Optional[str] = "sparse_logs",
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -296,58 +295,56 @@ def oneshot(
         trust_remote_code_data (bool): Whether to allow for datasets defined on the Hub
             using a dataset script.
 
-        # Output arguments
+        # Miscellaneous arguments
         output_dir (Optional[str]): Path to save the output model after calibration.
+            Nothing is saved if None.
+        log_dir (Optional[str]): Path to save logs during oneshot run
+            Nothing is logged to file if None.
 
     Returns:
         PreTrainedModel: The calibrated model
     """
-    params = {
-        # Model parameters
-        "model": model,
-        "distill_teacher": distill_teacher,
-        "config_name": config_name,
-        "tokenizer": tokenizer,
-        "processor": processor,
-        "cache_dir": cache_dir,
-        "use_auth_token": use_auth_token,
-        "precision": precision,
-        "tie_word_embeddings": tie_word_embeddings,
-        "trust_remote_code_model": trust_remote_code_model,
-        "save_compressed": save_compressed,
-        "oneshot_device": oneshot_device,
-        "model_revision": model_revision,
-        # Recipe parameters
-        "recipe": recipe,
-        "recipe_args": recipe_args,
-        "clear_sparse_session": clear_sparse_session,
-        "stage": stage,
-        # Dataset parameters
-        "dataset": dataset,
-        "dataset_config_name": dataset_config_name,
-        "dataset_path": dataset_path,
-        "num_calibration_samples": num_calibration_samples,
-        "shuffle_calibration_samples": shuffle_calibration_samples,
-        "max_seq_length": max_seq_length,
-        "pad_to_max_length": pad_to_max_length,
-        "text_column": text_column,
-        "concatenate_data": concatenate_data,
-        "streaming": streaming,
-        "overwrite_cache": overwrite_cache,
-        "preprocessing_num_workers": preprocessing_num_workers,
-        "min_tokens_per_module": min_tokens_per_module,
-        "trust_remote_code_data": trust_remote_code_data,
+
+    one_shot = Oneshot(
+        # Model arguments
+        model = model,
+        distill_teacher = distill_teacher,
+        config_name = config_name,
+        tokenizer = tokenizer,
+        processor = processor,
+        cache_dir = cache_dir,
+        use_auth_token = use_auth_token,
+        precision = precision,
+        tie_word_embeddings = tie_word_embeddings,
+        trust_remote_code_model = trust_remote_code_model,
+        save_compressed = save_compressed,
+        oneshot_device = oneshot_device,
+        model_revision = model_revision,
+        # Recipe arguments
+        recipe = recipe,
+        recipe_args = recipe_args,
+        clear_sparse_session = clear_sparse_session,
+        stage = stage,
+        # Dataset arguments
+        dataset = dataset,
+        dataset_config_name = dataset_config_name,
+        dataset_path = dataset_path,
+        num_calibration_samples = num_calibration_samples,
+        shuffle_calibration_samples = shuffle_calibration_samples,
+        max_seq_length = max_seq_length,
+        pad_to_max_length = pad_to_max_length,
+        text_column = text_column,
+        concatenate_data = concatenate_data,
+        streaming = streaming,
+        overwrite_cache = overwrite_cache,
+        preprocessing_num_workers = preprocessing_num_workers,
+        min_tokens_per_module = min_tokens_per_module,
+        trust_remote_code_data = trust_remote_code_data,
         # Output parameters
-        "output_dir": output_dir,
-    }
-
-    params = {k: v for k, v in params.items() if v is not None}
-
-    # Merge with any kwargs (this preserves backward compatibility)
-    # kwargs take precedence over explicit params if same key exists
-    all_args = {**params, **kwargs}
-
-    one_shot = Oneshot(**all_args)
+        output_dir = output_dir,
+        log_dir = log_dir,
+        **kwargs
+    )
     one_shot()
 
     return one_shot.model
