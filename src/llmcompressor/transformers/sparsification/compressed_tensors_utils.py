@@ -56,10 +56,6 @@ def modify_save_pretrained(model: PreTrainedModel):
         model_class = model_ref().__class__
         del save_pretrained_method
 
-        # hotfix: create a weak reference to the model to avoid circular dep
-        # TODO: determine why circular dep is not collected and how to clean up this fn
-        model_ref = weakref.ref(model)
-
         @wraps(original_save_pretrained)
         def save_pretrained_wrapper(
             save_directory: str,
@@ -99,11 +95,11 @@ def modify_save_pretrained(model: PreTrainedModel):
             state_dict = kwargs.pop("state_dict", None)
             if state_dict is None:
                 logger.info("Fetching state_dict - this may take some time")
-                state_dict = get_state_dict_offloaded_model(model_ref())
+                state_dict = get_state_dict_offloaded_model(model)
 
             logger.info("Fetching compressor")
             compressor = get_model_compressor(
-                model=model_ref(),
+                model=model,
                 sparsity_config=sparsity_config,
                 quantization_format=quantization_format,
                 save_compressed=save_compressed,
@@ -115,7 +111,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             if compressor is None:
                 # model is not compressed or quantized, save as normal
                 original_save_pretrained_func = original_save_pretrained.__get__(
-                    model_ref(), model_class
+                    model, model_class
                 )
                 original_save_pretrained_func(
                     save_directory, state_dict=state_dict, **kwargs
@@ -125,10 +121,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             # make sure we're on the main process when saving
             if state_dict is not None and len(state_dict) > 0:
                 compressed_state_dict = compressor.compress(
-                    model_ref(), state_dict, show_progress=True
+                    model, state_dict, show_progress=True
                 )
                 logger.info("Saving compressed model to disk")
-                original_save_pretrained.__get__(model_ref(), model_class)(
+                original_save_pretrained.__get__(model, model_class)(
                     save_directory,
                     state_dict=compressed_state_dict,
                     safe_serialization=safe_serialization,
@@ -137,10 +133,10 @@ def modify_save_pretrained(model: PreTrainedModel):
                 compressor.update_config(save_directory)
 
             # update existing recipe
-            update_and_save_recipe(model_ref().name_or_path, save_directory)
+            update_and_save_recipe(model.name_or_path, save_directory)
 
             # copy python files from cache dir to save_path if any
-            copy_python_files_from_model_cache(model_ref(), save_directory)
+            copy_python_files_from_model_cache(model, save_directory)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper

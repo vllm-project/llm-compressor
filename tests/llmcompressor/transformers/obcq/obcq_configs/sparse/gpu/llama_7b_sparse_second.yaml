@@ -1,0 +1,7 @@
+cadence: "nightly"
+test_type: "regression"
+model: "meta-llama/Llama-2-7b-hf"
+dataset: open_platypus
+recipe: "tests/llmcompressor/transformers/obcq/recipes/sparse.yaml"
+sparsity: 0.3
+device: "cuda:0"
