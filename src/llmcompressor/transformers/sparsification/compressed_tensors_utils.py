@@ -296,6 +296,7 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
     """
     recipes_to_save = []
     existing_recipe = infer_recipe_from_model_path(model_stub)
+    breakpoint()
     if existing_recipe is not None:
         recipes_to_save.append(existing_recipe)
 

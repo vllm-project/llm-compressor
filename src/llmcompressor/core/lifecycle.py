@@ -12,7 +12,7 @@ from loguru import logger
 
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
-from llmcompressor.modifiers import StageModifiers
+from llmcompressor.modifiers import Modifier
 from llmcompressor.recipe import Recipe, RecipeArgsInput, RecipeInput, RecipeStageInput
 
 __all__ = ["CompressionLifecycle"]
@@ -33,7 +33,7 @@ class CompressionLifecycle:
 
     state: State = field(default_factory=State)
     recipe: Recipe = field(default_factory=Recipe)
-    modifiers: List[StageModifiers] = field(default_factory=list)
+    modifiers: List[Modifier] = field(default_factory=list)
 
     initialized_: bool = False
     finalized: bool = False
@@ -96,7 +96,6 @@ class CompressionLifecycle:
             recipe=recipe, target_stage=recipe_stage, override_args=recipe_args
         )
         self.modifiers = self.recipe.create_modifier()
-
         mod_data = []
         for mod in self.modifiers:
             data = mod.initialize(state=self.state, **kwargs)
@@ -108,7 +107,6 @@ class CompressionLifecycle:
         logger.info(
             "Compression lifecycle initialized for {} modifiers", len(self.modifiers)
         )
-
         return mod_data
 
     def finalize(self, **kwargs) -> List[Any]:

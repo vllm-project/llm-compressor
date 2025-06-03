@@ -15,6 +15,8 @@ from llmcompressor.pytorch.utils import get_linear_layers
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from llmcompressor.utils.pytorch import get_layers, get_no_split_params
 
+from llmcompressor.modifiers import Modifier
+
 __ALL__ = [
     "tensor_follows_mask_structure",
     "infer_sparsity_structure_from_stage_modifiers",
@@ -58,21 +60,17 @@ def tensor_follows_mask_structure(tensor: torch.Tensor, mask: str = "2:4") -> bo
 
 
 def infer_sparsity_structure_from_stage_modifiers(
-    stage_modifiers: List["StageModifier"],  # noqa E501
+    modifiers: List[Modifier],  # noqa E501
 ) -> Optional[str]:
     """
-    Determines the sparsity structure, if any exists, given the
-    list of stage modifiers
+    Determines the sparsity structure, if any exists, given the list of modifiers.
 
-    :param stage_modifiers: non-empty list of stage modifiers
-    :return: sparsity structure as a string or None
+    :param modifiers: List of modifier instances.
+    :return: sparsity structure as a string or None.
     """
-    for stage in stage_modifiers:
-        if stage.applied:
-            for modifier in stage.modifiers:
-                if hasattr(modifier, "mask_structure"):
-                    sparsity_structure = modifier.mask_structure
-                    return sparsity_structure
+    for modifier in modifiers:
+        if hasattr(modifier, "mask_structure"):
+            return modifier.mask_structure
     return None
 
 

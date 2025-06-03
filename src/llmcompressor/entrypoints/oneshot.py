@@ -171,7 +171,7 @@ class Oneshot:
         )
 
         user_pipeline = self.dataset_args.pipeline
-        modifiers = session.get_modifiers()
+        modifiers = session.lifecycle.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
         pipeline(self.model, calibration_dataloader, self.dataset_args)
 

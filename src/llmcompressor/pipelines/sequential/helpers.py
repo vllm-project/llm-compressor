@@ -432,7 +432,6 @@ def get_targets_from_modifiers(
     sequential_modifiers = [
         modifier for modifier in modifiers if isinstance(modifier, SEQUENTIAL_MODIFIERS)
     ]
-
     if len(sequential_modifiers) >= 2:
         types = [type(modifier) for modifier in sequential_modifiers]
         logger.warning(
