@@ -97,7 +97,7 @@ def quantize_weight(
     observer = Observer.load_from_registry(
         quant_args.observer,
         quantization_args=quant_args,
-        ignore_averaging_constant=True,
+        averaging_constant=1.0,  # ignore moving average
     )
 
     # standardize shape and dtype

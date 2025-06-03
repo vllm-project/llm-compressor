@@ -54,9 +54,15 @@ def initialize_observer(
     quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
     if quantization_args is not None and not quantization_args.dynamic:
+        observer_kwargs = getattr(quantization_args, "observer_kwargs", {})
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
+            maxshrink=observer_kwargs.maxshrink,
+            patience=observer_kwargs.patience,
+            averaging_constant=observer_kwargs.averaging_constant,
+            grid=observer_kwargs.grid,
+            norm=observer_kwargs.norm,
         )
         module.register_module(f"{base_name}_observer", observer)
 
