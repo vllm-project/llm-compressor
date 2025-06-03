@@ -27,14 +27,8 @@ from compressed_tensors.quantization.lifecycle.compressed import (
 )
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
-    update_fused_layer_weight_global_scales,
 )
-from compressed_tensors.quantization.quant_args import (
-    FP4_E2M1_DATA,
-    FP8_E4M3_DATA,
-    QuantizationArgs,
-    QuantizationType,
-)
+from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.quant_config import (
     QuantizationConfig,
     QuantizationStatus,
@@ -271,9 +265,6 @@ def apply_quantization_status(model: Module, status: QuantizationStatus):
                 module, force_zero_point=force_zero_point_init, scale_dtype=scale_dtype
             )
         )
-
-        if status == QuantizationStatus.INITIALIZED:
-            update_fused_layer_weight_global_scales(model)
 
     if current_status < status >= QuantizationStatus.COMPRESSED > current_status:
         model.apply(compress_quantized_weights)

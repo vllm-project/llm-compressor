@@ -47,7 +47,7 @@ __all__ = [
     "compute_dynamic_scales_and_zp",
     "calculate_range",
     "calculate_qparams",
-    "generate_global_scale",
+    "generate_gparam",
     "is_fp4",
 ]
 
@@ -475,8 +475,9 @@ def parse_out_kv_cache_args(
     return kv_cache_args, quant_scheme_to_layers
 
 
-def generate_global_scale(
-    input_tensor: torch.Tensor,
+def generate_gparam(
+    updated_min_val: torch.Tensor,
+    updated_max_val: torch.Tensor,
     scale_data: Optional[FloatArgs] = FP8_E4M3_DATA,
     quant_data: Optional[FloatArgs] = FP4_E2M1_DATA,
     dtype: Optional[torch.dtype] = torch.float32,
@@ -490,6 +491,8 @@ def generate_global_scale(
     attempts to use the entire FP8 dtype range while mapping a per-group max
     to the FP4 max.
     """
-    tensor_amax = torch.abs(input_tensor.data).max().to(dtype)
-    global_scale = scale_data.max * quant_data.max / tensor_amax
+    min_vals = torch.min(updated_min_val, torch.zeros_like(updated_min_val))
+    max_vals = torch.max(updated_max_val, torch.zeros_like(updated_max_val))
+    max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
+    global_scale = scale_data.max * quant_data.max / max_val_pos
     return global_scale.to(dtype)
