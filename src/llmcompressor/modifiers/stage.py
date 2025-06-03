@@ -67,7 +67,6 @@ class StageModifiers(ModifierInterface, BaseModel):
                 modifier.initialize(state, **kwargs)
             if accelerator:
                 accelerator.wait_for_everyone()
-        state.loggers.system.info(tag="stage", string="Modifiers initialized")
 
     def finalize(self, state: "State", **kwargs):
         """
@@ -88,7 +87,6 @@ class StageModifiers(ModifierInterface, BaseModel):
                 accelerator.wait_for_everyone()
 
         self.applied = True
-        state.loggers.system.info(tag="stage", string="Modifiers finalized")
 
     def update_event(self, state: "State", event: "Event", **kwargs):
         """
