@@ -1,3 +1,5 @@
+import torch
+from compressed_tensors import force_cpu_offload
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -9,9 +11,10 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    device_map="auto",
+    # device_map="auto",
     torch_dtype="auto",
 )
+force_cpu_offload(model, execution_device=torch.device("cuda"))
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.

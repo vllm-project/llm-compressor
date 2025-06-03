@@ -75,12 +75,12 @@ class CalibrationPipeline(ABC, RegistryMixin):
             quant_modifier = active_qmods[0]
             config = quant_modifier.resolve_quantization_config()
             if config.requires_calibration_data():
-                return "basic"
+                return "sequential"
             else:
                 return "datafree"
 
         if any(isinstance(modifier, SmoothQuantModifier) for modifier in modifiers):
-            return "basic"
+            return "sequential"
 
         return "datafree"
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
 import torch
+from accelerate.hooks import AlignDevicesHook
 from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
 from loguru import logger
@@ -23,7 +24,12 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
 
 from .ast_helpers import autowrap_forwards
 
-__all__ = ["trace_subgraphs", "Subgraph", "get_targets_from_modifiers"]
+__all__ = [
+    "trace_subgraphs",
+    "Subgraph",
+    "get_targets_from_modifiers",
+    "keep_onload_context",
+]
 
 
 @dataclass
@@ -485,3 +491,30 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     is_ancestor(model)
     return ancestors
+
+
+@contextlib.contextmanager
+def keep_onload_context():
+    original_pre_forward = AlignDevicesHook.pre_forward
+    onloaded_modules = dict()
+
+    # onload once and disable any future onloading/offloading steps
+    def keep_onload_pre_forward(self: AlignDevicesHook, module, *args, **kwargs):
+        ret = original_pre_forward(self, module, *args, **kwargs)
+        if module not in onloaded_modules:
+            onloaded_modules[module] = (self, self.offload)
+            self.offload = False
+        return ret
+
+    # use the patched pre_forward function within the context
+    with patch_attr(AlignDevicesHook, "pre_forward", keep_onload_pre_forward):
+        yield
+
+    # manually offload all modules that were onloaded
+    for module, (hook, offload) in onloaded_modules.items():
+        hook.offload = offload
+        hook.post_forward(module, None)
+
+
+# def is_cpu_offloaded():
+#
