@@ -28,15 +28,18 @@ Utilities associated with offloading functionality provided by `accelerate`.
 import contextlib
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, Iterable, Literal, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Union
 
 import torch
 
 
 try:
+    from accelerate import dispatch_model
     from accelerate.hooks import (
         AlignDevicesHook,
         add_hook_to_module,
+        attach_align_device_hook,
+        named_module_tensors,
         remove_hook_from_module,
     )
     from accelerate.utils import (
@@ -54,6 +57,9 @@ except ImportError:
     OffloadedWeightsLoader = None
     PrefixedDataset = None
     set_module_tensor_to_device = None
+    named_module_tensors = None
+    dispatch_model = None
+    attach_align_device_hook = None
 
 
 __all__ = [
@@ -70,12 +76,20 @@ __all__ = [
     "disable_offload",
     "align_modules",
     "align_module_device",
+    "register_offload_module",
+    "delete_offload_module",
+    "force_cpu_offload",
 ]
 
 
 def check_accelerate(fallback: Any):
     def decorator(func: Callable[[Any], Any]):
         if not _has_accelerate:
+
+            if fallback == "error":
+                raise ValueError(
+                    "Please install `accelerate` in order to use this function"
+                )
 
             @wraps(func)
             def fallback_fn(*args, **kwargs):
@@ -346,6 +360,7 @@ def delete_from_weights_map(
         )
 
 
+@check_accelerate(fallback=contextlib.nullcontext())
 @contextlib.contextmanager
 def disable_offload(module: torch.nn.Module):
     """
@@ -362,6 +377,7 @@ def disable_offload(module: torch.nn.Module):
         yield
 
 
+@check_accelerate(fallback=contextlib.nullcontext())
 @contextlib.contextmanager
 def align_modules(
     modules: Union[torch.nn.Module, Iterable[torch.nn.Module]],
@@ -381,6 +397,123 @@ def align_modules(
             stack.enter_context(align_module_device(module, execution_device))
             stack.enter_context(disable_offload(module))  # disable redundant onloading
         yield
+
+
+def register_offload_module(base: torch.nn.Module, name: str, module: torch.nn.Module):
+    """
+    Register a submodule with offloading if the parent module is offloaded
+
+    :param base: module to attach submodule to
+    :param name: name of submodule
+    :param module: submodule to attach
+    """
+
+    if has_offloaded_params(base):
+        hook: AlignDevicesHook = base._hf_hook
+        assert hook.offload
+        assert hook.weights_map is not None
+        assert hook.tied_params_map is not None
+
+        # offloading kwargs for submodule
+        place_submodules = False
+        offload_buffers = True
+
+        # copy device offloading arguments from parent
+        current_device = next(base.parameters()).device  # assume base has parameters
+        offload_device = get_offloaded_device(base)
+
+        # offload parameters to weights map
+        for param_name, param in named_module_tensors(
+            module, include_buffers=offload_buffers, recurse=place_submodules
+        ):
+            offloaded = param.to(offload_device)
+            hook.tied_params_map[offloaded.data_ptr()] = {}  # (1)
+            offload_to_weights_map(hook.weights_map, f"{name}.{param_name}", offloaded)
+
+            # if the parent places submodules, offload here
+            if hook.place_submodules:
+                set_module_tensor_to_device(module, param_name, current_device)
+
+        # if the parent does not place submodules, then add a hook
+        # parameters are offloaded by `add_hook_to_module`
+        if not hook.place_submodules:
+            weights_map = PrefixedDataset(
+                hook.weights_map.dataset, prefix=f"{hook.weights_map.prefix}{name}."
+            )
+
+            submodule_hook = AlignDevicesHook(
+                execution_device=hook.execution_device,
+                offload=hook.offload,
+                io_same_device=False,
+                weights_map=weights_map,
+                offload_buffers=offload_buffers,
+                place_submodules=place_submodules,
+                skip_keys=None,
+                tied_params_map=hook.tied_params_map,
+            )
+            add_hook_to_module(module, submodule_hook)
+
+    base.register_module(name, module)
+
+    # (1): Since we cannot know which pointers are shared when we add parameters in an
+    # online way, assume that all pointers are shared. This comes at no runtime cost
+
+
+def delete_offload_module(base: torch.nn.Module, name: str):
+    """
+    Delete a submodule from a model which may contain offloading
+    :param base: parent module to delete submodule from
+    :param name: name of submodule on parent
+    """
+    module: torch.nn.Module = getattr(base, name)
+
+    for param_name, _ in list(module.named_parameters()):
+        delete_offload_parameter(module, param_name)
+
+    delattr(base, name)
+
+
+@check_accelerate(fallback="error")
+def force_cpu_offload(
+    module: torch.nn.Module, execution_device: torch.device
+) -> torch.nn.Module:
+    """
+    Force cpu offloading a module, primarily used for testing
+
+    :param module: module containing parameters to offload
+    :param execution_device: execution device submodules
+    :return: module with hooks to perform cpu offloading
+    """
+    # edge case: there is a bug in `dispatch_model` which causes
+    # the function to only work if the model contains submodules
+    if next(module.children(), None) is None:
+        attach_align_device_hook(
+            module,
+            execution_device=execution_device,
+            offload=True,
+            weights_map=module.state_dict(),
+            tied_params_map={},
+        )
+        return module
+
+    device_map = {}
+
+    def collect_device_map(name: List[str], module: torch.nn.Module):
+        if next(module.parameters(recurse=False), None) is not None:
+            device_map[".".join(name)] = "cpu"
+            return
+
+        else:
+            for submodule_name, submodule in module.named_children():
+                name.append(submodule_name)
+                collect_device_map(name, submodule)
+                name.pop()
+
+    collect_device_map([], module)
+
+    return dispatch_model(
+        module, device_map, main_device=execution_device, force_hooks=True
+    )
 
 
 """ Upstreamed Functions """
