@@ -4,6 +4,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from pydantic import ValidationError
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.awq.base import get_lowest_common_parent
 from llmcompressor.modifiers.factory import ModifierFactory
 from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
@@ -172,3 +173,55 @@ def test_validate():
             ),
         }
     )
+
+
+@pytest.mark.unit
+def test_get_lowest_common_parent():
+    mlp = torch.nn.ModuleDict(
+        {
+            "experts": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "gate_proj": torch.nn.Linear(4, 2),
+                            "down_proj": torch.nn.Linear(4, 2),
+                        }
+                    )
+                    for _ in range(10)
+                ]
+            )
+        }
+    )
+    self_attn = torch.nn.ModuleDict(
+        {
+            "q_proj": torch.nn.Linear(4, 2),
+            "k_proj": torch.nn.Linear(4, 2),
+            "v_proj": torch.nn.Linear(4, 2),
+            "o_proj": torch.nn.Linear(4, 4),
+        }
+    )
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "self_attn": self_attn,
+                    "mlp": mlp,
+                }
+            )
+        }
+    )
+
+    parent_name, parent = get_lowest_common_parent(
+        ["decoder.mlp.experts.1.gate_proj", "decoder.mlp.experts.4.down_proj"], model
+    )
+    assert parent_name == "decoder.mlp" and parent == mlp
+
+    parent_name, parent = get_lowest_common_parent(
+        ["decoder.self_attn.q_proj", "decoder.self_attn.v_proj"], model
+    )
+    assert parent_name == "decoder.self_attn" and parent == self_attn
+
+    parent_name, parent = get_lowest_common_parent(
+        ["decoder.mlp.experts.1.gate_proj", "decoder.self_attn.v_proj"], model
+    )
+    assert parent_name == "decoder" and parent == model["decoder"]

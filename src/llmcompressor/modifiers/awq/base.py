@@ -749,17 +749,19 @@ def _accumulate_mean(
     return (prev_sum + sum_added) / new_count, new_count
 
 
-def get_lowest_common_parent(names: List[str], module: Module) -> str:
+def get_lowest_common_parent(names: List[str], module: Module) -> Tuple[str, Module]:
     """
     Given a list of names, returns the lowest-scope common parent,
     excluding parents of type ModuleList, which don't seem to play
     nicely with hooks.
-    Slight alteration from os.path.commonprefix
+    Returns name of parent and pointer to parent module
+
+    Implementation is a small alteration of os.path.commonprefix
     https://docs.python.org/3/library/os.path.html#os.path.commonprefix
     """
     s1 = min(names)
     s2 = max(names)
-    parent_name = s1
+    parent_name = ""
     for i, c in enumerate(s1):
         if c != s2[i]:
             parent_name = s1[:i].rstrip(".")
