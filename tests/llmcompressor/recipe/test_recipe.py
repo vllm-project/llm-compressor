@@ -92,8 +92,6 @@ def test_recipe_can_be_created_from_modifier_instances():
 
     # assert modifiers in each stage are the same type
     # and have the same parameters
-    for actual_modifier, expected_modifier in zip(
-        actual_modifiers, expected_modifiers
-    ):
+    for actual_modifier, expected_modifier in zip(actual_modifiers, expected_modifiers):
         assert isinstance(actual_modifier, type(expected_modifier))
         assert actual_modifier.model_dump() == expected_modifier.model_dump()

@@ -220,7 +220,6 @@ class CompressionSession:
 
         logger.warning("Recipe not found in session - it may have been reset")
 
-
     def _log_model_info(self):
         # Log model level logs if cadence reached
         current_index = self._lifecycle.global_step

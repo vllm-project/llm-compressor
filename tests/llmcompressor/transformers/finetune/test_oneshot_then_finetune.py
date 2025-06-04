@@ -176,8 +176,5 @@ class TestOneshotThenFinetune(unittest.TestCase):
             )
 
     def tearDown(self):
-        pass
-        '''
         if os.path.isdir(self.output):
             shutil.rmtree(self.output)
-        '''

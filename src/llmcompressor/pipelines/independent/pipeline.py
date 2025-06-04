@@ -6,7 +6,6 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import active_session
 from llmcompressor.pipelines.registry import CalibrationPipeline
-from llmcompressor.utils.helpers import patch_attr
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
