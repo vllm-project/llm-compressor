@@ -157,16 +157,12 @@ def quantization_memory_requirement(model: torch.nn.Module) -> int:
                 # TODO: base this on the recipe instead instead of assuming max
 
                 # potentially just bias term
-                max_quant_shape = (
-                    param.shape[0] // 16
-                )  # TODO: make group size configurable
+                max_quant_shape = param.shape[0] // 128
 
                 if len(param.size()) > 1:  # weights
                     max_quant_shape *= param.shape[1]
 
-                total_elements += (
-                    max_quant_shape * 5
-                )  # *4 originally; *5 for activations?
+                total_elements += max_quant_shape * 4
 
     bytes_ratio = 32 // 16  # assuming float16
     return total_elements * bytes_ratio
