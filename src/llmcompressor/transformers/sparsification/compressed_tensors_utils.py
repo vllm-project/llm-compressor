@@ -20,7 +20,6 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
