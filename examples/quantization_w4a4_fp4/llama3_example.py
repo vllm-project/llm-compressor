@@ -60,7 +60,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to fp4 with per group 16 via ptq
 #   * calibrate a global_scale for activations, which will be used to
 #       quantize activations to fp4 on the fly
-recipe = QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head", "re:.*mlp.gate$"])
+recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"])
 
 # Apply quantization.
 oneshot(
@@ -80,6 +80,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-Fp8"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
