@@ -462,18 +462,13 @@ class ModelCompressor:
 
                 # quantization second
                 if prefix in module_to_scheme:
-                    generator = self.quantization_compressor.decompress_from_state_dict(
-                        state_dict,
-                        names_to_scheme=module_to_scheme,
+                    state_dict = (
+                        self.quantization_compressor.decompress_module_from_state_dict(
+                            prefix,
+                            state_dict,
+                            scheme=module_to_scheme[prefix],
+                        )
                     )
-                    # generates (mod_path, {param_name, param_val})
-                    # of compressed params and used params, but not unused params
-                    # some used params are removed by get_unexpected_file_keys
-                    state_dict = {
-                        merge_names(module_path, param_name): param_value
-                        for module_path, compressed_data in generator
-                        for param_name, param_value in compressed_data.items()
-                    }
 
                 # remove any existing parameters
                 exec_device = get_execution_device(module)
