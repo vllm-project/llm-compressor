@@ -50,6 +50,7 @@ from compressed_tensors.utils import (
     align_module_device,
     delete_offload_parameter,
     get_execution_device,
+    get_offloaded_device,
     get_safetensors_folder,
     has_offloaded_params,
     merge_names,
@@ -408,16 +409,17 @@ class ModelCompressor:
                     )
 
                 # remove any existing parameters
-                device = get_execution_device(module)
+                exec_device = get_execution_device(module)
+                offload_device = get_offloaded_device(module)
                 for name, _ in list(module.named_parameters()):
-                    delattr(module, name)
+                    delete_offload_parameter(module, name)
 
                 # replace with compressed parameters
                 for name, value in state_dict.items():
                     name = name.removeprefix(f"{prefix}.")
-                    value = value.to(device)
+                    value = value.to(exec_device)
                     param = torch.nn.Parameter(value, requires_grad=False)
-                    register_offload_parameter(module, name, param)
+                    register_offload_parameter(module, name, param, offload_device)
 
                 module.quantization_status = QuantizationStatus.COMPRESSED
 
@@ -474,16 +476,17 @@ class ModelCompressor:
                     }
 
                 # remove any existing parameters
-                device = get_execution_device(module)
+                exec_device = get_execution_device(module)
+                offload_device = get_offloaded_device(module)
                 for name, _ in list(module.named_parameters()):
                     delete_offload_parameter(module, name)
 
                 # replace with decompressed parameters
                 for name, value in state_dict.items():
                     name = name.removeprefix(f"{prefix}.")
-                    value = value.to(device)
+                    value = value.to(exec_device)
                     param = torch.nn.Parameter(value, requires_grad=False)
-                    register_offload_parameter(module, name, param)
+                    register_offload_parameter(module, name, param, offload_device)
 
                 module.quantization_status = QuantizationStatus.FROZEN
 
