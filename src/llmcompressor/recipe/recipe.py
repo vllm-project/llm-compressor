@@ -265,7 +265,7 @@ class Recipe(BaseModel):
         """
         if not ModifierFactory._loaded:
             ModifierFactory.refresh()
-        return [
+        self.modifiers = [
             modifier if isinstance(modifier, Modifier)
             else ModifierFactory.create(
                 modifier["type"],
@@ -275,26 +275,16 @@ class Recipe(BaseModel):
             )
             for modifier in self.modifiers
         ]
+        return self.modifiers
 
     def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """
         :return: A dictionary representation of the recipe
         """
-        dict_ = super().model_dump(*args, **kwargs)
-        stages = {}
-
-        for stage in dict_["stages"]:
-            name = f"{stage['group']}_stage"
-            del stage["group"]
-
-            if name not in stages:
-                stages[name] = []
-
-            stages[name].append(stage)
-
-        dict_["stages"] = stages
-
-        return dict_
+        
+        return get_yaml_serializable_dict(
+            modifiers=self.modifiers,
+            stage=self.stage)
 
     def yaml(self, file_path: Optional[str] = None) -> str:
         """
@@ -303,9 +293,11 @@ class Recipe(BaseModel):
         :param file_path: optional file path to save yaml to
         :return: The yaml string representation of the recipe
         """
+        import traceback
+        traceback.print_stack()
+        
         file_stream = None if file_path is None else open(file_path, "w")
-        yaml_dict = get_yaml_serializable_dict(modifiers=self.modifiers)
-
+        yaml_dict = get_yaml_serializable_dict(modifiers=self.modifiers, stage=self.stage)
         ret = yaml.dump(
             yaml_dict,
             stream=file_stream,
@@ -317,7 +309,6 @@ class Recipe(BaseModel):
 
         if file_stream is not None:
             file_stream.close()
-
         return ret
 
 
@@ -374,7 +365,7 @@ def _parse_recipe_from_md(file_path, yaml_str):
     return yaml_str
 
 
-def get_yaml_serializable_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any]:
+def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[str, Any]:
     """
     This function is used to convert a list of modifiers into a dictionary
     where the keys are the group names and the values are the modifiers
@@ -394,22 +385,23 @@ def get_yaml_serializable_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any
         are the modifiers which in turn are dictionaries with the modifier
         type as the key and the modifier args as the value.
     """
+    
     stage_dict = {}
+    stage_name = stage+"_stage"
+    stage_dict[stage_name] = {}
     for modifier in modifiers:
-        # Handle dict-style modifier
-        if isinstance(modifier, dict):
-            group = modifier["group"]
-            modifier_type = modifier["type"]
-            args = modifier["args"]
-        # Handle object-style modifier
-        else:
-            group = getattr(modifier, "group", "default")
-            modifier_type = modifier.__class__.__name__
-            args = {
-                k: v for k, v in modifier.__dict__.items()
-                if not k.endswith("_") and not k.startswith("__")
-            }
-        if group not in stage_dict:
-            stage_dict[group] = {}
-        stage_dict[group][modifier_type] = args
+        group = getattr(modifier, "group", stage) or stage
+        group_name = f"{group}_modifiers"
+        modifier_type = modifier.__class__.__name__
+
+        args = {
+            k: v for k, v in modifier.model_dump().items()
+            if v is not None and not k.endswith("_")
+        }
+
+        if group_name not in stage_dict[stage_name]:
+            stage_dict[stage_name][group_name] = {}
+
+        stage_dict[stage_name][group_name][modifier_type] = args
+
     return stage_dict
