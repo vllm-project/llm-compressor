@@ -26,8 +26,10 @@ def test_recipe_create_instance_accepts_valid_recipe_file(recipe_str):
 @pytest.mark.parametrize("recipe_str", valid_recipe_strings())
 def test_serialization(recipe_str):
     recipe_instance = Recipe.create_instance(recipe_str)
+    recipe_instance.create_modifier()
     serialized_recipe = recipe_instance.yaml()
     recipe_from_serialized = Recipe.create_instance(serialized_recipe)
+    recipe_from_serialized.create_modifier()
 
     expected_dict = recipe_instance.dict()
     actual_dict = recipe_from_serialized.dict()
@@ -52,8 +54,7 @@ def test_recipe_creates_correct_modifier():
     recipe_instance = Recipe.create_instance(yaml_str)
 
     stage_modifiers = recipe_instance.create_modifier()
-    assert len(stage_modifiers) == 1
-    assert len(modifiers := stage_modifiers[0].modifiers) == 1
+    assert len(modifiers := stage_modifiers) == 1
     from llmcompressor.modifiers.pruning.constant import ConstantPruningModifier
 
     assert isinstance(modifier := modifiers[0], ConstantPruningModifier)
@@ -87,12 +88,12 @@ def test_recipe_can_be_created_from_modifier_instances():
     assert len(actual_modifiers) == len(expected_modifiers)
 
     # assert num modifiers in each stage is the same
-    assert len(actual_modifiers[0].modifiers) == len(expected_modifiers[0].modifiers)
+    assert len(actual_modifiers) == len(expected_modifiers)
 
     # assert modifiers in each stage are the same type
     # and have the same parameters
     for actual_modifier, expected_modifier in zip(
-        actual_modifiers[0].modifiers, expected_modifiers[0].modifiers
+        actual_modifiers, expected_modifiers
     ):
         assert isinstance(actual_modifier, type(expected_modifier))
         assert actual_modifier.model_dump() == expected_modifier.model_dump()
