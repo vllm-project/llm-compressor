@@ -1,21 +1,16 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-#MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-MODEL_ID = "Qwen/Qwen3-30B-A3B"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-# Load model.
-device_map = calculate_offload_device_map(MODEL_ID, reserve_for_hessians=False, num_gpus=2)
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype="auto"
+    MODEL_ID, device_map="auto", torch_dtype="auto"
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
 
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
@@ -60,7 +55,9 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to fp4 with per group 16 via ptq
 #   * calibrate a global_scale for activations, which will be used to
 #       quantize activations to fp4 on the fly
-recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"])
+recipe = QuantizationModifier(
+    targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"]
+)
 
 # Apply quantization.
 oneshot(
