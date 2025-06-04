@@ -212,6 +212,7 @@ def oneshot(
     # Recipe arguments
     recipe: Optional[Union[str, List[str]]] = None,
     recipe_args: Optional[List[str]] = None,
+    clear_sparse_session: bool = False,
     stage: Optional[str] = None,
     # Dataset arguments
     dataset: Optional[Union[str, "Dataset", "DatasetDict"]] = None,
@@ -220,6 +221,10 @@ def oneshot(
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
     max_seq_length: int = 384,
+    pad_to_max_length: bool = True,
+    text_column: str = "text",
+    concatenate_data: bool = False,
+    streaming: bool = False,
     overwrite_cache: bool = False,
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
@@ -262,6 +267,8 @@ def oneshot(
         recipe (Optional[str]): Path to a LLM Compressor sparsification recipe.
         recipe_args (Optional[List[str]]): List of recipe arguments to evaluate, in the
             format "key1=value1", "key2=value2".
+        clear_sparse_session (bool): Whether to clear CompressionSession/
+            CompressionLifecycle data between runs.
         stage (Optional[str]): The stage of the recipe to use for oneshot.
 
         # Dataset arguments
@@ -275,6 +282,11 @@ def oneshot(
         shuffle_calibration_samples (bool): Whether to shuffle the dataset before
             calibration.
         max_seq_length (int): Maximum total input sequence length after tokenization.
+        pad_to_max_length (bool): Whether to pad all samples to `max_seq_length`.
+        text_column (str): Key to use as the `text` input to tokenizer/processor.
+        concatenate_data (bool): Whether to concatenate datapoints to fill
+            max_seq_length.
+        streaming (bool): True to stream data from a cloud dataset.
         overwrite_cache (bool): Whether to overwrite the cached preprocessed datasets.
         preprocessing_num_workers (Optional[int]): Number of processes for
             preprocessing.
@@ -311,6 +323,7 @@ def oneshot(
         # Recipe arguments
         recipe=recipe,
         recipe_args=recipe_args,
+        clear_sparse_session=clear_sparse_session,
         stage=stage,
         # Dataset arguments
         dataset=dataset,
@@ -319,6 +332,10 @@ def oneshot(
         num_calibration_samples=num_calibration_samples,
         shuffle_calibration_samples=shuffle_calibration_samples,
         max_seq_length=max_seq_length,
+        pad_to_max_length=pad_to_max_length,
+        text_column=text_column,
+        concatenate_data=concatenate_data,
+        streaming=streaming,
         overwrite_cache=overwrite_cache,
         preprocessing_num_workers=preprocessing_num_workers,
         min_tokens_per_module=min_tokens_per_module,
