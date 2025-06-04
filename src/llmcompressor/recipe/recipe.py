@@ -72,7 +72,7 @@ class Recipe(BaseModel):
 
         # assume one stage for modifier instances
         recipe = cls()
-        recipe.stages = group_name
+        recipe.stage = group_name
         recipe.modifiers = modifiers
         return recipe
 
@@ -266,7 +266,8 @@ class Recipe(BaseModel):
         if not ModifierFactory._loaded:
             ModifierFactory.refresh()
         return [
-            ModifierFactory.create(
+            modifier if isinstance(modifier, Modifier)
+            else ModifierFactory.create(
                 modifier["type"],
                 allow_registered=True,
                 allow_experimental=True,
@@ -303,7 +304,7 @@ class Recipe(BaseModel):
         :return: The yaml string representation of the recipe
         """
         file_stream = None if file_path is None else open(file_path, "w")
-        yaml_dict = self._get_yaml_dict()
+        yaml_dict = get_yaml_serializable_dict(modifiers=self.modifiers)
 
         ret = yaml.dump(
             yaml_dict,
@@ -318,22 +319,6 @@ class Recipe(BaseModel):
             file_stream.close()
 
         return ret
-
-    def _get_yaml_dict(self) -> Dict[str, Any]:
-        """
-        Get a dictionary representation of the recipe for yaml serialization
-        The returned dict will only contain information necessary for yaml
-        serialization and must not be used in place of the dict method
-
-        :return: A dictionary representation of the recipe for yaml serialization
-        """
-        # populate stage
-        yaml_recipe_dict = get_yaml_serializable_dict(modifiers=self.modifiers)
-        # populate recipe level attributes
-        yaml_recipe_dict["version"] = self.version
-        yaml_recipe_dict["args"] = self.args
-
-        return yaml_recipe_dict
 
 
 RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
@@ -411,9 +396,20 @@ def get_yaml_serializable_dict(modifiers: List[Dict[str, Any]]) -> Dict[str, Any
     """
     stage_dict = {}
     for modifier in modifiers:
-        group_name = f"{modifier['group']}_modifiers"
-        modifier_type = modifier["type"]
-        if group_name not in stage_dict:
-            stage_dict[group_name] = {}
-        stage_dict[group_name][modifier_type] = modifier["args"]
+        # Handle dict-style modifier
+        if isinstance(modifier, dict):
+            group = modifier["group"]
+            modifier_type = modifier["type"]
+            args = modifier["args"]
+        # Handle object-style modifier
+        else:
+            group = getattr(modifier, "group", "default")
+            modifier_type = modifier.__class__.__name__
+            args = {
+                k: v for k, v in modifier.__dict__.items()
+                if not k.endswith("_") and not k.startswith("__")
+            }
+        if group not in stage_dict:
+            stage_dict[group] = {}
+        stage_dict[group][modifier_type] = args
     return stage_dict
