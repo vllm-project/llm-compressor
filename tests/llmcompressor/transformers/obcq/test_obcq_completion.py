@@ -35,7 +35,7 @@ class TestOBCQCompletion(unittest.TestCase):
         dataset_manager = TextGenerationDataset.load_from_registry(
             dataset_args.dataset,
             dataset_args=dataset_args,
-            split="train",
+            split=f"train[:{self.num_samples}]",
             processor=tokenizer,
         )
         calib_dataset = dataset_manager()
@@ -58,6 +58,7 @@ class TestOBCQCompletion(unittest.TestCase):
         oneshot(
             model=self.model,
             dataset=self.dataset,
+            splits={"calibration": f"train[:{self.num_samples}]"},
             oneshot_device=self.device,
             recipe=self.recipe,
             max_seq_length=512,
