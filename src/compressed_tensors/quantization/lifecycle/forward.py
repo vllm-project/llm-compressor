@@ -21,7 +21,6 @@ from compressed_tensors.quantization.quant_args import (
     DynamicType,
     QuantizationArgs,
     QuantizationStrategy,
-    QuantizationType,
     round_to_quantized_type,
 )
 from compressed_tensors.quantization.quant_config import QuantizationStatus
@@ -405,7 +404,7 @@ def _quantize(
 
     # if a global scale is optionally provided, use it
     # to further scale the local `scale` parameter
-    if global_scale:
+    if global_scale is not None:
         scale = scale.to(global_scale.dtype) / global_scale
 
     scaled = x / scale
@@ -438,7 +437,7 @@ def _dequantize(
 
     # if a global scale is optionally provided, use it
     # to further scale the local `scale` parameter
-    if global_scale:
+    if global_scale is not None:
         scale = scale.to(global_scale.dtype) / global_scale
 
     dequant_value = x_q.to(scale.dtype)
