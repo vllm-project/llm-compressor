@@ -12,6 +12,7 @@ model = AutoModelForCausalLM.from_pretrained(
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
+
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize the weights to fp4 with per group 16 via ptq

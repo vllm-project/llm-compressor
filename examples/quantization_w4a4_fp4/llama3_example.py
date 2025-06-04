@@ -12,6 +12,7 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
+
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
@@ -55,9 +56,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to fp4 with per group 16 via ptq
 #   * calibrate a global_scale for activations, which will be used to
 #       quantize activations to fp4 on the fly
-recipe = QuantizationModifier(
-    targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"]
-)
+recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head"])
 
 # Apply quantization.
 oneshot(
