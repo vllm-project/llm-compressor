@@ -1,14 +1,18 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
+import torch
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+#MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
+device_map = calculate_offload_device_map(MODEL_ID, reserve_for_hessians=False, num_gpus=2)
+# Load model.
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
+    MODEL_ID, device_map=device_map, torch_dtype="auto"
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -56,7 +60,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to fp4 with per group 16 via ptq
 #   * calibrate a global_scale for activations, which will be used to
 #       quantize activations to fp4 on the fly
-recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=["lm_head"])
+recipe = QuantizationModifier(targets="Linear", scheme="FP8", ignore=["lm_head", "re:.*mlp.gate$"])
 
 # Apply quantization.
 oneshot(
@@ -76,6 +80,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-NVFP4"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-Fp8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
