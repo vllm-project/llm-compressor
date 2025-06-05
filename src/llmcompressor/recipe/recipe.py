@@ -12,6 +12,7 @@ from llmcompressor.recipe.utils import (
     _parse_recipe_from_md,
     deep_merge_dicts,
     get_yaml_serializable_dict,
+    merge_dicts,
 )
 
 __all__ = [
