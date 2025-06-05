@@ -2,7 +2,7 @@ from typing import List
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.utils import align_module_device, update_parameter_data
+from compressed_tensors.utils import align_modules, update_parameter_data
 from torch.nn import Linear, Module
 
 __all__ = ["update_fused_layer_weight_global_scales"]
@@ -51,17 +51,17 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 return False
         return True
 
-    with align_module_device(submodule):
-        if _is_attention_module(submodule):
-            # already fused/treated as one layer
-            if hasattr(submodule, "qkv_proj"):
-                return
+    if _is_attention_module(submodule):
+        # already fused/treated as one layer
+        if hasattr(submodule, "qkv_proj"):
+            return
 
-            if not _valid_tensor_group_quant(
-                [submodule.q_proj, submodule.v_proj, submodule.k_proj]
-            ):
-                return
+        if not _valid_tensor_group_quant(
+            [submodule.q_proj, submodule.v_proj, submodule.k_proj]
+        ):
+            return
 
+        with align_modules([submodule.q_proj, submodule.v_proj, submodule.k_proj]):
             global_scale = torch.min(
                 torch.cat(
                     (
@@ -70,17 +70,18 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                         submodule.v_proj.weight_global_scale.data,
                     )
                 )
-            )
+            ).reshape([1])
 
             update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
             update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
             update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
+            del global_scale
 
-    with align_module_device(submodule):
-        if _is_mlp_module(submodule):
-            if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
-                return
+    if _is_mlp_module(submodule):
+        if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
+            return
 
+        with align_modules([submodule.gate_proj, submodule.up_proj]):
             global_scale = torch.min(
                 torch.cat(
                     (
@@ -88,7 +89,7 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                         submodule.up_proj.weight_global_scale.data,
                     )
                 )
-            )
+            ).reshape([1])
 
             update_parameter_data(
                 submodule.gate_proj, global_scale, "weight_global_scale"
@@ -96,3 +97,4 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
             update_parameter_data(
                 submodule.up_proj, global_scale, "weight_global_scale"
             )
+            del global_scale
