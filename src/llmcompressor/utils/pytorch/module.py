@@ -4,7 +4,7 @@ Utility / helper functions
 
 import difflib
 import re
-from functools import reduce
+from operator import attrgetter
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -343,5 +343,4 @@ def get_layer_by_name(layer_name: str, module: Module) -> Module:
     :param module: Module in which to search for layer_name
     :return: Module, the layer with name layer_name
     """
-    names = layer_name.split(sep=".")
-    return reduce(getattr, names, module)
+    return attrgetter(layer_name)(module)

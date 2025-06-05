@@ -2,7 +2,10 @@ import inspect
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import disable_quantization
+from compressed_tensors.quantization import (
+    disable_quantization,
+    find_name_or_class_matches,
+)
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -308,9 +311,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             smooth_names = [
                 smooth_name
                 for smooth_name in smooth_layers
-                if (
-                    smooth_name not in self.ignore
-                    and not smooth_name.endswith("_observer")
+                if not find_name_or_class_matches(
+                    smooth_name, model, self.ignore + ["re:.*_observer$"]
                 )
             ]
 
@@ -340,15 +342,15 @@ class AWQModifier(Modifier, QuantizationMixin):
                         if (
                             isinstance(smooth_layer, torch.nn.Linear)
                             and isinstance(balance_layer, torch.nn.Linear)
-                            and ".o_proj" in balance_name
+                            and balance_name.endswith(".o_proj")
                             and (
                                 (
-                                    ".v_proj" in smooth_name
+                                    smooth_name.endswith(".v_proj")
                                     and smooth_layer.out_features
                                     != balance_layer.in_features
                                 )
                                 or (
-                                    ".qkv_proj" in smooth_name
+                                    smooth_name.endswith(".qkv_proj")
                                     and smooth_layer.out_features
                                     != 3 * balance_layer.in_features
                                 )
@@ -475,7 +477,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # [STEP 3]: Compute output of module
                 # could cache from hook, rather than recomputing here
                 fp16_output = self._run_samples(parent_module)
-                if fp16_output.shape[0] == 0:
+                if fp16_output.numel() == 0:
                     logger.info(
                         f"Skipping smooth_layer {mapping.smooth_name}, no activations "
                         "found to scale. This can occasionally occur in MoE models "
@@ -549,6 +551,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             ]
             return torch.cat(
                 [
+                    # If Tuple, assume that first argument is the input
                     output[0] if isinstance(output, Tuple) else output
                     for output in outputs
                 ],
@@ -751,9 +754,14 @@ def _accumulate_mean(
 
 def get_lowest_common_parent(names: List[str], module: Module) -> Tuple[str, Module]:
     """
-    Given a list of names, returns the lowest-scope common parent,
-    excluding parents of type ModuleList, which don't seem to play
-    nicely with hooks.
+    Given a list of names, returns the lowest-scope common parent.
+
+    NOTE: function excludes parents of type ModuleList, which don't play
+    nicely with hooks because their forward method is never directly
+    called for MoE models. See Qwen3MoeSparseMoeBlock for example, experts
+    are selected based on router output and their forward method is called.
+    https://github.com/huggingface/transformers/blob/v4.52.4/src/transformers/models/qwen3_moe/modeling_qwen3_moe.py#L233
+
     Returns name of parent and pointer to parent module
 
     Implementation is a small alteration of os.path.commonprefix
