@@ -4,6 +4,7 @@ Utility / helper functions
 
 import difflib
 import re
+from operator import attrgetter
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -53,7 +54,6 @@ __all__ = [
     "set_layer",
     "get_params",
     "get_param",
-    "set_param",
     "get_terminal_layers",
     "get_prunable_layers",
     "get_quantizable_layers",
@@ -61,7 +61,7 @@ __all__ = [
     "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
-    "get_parent_by_name",
+    "get_layer_by_name",
 ]
 
 
@@ -208,15 +208,6 @@ def get_param(target: str, module: Module) -> Tuple[str, Parameter]:
     return name, param
 
 
-def set_param(target: str, param: Parameter, module: Module) -> Parameter:
-    layer_name, param_name = target.rsplit(".", 1)
-    layer = get_layer(layer_name, module)[1]
-    old_param = getattr(layer, param_name)
-    setattr(layer, param_name, param)
-
-    return old_param
-
-
 def get_terminal_layers(module: Module) -> Dict[str, Module]:
     terminal = {}
 
@@ -344,20 +335,12 @@ def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
     return no_split_modules
 
 
-def get_parent_by_name(layer_name: str, model: Module) -> Tuple[str, Module]:
+# https://discuss.pytorch.org/t/how-to-access-to-a-layer-by-module-name/83797/8
+def get_layer_by_name(layer_name: str, module: Module) -> Module:
     """
-    Get the parent layer of a layer by name.
-    :param layer_name: Name of the layer to find the parent of.
-    :param model: Model to search for the parent layer.
-    :return: Tuple containing the name of the parent layer
-        and the parent layer itself.
+    Get the layer of a module by name.
+    :param layer_name: Name of the layer to find.
+    :param module: Module in which to search for layer_name
+    :return: Module, the layer with name layer_name
     """
-    if not any(layer_name == name for name, _ in model.named_modules()):
-        raise ValueError(f"Layer '{layer_name}' not found in model")
-
-    parent_name_parts = layer_name.split(".")[:-1]
-    if not parent_name_parts:
-        return "", model
-
-    parent_name = ".".join(parent_name_parts)
-    return get_layer(parent_name, model)
+    return attrgetter(layer_name)(module)
