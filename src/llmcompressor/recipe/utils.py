@@ -96,3 +96,16 @@ def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[st
         stage_dict[stage_name][group_name][modifier_type] = args
 
     return stage_dict
+
+
+def merge_dicts(d1: dict, d2: dict) -> dict:
+    """
+    Recursively merge d2 into d1.
+    """
+    result = dict(d1)  # copy base
+    for key, val in d2.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = merge_dicts(result[key], val)
+        else:
+            result[key] = val
+    return result

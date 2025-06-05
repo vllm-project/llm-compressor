@@ -11,6 +11,7 @@ from llmcompressor.recipe.utils import (
     _load_json_or_yaml_string,
     _parse_recipe_from_md,
     get_yaml_serializable_dict,
+    merge_dicts,
 )
 
 __all__ = [
@@ -265,20 +266,44 @@ class Recipe(BaseModel):
 
         return get_yaml_serializable_dict(modifiers=self.modifiers, stage=self.stage)
 
-    def yaml(self, file_path: Optional[str] = None) -> str:
+    def yaml(
+        self,
+        output_file_path: Optional[str] = None,
+        previous_recipe_path: Optional[str] = None,
+    ) -> str:
         """
-        Return a yaml string representation of the recipe.
+        Return a YAML string representation of the recipe, optionally merging with another YAML file.
 
-        :param file_path: optional file path to save yaml to
-        :return: The yaml string representation of the recipe
+        :param file_path: Optional path to save YAML
+        :param previous_recipe_path: Optional path to another recipe.yaml file
+        :return: Combined YAML string
         """
+        # Load the other recipe from file, if given
+        previous_recipe_dict = {}
+        if previous_recipe_path:
+            if not os.path.isfile(previous_recipe_path):
+                logger.warning(
+                    f"Inferred previous recipe path {previous_recipe_path} does not exist, "
+                    "ignoring it."
+                )
+            else:
+                with open(previous_recipe_path, "r") as f:
+                    previous_recipe_str = f.read()
+                previous_recipe_dict = _load_json_or_yaml_string(previous_recipe_str)
 
-        file_stream = None if file_path is None else open(file_path, "w")
-        yaml_dict = get_yaml_serializable_dict(
-            modifiers=self.modifiers, stage=self.stage
+        # Serialize current recipe
+        self_dict = get_yaml_serializable_dict(
+            modifiers=self.modifiers,
+            stage=self.stage,
         )
-        ret = yaml.dump(
-            yaml_dict,
+
+        # Deep merge — keep both recipe contents
+        merged_dict = merge_dicts(previous_recipe_dict, self_dict)
+
+        # Dump YAML
+        file_stream = None if output_file_path is None else open(output_file_path, "w")
+        yaml_str = yaml.dump(
+            merged_dict,
             stream=file_stream,
             allow_unicode=True,
             sort_keys=False,
@@ -286,9 +311,10 @@ class Recipe(BaseModel):
             width=88,
         )
 
-        if file_stream is not None:
+        if file_stream:
             file_stream.close()
-        return ret
+
+        return yaml_str
 
 
 RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
