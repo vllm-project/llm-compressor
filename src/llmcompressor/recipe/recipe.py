@@ -250,7 +250,6 @@ class Recipe(BaseModel):
             if isinstance(modifier, Modifier)
             else ModifierFactory.create(
                 modifier["type"],
-                group=modifier.get("group"),
                 allow_registered=True,
                 allow_experimental=True,
                 **modifier["args"],
