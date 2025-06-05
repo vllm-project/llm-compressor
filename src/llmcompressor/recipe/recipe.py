@@ -12,6 +12,7 @@ from llmcompressor.recipe.utils import (
     _parse_recipe_from_md,
     deep_merge_dicts,
     get_yaml_serializable_dict,
+    deep_merge_dicts,
 )
 
 __all__ = [
@@ -303,10 +304,11 @@ class Recipe(BaseModel):
             default_flow_style=None,
             width=88,
         )
-
-        if file_stream is not None:
+        
+        if file_stream:
             file_stream.close()
-        return ret
+
+        return yaml_str
 
 
 RecipeInput = Union[str, List[str], Recipe, List[Recipe], Modifier, List[Modifier]]
