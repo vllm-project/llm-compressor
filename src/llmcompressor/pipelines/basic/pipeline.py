@@ -37,8 +37,6 @@ class BasicPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
-        # TODO: warn about cpu offloading
-
         model_device = get_execution_device(model)
 
         LifecycleCallbacks.calibration_epoch_start()

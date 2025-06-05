@@ -52,8 +52,6 @@ class SequentialPipeline(CalibrationPipeline):
         """
         session = active_session()
 
-        # TODO: warn about not cpu offloading
-
         # prepare to trace subgraphs
         modifiers = session.get_modifiers()
         sequential_targets = get_targets_from_modifiers(modifiers, model)

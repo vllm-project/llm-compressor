@@ -1,5 +1,4 @@
 import torch
-from compressed_tensors import force_cpu_offload
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -11,10 +10,9 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    # device_map="auto",
+    device_map="cpu",
     torch_dtype="auto",
 )
-force_cpu_offload(model, execution_device=torch.device("cuda"))
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
@@ -67,6 +65,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    oneshot_device=torch.device("cuda") if torch.cuda.is_available() else None,
 )
 
 # Confirm generations of the quantized model look sane.

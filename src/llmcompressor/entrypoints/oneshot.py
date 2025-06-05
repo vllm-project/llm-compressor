@@ -2,6 +2,9 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import torch
+from compressed_tensors import force_cpu_offload
+from compressed_tensors.utils import get_execution_device
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel
@@ -10,7 +13,11 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
-from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines import (
+    CalibrationPipeline,
+    LayerSequentialPipeline,
+    SequentialPipeline,
+)
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -186,6 +193,35 @@ class Oneshot:
         user_pipeline = self.dataset_args.pipeline
         modifiers = session.get_modifiers()
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
+
+        model_exec_device = get_execution_device(self.model)
+
+        # Sequential pipelines onload models layer by layer to minimize GPU memory usage
+        if isinstance(pipeline, (SequentialPipeline, LayerSequentialPipeline)):
+            # unless pure cpu run, throw warning if model lives on oneshot_device
+            if (
+                model_exec_device
+                == self.model_args.oneshot_device
+                != torch.device("cpu")
+            ):
+                logger.warning(
+                    f"Model device {model_exec_device} is the same as oneshot"
+                    " execution device. If you encounter OOM errors, consider"
+                    " loading the model up on CPU, so that more memory is available"
+                    " for the oneshot algorithm to run on GPU. Example available at"
+                    " examples/quantization_w4a16/llama3_example.py"
+                )
+
+            # set cpu offload for model
+            elif (
+                model_exec_device
+                == torch.device("cpu")
+                != self.model_args.oneshot_device
+            ):
+                force_cpu_offload(
+                    self.model, execution_devce=self.model_args.oneshot_device
+                )
+
         pipeline(self.model, calibration_dataloader, self.dataset_args)
 
         session.finalize()
