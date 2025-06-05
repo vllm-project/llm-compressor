@@ -42,7 +42,6 @@ class CalibrationPipeline(ABC, RegistryMixin):
         :param user: pipeline name passed by user
         :return: CalibrationPipeline instance to be called with data (if not datafree)
         """
-
         user = standardize_lookup_name(user) if user else None
         inferred = standardize_lookup_name(cls._validate_infer_pipeline(modifiers))
         independent = standardize_lookup_name("independent")

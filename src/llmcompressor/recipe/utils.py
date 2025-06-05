@@ -97,6 +97,7 @@ def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[st
 
     return stage_dict
 
+
 def deep_merge_dicts(d1: dict, d2: dict) -> dict:
     """
     Recursively merge d2 into d1.
