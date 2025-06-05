@@ -272,10 +272,10 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
         existing recipe
     :param save_directory: path to save combined existing recipe and current recipe
     """
- 
+
     existing_recipe = infer_recipe_from_model_path(model_stub)
 
     recipe = active_session().lifecycle.recipe
-    
+
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
