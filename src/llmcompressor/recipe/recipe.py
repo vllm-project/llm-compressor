@@ -11,8 +11,8 @@ from llmcompressor.recipe.utils import (
     _load_json_or_yaml_string,
     _parse_recipe_from_md,
     deep_merge_dicts,
-    get_yaml_serializable_dict,
     deep_merge_dicts,
+    get_yaml_serializable_dict,
 )
 
 __all__ = [
@@ -250,6 +250,7 @@ class Recipe(BaseModel):
             if isinstance(modifier, Modifier)
             else ModifierFactory.create(
                 modifier["type"],
+                group=modifier.get("group"),
                 allow_registered=True,
                 allow_experimental=True,
                 **modifier["args"],
@@ -304,7 +305,7 @@ class Recipe(BaseModel):
             default_flow_style=None,
             width=88,
         )
-        
+
         if file_stream:
             file_stream.close()
 
