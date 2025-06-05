@@ -13,10 +13,17 @@
 # limitations under the License.
 
 import os
+from types import SimpleNamespace
 
 import pytest
 import torch
-from compressed_tensors import load_compressed, save_compressed, save_compressed_model
+from compressed_tensors import (
+    ParameterizedDefaultDict,
+    load_compressed,
+    patch_attr,
+    save_compressed,
+    save_compressed_model,
+)
 from compressed_tensors.config import BitmaskConfig
 from safetensors.torch import save_model
 from transformers import AutoModelForCausalLM
@@ -151,3 +158,36 @@ def test_save_compressed_model(tmp_path, llama_model):
     # make sure that compressed model is smaller
     # than uncompressed by roughly 1.14 (value established empirically)
     assert pytest.approx(size_uncompressed_kb / size_compressed_kb, 0.01) == 1.14
+
+
+def test_patch_attr():
+    # patch, original value
+    obj = SimpleNamespace()
+    obj.attribute = "original"
+    with patch_attr(obj, "attribute", "patched"):
+        assert obj.attribute == "patched"
+        obj.attribute = "modified"
+    assert obj.attribute == "original"
+
+    # patch, no original attribute
+    obj = SimpleNamespace()
+    with patch_attr(obj, "attribute", "patched"):
+        assert obj.attribute == "patched"
+        obj.attribute = "modified"
+    assert not hasattr(obj, "attribute")
+
+
+def test_parameterized_default_dict():
+    def add_one(value):
+        return value + 1
+
+    add_dict = ParameterizedDefaultDict(add_one)
+    assert add_dict[0] == 1
+    assert add_dict[1] == 2
+
+    def sum_vals(a, b):
+        return a + b
+
+    sum_dict = ParameterizedDefaultDict(sum_vals)
+    assert sum_dict[0, 1] == 1
+    assert sum_dict[5, 7] == 12

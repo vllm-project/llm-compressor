@@ -13,15 +13,31 @@
 # limitations under the License.
 
 from enum import Enum
-from typing import Any, List
+from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 
 
-__all__ = ["TransformArgs"]
+__all__ = ["TransformArgs", "TransformLocation"]
 
 
 class TransformLocation(str, Enum):
+    """
+    Enum representing which parameters/activations a transform weight should be applied
+    to on a given module.
+
+    | -------------------------------------------------------------------------------------------------------- |  # noqa: E501
+    | Name            | Runtime     | Values        | Locations Where Inverse Could Be Applied                 |  # noqa: E501
+    | --------------- | ----------- | ------------- | -------------------------------------------------------- |  # noqa: E501
+    | `INPUT`         | online      | activations   | `prev.WEIGHT_OUTPUT`, `prev.OUTPUT`, `this.WEIGHT_INPUT` |  # noqa: E501
+    | `WEIGHT_INPUT`  | offline     | weight        | `prev.WEIGHT_OUTPUT`, `prev.OUTPUT`, `this.INPUT`        |  # noqa: E501
+    | `WEIGHT_OUTPUT` | offline     | weight        | `this.OUTPUT`, `next.INPUT`, `next.WEIGHT_INPUT`         |  # noqa: E501
+    | `OUTPUT`        | online      | activations   | `this.WEIGHT_OUTPUT`, `next.INPUT`, `next.WEIGHT_INPUT`  |  # noqa: E501
+    | `K_CACHE`       | online      | key_values    | `q_proj.Q_ATTN`                                          |  # noqa: E501
+    | `Q_ATTN`        | online      | query_values  | `k_proj.K_CACHE`                                         |  # noqa: E501
+    | -------------------------------------------------------------------------------------------------------- |  # noqa: E501
+    """
+
     INPUT = "input"
     WEIGHT_INPUT = "weight_input"
     WEIGHT_OUTPUT = "weight_output"
