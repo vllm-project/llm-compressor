@@ -97,13 +97,16 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
+# Save compressed model and tokenizer
+model.save_pretrained(save_dir)
+tokenizer.save_pretrained(save_dir)
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(save_dir, device_map="auto")
+
 # Validate the compressed model
 print("\n========== SAMPLE GENERATION ==============")
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n")
-
-# Save compressed model and tokenizer
-model.save_pretrained(save_dir)
-tokenizer.save_pretrained(save_dir)

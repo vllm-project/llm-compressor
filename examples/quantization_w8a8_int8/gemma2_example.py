@@ -54,14 +54,18 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
 
 # 4) Apply quantization and save to disk compressed.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    output_dir=MODEL_ID.split("/")[1] + "-INT8",
+    output_dir=SAVE_DIR,
 )
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 # NOTE: transformers 4.49.0 results in a generation error with gemma2.

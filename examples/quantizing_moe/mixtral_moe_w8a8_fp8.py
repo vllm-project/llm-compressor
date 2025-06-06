@@ -43,6 +43,9 @@ oneshot(
     output_dir=SAVE_DIR,
 )
 
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
+
 # Confirm generations of the quantized model look sane.
 # Generation is broken for deepseek models when using the latest transformers package
 if Version(__version__) < Version("4.48"):

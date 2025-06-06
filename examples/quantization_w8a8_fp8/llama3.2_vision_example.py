@@ -19,14 +19,19 @@ recipe = QuantizationModifier(
     ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
 )
 
-# Apply quantization and save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+# Apply quantization.
 oneshot(
     model=model,
     recipe=recipe,
-    output_dir=SAVE_DIR,
 )
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = MllamaForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

@@ -78,6 +78,14 @@ recipe = GPTQModifier(
     ignore=["lm_head", "re:model.vision_embed_tokens.*"],
 )
 
+# Save to disk compressed.
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
+
 # Perform oneshot
 oneshot(
     model=model,
@@ -95,8 +103,3 @@ input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))
 print("==========================================")
-
-# Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-processor.save_pretrained(SAVE_DIR)

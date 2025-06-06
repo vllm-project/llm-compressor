@@ -73,6 +73,9 @@ oneshot(
     output_dir=SAVE_DIR,
 )
 
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
+
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
