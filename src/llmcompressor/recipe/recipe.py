@@ -237,9 +237,7 @@ class Recipe(BaseModel):
         ... '''
         >>> recipe = Recipe.create_instance(recipe_str)
         >>> modifiers = recipe.create_modifier()
-        >>> len(stage_modifiers) == 1
-        True
-        >>> len(stage_modifiers[0].modifiers) == 1
+        >>> len(modifiers) == 1
         True
 
         :return: A list of Modifiers for the recipe
