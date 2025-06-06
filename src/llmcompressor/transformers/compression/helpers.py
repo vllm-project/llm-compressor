@@ -18,7 +18,7 @@ from llmcompressor.utils.pytorch import get_layers, get_no_split_params
 
 __ALL__ = [
     "tensor_follows_mask_structure",
-    "infer_sparsity_structure_from_stage_modifiers",
+    "infer_sparsity_structure_from_modifiers",
     "infer_sparsity_structure_from_model",
     "hessian_memory_requirements",
     "custom_offload_device_map",
@@ -58,7 +58,7 @@ def tensor_follows_mask_structure(tensor: torch.Tensor, mask: str = "2:4") -> bo
     return torch.all(zero_counts >= n).item()
 
 
-def infer_sparsity_structure_from_stage_modifiers(
+def infer_sparsity_structure_from_modifiers(
     modifiers: List[Modifier],  # noqa E501
 ) -> Optional[str]:
     """
