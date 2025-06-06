@@ -2,6 +2,8 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import torch
+from compressed_tensors.utils import force_cpu_offload
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel
@@ -122,6 +124,15 @@ class Oneshot:
 
         # initialize the model and processor
         pre_process(model_args)
+
+        # offload to cpu if possible
+        if "cuda" in str(model_args.oneshot_device) and torch.cuda.is_available():
+            # TODO: consider renaming function similar to "offload_dispatch_model"
+            # TODO: modify function to remove any hooks if they already exist (making
+            # sure to move to cpu when removing hook
+            force_cpu_offload(model_args.model, model_args.oneshot_device)
+        else:
+            logger.warning("CUDA is not available! Compressing model on CPU instead")
 
         # Set instance attributes
         self.model = self.model_args.model
