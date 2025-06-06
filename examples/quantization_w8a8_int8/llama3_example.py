@@ -7,11 +7,7 @@ from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.

@@ -8,9 +8,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Load model.
 model_id = "google/gemma-3-4b-it"
-model = Gemma3ForConditionalGeneration.from_pretrained(
-    model_id, device_map="auto", torch_dtype="auto"
-)
+model = Gemma3ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments

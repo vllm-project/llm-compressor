@@ -5,13 +5,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
+    model_id,
     device_map="auto",
     torch_dtype="auto",
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -96,6 +96,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-KV"
+SAVE_DIR = model_id.split("/")[1] + "-FP8-KV"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

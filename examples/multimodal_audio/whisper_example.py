@@ -6,15 +6,10 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-large-v3"
-
-model = WhisperForConditionalGeneration.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model_id = "openai/whisper-large-v3"
+model = WhisperForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 model.config.forced_decoder_ids = None
-processor = WhisperProcessor.from_pretrained(MODEL_ID)
+processor = WhisperProcessor.from_pretrained(model_id)
 
 # Configure processor the dataset task.
 processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")
@@ -106,6 +101,6 @@ print("==========================================\n\n")
 # and it was a great thing for what it was at the time but it's not a passive house
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)

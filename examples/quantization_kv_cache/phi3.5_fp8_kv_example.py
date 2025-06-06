@@ -7,11 +7,7 @@ from llmcompressor import oneshot
 # Phi-3.5 is a special case for KV cache quantization because it has
 # fused QKV linear layers.
 MODEL_ID = "microsoft/Phi-3.5-mini-instruct"
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.

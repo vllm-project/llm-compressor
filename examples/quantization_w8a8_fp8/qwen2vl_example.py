@@ -6,9 +6,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "Qwen/Qwen2-VL-7B-Instruct"
 
 # Load model.
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = Qwen2VLForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.

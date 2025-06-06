@@ -13,7 +13,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto", trust_remote_code=True
+    MODEL_ID, device_map="auto", trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 

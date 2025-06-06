@@ -5,12 +5,10 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQModifier
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
 # Select calibration dataset.
 DATASET_ID = "mit-han-lab/pile-val-backup"
@@ -72,6 +70,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[-1] + "-awq-asym"
+SAVE_DIR = model_id.split("/")[-1] + "-awq-asym"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

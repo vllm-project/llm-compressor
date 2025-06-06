@@ -11,11 +11,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    model_id,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments

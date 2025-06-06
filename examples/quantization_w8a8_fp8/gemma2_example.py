@@ -6,9 +6,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "google/gemma-2-27b-it"
 
 # 1) Load model.
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # 2) Configure the quantization algorithm and scheme.

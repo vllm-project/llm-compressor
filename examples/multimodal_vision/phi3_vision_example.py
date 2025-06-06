@@ -12,7 +12,6 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 model_id = "microsoft/Phi-3-vision-128k-instruct"
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    device_map="auto",
     torch_dtype="auto",
     trust_remote_code=True,
     _attn_implementation="eager",
