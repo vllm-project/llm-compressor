@@ -65,6 +65,7 @@ def test_recipe_creates_correct_modifier():
 def test_recipe_can_be_created_from_modifier_instances():
     modifier = SparseGPTModifier(
         sparsity=0.5,
+        group="pruning",
     )
     group_name = "dummy"
 

@@ -67,7 +67,7 @@ class SparsityConfigMetadata:
         sparsity_structure = None
 
         current_session = active_session()
-        stage_modifiers = current_session.lifecycle.modifiers
+        stage_modifiers = current_session.lifecycle.recipe.modifiers
         if stage_modifiers:
             sparsity_structure = infer_sparsity_structure_from_modifiers(
                 stage_modifiers

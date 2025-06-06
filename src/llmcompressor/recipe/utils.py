@@ -87,7 +87,7 @@ def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[st
         args = {
             k: v
             for k, v in modifier.model_dump().items()
-            if v is not None and not k.endswith("_")
+            if v is not None and not k.endswith("_") and k != "group"
         }
 
         if group_name not in stage_dict[stage_name]:

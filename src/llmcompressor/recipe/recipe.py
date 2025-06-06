@@ -166,21 +166,22 @@ class Recipe(BaseModel):
         modifiers: List[Dict[str, Any]] = []
         stage = "default"
 
-        for key, value in values.items():
-            if key.endswith("_stage") and isinstance(value, dict):
-                stage = key.replace("_stage", "")
-                for mod_group_key, mod_defs in value.items():
-                    if mod_group_key.endswith("_modifiers") and isinstance(
-                        mod_defs, dict
-                    ):
-                        for mod_type, mod_args in mod_defs.items():
+        for stage_key, stage_val in values.items():
+            if stage_key.endswith("_stage") and isinstance(stage_val, dict):
+                stage = stage_key.replace("_stage", "")
+                for group_key, group_val in stage_val.items():
+                    if group_key.endswith("_modifiers") and isinstance(group_val, dict):
+                        inferred_group = group_key.replace("_modifiers", "")
+                        for mod_type, mod_args in group_val.items():
+                            group = mod_args.get("group", inferred_group)
                             modifiers.append(
                                 {
                                     "type": mod_type,
-                                    "group": stage,
+                                    "group": group,
                                     "args": mod_args,
                                 }
                             )
+        
         return {
             "version": version,
             "args": args,
@@ -242,6 +243,7 @@ class Recipe(BaseModel):
 
         :return: A list of Modifiers for the recipe
         """
+        
         if not ModifierFactory._loaded:
             ModifierFactory.refresh()
         self.modifiers = [
@@ -249,6 +251,7 @@ class Recipe(BaseModel):
             if isinstance(modifier, Modifier)
             else ModifierFactory.create(
                 modifier["type"],
+                group=modifier["group"],
                 allow_registered=True,
                 allow_experimental=True,
                 **modifier["args"],
