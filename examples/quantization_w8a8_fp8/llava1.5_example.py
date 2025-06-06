@@ -6,9 +6,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 
 # Load model.
-model = LlavaForConditionalGeneration.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = LlavaForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -21,10 +19,16 @@ recipe = QuantizationModifier(
     ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_tower.*"],
 )
 
-# Apply quantization and save to disk in compressed-tensors format.
+# Apply quantization.
+oneshot(model=model, recipe=recipe)
+
+# Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-oneshot(model=model, recipe=recipe, output_dir=SAVE_DIR)
+model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = LlavaForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

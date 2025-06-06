@@ -13,7 +13,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto", trust_remote_code=True
+    MODEL_ID, device_map="auto", trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -78,6 +78,9 @@ oneshot(
     save_compressed=True,
     output_dir=SAVE_DIR,
 )
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 # Generation is broken for deepseek models when using the latest transformers package

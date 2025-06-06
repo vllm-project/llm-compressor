@@ -5,14 +5,9 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -66,6 +61,14 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
+# Save to disk compressed.
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
+
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
@@ -73,8 +76,3 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cud
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
-
-# Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)

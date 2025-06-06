@@ -6,9 +6,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "google/gemma-2-27b-it"
 
 # 1) Load model.
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # 2) Configure the quantization algorithm and scheme.
@@ -20,13 +18,15 @@ recipe = QuantizationModifier(
 )
 
 # 3) Apply quantization and save in compressed-tensors format.
-OUTPUT_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-oneshot(
-    model=model,
-    recipe=recipe,
-    tokenizer=tokenizer,
-    output_dir=OUTPUT_DIR,
-)
+oneshot(model=model, recipe=recipe, tokenizer=tokenizer)
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 # NOTE: transformers 4.49.0 results in a generation error with gemma2.

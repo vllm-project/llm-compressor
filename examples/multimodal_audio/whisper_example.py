@@ -6,15 +6,10 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
-MODEL_ID = "openai/whisper-large-v3"
-
-model = WhisperForConditionalGeneration.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model_id = "openai/whisper-large-v3"
+model = WhisperForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 model.config.forced_decoder_ids = None
-processor = WhisperProcessor.from_pretrained(MODEL_ID)
+processor = WhisperProcessor.from_pretrained(model_id)
 
 # Configure processor the dataset task.
 processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")
@@ -88,6 +83,14 @@ oneshot(
     data_collator=data_collator,
 )
 
+# Save to disk compressed.
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = WhisperForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
+
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
@@ -97,15 +100,9 @@ sample_input = {
     "input_features": torch.tensor(sample_features).to(model.device),
     "decoder_input_ids": torch.tensor(sample_decoder_ids).to(model.device),
 }
-
 output = model.generate(**sample_input, language="en")
 print(processor.batch_decode(output, skip_special_tokens=True))
 print("==========================================\n\n")
 # that's where you have a lot of windows in the south no actually that's passive solar
 # and passive solar is something that was developed and designed in the 1960s and 70s
 # and it was a great thing for what it was at the time but it's not a passive house
-
-# Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-processor.save_pretrained(SAVE_DIR)

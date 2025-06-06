@@ -7,9 +7,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "openai/whisper-large-v2"
 
 # Load model.
-model = WhisperForConditionalGeneration.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 model.config.forced_decoder_ids = None
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")
@@ -25,6 +23,14 @@ recipe = QuantizationModifier(
 # Apply quantization.
 oneshot(model=model, recipe=recipe)
 
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = WhisperForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
+
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 ds = load_dataset(
@@ -39,8 +45,3 @@ output_ids = model.generate(input_features, language="en", forced_decoder_ids=No
 print(processor.batch_decode(output_ids, skip_special_tokens=False)[0])
 # Mr. Quilter is the apostle of the middle classes and we are glad to welcome his gospel
 print("==========================================")
-
-# Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-processor.save_pretrained(SAVE_DIR)

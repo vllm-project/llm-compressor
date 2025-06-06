@@ -5,19 +5,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 NUM_GPUS = 2
 
-# Adjust based off number of desired GPUs
-device_map = calculate_offload_device_map(
-    MODEL_ID, reserve_for_hessians=True, num_gpus=NUM_GPUS, torch_dtype="auto"
-)
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 
@@ -50,6 +42,9 @@ oneshot(
     save_compressed=SAVE_COMPRESSED,
     output_dir=SAVE_DIR,
 )
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 # Generation is broken for deepseek models when using the latest transformers package

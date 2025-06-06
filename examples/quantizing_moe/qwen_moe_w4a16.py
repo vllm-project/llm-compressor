@@ -4,23 +4,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 
-# adjust based off number of desired GPUs
-# if not enough memory is available, some layers will automatically be offloaded to cpu
-device_map = calculate_offload_device_map(
-    MODEL_ID,
-    reserve_for_hessians=True,
-    num_gpus=2,
-    torch_dtype=torch.bfloat16,
-    trust_remote_code=True,
-)
-
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16, trust_remote_code=True
+    MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -83,6 +72,9 @@ oneshot(
     trust_remote_code_model=True,
     output_dir=SAVE_DIR,
 )
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")

@@ -4,13 +4,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -67,15 +64,18 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
+# Save to disk in compressed-tensors format.
+SAVE_DIR = model_id.split("/")[1] + "-NVFP4"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
+
+# Validate model generations
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
-
-
-# Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-NVFP4"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
