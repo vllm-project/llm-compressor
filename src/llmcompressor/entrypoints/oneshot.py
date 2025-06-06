@@ -305,7 +305,9 @@ def oneshot(
     """
 
     # pass all args directly into Oneshot
-    one_shot = Oneshot(**locals(), **kwargs)
+    local_args = locals()
+    local_args.pop("kwargs")
+    one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 
     return one_shot.model
