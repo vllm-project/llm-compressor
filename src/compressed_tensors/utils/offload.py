@@ -87,13 +87,15 @@ def check_accelerate(fallback: Any):
         if not _has_accelerate:
 
             if fallback == "error":
-                raise ValueError(
-                    "Please install `accelerate` in order to use this function"
-                )
-
-            @wraps(func)
-            def fallback_fn(*args, **kwargs):
-                return fallback
+                @wraps(func)
+                def fallback_fn(*args, **kwargs):
+                    raise ValueError(
+                        "Please install `accelerate` in order to use this function"
+                    )
+            else:
+                @wraps(func)
+                def fallback_fn(*args, **kwargs):
+                    return fallback
 
             return fallback_fn
 
