@@ -35,7 +35,7 @@ class TestOBCQCompletion(unittest.TestCase):
         dataset_manager = TextGenerationDataset.load_from_registry(
             dataset_args.dataset,
             dataset_args=dataset_args,
-            split="train",
+            split=f"train[:{self.num_samples}]",
             processor=tokenizer,
         )
         calib_dataset = dataset_manager()
@@ -51,10 +51,14 @@ class TestOBCQCompletion(unittest.TestCase):
         from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils import tensors_to_device
+        from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+            get_model_compressor,  # avoid circular import
+        )
 
         oneshot(
             model=self.model,
             dataset=self.dataset,
+            splits={"calibration": f"train[:{self.num_samples}]"},
             oneshot_device=self.device,
             recipe=self.recipe,
             max_seq_length=512,
@@ -65,6 +69,13 @@ class TestOBCQCompletion(unittest.TestCase):
         )
 
         first_tiny_model = get_session_model()
+        compressor = get_model_compressor(
+            model=first_tiny_model,
+            save_compressed=True,
+            skip_sparsity_compression_stats=False,
+        )
+        if compressor is not None:
+            compressor.decompress_model(first_tiny_model)
 
         dataset = "open_platypus"
 
