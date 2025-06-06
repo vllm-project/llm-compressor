@@ -3,6 +3,8 @@ import os
 from pathlib import PosixPath
 from typing import Optional, Tuple
 
+import torch
+from compressed_tensors.utils import force_cpu_offload
 from loguru import logger
 from torch.nn import Module
 from transformers import (
@@ -61,6 +63,16 @@ def pre_process(model_args: "ModelArguments"):
 
     # untie tie_word_embeddings weights
     patch_tied_tensors_bug(model_args.model)
+
+    # offload to cpu if possible
+    if "cuda" in str(model_args.oneshot_device) and torch.cuda.is_available():
+        # TODO: consider renaming function to something like "offload_dispatch_model"
+        # TODO: modify function to remove any hooks if they already exist (making sure
+        # to move to cpu when removing hook
+        force_cpu_offload(model_args.model, model_args.oneshot_device)
+
+    else:
+        logger.warning("CUDA is not available! Compressing model on CPU instead")
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)

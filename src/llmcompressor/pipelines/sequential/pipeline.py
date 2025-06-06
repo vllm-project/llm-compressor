@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 import torch
 from compressed_tensors.utils import get_execution_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -51,6 +52,16 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
+
+        # check for offloading
+        if model.device != torch.device("meta"):
+            logger.warning(
+                "Attemping to use sequential pipeline with a model which is not "
+                "offloaded to the cpu. Deploying a model in this way may lead to more "
+                "memory usage than is required. It is recommended to set "
+                '`oneshot_device="cuda"` or call `force_cpu_offload` on your model '
+                "before compressing"
+            )
 
         # prepare to trace subgraphs
         modifiers = session.get_modifiers()
