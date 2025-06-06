@@ -514,7 +514,3 @@ def keep_onload_context():
     for module, (hook, offload) in onloaded_modules.items():
         hook.offload = offload
         hook.post_forward(module, None)
-
-
-# def is_cpu_offloaded():
-#
