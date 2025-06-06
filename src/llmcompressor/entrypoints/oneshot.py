@@ -105,7 +105,8 @@ class Oneshot:
         :param recipe_args: RecipeArguments parameters, responsible for containing
             recipe-related parameters
         :param output_dir: Path to save the output model after carrying out oneshot
-
+        :param log_dir: Path to save logs during oneshot run.
+            Nothing is logged to file if None.
         """
         # Set up logging
         if log_dir:
@@ -237,114 +238,74 @@ def oneshot(
     """
     Performs oneshot calibration on a model.
 
-    Args:
-        # Model arguments
-        model (str): A pretrained model identifier from huggingface.co/models or a path
-            to a local model. Required parameter.
-        distill_teacher (Optional[str]): Teacher model (a trained text generation model)
-            for distillation.
-        config_name (Optional[str]): Pretrained config name or path if not the same as
-            model_name.
-        tokenizer (Optional[str]): Pretrained tokenizer name or path if not the same as
-            model_name.
-        processor (Optional[str]): Pretrained processor name or path if not the same as
-            model_name.
-        cache_dir (Optional[str]): Where to store the pretrained data from
-            huggingface.co.
-        use_auth_token (bool): Whether to use Hugging Face auth token for private
-            models.
-        precision (str): Precision to cast model weights to, default to auto.
-        tie_word_embeddings (bool): Whether the model's input and output word embeddings
-            should be tied.
-        trust_remote_code_model (bool): Whether to allow for custom models to execute
-            their own modeling files.
-        save_compressed (bool): Whether to compress sparse models during save.
-        oneshot_device (str): Device to run oneshot calibration on.
-        model_revision (str): The specific model version to use (can be branch name,
-            tag, or commit id).
+    # Model arguments
+    :param model: A pretrained model identifier from huggingface.co/models or a path
+        to a local model. Required parameter.
+    :param distill_teacher: Teacher model (a trained text generation model)
+        for distillation.
+    :param config_name: Pretrained config name or path if not the same as
+        model_name.
+    :param tokenizer: Pretrained tokenizer name or path if not the same as
+        model_name.
+    :param processor: Pretrained processor name or path if not the same as
+        model_name.
+    :param cache_dir: Where to store the pretrained data from
+        huggingface.co.
+    :param use_auth_token: Whether to use Hugging Face auth token for private
+        models.
+    :param precision: Precision to cast model weights to, default to auto.
+    :param tie_word_embeddings: Whether the model's input and output word embeddings
+        should be tied.
+    :param trust_remote_code_model: Whether to allow for custom models to execute
+        their own modeling files.
+    :param save_compressed: Whether to compress sparse models during save.
+    :param oneshot_device: Device to run oneshot calibration on.
+    :param model_revision: The specific model version to use (can be branch name,
+        tag, or commit id).
 
-        # Recipe arguments
-        recipe (Optional[str]): Path to a LLM Compressor sparsification recipe.
-        recipe_args (Optional[List[str]]): List of recipe arguments to evaluate, in the
-            format "key1=value1", "key2=value2".
-        clear_sparse_session (bool): Whether to clear CompressionSession/
-            CompressionLifecycle data between runs.
-        stage (Optional[str]): The stage of the recipe to use for oneshot.
+    # Recipe arguments
+    :param recipe: Path to a LLM Compressor sparsification recipe.
+    :param recipe_args: List of recipe arguments to evaluate, in the
+        format "key1=value1", "key2=value2".
+    :param clear_sparse_session: Whether to clear CompressionSession/
+        CompressionLifecycle data between runs.
+    :param stage: The stage of the recipe to use for oneshot.
 
-        # Dataset arguments
-        dataset (Optional[str]): The name of the dataset to use (via the datasets
-            library).
-        dataset_config_name (Optional[str]): The configuration name of the dataset
-            to use.
-        dataset_path (Optional[str]): Path to a custom dataset. Supports json, csv, dvc.
-        num_calibration_samples (int): Number of samples to use for one-shot
-            calibration.
-        shuffle_calibration_samples (bool): Whether to shuffle the dataset before
-            calibration.
-        max_seq_length (int): Maximum total input sequence length after tokenization.
-        pad_to_max_length (bool): Whether to pad all samples to `max_seq_length`.
-        text_column (str): Key to use as the `text` input to tokenizer/processor.
-        concatenate_data (bool): Whether to concatenate datapoints to fill
-            max_seq_length.
-        streaming (bool): True to stream data from a cloud dataset.
-        overwrite_cache (bool): Whether to overwrite the cached preprocessed datasets.
-        preprocessing_num_workers (Optional[int]): Number of processes for
-            preprocessing.
-        min_tokens_per_module (Optional[float]): Minimum percentage of tokens per
-            module, relevant for MoE models.
-        trust_remote_code_data (bool): Whether to allow for datasets defined on the Hub
-            using a dataset script.
+    # Dataset arguments
+    :param dataset: The name of the dataset to use (via the datasets
+        library).
+    :param dataset_config_name: The configuration name of the dataset
+        to use.
+    :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
+    :param num_calibration_samples: Number of samples to use for one-shot
+        calibration.
+    :param shuffle_calibration_samples: Whether to shuffle the dataset before
+        calibration.
+    :param max_seq_length: Maximum total input sequence length after tokenization.
+    :param pad_to_max_length: Whether to pad all samples to `max_seq_length`.
+    :param text_column: Key to use as the `text` input to tokenizer/processor.
+    :param concatenate_data: Whether to concatenate datapoints to fill
+        max_seq_length.
+    :param streaming: True to stream data from a cloud dataset.
+    :param overwrite_cache: Whether to overwrite the cached preprocessed datasets.
+    :param preprocessing_num_workers: Number of processes for
+        preprocessing.
+    :param min_tokens_per_module: Minimum percentage of tokens per
+        module, relevant for MoE models.
+    :param trust_remote_code_data: Whether to allow for datasets defined on the Hub
+        using a dataset script.
 
-        # Miscellaneous arguments
-        output_dir (Optional[str]): Path to save the output model after calibration.
-            Nothing is saved if None.
-        log_dir (Optional[str]): Path to save logs during oneshot run
-            Nothing is logged to file if None.
+    # Miscellaneous arguments
+    :param output_dir: Path to save the output model after calibration.
+        Nothing is saved if None.
+    :param log_dir: Path to save logs during oneshot run.
+        Nothing is logged to file if None.
 
-    Returns:
-        PreTrainedModel: The calibrated model
+    :return: The calibrated PreTrainedModel
     """
 
-    one_shot = Oneshot(
-        # Model arguments
-        model=model,
-        distill_teacher=distill_teacher,
-        config_name=config_name,
-        tokenizer=tokenizer,
-        processor=processor,
-        cache_dir=cache_dir,
-        use_auth_token=use_auth_token,
-        precision=precision,
-        tie_word_embeddings=tie_word_embeddings,
-        trust_remote_code_model=trust_remote_code_model,
-        save_compressed=save_compressed,
-        oneshot_device=oneshot_device,
-        model_revision=model_revision,
-        # Recipe arguments
-        recipe=recipe,
-        recipe_args=recipe_args,
-        clear_sparse_session=clear_sparse_session,
-        stage=stage,
-        # Dataset arguments
-        dataset=dataset,
-        dataset_config_name=dataset_config_name,
-        dataset_path=dataset_path,
-        num_calibration_samples=num_calibration_samples,
-        shuffle_calibration_samples=shuffle_calibration_samples,
-        max_seq_length=max_seq_length,
-        pad_to_max_length=pad_to_max_length,
-        text_column=text_column,
-        concatenate_data=concatenate_data,
-        streaming=streaming,
-        overwrite_cache=overwrite_cache,
-        preprocessing_num_workers=preprocessing_num_workers,
-        min_tokens_per_module=min_tokens_per_module,
-        trust_remote_code_data=trust_remote_code_data,
-        # Output parameters
-        output_dir=output_dir,
-        log_dir=log_dir,
-        **kwargs,
-    )
+    # pass all args directly into Oneshot
+    one_shot = Oneshot(**locals(), **kwargs)
     one_shot()
 
     return one_shot.model
