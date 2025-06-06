@@ -181,7 +181,7 @@ class Recipe(BaseModel):
                                     "args": mod_args,
                                 }
                             )
-        
+
         return {
             "version": version,
             "args": args,
@@ -243,7 +243,7 @@ class Recipe(BaseModel):
 
         :return: A list of Modifiers for the recipe
         """
-        
+
         if not ModifierFactory._loaded:
             ModifierFactory.refresh()
         self.modifiers = [
