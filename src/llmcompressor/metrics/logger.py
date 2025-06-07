@@ -2,14 +2,14 @@
 Contains code for loggers that help visualize the information from each modifier
 """
 
-import logging
+from loguru import logger
+import sys
 import os
 import time
 import warnings
 from abc import ABC
 from contextlib import contextmanager
 from datetime import datetime
-from logging import CRITICAL, DEBUG, ERROR, INFO, WARN, Logger
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -52,16 +52,8 @@ __all__ = [
     "WANDBLogger",
     "SparsificationGroupLogger",
     "LoggerManager",
-    "LOGGING_LEVELS",
 ]
 ALL_TOKEN = "__ALL__"
-LOGGING_LEVELS = {
-    "debug": DEBUG,
-    "info": INFO,
-    "warn": WARN,
-    "error": ERROR,
-    "critical": CRITICAL,
-}
 DEFAULT_TAG = "defaul_tag"
 
 
@@ -231,7 +223,7 @@ class LambdaLogger(BaseLogger):
     def log_hyperparams(
         self,
         params: Dict,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ) -> bool:
         """
         :param params: Each key-value pair in the dictionary is the name of the
@@ -256,7 +248,7 @@ class LambdaLogger(BaseLogger):
         value: float,
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the value with
@@ -285,7 +277,7 @@ class LambdaLogger(BaseLogger):
         values: Dict[str, float],
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the values with
@@ -314,7 +306,7 @@ class PythonLogger(LambdaLogger):
     Modifier metrics that handles printing values into a python metrics instance.
 
     :param logger: a metrics instance to log to, if None then will create it's own
-    :param log_level: default level to log any incoming data at on the logging.Logger
+    :param log_level: default level to log any incoming data at on the loguru.logger
         instance when an explicit log level isn't provided
     :param name: name given to the metrics, used for identification;
         defaults to python
@@ -323,12 +315,12 @@ class PythonLogger(LambdaLogger):
 
     def __init__(
         self,
-        logger: Logger = None,
-        log_level: int = None,
+        log_level: Optional[Union[int, str]] = "INFO",
         name: str = "python",
         enabled: bool = True,
     ):
-        self._logger = logger or self._create_default_logger(log_level=log_level)
+        self._logger_sink_registry = {}
+        self._create_default_logger(log_level=log_level)
 
         super().__init__(
             lambda_func=self._log_lambda,
@@ -336,17 +328,9 @@ class PythonLogger(LambdaLogger):
             enabled=enabled,
         )
 
-    def __getattr__(self, item):
-        return getattr(self._logger, item)
-
-    @property
-    def logger(self) -> Logger:
-        """
-        :return: a metrics instance to log to, if None then will create it's own
-        """
-        return self._logger
-
-    def _create_default_logger(self, log_level: Optional[int] = None) -> logging.Logger:
+    def _create_default_logger(
+        self, log_level: Optional[Union[int, str]] = None
+    ) -> None:
         """
         Create a default modifier metrics,
         with a file handler logging at the debug level
@@ -355,24 +339,16 @@ class PythonLogger(LambdaLogger):
         :param log_level: logging level for the console metrics
         :return: metrics
         """
-        logger = logging.getLogger(__name__)
 
         # Console handler, for logging high level modifier logs
         # must be created before the file handler
         # as file handler is also a stream handler
-        if not any(
-            isinstance(handler, logging.StreamHandler) for handler in logger.handlers
-        ):
-            stream_handler = logging.StreamHandler()
-            stream_handler.setLevel(
-                log_level or logging.getLogger("llmcompressor").level
-            )
-            logger.addHandler(stream_handler)
+        if not self._logger_sink_registry.get("stream"):
+            stderr_sink_id = logger.add(sys.stderr, level=log_level)
+            self._logger_sink_registry["stream"] = stderr_sink_id
 
         # File handler setup, for logging modifier debug statements
-        if not any(
-            isinstance(handler, logging.FileHandler) for handler in logger.handlers
-        ):
+        if not self._logger_sink_registry.get("file"):
             base_log_path = (
                 os.environ.get("NM_TEST_LOG_DIR")
                 if os.environ.get("NM_TEST_MODE")
@@ -382,18 +358,9 @@ class PythonLogger(LambdaLogger):
             dt_string = now.strftime("%d-%m-%Y_%H.%M.%S")
             log_path = os.path.join(base_log_path, f"{dt_string}.log")
             os.makedirs(base_log_path, exist_ok=True)
-            file_handler = logging.FileHandler(
-                log_path,
-                delay=True,
-            )
-            file_handler.setLevel(LOGGING_LEVELS["debug"])
-            logger.addHandler(file_handler)
+            file_sink_id = logger.add(log_path, level="DEBUG")
+            self._logger_sink_registry["file"] = file_sink_id
             logger.info(f"Logging all LLM Compressor modifier-level logs to {log_path}")
-
-        logger.setLevel(LOGGING_LEVELS["debug"])
-        logger.propagate = False
-
-        return logger
 
     def _log_lambda(
         self,
@@ -402,7 +369,7 @@ class PythonLogger(LambdaLogger):
         values: Optional[Dict[str, float]],
         step: Optional[int],
         wall_time: Optional[float],
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the values with
@@ -415,9 +382,11 @@ class PythonLogger(LambdaLogger):
         :return: True if logged, False otherwise.
         """
         if not level:
-            level = LOGGING_LEVELS["debug"]
+            level = "DEBUG"
 
-        if level > LOGGING_LEVELS["debug"]:
+        if (isinstance(level, int) and level > logger.level("DEBUG").no) or (
+            isinstance(level, str) and logger.level(level).no > logger.level("DEBUG").no
+        ):
             if step is not None:
                 format = "%s %s step %s: %s"
                 log_args = [
@@ -433,7 +402,7 @@ class PythonLogger(LambdaLogger):
             format = "%s %s [%s - %s]: %s"
             log_args = [self.name, tag, step, wall_time, values or value]
 
-        self._logger.log(level, format, *log_args)
+        logger.log(level, format, *log_args)
 
         return True
 
@@ -443,7 +412,7 @@ class PythonLogger(LambdaLogger):
         string: Optional[str],
         step: Optional[int],
         wall_time: Optional[float] = None,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ) -> bool:
         """
         :param tag: identifying tag to log the values with
@@ -540,7 +509,7 @@ class TensorBoardLogger(LambdaLogger):
         values: Optional[Dict[str, float]],
         step: Optional[int],
         wall_time: Optional[float],
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ) -> bool:
         if value is not None:
             self._writer.add_scalar(tag, value, step, wall_time)
@@ -614,7 +583,7 @@ class WANDBLogger(LambdaLogger):
         values: Optional[Dict[str, float]],
         step: Optional[int],
         wall_time: Optional[float],
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ) -> bool:
         params = {}
 
@@ -656,11 +625,10 @@ class SparsificationGroupLogger(BaseLogger):
     :param lambda_func: an optional lambda function to call back into with any logs.
         The expected call sequence is (tag, value, values, step, wall_time) -> bool
         The return type is True if logged and False otherwise.
-    :param python: an optional argument for logging to a python metrics.
-        May be a logging.Logger instance to log to, True to create a metrics instance,
-        or non truthy to not log anything (False, None)
+    :param python: an bool argument for logging to a python metrics.
+        True to create a metrics instance, or False to not log anything
     :param python_log_level: if python,
-        the level to log any incoming data at on the logging.Logger instance
+        the level to log any incoming data at on the loguru.logger instance
     :param tensorboard: an optional argument for logging to a tensorboard writer.
         May be a SummaryWriter instance to log to, a string representing the directory
         to create a new SummaryWriter to log to, True to create a new SummaryWriter,
@@ -688,8 +656,8 @@ class SparsificationGroupLogger(BaseLogger):
                 bool,
             ]
         ] = None,
-        python: Optional[Union[bool, Logger]] = None,
-        python_log_level: int = logging.INFO,
+        python: bool = False,
+        python_log_level: Optional[Union[int, str]] = "INFO",
         tensorboard: Optional[Union[bool, str, SummaryWriter]] = None,
         wandb_: Optional[Union[bool, Dict]] = None,
         name: str = "sparsification",
@@ -706,7 +674,6 @@ class SparsificationGroupLogger(BaseLogger):
         if python:
             self._loggers.append(
                 PythonLogger(
-                    logger=python if isinstance(python, Logger) else None,
                     log_level=python_log_level,
                     name=name,
                     enabled=enabled,
@@ -751,7 +718,7 @@ class SparsificationGroupLogger(BaseLogger):
         """
         return self._loggers
 
-    def log_hyperparams(self, params: Dict, level: Optional[int] = None):
+    def log_hyperparams(self, params: Dict, level: Optional[Union[int, str]] = None):
         """
         :param params: Each key-value pair in the dictionary is the name of the
             hyper parameter and it's corresponding value.
@@ -765,7 +732,7 @@ class SparsificationGroupLogger(BaseLogger):
         value: float,
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         :param tag: identifying tag to log the value with
@@ -783,7 +750,7 @@ class SparsificationGroupLogger(BaseLogger):
         values: Dict[str, float],
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         :param tag: identifying tag to log the values with
@@ -956,7 +923,7 @@ class LoggerManager(ABC):
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -986,7 +953,7 @@ class LoggerManager(ABC):
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -1013,7 +980,7 @@ class LoggerManager(ABC):
         self,
         params: Dict,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -1036,7 +1003,7 @@ class LoggerManager(ABC):
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         (Note: this method is deprecated and will be removed in a future version,
@@ -1119,7 +1086,7 @@ class SystemLoggingWraper(LoggingWrapperBase):
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         :param tag: identifying tag to log the values with
@@ -1151,7 +1118,7 @@ class SystemLoggingWraper(LoggingWrapperBase):
         :param kwargs: additional arguments to pass to the metrics,
             see `log_string` for more details
         """
-        kwargs["level"] = logging.DEBUG
+        kwargs["level"] = "DEBUG"
         self.log_string(tag=tag, string=string, *args, **kwargs)
 
     def info(self, tag, string, *args, **kwargs):
@@ -1166,7 +1133,7 @@ class SystemLoggingWraper(LoggingWrapperBase):
         :param kwargs: additional arguments to pass to the metrics,
             see `log_string` for more details
         """
-        kwargs["level"] = logging.INFO
+        kwargs["level"] = "INFO"
         self.log_string(tag=tag, string=string, *args, **kwargs)
 
     def warning(self, tag, string, *args, **kwargs):
@@ -1181,7 +1148,7 @@ class SystemLoggingWraper(LoggingWrapperBase):
         :param kwargs: additional arguments to pass to the metrics,
             see `log_string` for more details
         """
-        kwargs["level"] = logging.WARNING
+        kwargs["level"] = "WARNING"
         self.log_string(tag=tag, string=string, *args, **kwargs)
 
     def warn(self, tag, string, *args, **kwargs):
@@ -1204,7 +1171,7 @@ class SystemLoggingWraper(LoggingWrapperBase):
         :param kwargs: additional arguments to pass to the metrics,
             see `log_string` for more details
         """
-        kwargs["level"] = logging.ERROR
+        kwargs["level"] = "ERROR"
         self.log_string(tag=tag, string=string, *args, **kwargs)
 
     def critical(self, tag, string, *args, **kwargs):
@@ -1219,7 +1186,7 @@ class SystemLoggingWraper(LoggingWrapperBase):
         :param kwargs: additional arguments to pass to the metrics,
             see `log_string` for more details
         """
-        kwargs["level"] = logging.CRITICAL
+        kwargs["level"] = "CRITICAL"
         self.log_string(tag=tag, string=string, *args, **kwargs)
 
 
@@ -1232,7 +1199,7 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         self,
         params: Dict,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         :param params: Each key-value pair in the dictionary is the name of the
@@ -1249,7 +1216,7 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         :param tag: identifying tag to log the value with
@@ -1276,7 +1243,7 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         step: Optional[int] = None,
         wall_time: Optional[float] = None,
         log_types: Union[str, List[str]] = ALL_TOKEN,
-        level: Optional[int] = None,
+        level: Optional[Union[int, str]] = None,
     ):
         """
         :param tag: identifying tag to log the values with
