@@ -128,8 +128,8 @@ class SmoothQuantModifier(Modifier):
             )
 
         if (
-            not hasattr(state, 'calibration_dataloader') or
-            state.calibration_dataloader is None
+            not hasattr(state, 'data') or
+            state.data.calib is None
         ):
             raise ValueError(
                 f"{self.__class__.__name__} requires a calibration dataset to be "
