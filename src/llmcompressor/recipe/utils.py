@@ -100,12 +100,22 @@ def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[st
 
 def deep_merge_dicts(d1: dict, d2: dict) -> dict:
     """
-    Recursively merge d2 into d1.
+    Merge two recipe dicts by renaming top-level stage keys to numbered versions.
+
+    If both have the same stage key (e.g. 'test_stage'), the result will contain:
+        'test_stage_0', 'test_stage_1', etc.
+
+    Always starts numbering from 0 even for the first occurrence.
     """
-    result = dict(d1)  # copy base
-    for key, val in d2.items():
-        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
-            result[key] = deep_merge_dicts(result[key], val)
-        else:
-            result[key] = val
+    result = {}
+    stage_count = {}
+
+    for d in (d1, d2):
+        for key, val in d.items():
+            base_key = re.sub(r"_\d+$", "", key)
+            count = stage_count.get(base_key, 0)
+            new_key = f"{base_key}_{count}"
+            stage_count[base_key] = count + 1
+            result[new_key] = val
+
     return result
