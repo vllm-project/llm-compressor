@@ -11,6 +11,7 @@ from llmcompressor.recipe.utils import (
     _load_json_or_yaml_string,
     _parse_recipe_from_md,
     deep_merge_dicts,
+    filter_dict,
     get_yaml_serializable_dict,
 )
 
@@ -86,6 +87,7 @@ class Recipe(BaseModel):
         cls,
         path_or_modifiers: Union[str, Modifier, List[Modifier], "Recipe"],
         modifier_group_name: Optional[str] = None,
+        target_stage: Optional[str] = None,
     ) -> "Recipe":
         """
         Create a recipe instance from a file, string, or RecipeModifier objects
@@ -100,7 +102,7 @@ class Recipe(BaseModel):
         ...             end: 2.0
         ...             targets: ['re:.*weight']
         ... '''
-        >>> recipe = Recipe.create_instance(recipe_str)
+        >>> recipe = Recipe.create_instance(recipe_str, target_stage="test_stage")
 
         :param path_or_modifiers: The path to the recipe file or
             or the recipe string (must be a valid
@@ -134,7 +136,7 @@ class Recipe(BaseModel):
             )
             logger.debug(f"Input string: {path_or_modifiers}")
             obj = _load_json_or_yaml_string(path_or_modifiers)
-            return Recipe.model_validate(obj)
+            return Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
@@ -156,7 +158,8 @@ class Recipe(BaseModel):
                     raise ValueError(
                         f"Could not parse recipe from path {path_or_modifiers}"
                     )
-            return Recipe.model_validate(obj)
+
+            return Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
 
     @model_validator(mode="before")
     @classmethod
@@ -188,41 +191,6 @@ class Recipe(BaseModel):
             "stage": stage,
             "modifiers": modifiers,
         }
-
-    @staticmethod
-    def simplify_recipe(
-        recipe: Optional["RecipeInput"] = None,
-        target_stage: Optional["RecipeStageInput"] = None,
-        override_args: Optional["RecipeArgsInput"] = None,
-    ) -> "Recipe":
-        """
-        Simplify a Recipe by removing stages that are not in the target_stages
-        and updating args if overrides are provided
-
-        :param recipe: The Recipe instance to simplify
-        :param target_stages: The stages to target when simplifying the recipe
-        :param override_args: The arguments used to override existing recipe args
-        :return: The simplified Recipe instance
-        """
-        if recipe is None or (isinstance(recipe, list) and len(recipe) == 0):
-            return Recipe()
-
-        # prepare recipe
-        else:
-            recipe = Recipe.create_instance(recipe)
-
-        # Filter modifiers based on target_stage
-        target_modifiers = []
-        if target_stage:
-            recipe.stage = target_stage
-            for modifier in recipe.modifiers:
-                if modifier["group"] in target_stage or modifier["group"] == "default":
-                    target_modifiers.append(modifier)
-            recipe.modifiers = target_modifiers
-        # Apply argument overrides if provided
-        if override_args:
-            recipe.args = {**recipe.args, **override_args}
-        return recipe
 
     def create_modifier(self) -> List[Modifier]:
         """

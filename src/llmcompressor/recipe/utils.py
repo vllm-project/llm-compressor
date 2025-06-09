@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -98,6 +98,19 @@ def get_yaml_serializable_dict(modifiers: List[Modifier], stage: str) -> Dict[st
     return stage_dict
 
 
+def filter_dict(obj: dict, target_stage: Optional[str] = None) -> dict:
+    """
+    Filter a dictionary to only include keys that match the target stage.
+
+    :param obj: The recipe dictionary to filter.
+    :param target_stage: The stage to filter by (e.g., 'test_stage').
+    :return: A new dictionary containing only the keys that match the target stage.
+    """
+    if not target_stage:
+        return obj
+    return {k: v for k, v in obj.items() if k.startswith(target_stage)}
+
+
 def deep_merge_dicts(d1: dict, d2: dict) -> dict:
     """
     Merge two recipe dicts by renaming top-level stage keys to numbered versions.
@@ -107,15 +120,22 @@ def deep_merge_dicts(d1: dict, d2: dict) -> dict:
 
     Always starts numbering from 0 even for the first occurrence.
     """
-    result = {}
-    stage_count = {}
-
-    for d in (d1, d2):
-        for key, val in d.items():
+    result = dict(d1)
+    for key, val in d2.items():
+        if key not in result:
+            result[key] = val
+        else:
+            # Stage key conflict — apply suffixes to both entries
             base_key = re.sub(r"_\d+$", "", key)
-            count = stage_count.get(base_key, 0)
-            new_key = f"{base_key}_{count}"
-            stage_count[base_key] = count + 1
-            result[new_key] = val
 
+            # Rename original if not yet renamed
+            if key == base_key:
+                result[f"{base_key}_0"] = result.pop(key)
+                result[f"{base_key}_1"] = val
+            else:
+                # Key was already suffixed, find next free index
+                i = 1
+                while f"{base_key}_{i}" in result:
+                    i += 1
+                result[f"{base_key}_{i}"] = val
     return result

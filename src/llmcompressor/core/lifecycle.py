@@ -90,10 +90,15 @@ class CompressionLifecycle:
             return
 
         logger.debug("Initializing compression lifecycle")
-        self.recipe = Recipe.simplify_recipe(
-            recipe=recipe, target_stage=recipe_stage, override_args=recipe_args
-        )
-        self.recipe.create_modifier()
+        if not recipe:
+            self.recipe = Recipe()
+        else:
+            self.recipe = Recipe.create_instance(
+                path_or_modifiers=recipe, target_stage=recipe_stage
+            )
+            if recipe_args:
+                self.recipe.args = {**recipe_args}
+            self.recipe.create_modifier()
 
         mod_data = []
         for mod in self.recipe.modifiers:
