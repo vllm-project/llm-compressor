@@ -13,8 +13,9 @@
 # limitations under the License.
 
 import logging
-from typing import Dict, Generator, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Dict, Generator, Optional, Set, Tuple
 
+import torch
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.utils import (
     get_nested_mappings_from_state_dict,
@@ -24,6 +25,10 @@ from compressed_tensors.utils import (
 from safetensors import safe_open
 from torch import Tensor
 from tqdm import tqdm
+
+
+if TYPE_CHECKING:
+    from compressed_tensors.quantization import QuantizationScheme
 
 
 __all__ = ["BaseSparseCompressor"]
@@ -200,3 +205,16 @@ class BaseSparseCompressor(BaseCompressor):
         return (
             name.endswith(".weight") and name[: -(len(".weight"))] in expanded_targets
         )
+
+    def decompress_module_from_state_dict(
+        self,
+        prefix: str,
+        state_dict: Dict[str, torch.Tensor],
+        scheme: "QuantizationScheme",
+    ) -> Dict[str, torch.Tensor]:
+        """
+        This function is implemented as a workaround because of how
+        `ModelCompressor.quantization_compressor` can be set to either
+        an instance of `BaseQuantizationCompressor` or `BaseSparseCompressor`.
+        """
+        return state_dict.copy()

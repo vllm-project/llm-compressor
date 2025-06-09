@@ -68,6 +68,10 @@ from transformers import AutoConfig
 from transformers.file_utils import CONFIG_NAME
 
 
+if TYPE_CHECKING:
+    from compressed_tensors.compressors import BaseQuantizationCompressor
+
+
 __all__ = ["ModelCompressor", "map_module_to_scheme"]
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -257,7 +261,9 @@ class ModelCompressor:
         self.sparsity_config = sparsity_config
         self.quantization_config = quantization_config
         self.sparsity_compressor = None
-        self.quantization_compressor = None
+        self.quantization_compressor: Optional[
+            Union[BaseQuantizationCompressor, DenseCompressor]
+        ] = None
 
         if sparsity_config is not None:
             self.sparsity_compressor = BaseCompressor.load_from_registry(
