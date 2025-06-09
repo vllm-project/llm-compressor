@@ -128,7 +128,7 @@ class SmoothQuantModifier(Modifier):
             )
 
         if (
-            not hasattr(state, 'calibration_dataloader') or 
+            not hasattr(state, 'calibration_dataloader') or
             state.calibration_dataloader is None
         ):
             raise ValueError(
