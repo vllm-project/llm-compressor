@@ -18,9 +18,7 @@ exclude = ["build", "dist", "env", ".venv", "src/llmcompressor/transformers/trac
 lint.select = ["E", "F", "W"]
 lint.extend-ignore = ["E203", "W605"]
 
-[tool.flake8]
-max-line-length = 88
-extend-ignore = 'E203'
+# for flake8 configuration, see `Makefile`
 
 [tool.pytest.ini_options]
 markers = [
