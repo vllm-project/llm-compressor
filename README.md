@@ -123,6 +123,9 @@ output = model.generate("My name is")
 
 ## Citation
 
+If you find LLM Compressor useful in your research or projects, please consider citing it:
+
+```bibtex
 @software{llmcompressor2024,
     title={{LLM Compressor}},
     author={Red Hat AI and vLLM Project},
@@ -130,3 +133,4 @@ output = model.generate("My name is")
     month={8},
     url={https://github.com/vllm-project/llm-compressor},
 }
+```
