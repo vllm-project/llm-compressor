@@ -12,11 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Generator, Tuple
+from typing import TYPE_CHECKING, Dict, Generator, Tuple
 
+import torch
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.config import CompressionFormat
 from torch import Tensor
+
+
+if TYPE_CHECKING:
+    from compressed_tensors.quantization import QuantizationScheme
 
 
 @BaseCompressor.register(name=CompressionFormat.dense.value)
@@ -47,3 +52,16 @@ class DenseCompressor(BaseCompressor):
     ) -> Generator[Tuple[str, Dict[str, Tensor]], None, None]:
         for key, value in state_dict.items():
             yield key, value
+
+    def decompress_module_from_state_dict(
+        self,
+        prefix: str,
+        state_dict: Dict[str, torch.Tensor],
+        scheme: "QuantizationScheme",
+    ) -> Dict[str, torch.Tensor]:
+        """
+        This function is implemented as a workaround because of how
+        `ModelCompressor.quantization_compressor` can be set to either
+        an instance of `BaseQuantizationCompressor` or `DenseCompressor`.
+        """
+        return state_dict.copy()
