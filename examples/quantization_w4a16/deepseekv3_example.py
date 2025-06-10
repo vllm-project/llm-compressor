@@ -1,8 +1,11 @@
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
+from llmcompressor.utils.module import DeepseekV3MoELinears, module_bfs
 
 # Select model and load it.
 model_id = "DeepSeek-V3_local_bf16"
@@ -10,16 +13,14 @@ model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 
-import torch
-
-
-from llmcompressor.utils.module import module_bfs, DeepseekV3MoELinears, DeepseekV3MoE
-
 def replace(module: torch.nn.Module) -> torch.nn.Module:
     if isinstance(module, DeepseekV3MoE):
-        return DeepseekV3MoELinears(module.config, module.experts, module.gate, module.shared_experts)
+        return DeepseekV3MoELinears(
+            module.config, module.experts, module.gate, module.shared_experts
+        )
 
     return module
+
 
 model = module_bfs(model, replace, progress=True)
 
