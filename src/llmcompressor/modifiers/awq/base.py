@@ -113,7 +113,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         requirements but requires more time to move data between cpu and execution
         device. Defaults to None, so cached args are not offloaded. Consider setting
         to torch.device("cpu") if you are encountering OOM errors
-    :param max_chunk_memory: maximum memory to use for each chunk of input activations
     :param duo_scaling: whether to use duo scaling, which uses both input activations
         and weights to determine the scaling factor
     """
@@ -125,7 +124,6 @@ class AWQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     mappings: Optional[List[AWQMapping]] = None
     offload_device: Optional[torch.device] = None
-    max_chunk_memory: int = 1024 * 1024 * 1024
     duo_scaling: bool = True
 
     # Private vars set during validation
@@ -477,7 +475,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # [STEP 3]: Compute output of module
                 # could cache from hook, rather than recomputing here
                 fp16_outputs = self._run_samples(parent_module)
-                if len(fp16_outputs) == 0 or fp16_outputs[0].numel() == 0:
+                if len(fp16_outputs) == 0 or all(f.numel() == 0 for f in fp16_outputs):
                     logger.info(
                         f"Skipping smooth_layer {mapping.smooth_name}, no activations "
                         "found to scale. This can occasionally occur in MoE models "
