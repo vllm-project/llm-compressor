@@ -73,7 +73,7 @@ class AutoWrapper(ast.NodeTransformer):
         Remove any deleted names from `self._local_names`,
         which are used to determine function wrapper arguments
         """
-        ret = super().visit_Delete(node)
+        ret = super().generic_visit(node)
 
         for target in node.targets:
             if isinstance(target, ast.Name):
@@ -180,15 +180,15 @@ class AutoWrapper(ast.NodeTransformer):
             return node
 
         if isinstance(node, ast.stmt):
-            logger.debug("---- Autowrapper ----")
-            logger.debug(ast.unparse(node))
-            logger.debug("---------------------")
+            print("---- Autowrapper ----")
+            print(ast.unparse(node))
+            print("---------------------")
             return self._wrap_stmt(node)
 
         elif isinstance(node, ast.expr):
-            logger.debug("---- Autowrapper ----")
-            logger.debug(ast.unparse(node))
-            logger.debug("---------------------")
+            print("---- Autowrapper ----")
+            print(ast.unparse(node))
+            print("---------------------")
             return self._wrap_expr(node)
 
         else:
