@@ -476,8 +476,8 @@ class AWQModifier(Modifier, QuantizationMixin):
             with calibration_forward_context(model), HooksMixin.disable_hooks():
                 # [STEP 3]: Compute output of module
                 # could cache from hook, rather than recomputing here
-                fp16_output = self._run_samples(parent_module)
-                if fp16_output.numel() == 0:
+                fp16_outputs = self._run_samples(parent_module)
+                if len(fp16_outputs) == 0 or fp16_outputs[0].numel() == 0:
                     logger.info(
                         f"Skipping smooth_layer {mapping.smooth_name}, no activations "
                         "found to scale. This can occasionally occur in MoE models "
@@ -490,7 +490,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
                 # [STEP 4]: Compute loss
                 best_scales = self._compute_best_scale(
-                    x_mean, w_mean, parent_module, balance_layers, fp16_output
+                    x_mean, w_mean, parent_module, balance_layers, fp16_outputs
                 )
 
             @torch.no_grad()
@@ -543,20 +543,17 @@ class AWQModifier(Modifier, QuantizationMixin):
             v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
-    def _run_samples(self, module: Module) -> torch.Tensor:
+    def _run_samples(self, module: Module) -> List[torch.Tensor]:
         with align_module_device(module):
             outputs = [
                 module(**batch_kwargs)
                 for batch_kwargs in self._parent_args_cache[module]
             ]
-            return torch.cat(
-                [
-                    # If Tuple, assume that first argument is the input
-                    output[0] if isinstance(output, Tuple) else output
-                    for output in outputs
-                ],
-                dim=0,
-            )
+            return [
+                # If Tuple, assume that first argument is the input
+                output[0] if isinstance(output, Tuple) else output
+                for output in outputs
+            ]
 
     def _compute_best_scale(
         self,
@@ -564,7 +561,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         w_mean: torch.Tensor,
         parent_module: torch.nn.Module,
         linears2scale: List[torch.nn.Linear],
-        fp16_output: torch.Tensor,
+        fp16_outputs: List[torch.Tensor],
     ) -> torch.Tensor:
         """
         Compute loss and select best scales
@@ -623,10 +620,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             # W * X
             with HooksMixin.disable_hooks():
-                int_w_output = self._run_samples(parent_module)
+                int_w_outputs = self._run_samples(parent_module)
 
             # compute mean squared error (L2 norm)
-            loss = self._compute_loss(fp16_output, int_w_output, device)
+            loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
 
             history.append(loss)
             if loss < best_error:
@@ -648,35 +645,25 @@ class AWQModifier(Modifier, QuantizationMixin):
     @torch.no_grad()
     def _compute_loss(
         self,
-        fp16_output: torch.Tensor,
-        int_w_output: torch.Tensor,
+        fp16_outputs: List[torch.Tensor],
+        int_w_outputs: List[torch.Tensor],
         device: torch.device,
     ) -> torch.Tensor:
         loss = 0.0
-        fp16_output_flat = fp16_output.view(-1)
-        int_w_output_flat = int_w_output.view(-1)
-        num_elements = fp16_output_flat.size(0)
-        element_size_bytes = fp16_output.element_size()
+        num_elements = 0
 
-        # Calculate chunk size dynamically based on max_chunk_memory
-        # Divide the max_chunk_memory by twice the element size
-        chunk_size = self.max_chunk_memory // (element_size_bytes * 2)
-        chunk_size = min(chunk_size, num_elements)
-
-        # Split the computation into chunks
-        fp16_chunks = torch.split(fp16_output_flat, chunk_size)
-        int_w_chunks = torch.split(int_w_output_flat, chunk_size)
-
-        # Compute the MSE loss for each chunk
-        for fp16_chunk, int_w_chunk in zip(fp16_chunks, int_w_chunks):
-            chunk_loss = (
-                (fp16_chunk.to(device) - int_w_chunk.to(device))
+        # Compute the MSE loss for each batch
+        for fp16_batch, int_w_batch in zip(fp16_outputs, int_w_outputs):
+            batch_loss = (
+                (fp16_batch.to(device) - int_w_batch.to(device))
+                .view(-1)
                 .float()
                 .pow(2)
                 .sum()
                 .item()
             )
-            loss += chunk_loss
+            loss += batch_loss
+            num_elements += fp16_batch.numel()
 
         # Normalize the loss by the total number of elements
         loss /= num_elements
