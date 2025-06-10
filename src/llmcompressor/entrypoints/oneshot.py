@@ -14,6 +14,8 @@ from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.pipelines import CalibrationPipeline
 
+from accelerate.hooks import remove_hook_from_module
+
 __all__ = ["Oneshot", "oneshot"]
 
 
@@ -130,6 +132,8 @@ class Oneshot:
             # TODO: consider renaming function similar to "offload_dispatch_model"
             # TODO: modify function to remove any hooks if they already exist (making
             # sure to move to cpu when removing hook
+            # TODO: remove hook in util
+            remove_hook_from_module(model_args.model, recurse=True)
             force_cpu_offload(model_args.model, model_args.oneshot_device)
         else:
             logger.warning("CUDA is not available! Compressing model on CPU instead")

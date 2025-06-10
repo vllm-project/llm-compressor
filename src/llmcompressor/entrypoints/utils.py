@@ -27,6 +27,7 @@ from llmcompressor.transformers.utils.helpers import (
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
+from accelerate.hooks import remove_hook_from_module
 
 
 def pre_process(model_args: "ModelArguments"):
@@ -104,6 +105,9 @@ def post_process(
             "`output_dir` as input arg."
             "Ex. `oneshot(..., output_dir=...)`"
         )
+
+    # Remove any existing hooks (maybe added by oneshot sequential onloading)
+    remove_hook_from_module(model_args.model, recurse=True)
 
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
