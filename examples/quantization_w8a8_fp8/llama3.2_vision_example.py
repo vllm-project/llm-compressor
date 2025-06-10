@@ -20,10 +20,7 @@ recipe = QuantizationModifier(
 )
 
 # Apply quantization.
-oneshot(
-    model=model,
-    recipe=recipe,
-)
+oneshot(model=model, recipe=recipe)
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"

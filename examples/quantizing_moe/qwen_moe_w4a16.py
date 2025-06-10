@@ -59,9 +59,6 @@ recipe = GPTQModifier(
     ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
 )
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
-
-
 oneshot(
     model=model,
     dataset=ds,
@@ -70,8 +67,12 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
     trust_remote_code_model=True,
-    output_dir=SAVE_DIR,
 )
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
 
 # Load model after saving
 model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")

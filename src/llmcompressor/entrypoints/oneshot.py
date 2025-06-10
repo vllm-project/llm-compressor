@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 import torch
+from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.utils import force_cpu_offload
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -13,8 +14,6 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.pipelines import CalibrationPipeline
-
-from accelerate.hooks import remove_hook_from_module
 
 __all__ = ["Oneshot", "oneshot"]
 

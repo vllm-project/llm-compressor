@@ -19,15 +19,11 @@ DATASET_SPLIT = "train"
 MAX_SEQ_LENGTH = 2048
 NUM_CALIBRATION_SAMPLES = 512
 
-# Save location of quantized model
-SAVE_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
-SAVE_COMPRESSED = True
-
+# Recipe
 layers_to_ignore: List[str] = [
     "lm_head",
     "re:.*block_sparse_moe.gate",  # does not quantize well
 ]
-
 recipe = QuantizationModifier(scheme="FP8", targets="Linear", ignore=layers_to_ignore)
 
 
@@ -39,9 +35,12 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQ_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    save_compressed=SAVE_COMPRESSED,
-    output_dir=SAVE_DIR,
 )
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
 
 # Load model after saving
 model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")

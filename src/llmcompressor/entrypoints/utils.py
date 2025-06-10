@@ -3,6 +3,7 @@ import os
 from pathlib import PosixPath
 from typing import Optional, Tuple
 
+from accelerate.hooks import remove_hook_from_module
 from loguru import logger
 from torch.nn import Module
 from transformers import (
@@ -27,7 +28,6 @@ from llmcompressor.transformers.utils.helpers import (
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
-from accelerate.hooks import remove_hook_from_module
 
 
 def pre_process(model_args: "ModelArguments"):
