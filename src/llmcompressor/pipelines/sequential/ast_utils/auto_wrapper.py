@@ -180,15 +180,15 @@ class AutoWrapper(ast.NodeTransformer):
             return node
 
         if isinstance(node, ast.stmt):
-            print("---- Autowrapper ----")
-            print(ast.unparse(node))
-            print("---------------------")
+            logger.debug("---- Autowrapper ----")
+            logger.debug(ast.unparse(node))
+            logger.debug("---------------------")
             return self._wrap_stmt(node)
 
         elif isinstance(node, ast.expr):
-            print("---- Autowrapper ----")
-            print(ast.unparse(node))
-            print("---------------------")
+            logger.debug("---- Autowrapper ----")
+            logger.debug(ast.unparse(node))
+            logger.debug("---------------------")
             return self._wrap_expr(node)
 
         else:
