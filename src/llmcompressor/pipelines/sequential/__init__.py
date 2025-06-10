@@ -1,2 +1,3 @@
 # flake8: noqa
-from .pipeline import run_pipeline
+from .helpers import get_targets_from_modifiers
+from .pipeline import *

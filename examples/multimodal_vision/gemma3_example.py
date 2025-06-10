@@ -1,15 +1,14 @@
 import requests
 import torch
 from PIL import Image
-from transformers import AutoProcessor
+from transformers import AutoProcessor, Gemma3ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.tracing import TraceableGemma3ForConditionalGeneration
 
 # Load model.
 model_id = "google/gemma-3-4b-it"
-model = TraceableGemma3ForConditionalGeneration.from_pretrained(
+model = Gemma3ForConditionalGeneration.from_pretrained(
     model_id, device_map="auto", torch_dtype="auto"
 )
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
@@ -64,8 +63,9 @@ prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
 image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
 raw_image = Image.open(requests.get(image_url, stream=True).raw)
 
+# Note: compile is disabled: https://github.com/huggingface/transformers/issues/38333
 inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda")
-output = model.generate(**inputs, max_new_tokens=100)
+output = model.generate(**inputs, max_new_tokens=100, disable_compile=True)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
 

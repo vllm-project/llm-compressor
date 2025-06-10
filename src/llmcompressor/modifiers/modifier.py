@@ -55,20 +55,6 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         return self.finalized_
 
-    def calculate_start(self) -> float:
-        """
-        Calculate and return the start epoch for the modifier.
-
-        :return: the start epoch for the modifier if set, else -1
-        """
-        return self.start if self.start is not None else -1
-
-    def calculate_end(self) -> float:
-        """
-        :return: the end epoch for the modifier if set, else -1
-        """
-        return self.end if self.end is not None else -1
-
     def initialize(self, state: State, **kwargs):
         """
         Initialize the modifier for the given model and state.
@@ -89,7 +75,7 @@ class Modifier(ModifierInterface, HooksMixin):
 
         self.initialized_ = self.on_initialize(state=state, **kwargs)
 
-        # trigger start
+        # trigger starts
         fake_start_event = Event(type_=EventType.BATCH_START, global_step=0)
         if self.should_start(fake_start_event):
             self.on_start(state, fake_start_event, **kwargs)
@@ -103,8 +89,8 @@ class Modifier(ModifierInterface, HooksMixin):
         :param state: The current state of the model
         :param kwargs: Additional arguments for finalizing the modifier
         """
-        if self.finalized_ or not self.initialized_:
-            return
+        if self.finalized_:
+            raise RuntimeError("cannot finalize a modifier twice")
 
         if not self.initialized_:
             raise RuntimeError("cannot finalize an uninitialized modifier")

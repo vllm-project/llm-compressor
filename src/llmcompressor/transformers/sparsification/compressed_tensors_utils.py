@@ -2,7 +2,7 @@ import os
 import re
 import weakref
 from functools import wraps
-from typing import Dict, Optional
+from typing import Optional
 
 import torch
 import transformers
@@ -91,43 +91,27 @@ def modify_save_pretrained(model: PreTrainedModel):
             # https://github.com/huggingface/transformers/pull/30488
             transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
 
-            # state_dict gets passed in as a kwarg for FSDP models
-            state_dict = kwargs.pop("state_dict", None)
-            if state_dict is None:
-                logger.info("Fetching state_dict - this may take some time")
-                state_dict = get_state_dict_offloaded_model(model)
-
-            logger.info("Fetching compressor")
+            # compress model using compressor
             compressor = get_model_compressor(
                 model=model,
                 sparsity_config=sparsity_config,
                 quantization_format=quantization_format,
                 save_compressed=save_compressed,
                 skip_sparsity_compression_stats=skip_sparsity_compression_stats,
-                state_dict=state_dict,
                 disable_sparse_compression=disable_sparse_compression,
             )
+            if compressor is not None:
+                compressor.compress_model(model)
 
-            if compressor is None:
-                # model is not compressed or quantized, save as normal
-                original_save_pretrained_func = original_save_pretrained.__get__(
-                    model, model_class
-                )
-                original_save_pretrained_func(
-                    save_directory, state_dict=state_dict, **kwargs
-                )
-                return
+            # save (compressed) model structure
+            original_save_pretrained.__get__(model, model_class)(
+                save_directory,
+                safe_serialization=safe_serialization,
+                **kwargs,
+            )
 
-            # make sure we're on the main process when saving
-            if state_dict is not None and len(state_dict) > 0:
-                compressed_state_dict = compressor.compress(model, state_dict)
-                logger.info("Saving compressed model to disk")
-                original_save_pretrained.__get__(model, model_class)(
-                    save_directory,
-                    state_dict=compressed_state_dict,
-                    safe_serialization=safe_serialization,
-                    **kwargs,
-                )
+            # update config to reflect compression
+            if compressor is not None:
                 compressor.update_config(save_directory)
 
             # update existing recipe
@@ -136,11 +120,11 @@ def modify_save_pretrained(model: PreTrainedModel):
             # copy python files from cache dir to save_path if any
             copy_python_files_from_model_cache(model, save_directory)
 
-        save_pretrained_wrapper._overriden = True
+        save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
 
     # wrap save_pretrained if not already
-    if not getattr(model.save_pretrained, "_overriden", False):
+    if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
@@ -195,7 +179,6 @@ def get_model_compressor(
     quantization_format: Optional[str] = None,
     save_compressed: bool = True,
     skip_sparsity_compression_stats: bool = True,
-    state_dict: Optional[Dict] = None,
     disable_sparse_compression: bool = False,
 ):
     """
@@ -209,12 +192,8 @@ def get_model_compressor(
     :param save_compressed: boolean representing to save in a compressed
         format
     :param skip_sparsity_compression_stats: bool allowing compression stats on std out
-    :param state_dict: state_dict of the model
     :param disable_sparse_compression: bool to skip sparse compression
     """
-    # find offloaded state dict if none is provided
-    if state_dict is None:
-        state_dict = get_state_dict_offloaded_model(model)
 
     if sparsity_config is None:
         """
@@ -242,6 +221,8 @@ def get_model_compressor(
             )
             sparsity_config = None
         else:
+            state_dict = get_state_dict_offloaded_model(model)
+
             sparsity_config = SparsityConfigMetadata.from_pretrained(
                 model,
                 state_dict=state_dict,
@@ -297,7 +278,7 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
     if existing_recipe is not None:
         recipes_to_save.append(existing_recipe)
 
-    new_recipe = active_session().lifecycle.recipe_container.compiled_recipe
+    new_recipe = active_session().lifecycle.recipe
     if new_recipe is not None:
         recipes_to_save.append(new_recipe)
 
