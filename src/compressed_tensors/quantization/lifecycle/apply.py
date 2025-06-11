@@ -183,9 +183,7 @@ def apply_quantization_config(
                         replace_module(model, name, compressed_linear)
 
             # target matched - add layer and scheme to target list
-            submodule.quantization_scheme = _scheme_from_targets(
-                target_to_scheme, targets, name
-            )
+            submodule.quantization_scheme = scheme
 
             names_to_scheme[name] = submodule.quantization_scheme
 
