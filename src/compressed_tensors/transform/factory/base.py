@@ -97,7 +97,7 @@ class TransformFactory(RegistryMixin, ABC):
         :param args: defines how the transform will be applied to the target module
         """
         # create transform as submodule
-        transform_name = f"{self.name}_{args.location}"
+        transform_name = f"{self.name}_{args.location.value}"
         transform = self.create_transform(module, args)
         register_offload_module(module, transform_name, transform)  # (1)
 
