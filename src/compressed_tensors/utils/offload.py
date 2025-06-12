@@ -14,27 +14,29 @@
 """
 Utilities associated with offloading functionality provided by `accelerate`.
 
-| ----------------------------------------------------------------------------------------------------- | # noqa: E501
-| Operation | Without offloading support             | With offloading support                          | # noqa: E501
-| --------- | -------------------------------------- | ------------------------------------------------ | # noqa: E501
-| Add       | module.register_parameter(name, param) | register_offload_parameter(module, name, param)  | # noqa: E501
-| Check     | N/A                                    | has_offloaded_params(module)                     | # noqa: E501
-| Onload    | N/A                                    | with align_module_device(module)                 | # noqa: E501
-| Update    | module.name.data.copy_(new_data)       | update_offload_parameter(module, name, new_data) | # noqa: E501
-| Delete    | del module.name                        | delete_offload_parameter(module, name)           | # noqa: E501
-| ----------------------------------------------------------------------------------------------------- | # noqa: E501
+| ------------------------------------------------------------------------------------------------------ | # noqa: E501
+| Operation  | Without offloading support             | With offloading support                          | # noqa: E501
+| ---------- | -------------------------------------- | ------------------------------------------------ | # noqa: E501
+| Add        | module.register_parameter(name, param) | register_offload_parameter(module, name, param)  | # noqa: E501
+| Check      | N/A                                    | has_offloaded_params(module)                     | # noqa: E501
+| Onload     | N/A                                    | with align_module_device(module)                 | # noqa: E501
+| Update     | module.name.data.copy_(new_data)       | update_offload_parameter(module, name, new_data) | # noqa: E501
+| Delete     | del module.name                        | delete_offload_parameter(module, name)           | # noqa: E501
+| Add Module | module.register_module(name, child)    | register_offload_module(name, child)             | # noqa: E501
+| Del Module | del module.name                        | delete_offload_module(module, name)              | # noqa: E501
+| ------------------------------------------------------------------------------------------------------ | # noqa: E501
 """
 
 import contextlib
 import warnings
 from functools import wraps
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Union
+from operator import attrgetter
+from typing import Any, Callable, Dict, Iterable, Literal, Optional, Union
 
 import torch
 
 
 try:
-    from accelerate import dispatch_model
     from accelerate.hooks import (
         AlignDevicesHook,
         add_hook_to_module,
@@ -45,10 +47,12 @@ try:
     from accelerate.utils import (
         OffloadedWeightsLoader,
         PrefixedDataset,
+        find_tied_parameters,
         set_module_tensor_to_device,
     )
 
     _has_accelerate = True
+
 except ImportError:
     _has_accelerate = False
     AlignDevicesHook = None
@@ -58,8 +62,8 @@ except ImportError:
     PrefixedDataset = None
     set_module_tensor_to_device = None
     named_module_tensors = None
-    dispatch_model = None
     attach_align_device_hook = None
+    find_tied_parameters = None
 
 
 __all__ = [
@@ -78,14 +82,13 @@ __all__ = [
     "align_module_device",
     "register_offload_module",
     "delete_offload_module",
-    "force_cpu_offload",
+    "offloaded_dispatch",
 ]
 
 
 def check_accelerate(fallback: Any):
     def decorator(func: Callable[[Any], Any]):
         if not _has_accelerate:
-
             if fallback == "error":
 
                 @wraps(func)
@@ -479,46 +482,44 @@ def delete_offload_module(base: torch.nn.Module, name: str):
 
 
 @check_accelerate(fallback="error")
-def force_cpu_offload(
-    module: torch.nn.Module, execution_device: torch.device
+def offloaded_dispatch(
+    module: torch.nn.Module,
+    execution_device: torch.device,
+    offload_device: Union[torch.device, Literal["disk"]] = torch.device("cpu"),
 ) -> torch.nn.Module:
     """
-    Force cpu offloading a module, primarily used for testing
+    Unlike `dispatch_model`, this function forces a module (and its submodules) to
+    offload all parameters and replace them with meta tensors, utiliizing the
+    `AlignDevicesHook` to control onloading and offloading.
 
     :param module: module containing parameters to offload
-    :param execution_device: execution device submodules
-    :return: module with hooks to perform cpu offloading
+    :param execution_device: device that modules will onload and execute on
+    :param offload_device: device that module parameters will offload to
+    :return: module with offloading device hooks
     """
-    # edge case: there is a bug in `dispatch_model` which causes
-    # the function to only work if the model contains submodules
-    if next(module.children(), None) is None:
-        attach_align_device_hook(
-            module,
-            execution_device=execution_device,
-            offload=True,
-            weights_map=module.state_dict(),
-            tied_params_map={},
-        )
-        return module
+    if offload_device == "disk":
+        raise NotImplementedError("Disk offloading is not currently supported")
 
-    device_map = {}
+    # create weights map
+    weights_map = OffloadedWeightsLoader(state_dict=module.state_dict(), device="cpu")
 
-    def collect_device_map(name: List[str], module: torch.nn.Module):
-        if next(module.parameters(recurse=False), None) is not None:
-            device_map[".".join(name)] = "cpu"
-            return
+    # create tied params map
+    tied_params = find_tied_parameters(module)
+    tied_params_map = {}
+    for group in tied_params:
+        for param_name in group:
+            data_ptr = attrgetter(param_name)(module).data_ptr()
+            tied_params_map[data_ptr] = {}
 
-        else:
-            for submodule_name, submodule in module.named_children():
-                name.append(submodule_name)
-                collect_device_map(name, submodule)
-                name.pop()
-
-    collect_device_map([], module)
-
-    return dispatch_model(
-        module, device_map, main_device=execution_device, force_hooks=True
+    # recursively attaches hooks to all submodules
+    attach_align_device_hook(
+        module,
+        execution_device=execution_device,
+        offload=True,
+        weights_map=weights_map,
+        tied_params_map=tied_params_map,
     )
+    return module
 
 
 """ Upstreamed Functions """

@@ -19,7 +19,7 @@ from compressed_tensors.transform import (
     TransformFactory,
     TransformScheme,
 )
-from compressed_tensors.utils import align_modules, force_cpu_offload
+from compressed_tensors.utils import offloaded_dispatch
 from tests.testing_utils import requires_accelerate, requires_gpu
 
 
@@ -75,7 +75,7 @@ def test_correctness_model(scheme, offload=False):
     # load model
     model = TransformableModel(2, 4, 8, 16, 32, 64)
     if offload:
-        model = force_cpu_offload(model, torch.device("cuda"))
+        model = offloaded_dispatch(model, torch.device("cuda"))
 
     # create factory
     scheme.apply = [
