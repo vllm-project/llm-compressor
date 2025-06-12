@@ -58,7 +58,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = [
     TransformModifier(),
-    GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+    GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
 # Apply algorithms.
