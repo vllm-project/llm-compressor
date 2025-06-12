@@ -2,7 +2,7 @@ import contextlib
 import logging
 import os
 import tempfile
-from typing import Type
+from typing import Type, Dict, Any, Union
 
 import torch
 from huggingface_hub import snapshot_download
@@ -10,10 +10,12 @@ from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
 from transformers.modeling_utils import TORCH_INIT_FUNCTIONS
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, WEIGHTS_INDEX_NAME
+from accelerate import dispatch_model, infer_auto_device_map
+from accelerate.utils import get_balanced_memory
 
 from llmcompressor.utils.helpers import patch_attr
 
-__all__ = ["skip_weights_download", "patch_transformers_logger_level"]
+__all__ = ["skip_weights_download", "patch_transformers_logger_level", "dispatch_for_generation"]
 
 
 @contextlib.contextmanager
@@ -106,3 +108,14 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
     transformers_logger.setLevel(level=level)
     yield
     transformers_logger.setLevel(level=restore_log_level)
+
+
+def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
+    max_memory = get_balanced_memory(
+        model,
+        dtype=model.dtype,
+        no_split_module_classes=model._get_no_split_modules("auto")
+    )
+    device_map = infer_auto_device_map(model, dtype=model.dtype, max_memory=max_memory)
+
+    return dispatch_model(model, device_map=device_map)
