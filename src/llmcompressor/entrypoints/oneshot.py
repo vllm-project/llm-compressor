@@ -128,10 +128,6 @@ class Oneshot:
 
         # offload to cpu if possible
         if "cuda" in str(model_args.oneshot_device) and torch.cuda.is_available():
-            # TODO: consider renaming function similar to "offload_dispatch_model"
-            # TODO: modify function to remove any hooks if they already exist (making
-            # sure to move to cpu when removing hook
-            # TODO: remove hook in util
             remove_hook_from_module(model_args.model, recurse=True)
             force_cpu_offload(model_args.model, model_args.oneshot_device)
         else:

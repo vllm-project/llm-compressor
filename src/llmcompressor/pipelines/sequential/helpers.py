@@ -28,7 +28,7 @@ __all__ = [
     "trace_subgraphs",
     "Subgraph",
     "get_targets_from_modifiers",
-    "keep_onload_context",
+    "disable_offloading",
 ]
 
 
@@ -494,7 +494,11 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
 
 @contextlib.contextmanager
-def keep_onload_context():
+def disable_offloading():
+    """
+    Keep modules onloaded and disable offloading until this context exits.
+    Affects modules which have been hooked with accelerate's `AlignDevicesHook`
+    """
     original_pre_forward = AlignDevicesHook.pre_forward
     onloaded_modules = dict()
 
