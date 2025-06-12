@@ -1,11 +1,12 @@
 from typing import Dict, Optional
 
+from compressed_tensors.transform import TransformScheme, apply_transform_config
+
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 
-from compressed_tensors.transform import TransformConfig, TransformScheme, TransformFactory
-
 from .template.quip import QUIP
+
 
 class TransformModifier(Modifier):
     preset_config: Optional[str] = None
@@ -18,11 +19,8 @@ class TransformModifier(Modifier):
             # import config template and customize to model
             pass
 
-        
-        #config = TransformConfig(config_groups=self.config_groups)
+        # config = TransformConfig(config_groups=self.config_groups)
         config = QUIP
 
-        # TODO: use CT-provided apply_transform_config
-        for name, scheme in config.config_groups.items():
-            factory = TransformFactory.from_scheme(scheme, name=name)
-            factory.apply_to_model(state.model)
+        apply_transform_config(state.model, config)
+        breakpoint()

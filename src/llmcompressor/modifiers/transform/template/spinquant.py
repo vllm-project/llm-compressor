@@ -1,5 +1,4 @@
-from compressed_tensors.transform import TransformArgs, TransformScheme, TransformConfig
-
+from compressed_tensors.transform import TransformArgs, TransformConfig, TransformScheme
 
 LLAMA_SPINQUANT = TransformConfig(
     transform_groups={

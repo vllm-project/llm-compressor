@@ -1,10 +1,9 @@
-from compressed_tensors.transform import TransformArgs, TransformScheme, TransformConfig
-
+from compressed_tensors.transform import TransformArgs, TransformConfig, TransformScheme
 
 QUIP = TransformConfig(
     config_groups={
         "v": TransformScheme(
-            type="hadamard",
+            type="random-hadamard",
             apply=[
                 TransformArgs(
                     targets=["Linear"],
@@ -21,7 +20,7 @@ QUIP = TransformConfig(
             randomize=True,
         ),
         "u": TransformScheme(
-            type="hadamard",
+            type="random-hadamard",
             apply=[
                 TransformArgs(
                     targets=["Linear"],
@@ -32,7 +31,7 @@ QUIP = TransformConfig(
                     targets=["Linear"],
                     location="output",  # non-mergable
                     inverse=True,
-                    ignore="lm_head"
+                    ignore="lm_head",
                 ),
             ],
             randomize=True,
