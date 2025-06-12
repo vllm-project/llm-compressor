@@ -141,7 +141,7 @@ def hessian_memory_requirements(model: torch.nn.Module) -> int:
     return (max_total_hessian_elems + inverse_reserved) * bytes_per_weight
 
 
-def quantization_memory_requirement(model: torch.nn.Module) -> int:
+def quantization_memory_requirement(model: torch.nn.Module, group_size: int = 128, memory_multiplier: int = 4) -> int:
     """
     Determines the max number of bytes needed to store quantization scale and zp data
 
@@ -157,12 +157,12 @@ def quantization_memory_requirement(model: torch.nn.Module) -> int:
                 # TODO: base this on the recipe instead instead of assuming max
 
                 # potentially just bias term
-                max_quant_shape = param.shape[0] // 128
+                max_quant_shape = param.shape[0] // group_size
 
                 if len(param.size()) > 1:  # weights
                     max_quant_shape *= param.shape[1]
 
-                total_elements += max_quant_shape * 4
+                total_elements += max_quant_shape * memory_multiplier
 
     bytes_ratio = 32 // 16  # assuming float16
     return total_elements * bytes_ratio
@@ -211,6 +211,8 @@ def calculate_offload_device_map(
     num_gpus: int = 1,
     torch_dtype: torch.dtype = torch.float16,
     model_cls: Type = AutoModelForCausalLM,
+    group_size: int = 128,
+    memory_multiplier: int = 4,
     **model_kwargs,
 ) -> Dict[Union[int, str], Union[int, str]]:
     """
@@ -243,7 +245,7 @@ def calculate_offload_device_map(
         reserved_memory = 0
         if reserve_for_hessians:
             reserved_memory = hessian_memory_requirements(dummy_model)
-        reserved_memory += quantization_memory_requirement(dummy_model)
+        reserved_memory += quantization_memory_requirement(dummy_model, group_size=group_size, memory_multiplier=memory_multiplier)
 
         memory_limits = {
             idx: (max_memory - reserved_memory)
