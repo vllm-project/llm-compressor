@@ -13,46 +13,48 @@
 # limitations under the License.
 
 
-import numpy
 import pytest
 import torch
 from compressed_tensors.transform.utils.hadamard import (
-    _get_had12,
-    _get_had20,
     deterministic_hadamard_matrix,
+    is_pow2,
     random_hadamard_matrix,
 )
+from tests.testing_utils import requires_gpu
 
 
-@pytest.mark.parametrize(
-    "had_func",
-    [
-        _get_had12,
-        _get_had20,
-    ],
-)
-def test_packed_hadamard_compliant(had_func):
-    had_matrix = had_func()
-    size = had_matrix.size(0)
-    # HH.T == nI
-    product = had_matrix @ had_matrix.T
-    assert torch.equal(product, size * torch.eye(size))
+_sizes_to_test = [
+    768,  # gpt2 small
+    1024,  # gpt2 medium
+    1280,  # qwen_2_5_vl vision
+    1600,  # gpt2 xl
+    2048,  # gpt3 small
+    3584,  # qwen_2_5_vl
+    3840,  # qwen_2_5_vl vision qkv
+    4096,  # llama3
+    7168,  # deepseek_v3
+    14336,  # llama3 intermediate
+    18432,  # deepseek_v3 intermediate
+    18944,  # qwen_2_5_vl intermediate
+]
+_atol = 1e-1  # bfloat16 is low precision for large matrices
 
 
-@pytest.mark.parametrize(
-    "size",
-    [4096, 2048],
-)
+@requires_gpu
+@pytest.mark.parametrize("size", _sizes_to_test)
 def test_random_hadamard_matrix_compliant(size):
-    had_matrix = random_hadamard_matrix(size)
-    product = torch.round(had_matrix @ had_matrix.T)
-    assert torch.equal(product, torch.eye(size))
+    # (H / sqrt(n))(H.T / sqrt(n)) == I
+    matrix = random_hadamard_matrix(size, device="cuda")
+    product = matrix @ matrix.T
+    eye = torch.eye(size, dtype=product.dtype, device="cuda")
+    assert torch.allclose(product, eye, atol=_atol)
 
 
 def test_random_hadamard_generator():
+    # check that generation is deterministic with a seed
     generator = torch.Generator().manual_seed(42)
-    one = random_hadamard_matrix(2048, generator)
-    two = random_hadamard_matrix(2048, generator)
+    one = random_hadamard_matrix(2048, gen=generator)
+    two = random_hadamard_matrix(2048, gen=generator)
 
     one_true = torch.tensor(
         [
@@ -73,12 +75,16 @@ def test_random_hadamard_generator():
     assert torch.all(two[:3, :3].sign() == two_true.sign())
 
 
-@pytest.mark.parametrize(
-    "size",
-    [1024],
-)
+@requires_gpu
+@pytest.mark.parametrize("size", _sizes_to_test)
 def test_deterministic_hadamard_compliant(size):
-    had_matrix = deterministic_hadamard_matrix(size)
+    if not is_pow2(size):
+        with pytest.raises(ValueError):
+            matrix = deterministic_hadamard_matrix(size, device="cuda")
+        return
+
     # (H / sqrt(n))(H.T / sqrt(n)) == I
-    product = had_matrix @ had_matrix.T
-    assert numpy.array_equal(product, numpy.eye(size))
+    matrix = deterministic_hadamard_matrix(size, device="cuda")
+    product = matrix @ matrix.T
+    eye = torch.eye(size, dtype=product.dtype, device="cuda")
+    assert torch.allclose(product, eye, atol=_atol)

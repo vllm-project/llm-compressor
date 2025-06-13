@@ -59,7 +59,7 @@ class HadamardFactory(TransformFactory):
         return HadamardTransform(weight, args)
 
     def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
-        data = deterministic_hadamard_matrix(size)
+        data = deterministic_hadamard_matrix(size, dtype, device)
         data = data.to(dtype=dtype, device=device)
         return Parameter(data, requires_grad=self.scheme.requires_grad)
 

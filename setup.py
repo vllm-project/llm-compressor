@@ -113,5 +113,6 @@ setup(
     extras_require=_setup_extras(),
     install_requires=_setup_install_requires(),
     package_dir={"": "src"},
+    package_data={"": ["transform/utils/hadamards.safetensors"]},
     packages=_setup_packages(),
 )
