@@ -31,9 +31,10 @@ import contextlib
 import warnings
 from functools import wraps
 from operator import attrgetter
-from typing import Any, Callable, Dict, Iterable, Literal, Optional, Union
+from typing import Any, Callable, Dict, Iterable, Literal, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.utils import patch_attr
 
 
 try:
@@ -83,6 +84,7 @@ __all__ = [
     "register_offload_module",
     "delete_offload_module",
     "offloaded_dispatch",
+    "disable_offloading",
 ]
 
 
@@ -214,7 +216,7 @@ def register_offload_parameter(
 def update_offload_parameter(
     module: torch.nn.Module,
     name: str,
-    data: Optional[torch.Tensor],
+    data: torch.Tensor,
     offload_device: Optional[Union[torch.device, Literal["disk"]]] = None,
 ):
     """
@@ -227,7 +229,7 @@ def update_offload_parameter(
     :param offload_device: device on which weight will be offloaded to. If None is
         provided, then infer device from parameters on module
     """
-    param = getattr(module, name)
+    param: torch.nn.Parameter = getattr(module, name)
     if param.data.shape != data.shape:
         warnings.warn(
             f"Shape of parameter being updated {param.data.shape} does not match shape "
@@ -235,7 +237,7 @@ def update_offload_parameter(
         )
 
     # copy data into onloaded parameter if applicable
-    if param.device != torch.device("meta"):
+    if param.device != torch.device("meta") and data is not param.data:
         param.data.copy_(data)
 
     # update offload dict
@@ -501,7 +503,9 @@ def offloaded_dispatch(
         raise NotImplementedError("Disk offloading is not currently supported")
 
     # create weights map
-    weights_map = OffloadedWeightsLoader(state_dict=module.state_dict(), device="cpu")
+    state_dict = module.state_dict()
+    state_dict = {key: val.to(offload_device) for key, val in state_dict.items()}
+    weights_map = OffloadedWeightsLoader(state_dict=state_dict, device=offload_device)
 
     # create tied params map
     tied_params = find_tied_parameters(module)
@@ -520,6 +524,36 @@ def offloaded_dispatch(
         tied_params_map=tied_params_map,
     )
     return module
+
+
+@contextlib.contextmanager
+def disable_offloading():
+    """
+    Keep modules onloaded and disable offloading until this context exits.
+    Affects modules which have been hooked with accelerate's `AlignDevicesHook`
+    """
+    original_pre_forward = AlignDevicesHook.pre_forward
+    onloaded_modules: Dict[torch.nn.Module, Tuple[AlignDevicesHook, bool]] = dict()
+
+    # onload once and disable any future onloading/offloading steps
+    def keep_onload_pre_forward(self: AlignDevicesHook, module, *args, **kwargs):
+        ret = original_pre_forward(self, module, *args, **kwargs)
+        if module not in onloaded_modules:
+            onloaded_modules[module] = (self, self.offload)
+            self.offload = False
+        return ret
+
+    # use the patched pre_forward function within the context
+    with patch_attr(AlignDevicesHook, "pre_forward", keep_onload_pre_forward):
+        yield
+
+    # manually offload all modules that were onloaded
+    # update any parameters which may have changed
+    for module, (hook, offload) in onloaded_modules.items():
+        hook.offload = offload
+        for name, param in module.named_parameters():
+            update_offload_parameter(module, name, param.data)
+        hook.post_forward(module, None)
 
 
 """ Upstreamed Functions """

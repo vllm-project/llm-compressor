@@ -19,6 +19,7 @@ from compressed_tensors.utils import (
     delete_offload_module,
     delete_offload_parameter,
     disable_hf_hook,
+    disable_offloading,
     get_execution_device,
     has_offloaded_params,
     offloaded_dispatch,
@@ -397,15 +398,23 @@ def test_delete_offload_module(exec_device):
 
 @requires_gpu
 @requires_accelerate()
-@pytest.mark.parametrize("exec_device", [torch.device("cpu"), torch.device("cuda")])
-def test_offloaded_dispatch(exec_device):
+@pytest.mark.parametrize(
+    "exec_device,offload_device",
+    [
+        (torch.device("cpu"), torch.device("cpu")),
+        (torch.device("cpu"), torch.device("cuda:0")),
+        (torch.device("cuda:0"), torch.device("cpu")),
+        (torch.device("cuda:0"), torch.device("cuda:0")),
+    ],
+)
+def test_offloaded_dispatch(exec_device, offload_device):
     # single module
-    module = torch.nn.Linear(1, 2)
-    module = offloaded_dispatch(module, exec_device)
+    module = torch.nn.Linear(1, 2, device=offload_device)
+    module = offloaded_dispatch(module, exec_device, offload_device)
     assert has_offloaded_params(module)
     assert module._hf_hook.offload
     assert module.weight.device == torch.device("meta")
-    assert "weight" in module._hf_hook.weights_map
+    assert module._hf_hook.weights_map["weight"].device == offload_device
     assert module._hf_hook.tied_params_map is not None
 
     # can run
@@ -413,13 +422,13 @@ def test_offloaded_dispatch(exec_device):
 
     # model
     model = ExampleModel()
-    model = offloaded_dispatch(model, exec_device)
+    model = offloaded_dispatch(model, exec_device, offload_device)
     assert not has_offloaded_params(model)
 
     assert has_offloaded_params(model.linear)
     assert model.linear._hf_hook.offload
     assert model.linear.weight.device == torch.device("meta")
-    assert "weight" in model.linear._hf_hook.weights_map
+    assert model.linear._hf_hook.weights_map["weight"].device == offload_device
     assert model.linear._hf_hook.tied_params_map is not None
 
     # can run
@@ -429,4 +438,43 @@ def test_offloaded_dispatch(exec_device):
     parameter = torch.nn.Parameter(torch.tensor(1.0))
     register_offload_parameter(module, "new_param", parameter)
     assert module.new_param.device == torch.device("meta")
-    assert module._hf_hook.weights_map["new_param"].device == torch.device("cpu")
+    assert module._hf_hook.weights_map["new_param"].device == offload_device
+
+
+@requires_gpu
+@requires_accelerate()
+@pytest.mark.parametrize(
+    "exec_device,offload_device",
+    [
+        (torch.device("cpu"), torch.device("cpu")),
+        (torch.device("cpu"), torch.device("cuda:0")),
+        (torch.device("cuda:0"), torch.device("cpu")),
+        (torch.device("cuda:0"), torch.device("cuda:0")),
+    ],
+)
+def test_disable_offloading(exec_device, offload_device):
+    module = torch.nn.Linear(1, 2, device=exec_device)
+
+    # non-offloaded modules are unaffected
+    with disable_offloading():
+        output = module(torch.empty(1, device=exec_device))
+        assert module.weight.device == exec_device
+        assert output.device == exec_device
+
+    # offloaded modules stay on device until context exit
+    offloaded_dispatch(module, exec_device, offload_device)
+    assert module.weight.device == torch.device("meta")
+    assert module._hf_hook.weights_map["weight"].device == offload_device
+
+    with disable_offloading():
+        assert module.weight.device == torch.device("meta")
+        output = module(torch.empty(1, device=exec_device))
+        assert module.weight.device == exec_device
+        assert output.device == exec_device
+
+        output = module(torch.empty(1, device=exec_device))
+        assert module.weight.device == exec_device
+        assert output.device == exec_device
+
+    assert module.weight.device == torch.device("meta")
+    assert module._hf_hook.weights_map["weight"].device == offload_device
