@@ -57,14 +57,13 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the activations to int8 (dynamic per token)
 recipe = GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
 
-# 4) Apply quantization and save to disk compressed.
+# 4) Apply quantization
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    output_dir=MODEL_ID.split("/")[1] + "-INT8",
 )
 
 # Confirm generations of the quantized model look sane.
@@ -76,3 +75,8 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cud
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
+
+# 5) Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
