@@ -120,3 +120,17 @@ output = model.generate("My name is")
 
 - If you have any questions or requests open an [issue](https://github.com/vllm-project/llm-compressor/issues) and we will add an example or documentation.
 - We appreciate contributions to the code, examples, integrations, and documentation as well as bug reports and feature requests! [Learn how here](CONTRIBUTING.md).
+
+## Citation
+
+If you find LLM Compressor useful in your research or projects, please consider citing it:
+
+```bibtex
+@software{llmcompressor2024,
+    title={{LLM Compressor}},
+    author={Red Hat AI and vLLM Project},
+    year={2024},
+    month={8},
+    url={https://github.com/vllm-project/llm-compressor},
+}
+```

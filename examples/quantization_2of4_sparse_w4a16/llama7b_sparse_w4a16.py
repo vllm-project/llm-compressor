@@ -90,8 +90,8 @@ quantized_model.save_pretrained(
 tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
 logger.info(
-    "llmcompressor does not currently support running ",
+    "llmcompressor does not currently support running "
     "compressed models in the marlin24 format. "
-    "The model produced from this example can be ",
-    "run on vLLM with dtype=torch.float16.",
+    "The model produced from this example can be "
+    "run on vLLM with dtype=torch.float16."
 )
