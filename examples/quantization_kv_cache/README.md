@@ -127,7 +127,7 @@ print(tokenizer.decode(output[0]))
 Save the quantized model:
 
 ```python
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-KV"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-KV"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 ```

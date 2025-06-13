@@ -37,6 +37,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # 4) Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
