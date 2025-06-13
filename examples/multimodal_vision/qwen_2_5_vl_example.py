@@ -77,7 +77,7 @@ recipe = [
         targets="Linear",
         scheme="W4A16",
         sequential_targets=["Qwen2_5_VLDecoderLayer"],
-        ignore=["lm_head", "re:visual.*"],
+        ignore=["lm_head", "re:visual.*", "re:model.visual.*"],
     ),
 ]
 
