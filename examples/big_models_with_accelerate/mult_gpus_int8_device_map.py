@@ -68,7 +68,7 @@ recipe = [
     ),
 ]
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-INT8"
 
 oneshot(
     model=model,

@@ -88,6 +88,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-quantized.w4a16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
