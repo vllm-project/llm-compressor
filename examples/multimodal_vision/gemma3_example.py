@@ -5,6 +5,7 @@ from transformers import AutoProcessor, Gemma3ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # Load model.
 model_id = "google/gemma-3-4b-it"
@@ -46,16 +47,9 @@ oneshot(
     data_collator=data_collator,
 )
 
-# Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-processor.save_pretrained(SAVE_DIR)
-
-# Load model after saving
-model = Gemma3ForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
-
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 messages = [
     {
         "role": "user",
@@ -74,3 +68,8 @@ inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda"
 output = model.generate(**inputs, max_new_tokens=100, disable_compile=True)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
+
+# Save to disk compressed.
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)

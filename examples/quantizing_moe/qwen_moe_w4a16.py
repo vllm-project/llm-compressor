@@ -4,6 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
@@ -69,17 +70,15 @@ oneshot(
     trust_remote_code_model=True,
 )
 
-# Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
-
-# Load model after saving
-model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
-
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)

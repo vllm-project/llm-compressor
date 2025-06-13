@@ -2,6 +2,7 @@ from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 MODEL_ID = "Qwen/Qwen2-VL-7B-Instruct"
 
@@ -19,20 +20,18 @@ recipe = QuantizationModifier(
     ignore=["re:.*lm_head", "re:visual.*"],
 )
 
-# Apply quantization.
+# Apply quantization and save to disk in compressed-tensors format.
 oneshot(model=model, recipe=recipe)
-
-# Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
-model.save_pretrained(SAVE_DIR)
-processor.save_pretrained(SAVE_DIR)
-
-# Load model after saving
-model = Qwen2VLForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))
 print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)

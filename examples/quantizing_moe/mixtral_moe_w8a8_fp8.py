@@ -5,9 +5,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
-NUM_GPUS = 2
 
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -37,18 +37,11 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-# Save to disk in compressed-tensors format.
-SAVE_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
-
-# Load model after saving
-model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
-
 # Confirm generations of the quantized model look sane.
 # Generation is broken for deepseek models when using the latest transformers package
 if Version(__version__) < Version("4.48"):
     print("========== SAMPLE GENERATION ==============")
+    dispatch_for_generation(model)
     input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
     output = model.generate(input_ids, max_new_tokens=20)
     print(tokenizer.decode(output[0]))
@@ -58,3 +51,8 @@ else:
         "WARNING: cannot perform sample generation of "
         "deepseek models with transformers >= 4.48"
     )
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = f"{MODEL_ID.split('/')[-1]}-FP8"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)

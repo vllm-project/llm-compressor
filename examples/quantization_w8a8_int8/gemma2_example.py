@@ -3,6 +3,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # 1) Select model and load it.
 MODEL_ID = "google/gemma-2-2b-it"
@@ -53,26 +54,27 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the activations to int8 (dynamic per token)
 recipe = GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
 
-# 4) Apply quantization and save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
+# 4) Apply quantization
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    output_dir=SAVE_DIR,
 )
-
-# Load model after saving
-model = AutoModelForCausalLM.from_pretrained(SAVE_DIR, device_map="auto")
 
 # Confirm generations of the quantized model look sane.
 # NOTE: transformers 4.49.0 results in a generation error with gemma2.
 # Consider either downgrading your transformers version to a previous version
 # or use vLLM for sample generation.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
+
+# 5) Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
