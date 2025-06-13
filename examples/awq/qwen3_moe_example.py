@@ -8,9 +8,7 @@ from llmcompressor.utils.dev import dispatch_for_generation
 # Select model and load it.
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
