@@ -3,6 +3,7 @@ import os
 from pathlib import PosixPath
 from typing import Optional, Tuple
 
+from accelerate.hooks import remove_hook_from_module
 from loguru import logger
 from torch.nn import Module
 from transformers import (
@@ -16,7 +17,7 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor.args import ModelArguments, RecipeArguments, TrainingArguments
 from llmcompressor.core import reset_session
-from llmcompressor.pytorch.model_load.helpers import fallback_to_cpu, parse_dtype
+from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
     patch_tied_tensors_bug,
@@ -104,6 +105,9 @@ def post_process(
             "`output_dir` as input arg."
             "Ex. `oneshot(..., output_dir=...)`"
         )
+
+    # Remove any existing hooks (maybe added by oneshot sequential onloading)
+    remove_hook_from_module(model_args.model, recurse=True)
 
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
@@ -193,20 +197,12 @@ def initialize_model_from_path(
         else model_args.model_name_or_path
     )
 
-    # Fallback to CPU if GPU requested and not available
-    model_args.oneshot_device = fallback_to_cpu(model_args.oneshot_device)
-
-    device_map = model_args.oneshot_device
-    if training_args is not None and training_args.do_train:
-        device_map = "auto"
-
     model_kwargs = {
         "config": config,
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
         "torch_dtype": parse_dtype(model_args.precision),
-        "device_map": device_map,
         "trust_remote_code": model_args.trust_remote_code_model,
     }
 
@@ -216,10 +212,7 @@ def initialize_model_from_path(
             run_compressed=False
         )
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        **model_kwargs,
-    )
+    model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
     if "sequence_length" in model_kwargs:
         model.seqlen = model_kwargs["sequence_length"]
 

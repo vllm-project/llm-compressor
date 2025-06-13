@@ -34,7 +34,6 @@ from llmcompressor.utils.pytorch.module import get_layer_by_name, get_layers
 __all__ = ["AWQModifier"]
 
 
-# TODO (Brian INFERENG-531) Add support for offloaded models
 class AWQModifier(Modifier, QuantizationMixin):
     """
     Implements the AWQ (Activation-Weighted Quantization) algorithm,

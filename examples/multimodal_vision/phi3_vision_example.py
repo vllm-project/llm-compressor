@@ -7,12 +7,12 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    device_map="auto",
     torch_dtype="auto",
     trust_remote_code=True,
     _attn_implementation="eager",
@@ -92,6 +92,7 @@ oneshot(
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))

@@ -3,14 +3,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # 1) Select model and load it.
 MODEL_ID = "google/gemma-2-2b-it"
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # 2) Prepare calibration dataset.
@@ -71,6 +68,7 @@ oneshot(
 # Consider either downgrading your transformers version to a previous version
 # or use vLLM for sample generation.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))

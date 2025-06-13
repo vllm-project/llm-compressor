@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 import torch
 import tqdm
+from compressed_tensors.utils import disable_offloading
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
@@ -54,6 +56,16 @@ class LayerSequentialPipeline(CalibrationPipeline):
         """
         session = active_session()
 
+        # check for offloading
+        if model.device != torch.device("meta"):
+            logger.warning(
+                "Attemping to use sequential pipeline with a model which is not "
+                "offloaded to the cpu. Deploying a model in this way may lead to more "
+                "memory usage than is required. It is recommended to set "
+                '`oneshot_device="cuda"` or call `force_cpu_offload` on your model '
+                "before compressing"
+            )
+
         # find layers
         modifiers = session.get_modifiers()
         sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
@@ -73,29 +85,34 @@ class LayerSequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({layer_index + 1}/{num_layers}): Calibrating"
                 prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
-                # do a preliminary pass to trigger modifier hooks
-                for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                    inputs = intermediates.fetch(batch_idx)
-                    layer(**inputs)
-
-                LifecycleCallbacks.sequential_epoch_end()
-
-                # this pass does not trigger modifier hooks
-                # and is only used for capturing outputs from newly compressed modules
-                with HooksMixin.disable_hooks():
-                    for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=prop_desc):
+                # reduce memory movement by keeping modules onloaded
+                with disable_offloading():
+                    # do a preliminary pass to trigger modifier hooks
+                    for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                         inputs = intermediates.fetch(batch_idx)
-                        output = layer(**inputs)
+                        layer(**inputs)
 
-                        if layer_index < num_layers - 1:
-                            next_layer = layers[layer_index + 1]
-                            output = to_next_layer_kwargs(output, next_layer)
-                            output = maybe_inject_pos_embeddings(
-                                output, next_layer, inputs
-                            )
+                    LifecycleCallbacks.sequential_epoch_end()
 
-                            intermediates.delete(batch_idx)
-                            intermediates.update(batch_idx, output)
+                    # this pass does not trigger modifier hooks
+                    # and is only used for capturing outputs from
+                    # newly compressed modules
+                    with HooksMixin.disable_hooks():
+                        for batch_idx in tqdm.tqdm(
+                            range(len(dataloader)), desc=prop_desc
+                        ):
+                            inputs = intermediates.fetch(batch_idx)
+                            output = layer(**inputs)
+
+                            if layer_index < num_layers - 1:
+                                next_layer = layers[layer_index + 1]
+                                output = to_next_layer_kwargs(output, next_layer)
+                                output = maybe_inject_pos_embeddings(
+                                    output, next_layer, inputs
+                                )
+
+                                intermediates.delete(batch_idx)
+                                intermediates.update(batch_idx, output)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

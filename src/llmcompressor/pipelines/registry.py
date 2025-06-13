@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 __all__ = ["CalibrationPipeline"]
 
 SEQUENTIAL_MODIFIERS = (AWQModifier, GPTQModifier, SparsityModifierBase)
+CALIBRATION_MODIFIERS = (SmoothQuantModifier, *SEQUENTIAL_MODIFIERS)
 
 
 class CalibrationPipeline(ABC, RegistryMixin):
@@ -60,7 +61,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
 
     @staticmethod
     def _validate_infer_pipeline(modifiers: List[Modifier]) -> str:
-        if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
+        if any(isinstance(modifier, CALIBRATION_MODIFIERS) for modifier in modifiers):
             return "sequential"
 
         active_qmods = _get_active_quant_modifiers(modifiers)
@@ -75,12 +76,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
             quant_modifier = active_qmods[0]
             config = quant_modifier.resolve_quantization_config()
             if config.requires_calibration_data():
-                return "basic"
-            else:
-                return "datafree"
-
-        if any(isinstance(modifier, SmoothQuantModifier) for modifier in modifiers):
-            return "basic"
+                return "sequential"
 
         return "datafree"
 

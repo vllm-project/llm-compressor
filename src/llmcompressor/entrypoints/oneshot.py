@@ -2,6 +2,9 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import torch
+from accelerate.hooks import remove_hook_from_module
+from compressed_tensors.utils import offloaded_dispatch
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel
@@ -10,7 +13,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
-from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -122,6 +125,13 @@ class Oneshot:
 
         # initialize the model and processor
         pre_process(model_args)
+
+        # offload to cpu if possible
+        if "cuda" in str(model_args.oneshot_device) and torch.cuda.is_available():
+            remove_hook_from_module(model_args.model, recurse=True)
+            offloaded_dispatch(model_args.model, model_args.oneshot_device)
+        else:
+            logger.warning("CUDA is not available! Compressing model on CPU instead")
 
         # Set instance attributes
         self.model = self.model_args.model
