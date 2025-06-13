@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.utils import get_execution_device
+from compressed_tensors.utils import disable_offloading, get_execution_device
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -11,7 +11,6 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
-    disable_offloading,
     get_targets_from_modifiers,
     trace_subgraphs,
 )

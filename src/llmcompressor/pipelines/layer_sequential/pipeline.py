@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import tqdm
+from compressed_tensors.utils import disable_offloading
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
@@ -15,10 +16,7 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     to_next_layer_kwargs,
 )
 from llmcompressor.pipelines.registry import CalibrationPipeline
-from llmcompressor.pipelines.sequential.helpers import (
-    disable_offloading,
-    get_targets_from_modifiers,
-)
+from llmcompressor.pipelines.sequential.helpers import get_targets_from_modifiers
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
