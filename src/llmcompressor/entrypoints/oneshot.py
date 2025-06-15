@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import Optional
 
 import torch
-from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.utils import offloaded_dispatch
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -128,8 +127,9 @@ class Oneshot:
 
         # offload to cpu if possible
         if "cuda" in str(model_args.oneshot_device) and torch.cuda.is_available():
-            remove_hook_from_module(model_args.model, recurse=True)
-            offloaded_dispatch(model_args.model, model_args.oneshot_device)
+            offloaded_dispatch(
+                model_args.model, execution_device=model_args.oneshot_device
+            )
         else:
             logger.warning("CUDA is not available! Compressing model on CPU instead")
 

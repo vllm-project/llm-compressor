@@ -104,33 +104,6 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
     return None
 
 
-def quantization_memory_requirement(model: torch.nn.Module) -> int:
-    """
-    Determines the max number of bytes needed to store quantization scale and zp data
-
-    :param model: model to calculate requirements for
-    :return: number of bytes required to reserve for quantization
-    """
-
-    total_elements = 0
-    for _, module in model.named_modules():
-        if isinstance(module, Linear):
-            for param in module.parameters():
-                # assume the max of group 128 and static scale/zp
-                # TODO: base this on the recipe instead instead of assuming max
-
-                # potentially just bias term
-                max_quant_shape = param.shape[0] // 128
-
-                if len(param.size()) > 1:  # weights
-                    max_quant_shape *= param.shape[1]
-
-                total_elements += max_quant_shape * 4
-
-    bytes_ratio = 32 // 16  # assuming float16
-    return total_elements * bytes_ratio
-
-
 def infer_sparse_targets_and_ignores(
     model: torch.nn.Module,
     sparsity_structure: str,

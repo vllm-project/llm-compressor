@@ -3,7 +3,6 @@ import os
 from pathlib import PosixPath
 from typing import Optional, Tuple
 
-from accelerate.hooks import remove_hook_from_module
 from loguru import logger
 from torch.nn import Module
 from transformers import (
@@ -105,9 +104,6 @@ def post_process(
             "`output_dir` as input arg."
             "Ex. `oneshot(..., output_dir=...)`"
         )
-
-    # Remove any existing hooks (maybe added by oneshot sequential onloading)
-    remove_hook_from_module(model_args.model, recurse=True)
 
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
