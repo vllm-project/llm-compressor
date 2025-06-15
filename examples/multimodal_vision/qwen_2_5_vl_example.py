@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
-DATASET_SPLIT = {"calibration": "test[:512]"}
+DATASET_SPLIT = "test[:512]"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -90,6 +90,14 @@ oneshot(
     data_collator=data_collator,
 )
 
+# Save to disk compressed.
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)
+
+# Load model after saving
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
+
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
@@ -119,9 +127,3 @@ inputs = processor(
 output = model.generate(**inputs, max_new_tokens=100)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
-
-
-# Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-processor.save_pretrained(SAVE_DIR)

@@ -16,10 +16,13 @@ files = "src/guidellm"
 [tool.ruff]
 exclude = ["build", "dist", "env", ".venv", "src/llmcompressor/transformers/tracing/"]
 lint.select = ["E", "F", "W"]
+lint.extend-ignore = ["E203", "W605"]
 
+# flake8 configuration is non-functional, only exists for vscode extensions
+# for the true flake8 configuration, see `Makefile`
 [tool.flake8]
 max-line-length = 88
-extend-ignore = 'E203'
+extend-ignore = ["E203", "W605"]
 
 [tool.pytest.ini_options]
 markers = [
