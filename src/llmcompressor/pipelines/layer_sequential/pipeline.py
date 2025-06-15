@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import tqdm
+from compressed_tensors.utils import disable_offloading
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
@@ -15,10 +16,7 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     to_next_layer_kwargs,
 )
 from llmcompressor.pipelines.registry import CalibrationPipeline
-from llmcompressor.pipelines.sequential.helpers import (
-    get_targets_from_modifiers,
-    keep_onload_context,
-)
+from llmcompressor.pipelines.sequential.helpers import get_targets_from_modifiers
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -88,7 +86,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
                 prop_desc = f"({layer_index + 1}/{num_layers}): Propagating"
 
                 # reduce memory movement by keeping modules onloaded
-                with keep_onload_context():
+                with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
                         inputs = intermediates.fetch(batch_idx)

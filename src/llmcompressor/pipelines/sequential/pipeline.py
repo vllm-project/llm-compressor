@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.utils import get_execution_device
+from compressed_tensors.utils import disable_offloading, get_execution_device
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -12,7 +12,6 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     get_targets_from_modifiers,
-    keep_onload_context,
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -86,7 +85,7 @@ class SequentialPipeline(CalibrationPipeline):
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
                 # reduce memory movement by keeping modules onloaded
-                with keep_onload_context():
+                with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
                         inputs = activations.fetch(batch_idx, subgraph.input_names)

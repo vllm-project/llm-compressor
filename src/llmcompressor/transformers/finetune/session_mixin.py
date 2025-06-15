@@ -363,7 +363,7 @@ class SessionManagerMixIn:
         self,
         output_dir: str,
         _internal_call: bool = False,
-        skip_sparsity_compression_stats: Optional[bool] = False,
+        skip_sparsity_compression_stats: Optional[bool] = True,
     ):
         """
         Override of the save_model function and expects it to exist in the parent.
@@ -388,6 +388,8 @@ class SessionManagerMixIn:
             self.model.prepare_for_save()  # TODO: move to finalize
 
         # save checkpoint
+        # note that skip_sparsity_compression_stats
+        # is True by default to avoid high runtime cost
         self.save_state()
         if self.accelerator.is_main_process:
             processor = getattr(self, "processing_class", self.tokenizer)

@@ -5,6 +5,7 @@ from transformers import AutoProcessor, Gemma3ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # Load model.
 model_id = "google/gemma-3-4b-it"
@@ -29,7 +30,11 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["re:*.lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        ignore=[
+            "lm_head",
+            "re:model\.vision_tower.*",
+            "re:model\.multi_modal_projector.*",
+        ],
     ),
 ]
 
@@ -56,6 +61,7 @@ model = Gemma3ForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="aut
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 messages = [
     {
         "role": "user",

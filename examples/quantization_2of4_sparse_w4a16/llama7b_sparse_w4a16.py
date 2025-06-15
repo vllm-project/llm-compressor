@@ -3,6 +3,7 @@ from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot, train
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # load the model in as bfloat16 to save on memory and compute
 model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
@@ -69,6 +70,7 @@ oneshot_applied_model = oneshot(
 )
 
 # Sparse finetune
+dispatch_for_generation(model)
 finetune_applied_model = train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
@@ -77,6 +79,7 @@ finetune_applied_model = train(
 )
 
 # Oneshot quantization
+model.to("cpu")
 quantized_model = oneshot(
     model=finetune_applied_model,
     **oneshot_kwargs,

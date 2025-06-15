@@ -8,6 +8,7 @@ from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # Load model.
 model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
@@ -16,7 +17,7 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
-DATASET_SPLIT = {"calibration": "test[:512]"}
+DATASET_SPLIT = "test[:512]"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -99,6 +100,7 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(SAVE_DIR, device_map=
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 messages = [
     {
         "role": "user",

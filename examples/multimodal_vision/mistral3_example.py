@@ -8,6 +8,7 @@ from transformers import AutoProcessor, Mistral3ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # Load model.
 model_id = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
@@ -60,16 +61,9 @@ oneshot(
     data_collator=data_collator,
 )
 
-# Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-processor.save_pretrained(SAVE_DIR)
-
-# Load model after saving
-model = Mistral3ForConditionalGeneration.from_pretrained(SAVE_DIR, device_map="auto")
-
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 messages = [
     {
         "role": "user",
@@ -88,3 +82,8 @@ inputs["pixel_values"] = inputs["pixel_values"].to(model.dtype)  # fix dtype
 output = model.generate(**inputs, max_new_tokens=100)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
+
+# Save to disk compressed.
+SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+processor.save_pretrained(SAVE_DIR)

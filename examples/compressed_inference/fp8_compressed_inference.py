@@ -19,7 +19,11 @@ SAMPLE_INPUT = [
     "def fibonacci(n):",
 ]
 
-compressed_model = AutoModelForCausalLM.from_pretrained(MODEL_STUB, torch_dtype="auto")
+compressed_model = AutoModelForCausalLM.from_pretrained(
+    MODEL_STUB,
+    torch_dtype="auto",
+    device_map="cuda:0",
+)
 
 # tokenize the sample data
 tokenizer = AutoTokenizer.from_pretrained(MODEL_STUB)

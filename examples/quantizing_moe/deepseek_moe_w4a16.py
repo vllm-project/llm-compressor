@@ -4,6 +4,7 @@ from packaging.version import Version
 from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
 from llmcompressor import oneshot
+from llmcompressor.utils.dev import dispatch_for_generation
 
 # NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
 # Please consider either downgrading your transformers version to a
@@ -73,6 +74,7 @@ oneshot(
 # Generation is broken for deepseek models when using the latest transformers package
 if Version(__version__) < Version("4.48"):
     print("========== SAMPLE GENERATION ==============")
+    dispatch_for_generation(model)
     input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
     output = model.generate(input_ids, max_new_tokens=20)
     print(tokenizer.decode(output[0]))
