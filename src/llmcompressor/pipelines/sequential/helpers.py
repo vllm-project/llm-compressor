@@ -437,7 +437,7 @@ def get_sequential_targets(
     ]
 
     # deprecation warning
-    if len(modifier_targets) > 1:
+    if len(modifier_targets) >= 1:
         logger.warning(
             "Passing sequential targets through modifiers is deprecated, "
             "please use `oneshot(sequential_targets=...)`"
