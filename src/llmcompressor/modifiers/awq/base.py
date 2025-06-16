@@ -543,8 +543,9 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     def _get_flattened_output(self, module: Module) -> torch.Tensor:
         """
-        Returns output of running cached batch inputs through module
-        Output tensor is 1D, as shapes aren't necessary for calculating loss
+        Returns output of running cached batch inputs through module.
+        Outputs from all batches are concatenated and flattened into a 1D tensor,
+        as shapes aren't necessary for calculating loss.
         """
         with align_module_device(module):
             outputs = [
@@ -665,7 +666,9 @@ def _compute_loss(
     fp16_output: torch.Tensor,
     int_w_output: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute MSE loss for each batch"""
+    """
+    Compute MSE loss over the flattened output of all batches
+    """
     return (fp16_output - int_w_output).view(-1).float().pow(2).mean()
 
 
