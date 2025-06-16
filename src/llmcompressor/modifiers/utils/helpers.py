@@ -72,10 +72,11 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 )
             ).reshape([1])
 
-            update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
-            update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
-            update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
-            del global_scale
+        update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
+        update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
+        update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
+
+        del global_scale
 
     if _is_mlp_module(submodule):
         if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
@@ -91,10 +92,7 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 )
             ).reshape([1])
 
-            update_parameter_data(
-                submodule.gate_proj, global_scale, "weight_global_scale"
-            )
-            update_parameter_data(
-                submodule.up_proj, global_scale, "weight_global_scale"
-            )
-            del global_scale
+        update_parameter_data(submodule.gate_proj, global_scale, "weight_global_scale")
+        update_parameter_data(submodule.up_proj, global_scale, "weight_global_scale")
+
+        del global_scale
