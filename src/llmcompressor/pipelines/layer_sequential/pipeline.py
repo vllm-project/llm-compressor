@@ -16,7 +16,7 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     to_next_layer_kwargs,
 )
 from llmcompressor.pipelines.registry import CalibrationPipeline
-from llmcompressor.pipelines.sequential.helpers import get_targets_from_modifiers
+from llmcompressor.pipelines.sequential.helpers import get_sequential_targets
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
 
         # find layers
         modifiers = session.get_modifiers()
-        sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
+        sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
         layers = match_modules(model, sequential_targets)
 
         LifecycleCallbacks.calibration_epoch_start()
