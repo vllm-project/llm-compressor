@@ -5,7 +5,6 @@ import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors.quantization.utils import iter_named_leaf_modules, module_type
 from compressed_tensors.utils import align_module_device
-from torch.nn.modules import Linear
 from tqdm import tqdm
 
 from llmcompressor.pytorch.utils import get_linear_layers

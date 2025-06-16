@@ -30,7 +30,11 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["re:*.lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        ignore=[
+            "lm_head",
+            "re:model\.vision_tower.*",
+            "re:model\.multi_modal_projector.*",
+        ],
     ),
 ]
 
@@ -70,6 +74,6 @@ print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)

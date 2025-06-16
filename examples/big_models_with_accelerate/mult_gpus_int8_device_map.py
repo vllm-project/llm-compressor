@@ -1,24 +1,32 @@
+import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
 
-# Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
+
+# adjust based off number of desired GPUs
+# reserve_for_hessians=True reserves memory which is required by
+# GPTQModifier and SparseGPTModifier
+device_map = calculate_offload_device_map(
+    MODEL_ID, num_gpus=1, reserve_for_hessians=True, torch_dtype=torch.bfloat16
+)
+
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16
+)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
+
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
@@ -50,34 +58,24 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# Configure algorithms. In this case, we:
-#   * apply SmoothQuant to make the activations easier to quantize
-#   * quantize the weights to int8 with GPTQ (static per channel)
-#   * quantize the activations to int8 (dynamic per token)
+# define a llmcompressor recipe for W8A8 quantization
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
-    GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+    GPTQModifier(
+        targets="Linear",
+        scheme="W8A8",
+        ignore=["lm_head"],
+    ),
 ]
 
-# Apply algorithms and save to output_dir
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-INT8"
+
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    save_compressed=True,
+    output_dir=SAVE_DIR,
 )
-
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
-
-# Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W8A8-Dynamic-Per-Token"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)

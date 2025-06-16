@@ -3,21 +3,27 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils.dev import dispatch_for_generation
 
-# 1) Select model and load it.
-MODEL_ID = "google/gemma-2-2b-it"
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W8A8-Dynamic"
+
+# 1) Load model (device_map="auto" with shard the model over multiple GPUs!).
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID,
+    device_map="auto",
+    torch_dtype="auto",
+    trust_remote_code=True,
+)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# 2) Prepare calibration dataset.
+# 2) Prepare calibration dataset (in this case, we use ultrachat).
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
+MAX_SEQUENCE_LENGTH = 1024
 
 # Load dataset and preprocess.
 ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
@@ -49,32 +55,24 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# 3) Select quantization algorithms. In this case, we:
+# 3) Configure algorithms. In this case, we:
 #   * quantize the weights to int8 with GPTQ (static per channel)
 #   * quantize the activations to int8 (dynamic per token)
-recipe = GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"])
+recipe = [
+    GPTQModifier(
+        targets="Linear", scheme="W8A8", ignore=["lm_head"], dampening_frac=0.1
+    ),
+]
 
-# 4) Apply quantization
+# 4) Apply algorithms and save in `compressed-tensors` format.
+# if you encounter GPU out-of-memory issues, consider using an explicit
+# device map (see multi_gpus_int8_device_map.py)
 oneshot(
     model=model,
+    tokenizer=tokenizer,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    output_dir=SAVE_DIR,
 )
-
-# Confirm generations of the quantized model look sane.
-# NOTE: transformers 4.49.0 results in a generation error with gemma2.
-# Consider either downgrading your transformers version to a previous version
-# or use vLLM for sample generation.
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
-print(tokenizer.decode(output[0]))
-print("==========================================")
-
-# 5) Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-INT8"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)

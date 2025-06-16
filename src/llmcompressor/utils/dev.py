@@ -6,6 +6,7 @@ from typing import Type
 
 import torch
 from accelerate import dispatch_model, infer_auto_device_map
+from accelerate.hooks import remove_hook_from_module
 from accelerate.utils import get_balanced_memory
 from huggingface_hub import snapshot_download
 from safetensors.torch import save_file
@@ -115,6 +116,7 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
 
 
 def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
+    remove_hook_from_module(model, recurse=True)
     max_memory = get_balanced_memory(
         model,
         dtype=model.dtype,

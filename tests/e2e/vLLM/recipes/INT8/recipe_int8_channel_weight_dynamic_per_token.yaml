@@ -3,7 +3,7 @@ quant_stage:
     SmoothQuantModifier:
       smoothing_strength: 0.8
     GPTQModifier:
-      ignore: ["lm_head", "re:vision_tower.*", "re:multi_modal_projector.*", "re:visual.*", "re:vision_model.*"]
+      ignore: ["lm_head", "re:vision_tower.*", "re:multi_modal_projector.*", "re:visual.*", "re:vision_model.*", "re:model.visual.*"]
       config_groups:
         group_0:
           weights: {num_bits: 8, type: int, symmetric: true, strategy: channel}
