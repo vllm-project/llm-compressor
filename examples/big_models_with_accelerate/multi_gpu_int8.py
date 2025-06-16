@@ -5,7 +5,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W8A8-Dynamic"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W8A8-Dynamic"
 
 # 1) Load model (device_map="auto" with shard the model over multiple GPUs!).
 model = AutoModelForCausalLM.from_pretrained(

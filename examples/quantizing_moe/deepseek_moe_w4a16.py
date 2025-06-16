@@ -70,9 +70,6 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # list so they remain at full precision
 recipe = "deepseek_recipe_w4a16.yaml"
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16"
-
-
 oneshot(
     model=model,
     dataset=ds,
@@ -81,7 +78,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
     trust_remote_code_model=True,
-    output_dir=SAVE_DIR,
 )
 
 # Confirm generations of the quantized model look sane.
@@ -97,6 +93,11 @@ else:
         "WARNING: cannot perform sample generation of "
         "deepseek models with transformers >= 4.48"
     )
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
 
 
 # Run the model on vLLM

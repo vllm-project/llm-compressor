@@ -70,9 +70,6 @@ recipe = GPTQModifier(
     ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
 )
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-quantized.w4a16"
-
-
 oneshot(
     model=model,
     dataset=ds,
@@ -81,7 +78,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     save_compressed=True,
     trust_remote_code_model=True,
-    output_dir=SAVE_DIR,
 )
 
 # Confirm generations of the quantized model look sane.
@@ -90,3 +86,8 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cud
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-quantized.w4a16"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
