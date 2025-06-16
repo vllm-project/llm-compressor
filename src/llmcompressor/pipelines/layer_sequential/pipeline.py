@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 import torch
 import tqdm
 from compressed_tensors.utils import disable_offloading
-from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
@@ -16,7 +15,10 @@ from llmcompressor.pipelines.layer_sequential.helpers import (
     to_next_layer_kwargs,
 )
 from llmcompressor.pipelines.registry import CalibrationPipeline
-from llmcompressor.pipelines.sequential.helpers import get_sequential_targets
+from llmcompressor.pipelines.sequential.helpers import (
+    dispatch_for_sequential,
+    get_sequential_targets,
+)
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -56,15 +58,8 @@ class LayerSequentialPipeline(CalibrationPipeline):
         """
         session = active_session()
 
-        # check for offloading
-        if model.device != torch.device("meta"):
-            logger.warning(
-                "Attemping to use sequential pipeline with a model which is not "
-                "offloaded to the cpu. Deploying a model in this way may lead to more "
-                "memory usage than is required. It is recommended to set "
-                '`oneshot_device="cuda"` or call `force_cpu_offload` on your model '
-                "before compressing"
-            )
+        # prepare model for sequential onloading
+        dispatch_for_sequential(model)
 
         # find layers
         modifiers = session.get_modifiers()

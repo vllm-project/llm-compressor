@@ -82,7 +82,10 @@ class ModelArguments:
     )
     oneshot_device: Optional[str] = field(
         default="cuda",
-        metadata={"help": "Device to run oneshot calibration on"},
+        metadata={
+            "help": "This argument is deprecated and nonfunctional "
+            "and will be removed in future release"
+        },
     )
     model_revision: str = field(
         default="main",

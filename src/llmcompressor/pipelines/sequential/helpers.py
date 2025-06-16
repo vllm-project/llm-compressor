@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 import torch
-from compressed_tensors import has_offloaded_params
+from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.quantization import find_name_or_class_matches
+from compressed_tensors.utils import has_offloaded_params, offloaded_dispatch
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
@@ -26,7 +27,12 @@ from .ast_helpers import autowrap_forwards
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
-__all__ = ["trace_subgraphs", "Subgraph", "get_sequential_targets"]
+__all__ = [
+    "trace_subgraphs",
+    "Subgraph",
+    "get_sequential_targets",
+    "dispatch_for_sequential",
+]
 
 
 @dataclass
@@ -503,3 +509,22 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     is_ancestor(model)
     return ancestors
+
+
+def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
+    """
+    Dispatch a model for sequential calibration using a sequential pipeline.
+    The model will be offloaded to the CPU and dispatched to CUDA device if available.
+    Removes any existing hooks.
+
+    :param model: model to dispatch
+    :return: dispatched model
+    """
+    remove_hook_from_module(model, recurse=True)
+
+    if torch.cuda.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
+    else:
+        logger.warning("CUDA is not available! Compressing model on CPU instead")
+
+    return model
