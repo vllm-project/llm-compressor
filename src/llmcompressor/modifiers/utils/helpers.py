@@ -2,7 +2,11 @@ from typing import List
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.utils import align_modules, update_parameter_data
+from compressed_tensors.utils import (
+    align_module_device,
+    align_modules,
+    update_parameter_data,
+)
 from torch.nn import Linear, Module
 
 __all__ = ["update_fused_layer_weight_global_scales"]
@@ -72,10 +76,16 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 )
             ).reshape([1])
 
-            update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
+        with align_module_device(submodule.k_proj):
             update_parameter_data(submodule.k_proj, global_scale, "weight_global_scale")
+
+        with align_module_device(submodule.q_proj):
+            update_parameter_data(submodule.q_proj, global_scale, "weight_global_scale")
+
+        with align_module_device(submodule.v_proj):
             update_parameter_data(submodule.v_proj, global_scale, "weight_global_scale")
-            del global_scale
+
+        del global_scale
 
     if _is_mlp_module(submodule):
         if not _valid_tensor_group_quant([submodule.gate_proj, submodule.up_proj]):
@@ -91,10 +101,14 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
                 )
             ).reshape([1])
 
+        with align_module_device(submodule.gate_proj):
             update_parameter_data(
                 submodule.gate_proj, global_scale, "weight_global_scale"
             )
+
+        with align_module_device(submodule.up_proj):
             update_parameter_data(
                 submodule.up_proj, global_scale, "weight_global_scale"
             )
-            del global_scale
+
+        del global_scale
