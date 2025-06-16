@@ -10,7 +10,7 @@ from compressed_tensors import (
     ModelCompressor,
     SparsityCompressionConfig,
     delete_offload_parameter,
-    is_module_offloaded,
+    has_offloaded_params,
     register_offload_parameter,
 )
 from loguru import logger
@@ -138,7 +138,7 @@ def untie_word_embeddings(model: PreTrainedModel):
             continue
 
         # this could be replaced by a `get_offloaded_parameter` util
-        if not is_module_offloaded(module):
+        if not has_offloaded_params(module):
             untied_data = module.weight.data.clone()
         else:
             untied_data = module._hf_hook.weights_map["weight"].clone()
