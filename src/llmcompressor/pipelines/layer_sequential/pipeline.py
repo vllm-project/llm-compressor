@@ -55,7 +55,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
         session = active_session()
 
         # find layers
-        modifiers = session.get_modifiers()
+        modifiers = session.lifecycle.recipe.modifiers
         sequential_targets, _ = get_targets_from_modifiers(modifiers, model)
         layers = match_modules(model, sequential_targets)
 

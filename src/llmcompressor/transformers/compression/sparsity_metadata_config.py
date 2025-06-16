@@ -17,7 +17,7 @@ from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.compression.helpers import (
     infer_sparse_targets_and_ignores,
     infer_sparsity_structure_from_model,
-    infer_sparsity_structure_from_stage_modifiers,
+    infer_sparsity_structure_from_modifiers,
 )
 
 
@@ -67,9 +67,9 @@ class SparsityConfigMetadata:
         sparsity_structure = None
 
         current_session = active_session()
-        stage_modifiers = current_session.lifecycle.modifiers
+        stage_modifiers = current_session.lifecycle.recipe.modifiers
         if stage_modifiers:
-            sparsity_structure = infer_sparsity_structure_from_stage_modifiers(
+            sparsity_structure = infer_sparsity_structure_from_modifiers(
                 stage_modifiers
             )
 
