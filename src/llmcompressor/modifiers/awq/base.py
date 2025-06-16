@@ -670,7 +670,9 @@ def _compute_loss(
     fp16_output: torch.Tensor,
     int_w_output: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute MSE loss for each batch"""
+    """
+    Compute MSE loss over the flattened output of all batches
+    """
     return (fp16_output - int_w_output).view(-1).float().pow(2).mean()
 
 
