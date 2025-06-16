@@ -5,7 +5,7 @@ from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "llava-hf/llava-1.5-7b-hf"

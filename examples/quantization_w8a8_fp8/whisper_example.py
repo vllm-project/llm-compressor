@@ -3,7 +3,7 @@ from transformers import AutoProcessor, WhisperForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "openai/whisper-large-v2"
 

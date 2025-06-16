@@ -8,7 +8,7 @@ from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "Qwen/Qwen2.5-VL-7B-Instruct"

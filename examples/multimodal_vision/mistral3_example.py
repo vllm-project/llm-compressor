@@ -8,7 +8,7 @@ from transformers import AutoProcessor, Mistral3ForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"

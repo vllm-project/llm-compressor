@@ -4,7 +4,7 @@ from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 MODEL_ID = "openai/whisper-large-v3"

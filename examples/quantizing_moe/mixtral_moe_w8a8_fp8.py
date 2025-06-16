@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 

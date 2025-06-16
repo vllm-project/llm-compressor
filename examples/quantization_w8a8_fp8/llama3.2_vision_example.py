@@ -2,7 +2,7 @@ from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.utils.dev import dispatch_for_generation
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
