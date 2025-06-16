@@ -86,7 +86,8 @@ def post_process(
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
     # remove any existing dispatches
-    remove_dispatch(model_args.model)
+    if model_args is not None and model_args.model is not None:
+        remove_dispatch(model_args.model)
 
     if model_args is not None and output_dir is not None:
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:

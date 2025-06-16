@@ -112,7 +112,6 @@ output_dir = "./oneshot_model"
 # The model to train
 model = AutoModelForCausalLM.from_pretrained(
     output_dir,
-    device_map="auto",
     quantization_config=CompressedTensorsConfig(run_compressed=False),
 )
 
@@ -146,7 +145,6 @@ Comparisons are defined in `/src/llmcompressor/modifiers/distillation/utils/pyto
 # Define the teacher model
 distill_teacher = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Meta-Llama-3-8B-Instruct",  
-    device_map="auto",
 )
 
 # Define the recipe, use knowledge distillation modifier and target the `model.layers` using a regex with
@@ -236,7 +234,6 @@ num_calibration_samples = 8  # The number of workers processing datasets in para
 # Define teacher model
 distill_teacher = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Meta-Llama-3-8B-Instruct",
-    device_map="auto",
 )
 
 # Define the recipe, use knowledge distillation modifier and target the `model.layers` using a regex with
