@@ -17,8 +17,25 @@ from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
 GPTQ_PRECISION = torch.float32
+INITIALIZED_DEVICES = set()
 
-__all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
+__all__ = [
+    "initialize_linalg",
+    "make_empty_hessian",
+    "accumulate_hessian",
+    "quantize_weight",
+]
+
+
+def initialize_linalg(device: torch.device):
+    # pre-load torch.linalg module to avoid loading the module in threads,
+    # which can cause lazy loading assertion errors
+    # https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/cuda/LinearAlgebraStubs.cpp#L50  # noqa: E501
+    # https://github.com/pytorch/ignite/issues/3004
+    if device not in INITIALIZED_DEVICES:
+        _input = torch.ones((1, 1), device=device)
+        _ = torch.cholesky_inverse(torch.linalg.cholesky(_input))
+        INITIALIZED_DEVICES.add(device)
 
 
 def make_empty_hessian(
