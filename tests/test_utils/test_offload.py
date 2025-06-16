@@ -150,6 +150,47 @@ def test_register_offload_parameter():
 
 
 @requires_accelerate()
+@requires_gpu
+def test_register_offload_parameter_hook_replacement():
+    module = ExampleModule()
+    parameter_c = torch.nn.Parameter(torch.tensor(1.0, device="cuda"))
+    parameter_d = torch.nn.Parameter(torch.tensor(1.0, device="cpu"))
+
+    offloaded_dispatch(module, "cuda")
+    register_offload_parameter(module, "c", parameter_c)
+    register_offload_parameter(module, "d", parameter_d)
+
+    with disable_hf_hook(module):
+        assert module.a.device == torch.device("cpu")
+        assert module.b.device == torch.device("cpu")
+        assert module.c.device == torch.device("cuda:0")
+        assert module.d.device == torch.device("cpu")
+
+    assert module.a.device == torch.device("meta")
+    assert module.b.device == torch.device("meta")
+    assert module.c.device == torch.device("meta")
+    assert module.d.device == torch.device("meta")
+    assert module._hf_hook.weights_map["a"].device == torch.device("cpu")
+    assert module._hf_hook.weights_map["b"].device == torch.device("cpu")
+    assert module._hf_hook.weights_map["c"].device == torch.device("cpu")
+    assert module._hf_hook.weights_map["d"].device == torch.device("cpu")
+
+
+@requires_accelerate()
+@requires_gpu
+def test_register_offload_parameter_shared():
+    module = ExampleModule()
+    parameter = torch.nn.Parameter(torch.tensor(1.0))
+
+    offloaded_dispatch(module, "cuda")
+    register_offload_parameter(module, "c", parameter)
+    register_offload_parameter(module, "d", parameter)
+
+    with align_module_device(module):
+        assert module.c is module.d
+
+
+@requires_accelerate()
 def test_update_offload_parameter():
     from accelerate.hooks import attach_align_device_hook
 

@@ -206,9 +206,24 @@ def register_offload_parameter(
     has_onload = any(p.device != torch.device("meta") for p in module.parameters())
     module.register_parameter(name, parameter)
 
+    # do everything AlignDevicesHook.init_hook does
+    # https://github.com/huggingface/accelerate/blob/main/src/accelerate/hooks.py#L281
     if has_offloaded_params(module):
-        weights_map = module._hf_hook.weights_map
-        offload_to_weights_map(weights_map, name, parameter.data, offload_device)
+        hook: AlignDevicesHook = module._hf_hook
+        assert hook.weights_map is not None
+
+        # append to original_devices
+        hook.original_devices[name] = parameter.device
+
+        # append to weights map
+        offload_to_weights_map(hook.weights_map, name, parameter.data, offload_device)
+
+        # append to tied_params_map
+        offloaded = hook.weights_map[name]
+        if hook.tied_params_map is not None:
+            hook.tied_params_map[offloaded.data_ptr()] = {}  # (1)
+
+        # perform offloading
         if not has_onload:
             set_module_tensor_to_device(module, name, "meta")
 
@@ -422,7 +437,6 @@ def register_offload_module(base: torch.nn.Module, name: str, module: torch.nn.M
         hook: AlignDevicesHook = base._hf_hook
         assert hook.offload
         assert hook.weights_map is not None
-        assert hook.tied_params_map is not None
 
         # offloading kwargs for submodule
         place_submodules = False
@@ -437,7 +451,8 @@ def register_offload_module(base: torch.nn.Module, name: str, module: torch.nn.M
             module, include_buffers=offload_buffers, recurse=place_submodules
         ):
             offloaded = param.to(offload_device)
-            hook.tied_params_map[offloaded.data_ptr()] = {}  # (1)
+            if hook.tied_params_map is not None:
+                hook.tied_params_map[offloaded.data_ptr()] = {}  # (1)
             offload_to_weights_map(hook.weights_map, f"{name}.{param_name}", offloaded)
 
             # if the parent places submodules, offload here
@@ -464,9 +479,6 @@ def register_offload_module(base: torch.nn.Module, name: str, module: torch.nn.M
             add_hook_to_module(module, submodule_hook)
 
     base.register_module(name, module)
-
-    # (1): Since we cannot know which pointers are shared when we add parameters in an
-    # online way, assume that all pointers are shared. This comes at no runtime cost
 
 
 def delete_offload_module(base: torch.nn.Module, name: str):
@@ -623,3 +635,7 @@ def align_module_device(
 
     else:
         yield
+
+
+# (1): Since we cannot know which pointers are shared when we add parameters in an
+# online way, assume that all pointers are shared. This has virtually no runtime cost
