@@ -75,7 +75,6 @@ def data_collator(batch):
 recipe = GPTQModifier(
     targets="Linear",
     scheme="W4A16",
-    sequential_targets=["Phi3DecoderLayer"],
     ignore=["lm_head", "re:model.vision_embed_tokens.*"],
 )
 
@@ -88,6 +87,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     data_collator=data_collator,
+    sequential_targets=["Phi3DecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.

@@ -36,7 +36,6 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["MistralDecoderLayer"],
         ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
     ),
 ]
@@ -52,6 +51,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     data_collator=data_collator,
+    sequential_targets=["MistralDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.

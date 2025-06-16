@@ -79,7 +79,6 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["Qwen2VLDecoderLayer"],
         ignore=["lm_head", "re:visual.*", "re:model.visual.*"],
     ),
 ]
@@ -94,6 +93,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     data_collator=data_collator,
+    sequential_targets=["Qwen2VLDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
