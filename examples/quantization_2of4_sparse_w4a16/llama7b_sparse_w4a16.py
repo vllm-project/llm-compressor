@@ -68,7 +68,6 @@ oneshot_applied_model = oneshot(
     model=model,
     **oneshot_kwargs,
     stage="sparsity_stage",
-    output_dir=output_dir,
 )
 
 # Sparse finetune
@@ -76,7 +75,6 @@ finetune_applied_model = train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
     **training_kwargs,
-    output_dir=output_dir,
     stage="finetuning_stage",
 )
 
@@ -92,8 +90,8 @@ quantized_model.save_pretrained(
 tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
 logger.info(
-    "llmcompressor does not currently support running ",
+    "llmcompressor does not currently support running "
     "compressed models in the marlin24 format. "
-    "The model produced from this example can be ",
-    "run on vLLM with dtype=torch.float16.",
+    "The model produced from this example can be "
+    "run on vLLM with dtype=torch.float16."
 )

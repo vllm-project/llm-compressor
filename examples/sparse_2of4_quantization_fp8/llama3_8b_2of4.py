@@ -48,7 +48,7 @@ def get_recipe(fp8_enabled):
             targets=[r"re:model.layers.\d*$"],
         )
     ]
-    save_dir = MODEL_ID.split("/")[1] + "2of4-sparse"
+    save_dir = MODEL_ID.rstrip("/").split("/")[-1] + "2of4-sparse"
 
     if fp8_enabled:
         base_recipe.append(
@@ -58,7 +58,9 @@ def get_recipe(fp8_enabled):
                 scheme="FP8_DYNAMIC",
             )
         )
-        save_dir = MODEL_ID.split("/")[1] + "2of4-W8A8-FP8-Dynamic-Per-Token"
+        save_dir = (
+            MODEL_ID.rstrip("/").split("/")[-1] + "2of4-W8A8-FP8-Dynamic-Per-Token"
+        )
 
         # check that asymmetric quantization is not being used
         q_scheme = base_recipe[1].scheme

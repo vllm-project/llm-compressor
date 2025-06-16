@@ -31,7 +31,11 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["re:*.lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        ignore=[
+            "lm_head",
+            "re:model\.vision_tower.*",
+            "re:model\.multi_modal_projector.*",
+        ],
     ),
 ]
 
@@ -63,12 +67,13 @@ prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
 image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
 raw_image = Image.open(requests.get(image_url, stream=True).raw)
 
+# Note: compile is disabled: https://github.com/huggingface/transformers/issues/38333
 inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda")
-output = model.generate(**inputs, max_new_tokens=100)
+output = model.generate(**inputs, max_new_tokens=100, disable_compile=True)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
 
 # Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)

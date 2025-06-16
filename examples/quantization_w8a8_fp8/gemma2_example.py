@@ -20,12 +20,10 @@ recipe = QuantizationModifier(
 )
 
 # 3) Apply quantization and save in compressed-tensors format.
-OUTPUT_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
 oneshot(
     model=model,
     recipe=recipe,
     tokenizer=tokenizer,
-    output_dir=OUTPUT_DIR,
 )
 
 # Confirm generations of the quantized model look sane.
@@ -37,3 +35,8 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cud
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
+
+# 4) Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-Dynamic"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)

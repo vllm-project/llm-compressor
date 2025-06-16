@@ -4,7 +4,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 MODEL_ID = "meta-llama/Meta-Llama-3-70B-Instruct"
-OUTPUT_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+OUTPUT_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-Dynamic"
 
 # Load model
 # Note: device_map="auto" will offload to CPU if not enough space on GPU.

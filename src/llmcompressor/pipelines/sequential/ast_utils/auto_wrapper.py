@@ -73,7 +73,7 @@ class AutoWrapper(ast.NodeTransformer):
         Remove any deleted names from `self._local_names`,
         which are used to determine function wrapper arguments
         """
-        ret = super().visit_Delete(node)
+        ret = super().generic_visit(node)
 
         for target in node.targets:
             if isinstance(target, ast.Name):

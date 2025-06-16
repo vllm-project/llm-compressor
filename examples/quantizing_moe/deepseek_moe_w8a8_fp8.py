@@ -66,8 +66,6 @@ recipe = [
     ),
 ]
 
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8"
-
 oneshot(
     model=model,
     dataset=ds,
@@ -75,8 +73,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
-    save_compressed=True,
-    output_dir=SAVE_DIR,
 )
 
 # Confirm generations of the quantized model look sane.
@@ -94,3 +90,8 @@ else:
         "WARNING: cannot perform sample generation of "
         "deepseek models with transformers >= 4.48"
     )
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)

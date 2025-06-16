@@ -106,6 +106,6 @@ print("==========================================\n\n")
 # and it was a great thing for what it was at the time but it's not a passive house
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)

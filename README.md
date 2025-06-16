@@ -16,14 +16,14 @@
 
 Big updates have landed in LLM Compressor! Check out these exciting new features:
 
-* **FP4 Weight Only Quantization Support:** Quantize weights to FP4 and seamlessly run the compressed model in vLLM. Model weights are quantized following the NVFP4 [configuration](https://github.com/neuralmagic/compressed-tensors/blob/1b6287a4b21c16e0842f32fadecb20bb4c0d4862/src/compressed_tensors/quantization/quant_scheme.py#L103). See an example [here](examples/quantization_w4a16_fp4/llama3_example.py).
+* **Preliminary FP4 Quantization Support:** Quantize weights and activations to FP4 and seamlessly run the compressed model in vLLM. Model weights and activations are quantized following the NVFP4 [configuration](https://github.com/neuralmagic/compressed-tensors/blob/f5dbfc336b9c9c361b9fe7ae085d5cb0673e56eb/src/compressed_tensors/quantization/quant_scheme.py#L104). See examples of [weight-only quantization](examples/quantization_w4a16_fp4/llama3_example.py) and [fp4 activation support](examples/quantization_w4a4_fp4/llama3_example.py). Support is currently preliminary and additional support will be added for MoEs.
 * **Axolotl Sparse Finetuning Integration:** Easily finetune sparse LLMs through our seamless integration with Axolotl. [Learn more here](https://docs.axolotl.ai/docs/custom_integrations.html#llmcompressor).
 * **AutoAWQ Integration:** Perform low-bit weight-only quantization efficiently using AutoAWQ, now part of LLM Compressor. *Note: This integration should be considered experimental for now. Enhanced support, including for MoE models and improved handling of larger models via layer sequential pipelining, is planned for upcoming releases.* [See the details](https://github.com/vllm-project/llm-compressor/pull/1177).
 * **Day 0 Llama 4 Support:** Meta utilized LLM Compressor to create the [FP8-quantized Llama-4-Maverick-17B-128E](https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8), optimized for vLLM inference using [compressed-tensors](https://github.com/neuralmagic/compressed-tensors) format.
 
 ### Supported Formats
 * Activation Quantization: W8A8 (int8 and fp8)
-* Mixed Precision: W4A16, W8A16, NVFP4A16
+* Mixed Precision: W4A16, W8A16, NVFP4 (W4A4 and W4A16 support)
 * 2:4 Semi-structured and Unstructured Sparsity
 
 ### Supported Algorithms
@@ -51,6 +51,7 @@ pip install llmcompressor
 Applying quantization with `llmcompressor`:
 * [Activation quantization to `int8`](examples/quantization_w8a8_int8/README.md)
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
+* [Activation quantization to `fp4`](examples/quantization_w4a4_fp4/llama3_example.py)
 * [Weight only quantization to `fp4`](examples/quantization_w4a16_fp4/llama3_example.py)
 * [Weight only quantization to `int4` using GPTQ](examples/quantization_w4a16/README.md)
 * [Weight only quantization to `int4` using AWQ](examples/awq/README.md)
@@ -119,3 +120,17 @@ output = model.generate("My name is")
 
 - If you have any questions or requests open an [issue](https://github.com/vllm-project/llm-compressor/issues) and we will add an example or documentation.
 - We appreciate contributions to the code, examples, integrations, and documentation as well as bug reports and feature requests! [Learn how here](CONTRIBUTING.md).
+
+## Citation
+
+If you find LLM Compressor useful in your research or projects, please consider citing it:
+
+```bibtex
+@software{llmcompressor2024,
+    title={{LLM Compressor}},
+    author={Red Hat AI and vLLM Project},
+    year={2024},
+    month={8},
+    url={https://github.com/vllm-project/llm-compressor},
+}
+```

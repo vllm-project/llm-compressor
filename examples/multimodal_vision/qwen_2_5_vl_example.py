@@ -20,7 +20,7 @@ processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
-DATASET_SPLIT = {"calibration": "test[:512]"}
+DATASET_SPLIT = "test[:512]"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -77,7 +77,7 @@ recipe = [
         targets="Linear",
         scheme="W4A16",
         sequential_targets=["Qwen2_5_VLDecoderLayer"],
-        ignore=["lm_head", "re:visual.*"],
+        ignore=["lm_head", "re:visual.*", "re:model.visual.*"],
     ),
 ]
 
@@ -124,6 +124,6 @@ print("==========================================")
 
 
 # Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)
