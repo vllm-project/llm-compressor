@@ -116,6 +116,14 @@ def patch_transformers_logger_level(level: int = logging.ERROR):
 
 
 def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
+    """
+    Dispatch a model autoregressive generation. This means that modules are dispatched
+    evenly across avaiable devices and kept onloaded if possible. Removes any HF hooks
+    that may have existed previously.
+
+    :param model: model to dispatch
+    :return: model which is dispatched
+    """
     remove_hook_from_module(model, recurse=True)
     max_memory = get_balanced_memory(
         model,
