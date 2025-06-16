@@ -17,8 +17,12 @@ if TYPE_CHECKING:
 
 __all__ = ["CalibrationPipeline"]
 
-SEQUENTIAL_MODIFIERS = (AWQModifier, GPTQModifier, SparsityModifierBase)
-CALIBRATION_MODIFIERS = (SmoothQuantModifier, *SEQUENTIAL_MODIFIERS)
+CALIBRATION_MODIFIERS = (
+    SmoothQuantModifier,
+    AWQModifier,
+    GPTQModifier,
+    SparsityModifierBase,
+)
 
 
 class CalibrationPipeline(ABC, RegistryMixin):

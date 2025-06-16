@@ -11,7 +11,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
-    get_targets_from_modifiers,
+    get_sequential_targets,
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -64,7 +64,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         # prepare to trace subgraphs
         modifiers = session.get_modifiers()
-        sequential_targets = get_targets_from_modifiers(modifiers, model)
+        sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
         ignore = dataset_args.tracing_ignore
 
         # trace subgraphs
