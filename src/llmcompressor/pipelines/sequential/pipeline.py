@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.utils import disable_offloading, get_execution_device
+from compressed_tensors.utils import disable_offloading
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -69,8 +69,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         with calibration_forward_context(model), DisableQuantization(model):
             # prepare intermediates cache
-            model_device = get_execution_device(model)
-            activations = IntermediatesCache.from_dataloader(dataloader, model_device)
+            activations = IntermediatesCache.from_dataloader(dataloader)
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts

@@ -9,8 +9,7 @@ from llmcompressor.core import LifecycleCallbacks
 from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
-from llmcompressor.utils.dev import dispatch_for_generation
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils import calibration_forward_context, dispatch_for_generation
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
