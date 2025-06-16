@@ -1,5 +1,6 @@
 import contextlib
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -22,12 +23,12 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
     accumulate_hessian,
+    initialize_linalg,
     make_empty_hessian,
     quantize_weight,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.sentinel import Sentinel
-from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
@@ -252,34 +253,54 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Quantize modules which have been calibrated
         """
-        for module in list(self._num_samples.keys()):
-            name = self._module_names[module]
-            num_samples = self._num_samples[module]
-            quant_args = getattr_chain(module, "quantization_scheme.weights")
+        import time
 
-            logger.info(f"Quantizing {name} using {num_samples} samples")
-            with torch.no_grad(), align_module_device(
-                module
-            ), self._maybe_onload_hessian(module), CompressionLogger(
-                module
-            ) as comp_logger:
-                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
-                    module=module,
-                    quant_args=quant_args,
-                    hessians_dict=self._hessians,
-                    blocksize=self.block_size,
-                    percdamp=self.dampening_frac,
-                )
-                comp_logger.set_loss(loss)
+        start_time = time.time()
 
-            update_offload_parameter(module, "weight", quantized_weight)
-            update_offload_parameter(module, "weight_scale", scale)
-            update_offload_parameter(module, "weight_zero_point", zero_point)
-            if g_idx is not None:
-                update_offload_parameter(module, "weight_g_idx", g_idx)
+        futures = []
+        with ThreadPoolExecutor() as executor:
+            for module in list(self._num_samples.keys()):
+                initialize_linalg(get_execution_device(module))
+                future = executor.submit(self._compress_module, module)
+                futures.append(future)
 
-            # self._hessians[module] already deleted by quantize_weight
-            del self._num_samples[module]
+            for future in as_completed(futures, timeout=300):  # no timeout
+                name, num_samples, loss = future.result()
+                logger.info(f"Quantized {name}")
+                logger.info(f"    num_samples={num_samples}")
+                logger.info(f"    loss={loss:.2f}")
+
+        logger.info(
+            f"Quantized {len(futures)} modules in {time.time() - start_time: .1f}s"
+        )
+
+    def _compress_module(self, module: torch.nn.Module) -> Tuple[str, int, float]:
+        name = self._module_names[module]
+        num_samples = self._num_samples[module]
+        quant_args = getattr_chain(module, "quantization_scheme.weights")
+
+        with torch.no_grad(), align_module_device(module), self._maybe_onload_hessian(
+            module
+        ):
+            logger.info(f"Quantizing {name}...")
+            loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                module=module,
+                quant_args=quant_args,
+                hessians_dict=self._hessians,
+                blocksize=self.block_size,
+                percdamp=self.dampening_frac,
+            )
+
+        update_offload_parameter(module, "weight", quantized_weight)
+        update_offload_parameter(module, "weight_scale", scale)
+        update_offload_parameter(module, "weight_zero_point", zero_point)
+        if g_idx is not None:
+            update_offload_parameter(module, "weight_g_idx", g_idx)
+
+        # self._hessians[module] already deleted by quantize_weight
+        del self._num_samples[module]
+
+        return name, num_samples, loss
 
     def on_end(self, state: State, event: Event, **kwargs):
         """
