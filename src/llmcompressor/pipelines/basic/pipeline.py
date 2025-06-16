@@ -38,7 +38,7 @@ class BasicPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
-        dispatch_for_generation(model)
+        dispatch_for_generation(model)  # basic dispatch is identical to generation
         model_device = get_execution_device(model)
 
         LifecycleCallbacks.calibration_epoch_start()
