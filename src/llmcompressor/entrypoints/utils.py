@@ -3,6 +3,7 @@ import os
 from pathlib import PosixPath
 from typing import Optional, Tuple
 
+from compressed_tensors.utils import remove_dispatch
 from loguru import logger
 from torch.nn import Module
 from transformers import (
@@ -84,6 +85,9 @@ def post_process(
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
+    # remove any existing dispatches
+    remove_dispatch(model_args.model)
+
     if model_args is not None and output_dir is not None:
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:
             output_dir = os.path.join(output_dir, recipe_args.stage)

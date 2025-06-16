@@ -6,8 +6,8 @@ from typing import Type
 
 import torch
 from accelerate import dispatch_model, infer_auto_device_map
-from accelerate.hooks import remove_hook_from_module
 from accelerate.utils import get_balanced_memory
+from compressed_tensors.utils import remove_dispatch
 from huggingface_hub import snapshot_download
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
@@ -124,7 +124,8 @@ def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
     :param model: model to dispatch
     :return: model which is dispatched
     """
-    remove_hook_from_module(model, recurse=True)
+    remove_dispatch(model)
+
     max_memory = get_balanced_memory(
         model,
         dtype=model.dtype,

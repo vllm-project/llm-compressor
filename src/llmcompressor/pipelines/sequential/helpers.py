@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 import torch
-from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.quantization import find_name_or_class_matches
-from compressed_tensors.utils import has_offloaded_params, offloaded_dispatch
+from compressed_tensors.utils import (
+    has_offloaded_params,
+    offloaded_dispatch,
+    remove_dispatch,
+)
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
@@ -520,7 +523,7 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
     :param model: model to dispatch
     :return: dispatched model
     """
-    remove_hook_from_module(model, recurse=True)
+    remove_dispatch(model)
 
     if torch.cuda.is_available():
         offloaded_dispatch(model, execution_device=torch.device("cuda:0"))

@@ -29,9 +29,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 # Load the model
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 # Load the tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -204,9 +202,7 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 oneshot_output_dir = "./oneshot_model"
 
 # Load the model
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 # Load the tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -226,7 +222,6 @@ from llmcompressor import create_session, train
 # Student model
 model = AutoModelForCausalLM.from_pretrained(
     oneshot_output_dir,
-    device_map="auto",
     quantization_config=CompressedTensorsConfig(run_compressed=False),
 )
 
