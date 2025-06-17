@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, __version__
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
+from llmcompressor.utils import dispatch_for_generation
 
 # NOTE: transformers 4.49.0 has an attribute error with DeepSeek.
 # Please consider either downgrading your transformers version to a
@@ -14,18 +14,8 @@ from llmcompressor.transformers.compression.helpers import calculate_offload_dev
 # select a Mixture of Experts model for quantization
 MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
 
-# adjust based off number of desired GPUs
-# if not enough memory is available, some layers will automatically be offlaoded to cpu
-device_map = calculate_offload_device_map(
-    MODEL_ID,
-    reserve_for_hessians=True,
-    num_gpus=2,
-    torch_dtype=torch.bfloat16,
-    trust_remote_code=True,
-)
-
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16, trust_remote_code=True
+    MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -91,6 +81,7 @@ oneshot(
 # Generation is broken for deepseek models when using the latest transformers package
 if Version(__version__) < Version("4.48"):
     print("========== SAMPLE GENERATION ==============")
+    dispatch_for_generation(model)
     SAMPLE_INPUT = ["I love quantization because"]
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     inputs = tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(model.device)

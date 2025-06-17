@@ -3,12 +3,11 @@ from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot, train
+from llmcompressor.utils import dispatch_for_generation
 
 # load the model in as bfloat16 to save on memory and compute
 model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
-model = AutoModelForCausalLM.from_pretrained(
-    model_stub, torch_dtype=torch.bfloat16, device_map="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype=torch.bfloat16)
 tokenizer = AutoTokenizer.from_pretrained(model_stub)
 
 # uses LLM Compressor's built-in preprocessing for ultra chat
@@ -71,6 +70,7 @@ oneshot_applied_model = oneshot(
 )
 
 # Sparse finetune
+dispatch_for_generation(model)
 finetune_applied_model = train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
@@ -79,6 +79,7 @@ finetune_applied_model = train(
 )
 
 # Oneshot quantization
+model.to("cpu")
 quantized_model = oneshot(
     model=finetune_applied_model,
     **oneshot_kwargs,
@@ -90,8 +91,8 @@ quantized_model.save_pretrained(
 tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
 logger.info(
-    "llmcompressor does not currently support running "
+    "llmcompressor does not currently support running ",
     "compressed models in the marlin24 format. "
-    "The model produced from this example can be "
-    "run on vLLM with dtype=torch.float16."
+    "The model produced from this example can be ",
+    "run on vLLM with dtype=torch.float16.",
 )

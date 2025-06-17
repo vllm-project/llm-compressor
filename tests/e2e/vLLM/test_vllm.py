@@ -88,7 +88,6 @@ class TestvLLM:
         logger.info("========== RUNNING ==============")
         logger.info(self.save_dir)
 
-        self.device = "cuda:0"
         self.prompts = [
             "The capital of France is",
             "The president of the US is",
@@ -105,7 +104,6 @@ class TestvLLM:
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
-            device=self.device,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,
             scheme=self.scheme,
