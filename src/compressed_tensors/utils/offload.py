@@ -594,7 +594,7 @@ def disable_offloading():
     # update any parameters which may have changed
     for module, (hook, offload) in onloaded_modules.items():
         hook.offload = offload
-        for name, param in module.named_parameters():
+        for name, param in module.named_parameters(recurse=False):
             update_offload_parameter(module, name, param.data)
         hook.post_forward(module, None)
 
