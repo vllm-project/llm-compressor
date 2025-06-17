@@ -26,14 +26,14 @@ quality:
 	@echo "Running python quality checks";
 	ruff check $(CHECKDIRS);
 	isort --check-only $(CHECKDIRS);
-	flake8 $(CHECKDIRS) --max-line-length 88 --extend-ignore E203;
+	flake8 $(CHECKDIRS) --max-line-length 88 --extend-ignore E203,W605;
 
 # style the code according to accepted standards for the repo
 style:
 	@echo "Running python styling";
 	ruff format $(CHECKDIRS);
 	isort $(CHECKDIRS);
-	flake8 $(CHECKDIRS) --max-line-length 88 --extend-ignore E203;
+	flake8 $(CHECKDIRS) --max-line-length 88 --extend-ignore E203,W605;
 
 # run tests for the repo
 test:

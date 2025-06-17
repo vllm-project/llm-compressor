@@ -45,6 +45,16 @@ def save_checkpoint(
         get_model_compressor,  # avoid circular import
     )
 
+    # used for decompression
+    # unfortunately, if skip_sparsity_compression_stats==True, sparsity stats
+    # are computed twice. In the future, track sparsity from recipe or
+    # share recipe between compression and decompression
+    compressor = get_model_compressor(
+        model=model,
+        save_compressed=save_compressed,
+        skip_sparsity_compression_stats=skip_sparsity_compression_stats,
+    )
+
     # saving the model also saves the recipe
     model.save_pretrained(
         save_path,
@@ -55,13 +65,8 @@ def save_checkpoint(
     if processor is not None:
         processor.save_pretrained(save_path)
 
-    # saving the model modifies the model strcuture
+    # decompression: saving the model modifies the model strcuture
     # as this is only a checkpoint, decompress model to enable future training/oneshot
-    compressor = get_model_compressor(
-        model=model,
-        save_compressed=save_compressed,
-        skip_sparsity_compression_stats=skip_sparsity_compression_stats,
-    )
     if compressor is not None:
         compressor.decompress_model(model)
 

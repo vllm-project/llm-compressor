@@ -95,7 +95,7 @@ else:
     )
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 

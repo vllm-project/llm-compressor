@@ -70,13 +70,14 @@ oneshot(
 # NOTE: transformers 4.49.0 results in a generation error with gemma2.
 # Consider either downgrading your transformers version to a previous version
 # or use vLLM for sample generation.
+# Note: compile is disabled: https://github.com/huggingface/transformers/issues/38333
 print("========== SAMPLE GENERATION ==============")
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
+output = model.generate(input_ids, max_new_tokens=20, disable_compile=True)
 print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # 5) Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-INT8"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-INT8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
