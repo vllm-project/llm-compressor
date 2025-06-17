@@ -3,6 +3,7 @@ from copy import copy
 from typing import Dict, Optional, Tuple, Union
 
 import torch
+import torch._dynamo.config
 import transformers
 from compressed_tensors.quantization import (
     ActivationOrdering,
@@ -15,6 +16,8 @@ from loguru import logger
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
+
+torch._dynamo.config.capture_scalar_outputs = True
 
 GPTQ_PRECISION = torch.float32
 
@@ -68,6 +71,7 @@ def accumulate_hessian(
     return H, num_samples
 
 
+@torch.compile
 def quantize_weight(
     module: torch.nn.Module,
     quant_args: QuantizationArgs,
