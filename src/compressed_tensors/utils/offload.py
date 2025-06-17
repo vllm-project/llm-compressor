@@ -85,6 +85,7 @@ __all__ = [
     "delete_offload_module",
     "offloaded_dispatch",
     "disable_offloading",
+    "remove_dispatch",
 ]
 
 
@@ -514,6 +515,9 @@ def offloaded_dispatch(
     if offload_device == "disk":
         raise NotImplementedError("Disk offloading is not currently supported")
 
+    # remove any existing hooks
+    remove_dispatch(module)
+
     # create weights map
     state_dict = module.state_dict()
     state_dict = {key: val.to(offload_device) for key, val in state_dict.items()}
@@ -535,6 +539,33 @@ def offloaded_dispatch(
         weights_map=weights_map,
         tied_params_map=tied_params_map,
     )
+
+    # when saving a model, `PretrainedModel.save_pretrained` will only
+    # onload weights if the following requirements are met
+    # if (
+    #     hasattr(self, "hf_device_map")
+    #     and len(set(self.hf_device_map.values())) > 1
+    #     and ("cpu" in self.hf_device_map.values()
+    #          or "disk" in self.hf_device_map.values())
+    # ):
+    # because this function always offloads, disregard actual devices and
+    # always use `cpu` and `cuda:0` to guarantee this condition passes
+    setattr(module, "hf_device_map", {"fake_offload": "cpu", "fake_exec": "cuda:0"})
+
+    return module
+
+
+def remove_dispatch(module: torch.nn.Module) -> torch.nn.Module:
+    """
+    Remove any existing dispatches from module
+
+    :param module: module which may be dispatched with hf hooks
+    :return: module without dispatch
+    """
+    remove_hook_from_module(module, recurse=True)
+    if hasattr(module, "hf_device_map"):
+        delattr(module, "hf_device_map")
+
     return module
 
 
