@@ -5,12 +5,11 @@ from transformers import AutoProcessor, LlavaForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "llava-hf/llava-1.5-7b-hf"
-model = LlavaForConditionalGeneration.from_pretrained(
-    model_id, device_map="auto", torch_dtype="auto"
-)
+model = LlavaForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
@@ -31,7 +30,6 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["LlamaDecoderLayer"],
         ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
     ),
 ]
@@ -47,10 +45,12 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     data_collator=data_collator,
+    sequential_targets=["LlamaDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 messages = [
     {
         "role": "user",

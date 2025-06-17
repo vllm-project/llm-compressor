@@ -186,3 +186,13 @@ class DatasetArguments(CustomDatasetArguments):
             "{module}.{method_name} or {function_name}"
         },
     )
+    sequential_targets: Optional[List[str]] = field(
+        default=None,
+        metadata={
+            "help": "List of layer targets for the sequential pipeline. "
+            "This is typically a single DecoderLayer. "
+            "Not specifying this argument will cause the sequential pipeline to "
+            "default to using the `no_split_params` specified by the HF model "
+            "definition"
+        },
+    )

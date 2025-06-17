@@ -8,6 +8,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets.utils import get_processed_dataset
 from llmcompressor.transformers.finetune.trainer import Trainer
+from llmcompressor.utils.dev import dispatch_for_generation
 
 from .utils import post_process, pre_process
 
@@ -63,6 +64,7 @@ def train(**kwargs) -> PreTrainedModel:
     )
 
     pre_process(model_args)
+    dispatch_for_generation(model_args.model)  # train is dispatched same as generation
 
     processed_dataset = get_processed_dataset(
         dataset_args=dataset_args,

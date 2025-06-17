@@ -7,12 +7,12 @@ from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "microsoft/Phi-3-vision-128k-instruct"
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    device_map="auto",
     torch_dtype="auto",
     trust_remote_code=True,
     _attn_implementation="eager",
@@ -75,7 +75,6 @@ def data_collator(batch):
 recipe = GPTQModifier(
     targets="Linear",
     scheme="W4A16",
-    sequential_targets=["Phi3DecoderLayer"],
     ignore=["lm_head", "re:model.vision_embed_tokens.*"],
 )
 
@@ -88,10 +87,12 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     data_collator=data_collator,
+    sequential_targets=["Phi3DecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))

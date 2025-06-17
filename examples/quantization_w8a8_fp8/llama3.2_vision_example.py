@@ -2,13 +2,12 @@ from transformers import AutoProcessor, MllamaForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
 # Load model.
-model = MllamaForConditionalGeneration.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = MllamaForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
@@ -26,6 +25,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))

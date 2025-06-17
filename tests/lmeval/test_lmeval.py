@@ -90,7 +90,6 @@ class TestLMEval:
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
 
-        self.device = "cuda:0"
         self.num_calibration_samples = 512
         self.max_seq_length = 2048
 
@@ -103,7 +102,6 @@ class TestLMEval:
         oneshot_model, processor = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
-            device=self.device,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,
             scheme=self.scheme,
