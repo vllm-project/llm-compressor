@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import disable_quantization
+import torch.nn.functional as F
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
@@ -593,9 +594,9 @@ class AWQModifier(Modifier, QuantizationMixin):
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
 
-        for ratio in range(n_grid):
+        for grid_idx in range(n_grid):
             # create new scales
-            ratio = ratio / n_grid
+            ratio = grid_idx / n_grid
 
             # NOTE: s^-1 * x is fused here, according to paper
             if self.duo_scaling:
@@ -630,7 +631,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             int_w_outputs = self._run_samples(parent_module)
 
             # compute mean squared error (L2 norm)
-            loss = _compute_loss(fp16_output, int_w_output)
+            loss = F.mse_loss(int_w_output, fp16_output).item()
 
             history.append(loss)
             if loss < best_error:
@@ -662,18 +663,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         if len(self._smooth_activation_means) != 0:
             raise RuntimeError("Some cached activations were not used")
-
-
-@torch.no_grad()
-@torch.compile()
-def _compute_loss(
-    fp16_output: torch.Tensor,
-    int_w_output: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Compute MSE loss over the flattened output of all batches
-    """
-    return (fp16_output - int_w_output).view(-1).float().pow(2).mean()
 
 
 @torch.compile()
