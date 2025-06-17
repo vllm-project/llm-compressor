@@ -307,7 +307,7 @@ def oneshot(
     # pass all args directly into Oneshot
     local_args = locals()
     local_args.pop("kwargs")
-    one_shot = Oneshot(**local_args, **kwargs) if kwargs else Oneshot(**local_args)
+    one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 
     return one_shot.model
