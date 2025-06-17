@@ -10,7 +10,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
-from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
 

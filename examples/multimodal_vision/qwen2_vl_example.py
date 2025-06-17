@@ -8,14 +8,11 @@ from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "Qwen/Qwen2-VL-2B-Instruct"
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    model_id,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
@@ -82,7 +79,6 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["Qwen2VLDecoderLayer"],
         ignore=["lm_head", "re:visual.*", "re:model.visual.*"],
     ),
 ]
@@ -97,10 +93,12 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     data_collator=data_collator,
+    sequential_targets=["Qwen2VLDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 messages = [
     {
         "role": "user",
