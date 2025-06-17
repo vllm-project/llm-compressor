@@ -81,6 +81,8 @@ class TestvLLM:
         self.save_compressed = eval_config.get("save_compressed", True)
         self.num_calibration_samples = eval_config.get("num_calibration_samples", 256)
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
+        # GPU memory utilization is set to 0.9 by default by vLLM
+        self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization", 0.9)
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -201,7 +203,9 @@ class TestvLLM:
             # required by the kernel
             llm = LLM(model=self.save_dir, dtype=torch.float16)
         else:
-            llm = LLM(model=self.save_dir)
+            llm = LLM(
+                model=self.save_dir, gpu_memory_utilization=self.gpu_memory_utilization
+            )
         outputs = llm.generate(self.prompts, sampling_params)
         return outputs
 
