@@ -200,14 +200,14 @@ class TestvLLM:
 
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         llm_kwargs = {"model": self.save_dir}
-        
+
         if "W4A16_2of4" in self.scheme:
             # required by the kernel
             llm_kwargs["dtype"] = torch.float16
-        
+
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
-            
+
         llm = LLM(**llm_kwargs)
         outputs = llm.generate(self.prompts, sampling_params)
         return outputs
