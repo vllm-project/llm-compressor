@@ -70,11 +70,12 @@ def initialize_observer(
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
-            maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
-            patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
             averaging_constant=observer_kwargs.get(
                 "averaging_constant", DEFAULT_AVERAGING_CONSTANT
             ),
+            # used by mse observer only, will be ignored by minmax observer
+            maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
+            patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
             grid=observer_kwargs.get("grid", DEFAULT_GRID),
             norm=observer_kwargs.get("norm", DEFAULT_NORM)
         )
