@@ -279,6 +279,7 @@ class SessionManagerMixIn:
         :param inputs: the inputs to pass through the model for calculating the loss
         :param return_outputs: True to return the outputs with the loss,
             False otherwise
+        :param num_items_in_batch: the number of items which contribute to loss
         :return: the resulting loss if not return_outputs, otherwise a tuple
             containing the loss and the model's outputs
         """
@@ -286,8 +287,6 @@ class SessionManagerMixIn:
 
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
-        if num_items_in_batch is not None:
-            num_items_in_batch = num_items_in_batch.item()
         loss = super().compute_loss(
             model=model,
             inputs=inputs,
