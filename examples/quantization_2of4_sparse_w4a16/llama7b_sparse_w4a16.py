@@ -3,6 +3,9 @@ from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot, train
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    get_model_compressor,
+)
 from llmcompressor.utils import dispatch_for_generation
 
 # load the model in as bfloat16 to save on memory and compute
@@ -56,9 +59,7 @@ training_kwargs = dict(
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
 )
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    get_model_compressor,
-)
+
 # This will run the targeted stage of the recipe
 # oneshot sparsification -> finetuning -> oneshot quantization
 
@@ -72,7 +73,9 @@ oneshot(
     stage="sparsity_stage",
 )
 
-oneshot_applied_model = AutoModelForCausalLM.from_pretrained(output_dir + "/sparsity_stage")
+oneshot_applied_model = AutoModelForCausalLM.from_pretrained(
+    output_dir + "/sparsity_stage"
+)
 
 compressor = get_model_compressor(
     model=oneshot_applied_model,
@@ -83,6 +86,7 @@ if compressor is not None:
     compressor.decompress_model(oneshot_applied_model)
 
 # Sparse finetune
+dispatch_for_generation(model)
 train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
@@ -90,7 +94,9 @@ train(
     stage="finetuning_stage",
 )
 
-finetune_applied_model = AutoModelForCausalLM.from_pretrained(output_dir + "/finetuning_stage")
+finetune_applied_model = AutoModelForCausalLM.from_pretrained(
+    output_dir + "/finetuning_stage"
+)
 
 compressor = get_model_compressor(
     model=finetune_applied_model,
