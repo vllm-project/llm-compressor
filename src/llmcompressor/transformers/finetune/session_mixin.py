@@ -270,7 +270,7 @@ class SessionManagerMixIn:
         model: Module,
         inputs: Dict[str, Any],
         return_outputs: bool = False,
-        num_items_in_batch: Optional[int] = None,
+        num_items_in_batch: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
         """
         Override for the compute_loss to factor trigger callbacks and filter columns
@@ -279,6 +279,7 @@ class SessionManagerMixIn:
         :param inputs: the inputs to pass through the model for calculating the loss
         :param return_outputs: True to return the outputs with the loss,
             False otherwise
+        :param num_items_in_batch: the number of items which contribute to loss
         :return: the resulting loss if not return_outputs, otherwise a tuple
             containing the loss and the model's outputs
         """
