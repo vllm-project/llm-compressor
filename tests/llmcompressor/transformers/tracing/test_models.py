@@ -136,7 +136,6 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
         modality=modality,
         trust_remote_code=True,
         skip_weights=True,
-        device_map="cpu",
     )
 
     target_modules = get_target_modules(model, targets)

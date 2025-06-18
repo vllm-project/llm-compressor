@@ -4,23 +4,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.transformers.compression.helpers import calculate_offload_device_map
+from llmcompressor.utils import dispatch_for_generation
 
 # select a Mixture of Experts model for quantization
 MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 
-# adjust based off number of desired GPUs
-# if not enough memory is available, some layers will automatically be offloaded to cpu
-device_map = calculate_offload_device_map(
-    MODEL_ID,
-    reserve_for_hessians=True,
-    num_gpus=2,
-    torch_dtype=torch.bfloat16,
-    trust_remote_code=True,
-)
-
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map=device_map, torch_dtype=torch.bfloat16, trust_remote_code=True
+    MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
@@ -82,6 +72,7 @@ oneshot(
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
