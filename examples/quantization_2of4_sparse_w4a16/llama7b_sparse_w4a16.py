@@ -72,14 +72,9 @@ oneshot(
     stage="sparsity_stage",
 )
 
-oneshot_applied_model = AutoModelForCausalLM.from_pretrained(
-    output_dir + "/sparsity_stage"
-)
-
 # Sparse finetune
-dispatch_for_generation(model)
 train(
-    model=oneshot_applied_model,
+    model=Path(output_dir + "/sparsity_stage"),
     **oneshot_kwargs,
     **training_kwargs,
     output_dir=output_dir,
@@ -88,7 +83,7 @@ train(
 
 # Oneshot quantization
 quantized_model = oneshot(
-    model=Path(output_dir + "/finetuning_stage"),
+    model=Path(output_dir + "finetuning_stage"),
     **oneshot_kwargs,
     stage="quantization_stage",
 )
