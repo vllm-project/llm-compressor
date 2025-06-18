@@ -1,6 +1,7 @@
+from pathlib import Path
+
 import torch
 from loguru import logger
-from pathlib import Path
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot, train
