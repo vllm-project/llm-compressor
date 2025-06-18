@@ -30,7 +30,7 @@ TEST_DATA_FILE = os.environ.get(
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
-
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
     "config.json",
     r"^model(?:-\d{5}-of-\d{5})?\.safetensors$",
