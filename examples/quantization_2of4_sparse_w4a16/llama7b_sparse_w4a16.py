@@ -42,6 +42,7 @@ oneshot_kwargs = dict(
     num_calibration_samples=num_calibration_samples,
     preprocessing_num_workers=preprocessing_num_workers,
     splits=splits,
+    output_dir=output_dir,
 )
 
 training_kwargs = dict(
@@ -55,7 +56,9 @@ training_kwargs = dict(
     lr_scheduler_type=lr_scheduler_type,
     warmup_ratio=warmup_ratio,
 )
-
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    get_model_compressor,
+)
 # This will run the targeted stage of the recipe
 # oneshot sparsification -> finetuning -> oneshot quantization
 
@@ -63,20 +66,40 @@ training_kwargs = dict(
 # ./output_llama7b_2of4_w4a16_channel/ + (finetuning/sparsity/quantization)_stage
 
 # Oneshot sparsification
-oneshot_applied_model = oneshot(
+oneshot(
     model=model,
     **oneshot_kwargs,
     stage="sparsity_stage",
 )
 
+oneshot_applied_model = AutoModelForCausalLM.from_pretrained(output_dir + "/sparsity_stage")
+
+compressor = get_model_compressor(
+    model=oneshot_applied_model,
+    save_compressed=False,
+    skip_sparsity_compression_stats=True,
+)
+if compressor is not None:
+    compressor.decompress_model(oneshot_applied_model)
+
 # Sparse finetune
 dispatch_for_generation(model)
-finetune_applied_model = train(
+train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
     **training_kwargs,
     stage="finetuning_stage",
 )
+
+finetune_applied_model = AutoModelForCausalLM.from_pretrained(output_dir + "/finetuning_stage")
+
+compressor = get_model_compressor(
+    model=finetune_applied_model,
+    save_compressed=False,
+    skip_sparsity_compression_stats=True,
+)
+if compressor is not None:
+    compressor.decompress_model(finetune_applied_model)
 
 # Oneshot quantization
 model.to("cpu")
@@ -85,10 +108,6 @@ quantized_model = oneshot(
     **oneshot_kwargs,
     stage="quantization_stage",
 )
-quantized_model.save_pretrained(
-    f"{output_dir}/quantization_stage", skip_sparsity_compression_stats=False
-)
-tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
 logger.info(
     "llmcompressor does not currently support running ",
