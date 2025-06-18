@@ -39,7 +39,6 @@ class TestConsecutiveRuns(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=self.first_recipe,
             output_dir=self.output_first,
-            oneshot_device=self.device,
         )
 
         first_model = AutoModelForCausalLM.from_pretrained(
@@ -68,7 +67,6 @@ class TestConsecutiveRuns(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=self.second_recipe,
             output_dir=self.output_second,
-            oneshot_device=self.device,
         )
 
         second_model = AutoModelForCausalLM.from_pretrained(

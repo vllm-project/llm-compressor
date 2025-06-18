@@ -45,7 +45,6 @@ class TestOneshotWithModifierObject(unittest.TestCase):
             recipe=recipe_str,
             concatenate_data=concatenate_data,
             splits=splits,
-            oneshot_device=device,
         )
 
     def tearDown(self):
