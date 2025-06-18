@@ -1,11 +1,9 @@
 import torch
 from loguru import logger
+from pathlib import Path
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot, train
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
-    get_model_compressor,
-)
 from llmcompressor.utils import dispatch_for_generation
 
 # load the model in as bfloat16 to save on memory and compute
@@ -77,14 +75,6 @@ oneshot_applied_model = AutoModelForCausalLM.from_pretrained(
     output_dir + "/sparsity_stage"
 )
 
-compressor = get_model_compressor(
-    model=oneshot_applied_model,
-    save_compressed=True,
-    skip_sparsity_compression_stats=False,
-)
-if compressor is not None:
-    compressor.decompress_model(oneshot_applied_model)
-
 # Sparse finetune
 dispatch_for_generation(model)
 train(
@@ -95,22 +85,9 @@ train(
     stage="finetuning_stage",
 )
 
-finetune_applied_model = AutoModelForCausalLM.from_pretrained(
-    output_dir + "/finetuning_stage"
-)
-
-compressor = get_model_compressor(
-    model=finetune_applied_model,
-    save_compressed=True,
-    skip_sparsity_compression_stats=False,
-)
-if compressor is not None:
-    compressor.decompress_model(finetune_applied_model)
-
 # Oneshot quantization
-model.to("cpu")
 quantized_model = oneshot(
-    model=finetune_applied_model,
+    model=Path(output_dir + "/finetuning_stage"),
     **oneshot_kwargs,
     stage="quantization_stage",
 )
