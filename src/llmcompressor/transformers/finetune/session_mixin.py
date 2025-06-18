@@ -270,7 +270,7 @@ class SessionManagerMixIn:
         model: Module,
         inputs: Dict[str, Any],
         return_outputs: bool = False,
-        num_items_in_batch: Optional[int] = None,
+        num_items_in_batch: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
         """
         Override for the compute_loss to factor trigger callbacks and filter columns
@@ -286,6 +286,8 @@ class SessionManagerMixIn:
 
         # TODO: do we need these model signature columns?
         inputs = {k: inputs[k] for k in inputs if k in self._signature_columns}
+        if num_items_in_batch is not None:
+            num_items_in_batch = num_items_in_batch.item()
         loss = super().compute_loss(
             model=model,
             inputs=inputs,
