@@ -126,11 +126,17 @@ def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
     """
     remove_dispatch(model)
 
+    no_split_module_classes = model._get_no_split_modules("auto")
     max_memory = get_balanced_memory(
         model,
         dtype=model.dtype,
-        no_split_module_classes=model._get_no_split_modules("auto"),
+        no_split_module_classes=no_split_module_classes,
     )
-    device_map = infer_auto_device_map(model, dtype=model.dtype, max_memory=max_memory)
+    device_map = infer_auto_device_map(
+        model,
+        dtype=model.dtype,
+        max_memory=max_memory,
+        no_split_module_classes=no_split_module_classes,
+    )
 
     return dispatch_model(model, device_map=device_map)
