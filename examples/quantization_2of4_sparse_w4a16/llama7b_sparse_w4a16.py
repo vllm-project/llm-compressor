@@ -45,7 +45,6 @@ oneshot_kwargs = dict(
     num_calibration_samples=num_calibration_samples,
     preprocessing_num_workers=preprocessing_num_workers,
     splits=splits,
-    output_dir=output_dir,
 )
 
 training_kwargs = dict(
@@ -70,6 +69,7 @@ training_kwargs = dict(
 oneshot(
     model=model,
     **oneshot_kwargs,
+    output_dir=output_dir,
     stage="sparsity_stage",
 )
 
@@ -79,8 +79,8 @@ oneshot_applied_model = AutoModelForCausalLM.from_pretrained(
 
 compressor = get_model_compressor(
     model=oneshot_applied_model,
-    save_compressed=False,
-    skip_sparsity_compression_stats=True,
+    save_compressed=True,
+    skip_sparsity_compression_stats=False,
 )
 if compressor is not None:
     compressor.decompress_model(oneshot_applied_model)
@@ -91,6 +91,7 @@ train(
     model=oneshot_applied_model,
     **oneshot_kwargs,
     **training_kwargs,
+    output_dir=output_dir,
     stage="finetuning_stage",
 )
 
@@ -100,8 +101,8 @@ finetune_applied_model = AutoModelForCausalLM.from_pretrained(
 
 compressor = get_model_compressor(
     model=finetune_applied_model,
-    save_compressed=False,
-    skip_sparsity_compression_stats=True,
+    save_compressed=True,
+    skip_sparsity_compression_stats=False,
 )
 if compressor is not None:
     compressor.decompress_model(finetune_applied_model)
@@ -113,6 +114,10 @@ quantized_model = oneshot(
     **oneshot_kwargs,
     stage="quantization_stage",
 )
+quantized_model.save_pretrained(
+    f"{output_dir}/quantization_stage", skip_sparsity_compression_stats=False
+)
+tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 
 logger.info(
     "llmcompressor does not currently support running ",

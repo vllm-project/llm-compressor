@@ -49,7 +49,7 @@ class TestQuantization24SparseW4A16:
         stages = {
             "quantization": {
                 "path": Path("quantization_stage"),
-                "format": "pack-quantized",
+                "format": "marlin-24",
             },
             "sparsity": {
                 "path": Path("sparsity_stage"),
