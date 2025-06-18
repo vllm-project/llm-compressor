@@ -1,9 +1,10 @@
+from pathlib import Path
+
 import torch
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot, train
-from llmcompressor.utils import dispatch_for_generation
 
 # load the model in as bfloat16 to save on memory and compute
 model_stub = "neuralmagic/Llama-2-7b-ultrachat200k"
@@ -18,6 +19,7 @@ recipe = "2of4_w4a16_recipe.yaml"
 
 # save location of quantized model
 output_dir = "output_llama7b_2of4_w4a16_channel"
+output_path = Path(output_dir)
 
 # set dataset config parameters
 splits = {"calibration": "train_gen[:5%]", "train": "train_gen"}
@@ -63,25 +65,26 @@ training_kwargs = dict(
 # ./output_llama7b_2of4_w4a16_channel/ + (finetuning/sparsity/quantization)_stage
 
 # Oneshot sparsification
-oneshot_applied_model = oneshot(
+
+oneshot(
     model=model,
     **oneshot_kwargs,
+    output_dir=output_dir,
     stage="sparsity_stage",
 )
 
 # Sparse finetune
-dispatch_for_generation(model)
-finetune_applied_model = train(
-    model=oneshot_applied_model,
+train(
+    model=(output_path / "sparsity_stage"),
     **oneshot_kwargs,
     **training_kwargs,
+    output_dir=output_dir,
     stage="finetuning_stage",
 )
 
 # Oneshot quantization
-model.to("cpu")
 quantized_model = oneshot(
-    model=finetune_applied_model,
+    model=(output_path / "finetuning_stage"),
     **oneshot_kwargs,
     stage="quantization_stage",
 )
