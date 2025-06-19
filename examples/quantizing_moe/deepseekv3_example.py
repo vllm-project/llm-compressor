@@ -7,6 +7,8 @@ from llmcompressor.transformers import oneshot
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
+# For DeepSeekv3, we require a full precision model in order to properly calibrate
+# `DeepSeek-V3-BF16` is a DeepSeek-V3 FP8 model which has been converted to BF16
 model_id = "RedHatAI/DeepSeek-V3-BF16"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -52,21 +54,22 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with GPTQ with a group size 128
+# since the MoE gate layers are sensitive to quantization, we add them to the ignore
+# list so they remain at full precision
 recipe = GPTQModifier(
-    targets="Linear",
-    scheme="W4A16",
-    ignore=["lm_head"],
-    sequential_targets=["DeepseekV3Attention", "DeepseekV3MLP"],
+    targets="Linear", scheme="W4A16", ignore=["lm_head", "re:.*mlp.gate$"]
 )
 
 # Apply algorithms.
+# due to the large size of DeepSeekV3, we specify sequential targets such that
+# only one MLP is loaded into GPU memory at a time
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    sequential_targets=["DeepseekV3Attention", "DeepseekV3MLP"],
 )
 
 # Confirm generations of the quantized model look sane.
