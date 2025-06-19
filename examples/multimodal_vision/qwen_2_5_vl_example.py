@@ -8,19 +8,16 @@ from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
+from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
 model_id = "Qwen/Qwen2.5-VL-7B-Instruct"
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    model_id,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
 
 # Oneshot arguments
 DATASET_ID = "lmms-lab/flickr30k"
-DATASET_SPLIT = {"calibration": "test[:512]"}
+DATASET_SPLIT = "test[:512]"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
@@ -76,8 +73,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["Qwen2_5_VLDecoderLayer"],
-        ignore=["lm_head", "re:visual.*"],
+        ignore=["lm_head", "re:visual.*", "re:model.visual.*"],
     ),
 ]
 
@@ -91,10 +87,12 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     data_collator=data_collator,
+    sequential_targets=["Qwen2_5_VLDecoderLayer"],
 )
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 messages = [
     {
         "role": "user",
@@ -124,6 +122,6 @@ print("==========================================")
 
 
 # Save to disk compressed.
-SAVE_DIR = model_id.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)

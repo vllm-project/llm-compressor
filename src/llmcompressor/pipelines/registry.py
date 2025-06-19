@@ -7,17 +7,12 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.awq import AWQModifier
-from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
-from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationMixin
-from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["CalibrationPipeline"]
-
-SEQUENTIAL_MODIFIERS = (AWQModifier, GPTQModifier, SparsityModifierBase)
 
 
 class CalibrationPipeline(ABC, RegistryMixin):
@@ -43,7 +38,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
         :return: CalibrationPipeline instance to be called with data (if not datafree)
         """
         user = standardize_lookup_name(user) if user else None
-        inferred = standardize_lookup_name(cls._validate_infer_pipeline(modifiers))
+        inferred = standardize_lookup_name(cls._infer_pipeline(modifiers))
         independent = standardize_lookup_name("independent")
 
         if user == independent:
@@ -59,35 +54,11 @@ class CalibrationPipeline(ABC, RegistryMixin):
         return cls.load_from_registry(pipeline)
 
     @staticmethod
-    def _validate_infer_pipeline(modifiers: List[Modifier]) -> str:
-        if any(isinstance(modifier, SEQUENTIAL_MODIFIERS) for modifier in modifiers):
-            return "sequential"
-
-        active_qmods = _get_active_quant_modifiers(modifiers)
-        if len(active_qmods) > 1:
-            raise ValueError(
-                f"Recipe contains more than one active quantization config "
-                f"({active_qmods}). These configs may be conflicting, Please modify "
-                "your recipe to use at most one quantization config"
-            )
-
-        if len(active_qmods) == 1:
-            quant_modifier = active_qmods[0]
-            config = quant_modifier.resolve_quantization_config()
-            if config.requires_calibration_data():
-                return "basic"
-            else:
+    def _infer_pipeline(modifiers: List[Modifier]) -> str:
+        # only in the case of weight-only qmod quantization can we skip calibration
+        if len(modifiers) == 1 and isinstance(modifiers[0], QuantizationModifier):
+            config = modifiers[0].resolve_quantization_config()
+            if not config.requires_calibration_data():
                 return "datafree"
 
-        if any(isinstance(modifier, SmoothQuantModifier) for modifier in modifiers):
-            return "basic"
-
-        return "datafree"
-
-
-def _get_active_quant_modifiers(modifiers: List[Modifier]) -> List[QuantizationMixin]:
-    return [
-        modifier
-        for modifier in modifiers
-        if isinstance(modifier, QuantizationMixin) and modifier.has_config()
-    ]
+        return "sequential"

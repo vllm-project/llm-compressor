@@ -39,11 +39,7 @@ Load the model using `AutoModelForCausalLM`:
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -127,7 +123,7 @@ print(tokenizer.decode(output[0]))
 Save the quantized model:
 
 ```python
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-KV"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-KV"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 ```
