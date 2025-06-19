@@ -14,6 +14,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     get_sequential_targets,
     trace_subgraphs,
 )
+from llmcompressor.utils.dev import infer_model_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -54,6 +55,9 @@ class SequentialPipeline(CalibrationPipeline):
 
         # prepare model for sequential onloading
         dispatch_for_sequential(model)
+        model_device = dataset_args.model_input_device
+        if model_device is None:
+            model_device = infer_model_device(model)
 
         # prepare to trace subgraphs
         modifiers = session.get_modifiers()
@@ -69,7 +73,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         with calibration_forward_context(model), DisableQuantization(model):
             # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(dataloader)
+            activations = IntermediatesCache.from_dataloader(dataloader, model_device)
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts

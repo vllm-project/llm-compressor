@@ -171,6 +171,7 @@ class DatasetArguments(CustomDatasetArguments):
             "will execute code present on the Hub on your local machine."
         },
     )
+    # --- pipeline arguments --- #
     pipeline: Optional[str] = field(
         default="independent",
         metadata={
@@ -194,5 +195,12 @@ class DatasetArguments(CustomDatasetArguments):
             "Not specifying this argument will cause the sequential pipeline to "
             "default to using the `no_split_params` specified by the HF model "
             "definition"
+        },
+    )
+    model_input_device: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Device to put model inputs on for calibration."
+            "If none is specified, the model input device is inferred from the model"
         },
     )

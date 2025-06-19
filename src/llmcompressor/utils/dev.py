@@ -7,7 +7,7 @@ from typing import Type
 import torch
 from accelerate import dispatch_model, infer_auto_device_map
 from accelerate.utils import get_balanced_memory
-from compressed_tensors.utils import remove_dispatch
+from compressed_tensors.utils import has_offloaded_params, remove_dispatch
 from huggingface_hub import snapshot_download
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
@@ -20,6 +20,7 @@ __all__ = [
     "skip_weights_download",
     "patch_transformers_logger_level",
     "dispatch_for_generation",
+    "infer_model_device",
 ]
 
 
@@ -140,3 +141,28 @@ def dispatch_for_generation(model: PreTrainedModel) -> PreTrainedModel:
     )
 
     return dispatch_model(model, device_map=device_map)
+
+
+def infer_model_device(model: PreTrainedModel) -> torch.device:
+    """
+    Gets the model's execution device (the device that model inputs should be on)
+    using non-guaranteed but reasonable assumptions about module and parameter order.
+
+    If a model is offloaded, assume that modules execute in the same order
+    that they are returned by torch.nn.Module.modules()
+
+    If a model is not offloaded, assume that parameters are used in the same order
+    that they are used
+
+    :param model: model whose execution device is being inferred
+    :return: device which model inputs should be put on
+    """
+    for module in model.modules():
+        if has_offloaded_params(module):
+            return module._hf_hook.execution_device
+
+    first_param = next(module.parameters(), None)
+    if first_param is None:
+        return torch.device("cpu")
+
+    return first_param.device

@@ -19,6 +19,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
     get_sequential_targets,
 )
+from llmcompressor.utils.dev import infer_model_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -60,6 +61,9 @@ class LayerSequentialPipeline(CalibrationPipeline):
 
         # prepare model for sequential onloading
         dispatch_for_sequential(model)
+        model_device = dataset_args.model_input_device
+        if model_device is None:
+            model_device = infer_model_device(model)
 
         # find layers
         modifiers = session.get_modifiers()
@@ -71,7 +75,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
         with calibration_forward_context(model), DisableQuantization(model):
             # prepare intermediates cache
             intermediates: IntermediatesCache = capture_first_layer_intermediates(
-                model, layers[0], dataloader
+                model, layers[0], dataloader, model_device
             )
 
             num_layers = len(layers)
