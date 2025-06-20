@@ -31,7 +31,6 @@ class TestOneshotWithModifierObject(unittest.TestCase):
             SparseGPTModifier(sparsity=0.5, targets=[r"re:model.layers.\d+$"])
         ]
 
-        device = "cuda:0"
         concatenate_data = False
         num_calibration_samples = 64
         output_dir = self.output / "oneshot_out"
@@ -45,7 +44,6 @@ class TestOneshotWithModifierObject(unittest.TestCase):
             recipe=recipe_str,
             concatenate_data=concatenate_data,
             splits=splits,
-            oneshot_device=device,
         )
 
     def tearDown(self):

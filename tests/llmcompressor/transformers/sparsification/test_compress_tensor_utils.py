@@ -47,9 +47,6 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
     expected_sparsity = 0.5
     model_path = "nm-testing/llama2.c-stories15M"
-    device = "cuda:0"
-    if not torch.cuda.is_available():
-        device = "cpu"
     dataset = "open_platypus"
     concatenate_data = False
     num_calibration_samples = 64
@@ -66,7 +63,6 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         recipe=recipe_str,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
         precision=dtype,
         clear_sparse_session=False,
     )
@@ -166,9 +162,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
     model_path = "nm-testing/llama2.c-stories15M"
-    device = "cuda:0"
-    if not torch.cuda.is_available():
-        device = "cpu"
+    device = "cuda:0" if not torch.cuda.is_available() else "cpu"
     dataset = "open_platypus"
     concatenate_data = False
     num_calibration_samples = 16
@@ -182,7 +176,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
         recipe=recipe_str,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
         precision=dtype,
         clear_sparse_session=False,
     )
@@ -362,9 +355,7 @@ def test_model_shared_tensors_gpu(
 def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tmp_path):
     from llmcompressor.pytorch.model_load.helpers import get_session_model
 
-    device = "cuda"
-    if not torch.cuda.is_available():
-        device = "cpu"
+    device = "cuda:0" if not torch.cuda.is_available() else "cpu"
     dataset = "open_platypus"
     concatenate_data = False
     num_calibration_samples = 64
@@ -378,7 +369,6 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
         recipe=recipe,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
         clear_sparse_session=False,
     )
 
@@ -446,9 +436,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     ],
 )
 def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp_path):
-    device = "cuda"
-    if not torch.cuda.is_available():
-        device = "cpu"
+    device = "cuda:0" if not torch.cuda.is_available() else "cpu"
     dataset = "open_platypus"
     concatenate_data = False
     num_calibration_samples = 64
@@ -462,7 +450,6 @@ def test_sparse_24_compressor_is_lossless(model_stub, recipe, sparse_format, tmp
         recipe=recipe,
         concatenate_data=concatenate_data,
         splits=splits,
-        oneshot_device=device,
         clear_sparse_session=False,
     )
 

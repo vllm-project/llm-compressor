@@ -77,7 +77,6 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
             dataset=self.dataset,
             output_dir=self.output,
             recipe=self.recipe,
-            oneshot_device=self.device,
             num_calibration_samples=9,
         )
         model_loaded = AutoModelForCausalLM.from_pretrained(
