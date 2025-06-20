@@ -1,0 +1,8 @@
+quant_stage:
+  quant_modifiers:
+    GPTQModifier:
+      ignore: [lm_head, "re:.*mlp.gate$"]
+      config_groups:
+        group_0:
+          weights: {num_bits: 4, type: int, symmetric: true, strategy: channel, dynamic: false}
+          targets: [Linear]
