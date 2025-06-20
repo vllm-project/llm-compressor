@@ -13,7 +13,7 @@ MODEL_ID = "openai/whisper-large-v3"
 model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
-model = prepare_for_quantization(model)  # patch model (see #TODO)
+model = prepare_for_quantization(model)  # patch model (see #1574)
 
 # Configure processor the dataset task.
 processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")
