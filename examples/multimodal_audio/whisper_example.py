@@ -3,6 +3,7 @@ from datasets import load_dataset
 from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 from llmcompressor import oneshot
+from llmcompressor.modeling import prepare_for_quantization
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
 
@@ -12,6 +13,7 @@ MODEL_ID = "openai/whisper-large-v3"
 model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
+model = prepare_for_quantization(model)  # patch model (see #TODO)
 
 # Configure processor the dataset task.
 processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")
