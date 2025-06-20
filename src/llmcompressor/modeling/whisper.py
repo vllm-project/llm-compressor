@@ -73,7 +73,7 @@ class WhisperEncoderPatched(WhisperEncoder):
         inputs_embeds = nn.functional.gelu(self.conv2(inputs_embeds))
 
         inputs_embeds = inputs_embeds.permute(0, 2, 1)
-        embed_pos = self.embed_positions(torch.arange(len(self.embed_positions.weight)))  # PATCH: call embed_positions to trigger onloading
+        embed_pos = self.embed_positions(torch.arange(len(self.embed_positions.weight), device=inputs_embeds.device))  # PATCH: call embed_positions to trigger onloading
 
         hidden_states = inputs_embeds + embed_pos
         hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
