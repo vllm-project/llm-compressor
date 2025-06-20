@@ -149,10 +149,10 @@ def infer_model_device(model: PreTrainedModel) -> torch.device:
     using non-guaranteed but reasonable assumptions about module and parameter order.
 
     If a model is offloaded, assume that modules execute in the same order
-    that they are returned by torch.nn.Module.modules()
+    that they are returned by `model.modules()`
 
     If a model is not offloaded, assume that parameters are used in the same order
-    that they are used
+    that they are returned by `model.parameters()`
 
     :param model: model whose execution device is being inferred
     :return: device which model inputs should be put on
@@ -161,7 +161,7 @@ def infer_model_device(model: PreTrainedModel) -> torch.device:
         if has_offloaded_params(module):
             return module._hf_hook.execution_device
 
-    first_param = next(module.parameters(), None)
+    first_param = next(model.parameters(), None)
     if first_param is None:
         return torch.device("cpu")
 

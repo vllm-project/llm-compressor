@@ -200,7 +200,7 @@ class DatasetArguments(CustomDatasetArguments):
     model_input_device: Optional[str] = field(
         default=None,
         metadata={
-            "help": "Device to put model inputs on for calibration."
+            "help": "Device to put model inputs on for calibration. "
             "If none is specified, the model input device is inferred from the model"
         },
     )
