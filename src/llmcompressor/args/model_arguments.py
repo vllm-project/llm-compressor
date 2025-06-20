@@ -81,8 +81,11 @@ class ModelArguments:
         metadata={"help": "Whether to compress sparse models during save"},
     )
     oneshot_device: Optional[str] = field(
-        default="cuda:0",
-        metadata={"help": "Device to run oneshot calibration on"},
+        default="cuda",
+        metadata={
+            "help": "This argument is deprecated and nonfunctional "
+            "and will be removed in future release"
+        },
     )
     model_revision: str = field(
         default="main",

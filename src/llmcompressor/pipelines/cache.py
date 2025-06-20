@@ -61,7 +61,7 @@ class IntermediatesCache:
     def from_dataloader(
         cls,
         dataloader: torch.utils.data.DataLoader,
-        model_device: torch.device,
+        model_device: torch.device = torch.device("cpu"),
         mask_padding: bool = True,
         offload_device: Optional[torch.device] = torch.device("cpu"),
     ):

@@ -2,13 +2,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "google/gemma-2-27b-it"
 
 # 1) Load model.
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # 2) Configure the quantization algorithm and scheme.
@@ -31,12 +30,13 @@ oneshot(
 # Consider either downgrading your transformers version to a previous version
 # or use vLLM for sample generation.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # 4) Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

@@ -270,7 +270,7 @@ class SessionManagerMixIn:
         model: Module,
         inputs: Dict[str, Any],
         return_outputs: bool = False,
-        num_items_in_batch: Optional[int] = None,
+        num_items_in_batch: Optional[torch.Tensor] = None,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, Any]]:
         """
         Override for the compute_loss to factor trigger callbacks and filter columns
@@ -279,6 +279,7 @@ class SessionManagerMixIn:
         :param inputs: the inputs to pass through the model for calculating the loss
         :param return_outputs: True to return the outputs with the loss,
             False otherwise
+        :param num_items_in_batch: the number of items which contribute to loss
         :return: the resulting loss if not return_outputs, otherwise a tuple
             containing the loss and the model's outputs
         """
@@ -363,7 +364,7 @@ class SessionManagerMixIn:
         self,
         output_dir: str,
         _internal_call: bool = False,
-        skip_sparsity_compression_stats: Optional[bool] = False,
+        skip_sparsity_compression_stats: Optional[bool] = True,
     ):
         """
         Override of the save_model function and expects it to exist in the parent.
@@ -388,6 +389,8 @@ class SessionManagerMixIn:
             self.model.prepare_for_save()  # TODO: move to finalize
 
         # save checkpoint
+        # note that skip_sparsity_compression_stats
+        # is True by default to avoid high runtime cost
         self.save_state()
         if self.accelerator.is_main_process:
             processor = getattr(self, "processing_class", self.tokenizer)
