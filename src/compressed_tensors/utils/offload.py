@@ -177,17 +177,15 @@ def get_execution_device(module: torch.nn.Module) -> torch.device:
     :param module: module to check, may be offloaded
     :return: onload device of module
     """
-    for module in module.modules():
-        if has_offloaded_params(module):
-            return module._hf_hook.execution_device
+    for submodule in module.modules():
+        if has_offloaded_params(submodule):
+            return submodule._hf_hook.execution_device
 
-        param = next(module.parameters(recurse=False), None)
+        param = next(submodule.parameters(recurse=False), None)
         if param is not None:
             return param.device
 
-    warnings.warn(
-        f"Unable able to get execution device of {module}, falling back to CPU"
-    )
+    warnings.warn(f"Unable to get execution device of {module}, falling back to CPU")
     return torch.device("cpu")
 
 
