@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.utils import disable_offloading
+from compressed_tensors.utils import disable_offloading, get_execution_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -14,7 +14,6 @@ from llmcompressor.pipelines.sequential.helpers import (
     get_sequential_targets,
     trace_subgraphs,
 )
-from llmcompressor.utils.dev import infer_model_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
@@ -55,9 +54,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         # prepare model for sequential onloading
         dispatch_for_sequential(model)
-        model_device = getattr(dataset_args, "model_input_device")
-        if model_device is None:
-            model_device = infer_model_device(model)
+        model_device = get_execution_device(model)
 
         # prepare to trace subgraphs
         modifiers = session.get_modifiers()
