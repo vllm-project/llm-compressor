@@ -74,7 +74,31 @@ _phi_mappings = [
     ),
 ]
 
+
+# Cohere architecture is similar to default, with a very fundamental difference.
+# The MLP block is executed in parallel to the attention. So the tensor goes
+# through input_layernorm and then from there it goes directly to the attention
+# module and to the MLP module.
+_cohere_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        [
+            "re:.*self_attn.q_proj$",
+            "re:.*self_attn.k_proj$",
+            "re:.*self_attn.v_proj$",
+            "re:.*mlp.gate_proj$",
+            "re:.*mlp.up_proj$",
+        ],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
+    "CohereForCausalLM": _cohere_mappings,
     "LlamaForCausalLM": _default_mappings,
     "MistralForCausalLM": _default_mappings,
     "Phi3ForCausalLM": _phi_mappings,
