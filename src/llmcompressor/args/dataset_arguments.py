@@ -171,6 +171,7 @@ class DatasetArguments(CustomDatasetArguments):
             "will execute code present on the Hub on your local machine."
         },
     )
+    # --- pipeline arguments --- #
     pipeline: Optional[str] = field(
         default="independent",
         metadata={
