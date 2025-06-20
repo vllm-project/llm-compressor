@@ -67,7 +67,8 @@ class SequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        with calibration_forward_context(model), DisableQuantization(model):
+        # disable gradients, kv cache, ect.
+        with calibration_forward_context(model):
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader)
 
@@ -79,22 +80,28 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
-                        inputs = activations.fetch(batch_idx, subgraph.input_names)
-                        subgraph.forward(model, **inputs)
+                    with DisableQuantization(model):
+                        for index in tqdm(range(len(dataloader)), desc=calib_desc):
+                            inputs = activations.fetch(index, subgraph.input_names)
+                            output = subgraph.forward(model, **inputs)
 
+                            if not dataset_args.propagate_error:
+                                activations.update(index, output)
+                                activations.delete(index, subgraph.consumed_names)
+
+                    # trigger layer optimization
                     LifecycleCallbacks.sequential_epoch_end()
 
                     # this pass does not trigger modifier hooks
                     # and is only used for capturing outputs of newly compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
-                            inputs = activations.fetch(batch_idx, subgraph.input_names)
-                            output = subgraph.forward(model, **inputs)
+                    if dataset_args.propagate_error:
+                        with HooksMixin.disable_hooks():
+                            for index in tqdm(range(len(dataloader)), desc=prop_desc):
+                                inputs = activations.fetch(index, subgraph.input_names)
+                                output = subgraph.forward(model, **inputs)
 
-                            if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                                activations.update(index, output)
+                                activations.delete(index, subgraph.consumed_names)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

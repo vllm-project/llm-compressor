@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
 import torch
-import tqdm
 from compressed_tensors.utils import disable_offloading
 from torch.utils.data.dataloader import DataLoader
+from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -68,7 +68,8 @@ class LayerSequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        with calibration_forward_context(model), DisableQuantization(model):
+        # disable gradients, kv cache, ect.
+        with calibration_forward_context(model):
             # prepare intermediates cache
             intermediates: IntermediatesCache = capture_first_layer_intermediates(
                 model, layers[0], dataloader
@@ -83,31 +84,42 @@ class LayerSequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 with disable_offloading():
                     # do a preliminary pass to trigger modifier hooks
-                    for batch_idx in tqdm.tqdm(range(len(dataloader)), desc=calib_desc):
-                        inputs = intermediates.fetch(batch_idx)
-                        layer(**inputs)
+                    with DisableQuantization(model):
+                        for index in tqdm(range(len(dataloader)), desc=calib_desc):
+                            inputs = intermediates.fetch(index)
+                            output = layer(**inputs)
 
+                            if not dataset_args.propagate_error:
+                                if layer_index < num_layers - 1:
+                                    next_layer = layers[layer_index + 1]
+                                    output = to_next_layer_kwargs(output, next_layer)
+                                    output = maybe_inject_pos_embeddings(
+                                        output, next_layer, inputs
+                                    )
+
+                                    intermediates.delete(index)
+                                    intermediates.update(index, output)
+
+                    # trigger layer optimization
                     LifecycleCallbacks.sequential_epoch_end()
 
                     # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs from
-                    # newly compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx in tqdm.tqdm(
-                            range(len(dataloader)), desc=prop_desc
-                        ):
-                            inputs = intermediates.fetch(batch_idx)
-                            output = layer(**inputs)
+                    # and is only used for capturing outputs of newly compressed modules
+                    if dataset_args.propagate_error:
+                        with HooksMixin.disable_hooks():
+                            for index in tqdm(range(len(dataloader)), desc=prop_desc):
+                                inputs = intermediates.fetch(index)
+                                output = layer(**inputs)
 
-                            if layer_index < num_layers - 1:
-                                next_layer = layers[layer_index + 1]
-                                output = to_next_layer_kwargs(output, next_layer)
-                                output = maybe_inject_pos_embeddings(
-                                    output, next_layer, inputs
-                                )
+                                if layer_index < num_layers - 1:
+                                    next_layer = layers[layer_index + 1]
+                                    output = to_next_layer_kwargs(output, next_layer)
+                                    output = maybe_inject_pos_embeddings(
+                                        output, next_layer, inputs
+                                    )
 
-                                intermediates.delete(batch_idx)
-                                intermediates.update(batch_idx, output)
+                                    intermediates.delete(index)
+                                    intermediates.update(index, output)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

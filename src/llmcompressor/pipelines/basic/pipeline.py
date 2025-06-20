@@ -1,3 +1,4 @@
+import contextlib
 from typing import TYPE_CHECKING, Union
 
 import torch
@@ -10,6 +11,7 @@ from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batc
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context, dispatch_for_generation
+from llmcompressor.utils.helpers import DisableQuantization
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -42,11 +44,15 @@ class BasicPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
+        # disable gradients, kv cache, ect.
         with calibration_forward_context(model):
-            for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
-                batch = apply_pad_mask_to_batch(batch)
-                batch = tensors_to_device(batch, model_device)
-                model(**batch)
+            with DisableQuantization(
+                model
+            ) if not dataset_args.propagate_error else contextlib.nullcontext():
+                for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
+                    batch = apply_pad_mask_to_batch(batch)
+                    batch = tensors_to_device(batch, model_device)
+                    model(**batch)
 
         LifecycleCallbacks.calibration_epoch_end()
 

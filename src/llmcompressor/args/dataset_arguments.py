@@ -171,6 +171,7 @@ class DatasetArguments(CustomDatasetArguments):
             "will execute code present on the Hub on your local machine."
         },
     )
+    # --- pipeline arguments --- #
     pipeline: Optional[str] = field(
         default="independent",
         metadata={
@@ -194,5 +195,15 @@ class DatasetArguments(CustomDatasetArguments):
             "Not specifying this argument will cause the sequential pipeline to "
             "default to using the `no_split_params` specified by the HF model "
             "definition"
+        },
+    )
+    propagate_error: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "A True value means that the activations used to calibrate layers "
+            "will reflect the error induced by the quantization/optimization of "
+            "previous layers of the model. A False value means that activations will "
+            "be the same as activations produced by the original, full precision base "
+            "model. Deafults to True"
         },
     )
