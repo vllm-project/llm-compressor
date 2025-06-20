@@ -38,7 +38,7 @@ class BasicPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         dispatch_for_generation(model)  # basic dispatch is identical to generation
-        model_device = dataset_args.model_input_device
+        model_device = getattr(dataset_args, "model_input_device")
         if model_device is None:
             model_device = infer_model_device(model)
 

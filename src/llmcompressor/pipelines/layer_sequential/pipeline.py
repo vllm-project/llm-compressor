@@ -61,7 +61,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
 
         # prepare model for sequential onloading
         dispatch_for_sequential(model)
-        model_device = dataset_args.model_input_device
+        model_device = getattr(dataset_args, "model_input_device")
         if model_device is None:
             model_device = infer_model_device(model)
 
