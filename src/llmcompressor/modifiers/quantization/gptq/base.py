@@ -1,5 +1,6 @@
 import contextlib
-from typing import Dict, List, Optional, Tuple, Union
+import warnings
+from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
@@ -16,7 +17,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr
+from pydantic import PrivateAttr, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -61,7 +62,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
         - on_initialize
-            - apply config to model
+            - apply quantization config to model
         - on_start
             - add activation calibration hooks
             - add gptq weight calibration hooks
@@ -71,8 +72,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
             - remove_hooks()
             - model.apply(freeze_module_quantization)
 
-    :param sequential_targets: list of layer names to compress during GPTQ, or
-        '__ALL__' to compress every layer in the model
     :param block_size: Used to determine number of columns to compress in one pass
     :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
         diagonal norm
@@ -84,7 +83,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
-    :param targets: list of layer names to quantize if a scheme is provided. Defaults
+    :param targets: list of module names to quantize if a scheme is provided. Defaults
         to Linear layers
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
@@ -107,7 +106,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     # gptq modifier arguments
-    sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
     # TODO: this does not serialize / will be incorrectly written
