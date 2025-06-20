@@ -1,29 +1,31 @@
-import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor.modeling import prepare_for_quantization
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 from llmcompressor.utils import dispatch_for_generation
 
-# select a Mixture of Experts model for quantization
-MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
-)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+# Select model and load it.
+# For DeepSeekv3, we require a full precision model in order to properly calibrate
+# `DeepSeek-V3-BF16` is a DeepSeek-V3 FP8 model which has been converted to BF16
+model_id = "RedHatAI/DeepSeek-V3-BF16"
+model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+model = prepare_for_quantization(model)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
+
+# Select number of samples. 512 samples is a good place to start.
+# Increasing the number of samples can improve accuracy.
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
-
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
-ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+ds = ds.shuffle(seed=42)
 
 
 def preprocess(example):
@@ -51,34 +53,36 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# define a llmcompressor recipe for W416 quantization with a group size of 128
+# Configure the quantization algorithm to run.
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
 recipe = GPTQModifier(
-    targets="Linear",
-    scheme="W4A16",
-    ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
+    targets="Linear", scheme="W4A16", ignore=["lm_head", "re:.*mlp.gate$"]
 )
 
+# Apply algorithms.
+# due to the large size of DeepSeekV3, we specify sequential targets such that
+# only one MLP is loaded into GPU memory at a time
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    save_compressed=True,
-    trust_remote_code_model=True,
+    sequential_targets=["DeepseekV3Attention", "DeepseekV3MLP"],
 )
 
 # Confirm generations of the quantized model look sane.
+print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {key: value.to("cuda") for key, value in sample.items()}
+output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
-print("==========================================")
+print("==========================================\n\n")
 
-# Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-quantized.w4a16"
+# Save to disk compressed.
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
