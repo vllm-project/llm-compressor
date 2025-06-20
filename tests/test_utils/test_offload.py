@@ -102,6 +102,25 @@ def test_get_execution_device():
         assert get_execution_device(module) == torch.device("cuda:0")
 
 
+@requires_gpu
+@requires_accelerate()
+def test_get_execution_device_model():
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.a = torch.nn.Linear(1, 2)
+            self.b = torch.nn.Linear(2, 2, device="cuda:0")
+
+        def forward(self, x):
+            return self.b(self.a(x).to("cuda:0"))
+
+    model = Model()
+    assert get_execution_device(model) == torch.device("cpu")
+
+    offloaded_dispatch(model.a, torch.device("cuda:0"))
+    assert get_execution_device(model) == torch.device("cuda:0")
+
+
 @requires_accelerate()
 def test_register_offload_parameter():
     from accelerate import init_empty_weights
