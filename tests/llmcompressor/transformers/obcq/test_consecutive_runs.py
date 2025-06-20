@@ -44,7 +44,6 @@ class TestConsecutiveRuns(unittest.TestCase):
 
         first_model = AutoModelForCausalLM.from_pretrained(
             self.output_first,
-            device_map="auto",
             torch_dtype="auto",
             quantization_config=self.quantization_config,
         )
@@ -74,7 +73,6 @@ class TestConsecutiveRuns(unittest.TestCase):
         second_model = AutoModelForCausalLM.from_pretrained(
             self.output_second,
             quantization_config=self.quantization_config,
-            device_map="auto",
             torch_dtype="auto",
         )
 
