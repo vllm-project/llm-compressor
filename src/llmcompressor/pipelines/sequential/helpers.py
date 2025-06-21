@@ -2,7 +2,11 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
+<<<<<<< HEAD
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+=======
+from typing import Any, Dict, List, Optional, Set
+>>>>>>> 0c50d7f7 (quality)
 
 import torch
 from accelerate.hooks import remove_hook_from_module
