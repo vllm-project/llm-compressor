@@ -5,13 +5,13 @@ from compressed_tensors.utils import disable_offloading, get_execution_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
-from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.core import LifecycleCallbacks
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
-    get_sequential_targets,
+    infer_sequential_targets,
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -50,15 +50,15 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
-        session = active_session()
+        # prepare model for sequential onloading
+        dispatch_for_sequential(model)
 
         # prepare model for sequential onloading
         dispatch_for_sequential(model)
         model_device = get_execution_device(model)
 
         # prepare to trace subgraphs
-        modifiers = session.get_modifiers()
-        sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
+        sequential_targets = infer_sequential_targets(model, dataset_args)
         ignore = dataset_args.tracing_ignore
 
         # trace subgraphs

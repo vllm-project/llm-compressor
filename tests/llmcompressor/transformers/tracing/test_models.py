@@ -14,9 +14,11 @@ from transformers import (
     WhisperForConditionalGeneration,
 )
 
-from llmcompressor.pipelines.sequential.helpers import match_modules
+from llmcompressor.pipelines.sequential.helpers import (
+    infer_sequential_targets,
+    match_modules,
+)
 from llmcompressor.transformers.tracing.debug import trace
-from llmcompressor.utils.pytorch.module import get_no_split_params
 
 
 @pytest.mark.skipif(
@@ -143,11 +145,7 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
 
 
 def get_target_modules(model, sequential_targets):
-    if sequential_targets is None:
-        sequential_targets = get_no_split_params(model)
-    if isinstance(sequential_targets, str):
-        sequential_targets = [sequential_targets]
-
+    sequential_targets = infer_sequential_targets(model, sequential_targets)
     return match_modules(model, sequential_targets)
 
 

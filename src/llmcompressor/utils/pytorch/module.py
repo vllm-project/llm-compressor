@@ -12,7 +12,6 @@ from compressed_tensors.quantization.utils import is_module_quantized
 from packaging import version
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
-from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
 from llmcompressor.utils.fsdp.context import (
@@ -60,7 +59,6 @@ __all__ = [
     "qat_active",
     "get_layers_params",
     "get_matching_layer",
-    "get_no_split_params",
     "get_layer_by_name",
 ]
 
@@ -314,25 +312,6 @@ def get_matching_layer(
             largest_substring = match_length
 
     return match
-
-
-def get_no_split_params(model: PreTrainedModel) -> Union[str, List[str]]:
-    """
-    Get list of module classes that shouldn't be split when sharding. For
-    Hugging Face Transformer models, this is the decoder layer type. For other
-    types of models, this just returns all module names.
-
-    :return: list of class names that shouldn't be split
-    """
-    # importing here to avoid circular import
-    from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
-
-    model = maybe_get_wrapped(model)
-    no_split_modules = model._get_no_split_modules("auto")
-    if len(no_split_modules) <= 0:
-        return ALL_TARGET
-
-    return no_split_modules
 
 
 # https://discuss.pytorch.org/t/how-to-access-to-a-layer-by-module-name/83797/8

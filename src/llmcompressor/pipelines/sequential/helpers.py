@@ -2,7 +2,7 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import torch
 from compressed_tensors.quantization import find_name_or_class_matches
@@ -20,20 +20,15 @@ from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 from transformers.utils.fx import HFTracer
 
-from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
-from llmcompressor.utils.pytorch.module import get_no_split_params
 
 from .ast_helpers import autowrap_forwards
-
-if TYPE_CHECKING:
-    from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = [
     "trace_subgraphs",
     "Subgraph",
-    "get_sequential_targets",
+    "infer_sequential_targets",
     "dispatch_for_sequential",
 ]
 
@@ -428,59 +423,21 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
     )
 
 
-def get_sequential_targets(
-    modifiers: List[Modifier], model: PreTrainedModel, args: "DatasetArguments"
+def infer_sequential_targets(
+    model: PreTrainedModel, sequential_targets: Optional[List[str]]
 ) -> List[str]:
     """
-    Infer sequential targets from modifiers list and dataset args
+    Infer sequential targets dataset args
 
     :param model: model being calibrated
-    :param modifiers: list of modifiers being applied during calibration
-    :param dataset_args: dataset arguments passed by user
+    :param sequential_targets: optional targets passed by user
     :return: list of sequential targets
     """
-    modifier_targets = [
-        (modifier, modifier.sequential_targets)
-        for modifier in modifiers
-        if getattr(modifier, "sequential_targets", None) is not None
-    ]
+    if not sequential_targets:
+        sequential_targets = model._get_no_split_modules("auto")
 
-    # deprecation warning
-    if len(modifier_targets) >= 1:
-        logger.warning(
-            "Passing sequential targets through modifiers is deprecated, "
-            "please use `oneshot(sequential_targets=...)`"
-        )
-
-    # cannot infer from multiple modifiers
-    if len(modifier_targets) >= 2:
-        types = [type(modifier) for modifier, _ in modifier_targets]
-        raise ValueError(
-            "Cannot infer sequential targets from multiple sequential modifiers "
-            f"({types})"
-        )
-
-    # resolve single modifier
-    if len(modifier_targets) == 1:
-        if args.sequential_targets is not None:
-            raise ValueError(
-                f"Got sequential targets from both {type(modifier_targets[0][0])} "
-                "and dataset arguments `sequential_targets`"
-            )
-
-        sequential_targets = modifier_targets[0][1]
-
-    # if no modifiers, use data args
-    else:
-        sequential_targets = args.sequential_targets  # may be `None`
-
-    # validate and infer
-    if sequential_targets is None:
-        return get_no_split_params(model)
-    elif isinstance(sequential_targets, str):
-        return [sequential_targets]
-    else:
-        return sequential_targets
+    if len(sequential_targets) <= 0:
+        return ["Linear"]
 
 
 def add_line_numbers(text: str) -> str:

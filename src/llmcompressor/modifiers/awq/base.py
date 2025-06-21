@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
@@ -12,7 +12,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import ConfigDict, PrivateAttr, model_validator
+from pydantic import ConfigDict, PrivateAttr, field_validator, model_validator
 from torch.nn import Module
 from tqdm import tqdm
 
@@ -27,6 +27,7 @@ from llmcompressor.modifiers.quantization.calibration import update_weight_zp_sc
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
 from llmcompressor.utils.pytorch.module import get_layer_by_name, get_layers
@@ -96,8 +97,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         - on_finalize
             - clear resolved mappings and captured activations
 
-    :param sequential_targets: list of module names to compress in
-        the same calibration pass
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -116,11 +115,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         and weights to determine the scaling factor
     """
 
-    # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
-
     # User-provided vars (in addition to QuantizationMixin args)
-    sequential_targets: Union[str, List[str], None] = None
     mappings: Optional[List[AWQMapping]] = None
     offload_device: Optional[torch.device] = None
     duo_scaling: bool = True
@@ -140,6 +135,20 @@ class AWQModifier(Modifier, QuantizationMixin):
     _smooth_activation_means: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
+
+    # deprecated
+    sequential_targets: Union[Sentinel, Any] = Sentinel("deprecated")
+
+    # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_validator("sequential_targets", mode="before")
+    def validate_sequential_targets(cls, value: bool) -> bool:
+        if value is not Sentinel("deprecated"):
+            raise ValueError(
+                "Setting `sequential_targets` via modifiers is no longer supported, "
+                "Please use `oneshot(sequential_targets=...)`"
+            )
 
     @model_validator(mode="after")
     def validate_model_after(model: "AWQModifier") -> "AWQModifier":
