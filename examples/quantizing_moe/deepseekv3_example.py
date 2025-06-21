@@ -4,7 +4,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor.modeling import prepare_for_quantization
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
-from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 # For DeepSeekv3, we require a full precision model in order to properly calibrate
@@ -71,16 +70,6 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     sequential_targets=["DeepseekV3Attention", "DeepseekV3MLP"],
 )
-
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-sample = tokenizer("Hello my name is", return_tensors="pt")
-sample = {key: value.to("cuda") for key, value in sample.items()}
-output = model.generate(**sample, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
