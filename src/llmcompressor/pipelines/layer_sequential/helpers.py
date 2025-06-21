@@ -44,6 +44,7 @@ def capture_first_layer_intermediates(
     model: Module,
     first_layer: Module,
     dataloader: DataLoader,
+    model_device: torch.device = torch.device("cpu"),
     mask_padding: bool = True,
 ) -> IntermediatesCache:
     """
@@ -68,7 +69,7 @@ def capture_first_layer_intermediates(
         desc = "Preparing intermediates cache"
         for batch_index, batch in enumerate(tqdm.tqdm(dataloader, desc=desc)):
             batch = apply_pad_mask_to_batch(batch) if mask_padding else batch
-            batch = tensors_to_device(batch, torch.device("cpu"))
+            batch = tensors_to_device(batch, model_device)
 
             try:
                 model(**batch)

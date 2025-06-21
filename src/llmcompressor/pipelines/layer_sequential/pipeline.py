@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.utils import disable_offloading
+import tqdm
+from compressed_tensors.utils import disable_offloading, get_execution_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -60,6 +61,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
 
         # prepare model for sequential onloading
         dispatch_for_sequential(model)
+        model_device = get_execution_device(model)
 
         # find layers
         modifiers = session.get_modifiers()
@@ -72,7 +74,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
         with calibration_forward_context(model):
             # prepare intermediates cache
             intermediates: IntermediatesCache = capture_first_layer_intermediates(
-                model, layers[0], dataloader
+                model, layers[0], dataloader, model_device
             )
 
             num_layers = len(layers)
