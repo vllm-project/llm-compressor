@@ -74,6 +74,25 @@ _phi_mappings = [
     ),
 ]
 
+# Gemma includes a pre_feedforward_layernorm in between
+#  post_attention_layernorm and the mlp down/gate proj layers
+#  use that instead of post_attention_layernorm in 3rd mapping:
+_gemma_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
+    ),
+    AWQMapping("re:.*v_proj$", ["re:.*o_proj$"]),
+    AWQMapping(
+        "re:.*pre_feedforward_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping(
+        "re:.*up_proj$",
+        ["re:.*down_proj$"],
+    ),
+]
+
 
 # Cohere architecture is similar to default, with a very fundamental difference.
 # The MLP block is executed in parallel to the attention. So the tensor goes
@@ -100,6 +119,9 @@ _cohere_mappings = [
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
+    "Gemma2ForCausalLM": _gemma_mappings,
+    "Gemma3ForCausalLM": _gemma_mappings,
+    "Gemma3ForConditionalGeneration": _gemma_mappings,
     "LlamaForCausalLM": _default_mappings,
     "MistralForCausalLM": _default_mappings,
     "Phi3ForCausalLM": _phi_mappings,
