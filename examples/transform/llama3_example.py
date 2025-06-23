@@ -3,14 +3,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.modifiers.transform import TransformModifier
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    device_map="auto",
     torch_dtype="auto",
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -66,6 +65,7 @@ oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
+    pipeline="sequential",
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
