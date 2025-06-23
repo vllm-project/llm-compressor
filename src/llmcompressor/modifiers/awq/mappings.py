@@ -99,6 +99,7 @@ _cohere_mappings = [
 
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "CohereForCausalLM": _cohere_mappings,
+    "Cohere2ForCausalLM": _cohere_mappings,
     "LlamaForCausalLM": _default_mappings,
     "MistralForCausalLM": _default_mappings,
     "Phi3ForCausalLM": _phi_mappings,
