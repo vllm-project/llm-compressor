@@ -1,5 +1,5 @@
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.modeling import prepare_for_calibration
 from llmcompressor.modifiers.quantization import GPTQModifier
@@ -9,7 +9,11 @@ from llmcompressor.transformers import oneshot
 # For DeepSeek-R1, we require a full precision model in order to properly calibrate
 # `DeepSeek-R1-0528-BF16` is a DeepSeek-V3 FP8 model which has been converted to BF16
 model_id = "unsloth/DeepSeek-R1-0528-BF16"
-model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
+config = AutoConfig.from_pretrained(model_id)
+del config.quantization_config  # fp8 qconfig no longer appplies to bf16 model
+model = AutoModelForCausalLM.from_pretrained(
+    model_id, torch_dtype="auto", config=config
+)
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 model = prepare_for_calibration(model)
 

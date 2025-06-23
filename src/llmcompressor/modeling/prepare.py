@@ -13,8 +13,9 @@ replacements = {
 
 def prepare_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
     def replace(module: torch.nn.Module) -> torch.nn.Module:
-        if module.__class__.__name__ in replacements:
-            return replacements[module.__class__](module)
+        cls_name = module.__class__.__name__
+        if cls_name in replacements:
+            return replacements[cls_name](module)
         else:
             return module
 
