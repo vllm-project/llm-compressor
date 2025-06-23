@@ -3,6 +3,7 @@ from typing import Dict, Optional, Tuple
 
 import torch
 import transformers
+from loguru import logger
 
 SGPT_PRECISION = torch.float32
 
