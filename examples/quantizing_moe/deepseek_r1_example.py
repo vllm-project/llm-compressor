@@ -6,8 +6,13 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
 # Select model and load it.
+
+# This script takes about 48 hours on 1xA100 to complete.
+# Future improvements will reduce this runtime (#1561, #1558).
+
 # For DeepSeek-R1, we require a full precision model in order to properly calibrate
 # `DeepSeek-R1-0528-BF16` is a DeepSeek-V3 FP8 model which has been converted to BF16
+
 model_id = "unsloth/DeepSeek-R1-0528-BF16"
 config = AutoConfig.from_pretrained(model_id)
 del config.quantization_config  # fp8 qconfig no longer appplies to bf16 model
