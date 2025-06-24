@@ -45,6 +45,10 @@ class SparseGPTModifier(SparsityModifierBase):
         - on_finalize
             - remove_hooks()
 
+    :param targets: list of module names to quantize if a scheme is provided. Defaults
+        to Linear layers
+    :param ignore: optional list of module class names or submodule names to not
+        quantize even if they match a target. Defaults to empty list.
     :param sparsity: Sparsity to compress model to
     :param sparsity_profile: Can be set to 'owl' to use Outlier Weighed
         Layerwise Sparsity (OWL), more information can be found
@@ -62,12 +66,6 @@ class SparseGPTModifier(SparsityModifierBase):
         previously pruned model, defaults to False.
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
-    :param sequential_targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model. Alias for `targets`
-    :param targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model. Alias for `sequential_targets`
-    :param ignore: optional list of module class names or submodule names to not
-        quantize even if they match a target. Defaults to empty list.
     """
 
     # modifier arguments

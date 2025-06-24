@@ -7,8 +7,9 @@ import torch
 import transformers
 from transformers import AutoProcessor, PreTrainedModel
 
-from llmcompressor.utils.pytorch.module import get_no_split_params
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
+from llmcompressor.pipelines.sequential.helpers import (
+    infer_sequential_targets, trace_subgraphs, Subgraph
+)
 from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.args import DatasetArguments
 
@@ -86,10 +87,9 @@ def trace(
     print("Loaded sample data")
 
     # infer sequential targets
-    if sequential_targets is None:
-        sequential_targets = get_no_split_params(model)
-    if isinstance(sequential_targets, str):
-        sequential_targets = [sequential_targets]
+    sequential_targets = infer_sequential_targets(
+        model, sequential_targets
+    )
 
     # Attempt trace
     print(

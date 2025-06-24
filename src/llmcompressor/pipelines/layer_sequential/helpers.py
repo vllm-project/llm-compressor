@@ -69,7 +69,7 @@ def capture_first_layer_intermediates(
         desc = "Preparing intermediates cache"
         for batch_index, batch in enumerate(tqdm.tqdm(dataloader, desc=desc)):
             batch = apply_pad_mask_to_batch(batch) if mask_padding else batch
-            batch = tensors_to_device(batch, model_device)
+            batch = tensors_to_device(batch, torch.device("cpu"))
 
             try:
                 model(**batch)
