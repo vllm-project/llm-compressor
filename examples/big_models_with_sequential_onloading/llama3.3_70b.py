@@ -50,7 +50,9 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with GPTQ with a group size 128
+#   * apply SmoothQuant to make the activations easier to quantize
+#   * quantize the weights to int8 with GPTQ (static per channel)
+#   * quantize the activations to int8 (dynamic per token)
 recipe = [
     SmoothQuantModifier(smoothing_strength=0.8),
     GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
