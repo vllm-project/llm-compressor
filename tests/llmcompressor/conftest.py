@@ -1,3 +1,4 @@
+import gc
 import os
 import shutil
 import tempfile
@@ -80,7 +81,7 @@ def check_for_created_files():
 
 
 @pytest.fixture(autouse=True, scope="function")
-def setup_fresh_session():
+def llm_compressor_setup_teardown():
     """
     setup any state tied to the execution of the given method in a
     class.  setup_method is invoked for every test method of a class.
@@ -92,3 +93,6 @@ def setup_fresh_session():
     yield
     # reset the session after each test
     reset_session()
+    # explictly collect memory to catch memory bugs,
+    # see https://github.com/vllm-project/llm-compressor/pull/1503
+    gc.collect()
