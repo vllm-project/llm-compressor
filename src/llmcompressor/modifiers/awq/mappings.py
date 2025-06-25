@@ -123,6 +123,7 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
     "LlamaForCausalLM": _default_mappings,
+    "Mistral3ForConditionalGeneration": _default_mappings,
     "MistralForCausalLM": _default_mappings,
     "Phi3ForCausalLM": _phi_mappings,
     "Phi3VForCausalLM": _phi_mappings,
