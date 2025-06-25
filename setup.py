@@ -115,6 +115,7 @@ setup(
         "numpy>=1.17.0",
         "requests>=2.0.0",
         "tqdm>=4.0.0",
+        # torch 1.10 and 1.11 do not support quantized onnx export
         "torch>=1.7.0,!=1.10,!=1.11",
         "transformers>4.0,<4.53.0",
         "datasets",
