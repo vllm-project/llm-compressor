@@ -191,7 +191,12 @@ class Oneshot:
         modifiers = session.get_modifiers()
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
         # ToDo: wrap moe_calibrate_all_experts in some set of args
-        pipeline(self.model, calibration_dataloader, self.dataset_args, calibrate_moe_context=True)
+        pipeline(
+            self.model,
+            calibration_dataloader,
+            self.dataset_args,
+            calibrate_moe_context=True,
+        )
 
         session.finalize()
 
