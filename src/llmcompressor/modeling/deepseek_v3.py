@@ -1,5 +1,18 @@
+from typing import TYPE_CHECKING
+
 import torch
-from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
+
+if TYPE_CHECKING:
+    from transformers.models.deepseek_v3.configuration_deepseek_v3 import (
+        DeepseekV3Config,
+    )
+    from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
+        DeepseekV3MLP,
+        DeepseekV3MoE,
+        DeepseekV3TopkRouter,
+    )
+
+    from llmcompressor.modeling.prepare import CalibrationConfig
 
 
 class DeepseekV3MoECalibrate(torch.nn.Module):
@@ -7,12 +20,31 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """
 
-    def __init__(self, config, experts, gate, shared_experts):
+    def __init__(
+        self,
+        config: "DeepseekV3Config",
+        experts: torch.nn.ModuleList,
+        gate: "DeepseekV3TopkRouter",
+        shared_experts: "DeepseekV3MLP",
+        calib_config: "CalibrationConfig",
+    ):
         super().__init__()
         self.config = config
         self.experts = experts
         self.gate = gate
         self.shared_experts = shared_experts
+
+        self.calib_config = calib_config
+
+        if not calib_config.moe_calibrate_gated_acts:
+            if not calib_config.moe_calibrate_all_experts:
+                raise NotImplementedError(
+                    "Using all experts for activations without "
+                    "calibrating all experts is not supported"
+                )
+
+            # ungate experts
+            self.gate.top_k = self.gate.n_routed_experts
 
     def forward(self, hidden_states):
         residuals = hidden_states
@@ -32,13 +64,17 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
             mask = expert_mask[expert_idx]
             token_indices, weight_indices = torch.where(mask)
 
-            expert_weights = topk_weights[token_indices, weight_indices]
-            expert_input = hidden_states[token_indices]
-            expert_output = expert(expert_input)
-            weighted_output = expert_output * expert_weights.unsqueeze(-1)
+            has_tokens = token_indices.numel() > 0
+            if self.calib_config.moe_calibrate_all_experts or has_tokens:
+                # calibrate expert
+                expert_weights = topk_weights[token_indices, weight_indices]
+                expert_input = hidden_states[token_indices]
+                expert_output = expert(expert_input)
+                weighted_output = expert_output * expert_weights.unsqueeze(-1)
 
-            if token_indices.numel() > 0:
-                final_hidden_states.index_add_(0, token_indices, weighted_output)
+                if has_tokens:
+                    # expert contributes to output activations
+                    final_hidden_states.index_add_(0, token_indices, weighted_output)
         # End MoE
 
         hidden_states = final_hidden_states.type(hidden_states.dtype).view(*orig_shape)
@@ -46,7 +82,9 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
         return hidden_states
 
 
-def replace(module: DeepseekV3MoE) -> DeepseekV3MoECalibrate:
+def replace(
+    module: "DeepseekV3MoE", calib_config: "CalibrationConfig"
+) -> DeepseekV3MoECalibrate:
     return DeepseekV3MoECalibrate(
-        module.config, module.experts, module.gate, module.shared_experts
+        module.config, module.experts, module.gate, module.shared_experts, calib_config
     )

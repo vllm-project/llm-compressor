@@ -20,7 +20,11 @@ model = AutoModelForCausalLM.from_pretrained(
     model_id, torch_dtype="auto", config=config
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = prepare_for_calibration(model)
+
+# For MoE models,
+model = prepare_for_calibration(
+    model, moe_calibrate_all_experts=True, moe_calibrate_gated_acts=True
+)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
