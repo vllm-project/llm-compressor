@@ -228,6 +228,7 @@ class LambdaLogger(BaseLogger):
         """
         :param params: Each key-value pair in the dictionary is the name of the
             hyper parameter and it's corresponding value.
+        :param level: minimum severity level for the log message
         :return: True if logged, False otherwise.
         """
         if not self.enabled:
@@ -256,6 +257,7 @@ class LambdaLogger(BaseLogger):
         :param step: global step for when the value was taken
         :param wall_time: global wall time for when the value was taken,
             defaults to time.time()
+        :param level: minimum severity level for the log message
         :param kwargs: additional logging arguments to support Python and custom loggers
         :return: True if logged, False otherwise.
         """
@@ -285,6 +287,7 @@ class LambdaLogger(BaseLogger):
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken,
             defaults to time.time()
+        :param level: minimum severity level for the log message
         :param kwargs: additional logging arguments to support Python and custom loggers
         :return: True if logged, False otherwise.
         """
@@ -368,15 +371,22 @@ class PythonLogger(LambdaLogger):
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken,
             defaults to time.time()
-        :param level: level to log at. Corresponds to default logging package levels
+        :param level: minimum severity level for the log message
         :return: True if logged, False otherwise.
         """
         if not level:
             level = "DEBUG"
 
-        if (isinstance(level, int) and level > logger.level("DEBUG").no) or (
-            isinstance(level, str) and logger.level(level).no > logger.level("DEBUG").no
-        ):
+        def is_higher_than_debug(lev: Optional[Union[int, str]] = None) -> bool:
+            """Check if the given level is higher than DEBUG level."""
+            debug_level_no = logger.level("DEBUG").no
+            if isinstance(lev, int):
+                return level > debug_level_no
+            elif isinstance(lev, str):
+                return logger.level(lev).no > debug_level_no
+            return False
+
+        if is_higher_than_debug(level):
             if step is not None:
                 format = "%s %s step %s: %s"
                 log_args = [
@@ -410,7 +420,7 @@ class PythonLogger(LambdaLogger):
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken,
             defaults to time.time()
-        :param level: level to log at. Corresponds to default logging package levels
+        :param level: minimum severity level for the log message
         :return: True if logged, False otherwise.
         """
         if not wall_time:
@@ -729,6 +739,7 @@ class SparsificationGroupLogger(BaseLogger):
         :param step: global step for when the value was taken
         :param wall_time: global wall time for when the value was taken,
             defaults to time.time()
+        :param level: minimum severity level for the log message
         """
         for log in self._loggers:
             log.log_scalar(tag, value, step, wall_time, level)
@@ -747,6 +758,7 @@ class SparsificationGroupLogger(BaseLogger):
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken,
             defaults to time.time()
+        :param level: minimum severity level for the log message
         """
         for log in self._loggers:
             log.log_scalars(tag, values, step, wall_time, level)
@@ -922,6 +934,7 @@ class LoggerManager(ABC):
         :param value: value to save
         :param step: global step for when the value was taken
         :param wall_time: global wall time for when the value was taken
+        :param level: minimum severity level for the log message
         :param kwargs: additional logging arguments to support Python and custom loggers
         :return: True if logged, False otherwise.
         """
@@ -952,6 +965,7 @@ class LoggerManager(ABC):
         :param values: values to save
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken
+        :param level: minimum severity level for the log message
         :param kwargs: additional logging arguments to support Python and custom loggers
         :return: True if logged, False otherwise.
         """
@@ -1003,6 +1017,7 @@ class LoggerManager(ABC):
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken
         :param kwargs: additional logging arguments to support Python and custom loggers
+        :param level: minimum severity level for the log message
         :return: True if logged, False otherwise.
         """
         self.system.log_string(
@@ -1082,6 +1097,7 @@ class SystemLoggingWraper(LoggingWrapperBase):
         :param values: values to save
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken
+        :param level: minimum severity level for the log message
         :param kwargs: additional logging arguments to support Python and custom loggers
         :return: True if logged, False otherwise.
         """
@@ -1193,6 +1209,7 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         """
         :param params: Each key-value pair in the dictionary is the name of the
             hyper parameter and it's corresponding value.
+        :param level: minimum severity level for the log message
         """
         for log in self.loggers:
             if log.enabled and (log_types == ALL_TOKEN or log.name in log_types):
@@ -1212,6 +1229,7 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         :param value: value to save
         :param step: global step for when the value was taken
         :param wall_time: global wall time for when the value was taken
+        :param level: minimum severity level for the log message
         :param kwargs: additional logging arguments to support Python and custom loggers
         :return: True if logged, False otherwise.
         """
@@ -1239,6 +1257,7 @@ class MetricLoggingWrapper(LoggingWrapperBase):
         :param values: values to save
         :param step: global step for when the values were taken
         :param wall_time: global wall time for when the values were taken
+        :param level: minimum severity level for the log message
         :param kwargs: additional logging arguments to support Python and custom loggers
         :return: True if logged, False otherwise.
         """
