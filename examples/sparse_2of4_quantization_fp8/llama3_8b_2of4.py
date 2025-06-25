@@ -6,6 +6,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.obcq import SparseGPTModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
 # Configuration
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -48,7 +49,7 @@ def get_recipe(fp8_enabled):
             targets=[r"re:model.layers.\d*$"],
         )
     ]
-    save_dir = MODEL_ID.split("/")[1] + "2of4-sparse"
+    save_dir = MODEL_ID.rstrip("/").split("/")[-1] + "2of4-sparse"
 
     if fp8_enabled:
         base_recipe.append(
@@ -58,7 +59,9 @@ def get_recipe(fp8_enabled):
                 scheme="FP8_DYNAMIC",
             )
         )
-        save_dir = MODEL_ID.split("/")[1] + "2of4-W8A8-FP8-Dynamic-Per-Token"
+        save_dir = (
+            MODEL_ID.rstrip("/").split("/")[-1] + "2of4-W8A8-FP8-Dynamic-Per-Token"
+        )
 
         # check that asymmetric quantization is not being used
         q_scheme = base_recipe[1].scheme
@@ -75,9 +78,7 @@ def get_recipe(fp8_enabled):
 args = parse_args()
 
 # Load model and tokenizer
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Load and preprocess dataset
@@ -101,6 +102,7 @@ oneshot(
 
 # Validate the compressed model
 print("\n========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))

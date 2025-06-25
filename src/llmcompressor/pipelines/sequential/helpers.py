@@ -2,11 +2,15 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 import torch
-from compressed_tensors import has_offloaded_params
 from compressed_tensors.quantization import find_name_or_class_matches
+from compressed_tensors.utils import (
+    has_offloaded_params,
+    offloaded_dispatch,
+    remove_dispatch,
+)
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
@@ -23,7 +27,15 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
 
 from .ast_helpers import autowrap_forwards
 
-__all__ = ["trace_subgraphs", "Subgraph", "get_targets_from_modifiers"]
+if TYPE_CHECKING:
+    from llmcompressor.args.dataset_arguments import DatasetArguments
+
+__all__ = [
+    "trace_subgraphs",
+    "Subgraph",
+    "get_sequential_targets",
+    "dispatch_for_sequential",
+]
 
 
 @dataclass
@@ -416,44 +428,59 @@ def match_modules(model: Module, target_names: List[str]) -> Set[Module]:
     )
 
 
-def get_targets_from_modifiers(
-    modifiers: List[Modifier], model: PreTrainedModel
+def get_sequential_targets(
+    modifiers: List[Modifier], model: PreTrainedModel, args: "DatasetArguments"
 ) -> List[str]:
     """
-    Infer sequential targets from modifiers list
+    Infer sequential targets from modifiers list and dataset args
 
     :param model: model being calibrated
     :param modifiers: list of modifiers being applied during calibration
+    :param dataset_args: dataset arguments passed by user
     :return: list of sequential targets
     """
-    # avoid circular import
-    from llmcompressor.pipelines.registry import SEQUENTIAL_MODIFIERS
-
-    sequential_modifiers = [
-        modifier for modifier in modifiers if isinstance(modifier, SEQUENTIAL_MODIFIERS)
+    modifier_targets = [
+        (modifier, modifier.sequential_targets)
+        for modifier in modifiers
+        if getattr(modifier, "sequential_targets", None) is not None
     ]
 
-    if len(sequential_modifiers) >= 2:
-        types = [type(modifier) for modifier in sequential_modifiers]
+    # deprecation warning
+    if len(modifier_targets) >= 1:
         logger.warning(
-            "Cannot infer sequential targets from multiple sequential modifiers "
-            f"({types}). Defaulting to {types[0]}"
+            "Passing sequential targets through modifiers is deprecated, "
+            "please use `oneshot(sequential_targets=...)`"
         )
-    elif len(sequential_modifiers) <= 0:
-        types = [type(modifier) for modifier in modifiers]
-        raise ValueError(f"Cannot infer sequential targets from list of {types}")
 
-    modifier = sequential_modifiers[0]
+    # cannot infer from multiple modifiers
+    if len(modifier_targets) >= 2:
+        types = [type(modifier) for modifier, _ in modifier_targets]
+        raise ValueError(
+            "Cannot infer sequential targets from multiple sequential modifiers "
+            f"({types})"
+        )
 
-    # infer sequential targets
-    if modifier.sequential_targets is None:
-        sequential_targets = get_no_split_params(model)
-    elif isinstance(modifier.sequential_targets, str):
-        sequential_targets = [modifier.sequential_targets]
+    # resolve single modifier
+    if len(modifier_targets) == 1:
+        if args.sequential_targets is not None:
+            raise ValueError(
+                f"Got sequential targets from both {type(modifier_targets[0][0])} "
+                "and dataset arguments `sequential_targets`"
+            )
+
+        sequential_targets = modifier_targets[0][1]
+
+    # if no modifiers, use data args
     else:
-        sequential_targets = modifier.sequential_targets
+        sequential_targets = args.sequential_targets  # may be `None`
 
-    return sequential_targets
+    # validate and infer
+    if sequential_targets is None:
+        return get_no_split_params(model)
+    elif isinstance(sequential_targets, str):
+        return [sequential_targets]
+    else:
+        return sequential_targets
 
 
 def add_line_numbers(text: str) -> str:
@@ -485,3 +512,22 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 
     is_ancestor(model)
     return ancestors
+
+
+def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
+    """
+    Dispatch a model for sequential calibration using a sequential pipeline.
+    The model will be offloaded to the CPU and dispatched to CUDA device if available.
+    Removes any existing hooks.
+
+    :param model: model to dispatch
+    :return: dispatched model
+    """
+    remove_dispatch(model)
+
+    if torch.cuda.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
+    else:
+        logger.warning("CUDA is not available! Compressing model on CPU instead")
+
+    return model
