@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 class DeepseekV3MoECalibrate(torch.nn.Module):
     """
-    Patched DeepseekV3MoE which sends all tokens to all experts for calibration
+    Patched DeepseekV3MoE enables calibration configured using `calib_config`
     """
 
     def __init__(
