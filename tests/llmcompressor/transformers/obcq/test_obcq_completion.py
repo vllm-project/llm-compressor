@@ -59,7 +59,6 @@ class TestOBCQCompletion(unittest.TestCase):
             model=self.model,
             dataset=self.dataset,
             splits={"calibration": f"train[:{self.num_samples}]"},
-            oneshot_device=self.device,
             recipe=self.recipe,
             max_seq_length=512,
             num_calibration_samples=self.num_samples,

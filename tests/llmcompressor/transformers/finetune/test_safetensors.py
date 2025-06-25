@@ -24,7 +24,6 @@ class TestSafetensors(unittest.TestCase):
     def test_safetensors(self):
         from llmcompressor import train
 
-        device = "cuda:0"
         output_dir = self.output / "output1"
         max_steps = 10
         splits = {"train": "train[:10%]"}
@@ -35,7 +34,6 @@ class TestSafetensors(unittest.TestCase):
             output_dir=output_dir,
             max_steps=max_steps,
             splits=splits,
-            oneshot_device=device,
         )
 
         assert os.path.exists(output_dir / "model.safetensors")
@@ -49,7 +47,6 @@ class TestSafetensors(unittest.TestCase):
             output_dir=new_output_dir,
             max_steps=max_steps,
             splits=splits,
-            oneshot_device=device,
         )
 
     def tearDown(self):
