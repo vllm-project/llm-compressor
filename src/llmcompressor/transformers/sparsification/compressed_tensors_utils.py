@@ -1,11 +1,9 @@
 import os
-import re
 import weakref
 from functools import wraps
 from typing import Optional
 
 import torch
-import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
     CompressionFormat,
@@ -86,11 +84,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
-            # HACK: Override the dtype_byte_size function in transformers to
-            # support float8 types. Fix is posted upstream
-            # https://github.com/huggingface/transformers/pull/30488
-            transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
-
             # compress model using compressor
             compressor = get_model_compressor(
                 model=model,
@@ -126,18 +119,6 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
-
-
-# HACK: Override the dtype_byte_size function in transformers to support float8 types
-# Fix is posted upstream https://github.com/huggingface/transformers/pull/30488
-def new_dtype_byte_size(dtype):
-    if dtype == torch.bool:
-        return 1 / 8
-    bit_search = re.search(r"[^\d](\d+)_?", str(dtype))
-    if bit_search is None:
-        raise ValueError(f"`dtype` is not a valid dtype: {dtype}.")
-    bit_size = int(bit_search.groups()[0])
-    return bit_size // 8
 
 
 def patch_tied_tensors_bug(model: torch.nn.Module):
