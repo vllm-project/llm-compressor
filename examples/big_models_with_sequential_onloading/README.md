@@ -32,7 +32,7 @@ oneshot(
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 ```
-During `onshot`, only one gpu is required which will be used to onload each layer for calibration in a sequential manner.
+During `oneshot`, only one gpu is required which will be used to onload each layer for calibration in a sequential manner.
 
 ```python
 dispatch_for_generation(model)
