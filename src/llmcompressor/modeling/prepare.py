@@ -30,7 +30,11 @@ def update_deepseekv3(model, stack):
     for i in range(len(model.model.layers)):
         if i > 2:
             stack.enter_context(
-                patch_attr(model.model.layers[i], "mlp", replace_DeepseekV3MoE())
+                patch_attr(
+                    model.model.layers[i],
+                    "mlp",
+                    replace_DeepseekV3MoE(model.model.layers[i].mlp),
+                )
             )
 
 
