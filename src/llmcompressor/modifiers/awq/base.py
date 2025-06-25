@@ -332,6 +332,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                         balance_regex,
                         smooth_parent,
                     ).items():
+                        if balance_suffix.endswith("observer"):
+                            continue
+
                         balance_name = f"{smooth_parent_name}.{balance_suffix}"
 
                         # exclude v_proj->o_proj mappings whose shapes are incompatible
