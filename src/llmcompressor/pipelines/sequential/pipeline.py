@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-
+import contextlib
 import torch
 from compressed_tensors.utils import disable_offloading, get_execution_device
 from torch.utils.data.dataloader import DataLoader
@@ -15,6 +15,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
+from llmcompressor.modeling.prepare import calibrate_moe_context
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -26,7 +27,7 @@ __all__ = ["SequentialPipeline"]
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
     def __call__(
-        model: torch.nn.Module, dataloader: DataLoader, dataset_args: "DatasetArguments"
+        model: torch.nn.Module, dataloader: DataLoader, dataset_args: "DatasetArguments", calibrate_moe_context: bool = False,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -68,6 +69,13 @@ class SequentialPipeline(CalibrationPipeline):
         num_subgraphs = len(subgraphs)
 
         LifecycleCallbacks.calibration_epoch_start()
+
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(calibration_forward_context(model))
+            stack.enter_context(DisableQuantization(model))
+
+            if calibrate_moe_context:
+                stack.enter_context((calibrate_moe_context(model)))
 
         with calibration_forward_context(model), DisableQuantization(model):
             # prepare intermediates cache
