@@ -112,10 +112,10 @@ setup(
     install_requires=[
         "loguru",
         "pyyaml>=5.0.0",
-        "numpy>=1.17.0,<2.0",
+        "numpy>=1.17.0",
         "requests>=2.0.0",
         "tqdm>=4.0.0",
-        "torch>=1.7.0",
+        "torch>=1.7.0,!=1.10,!=1.11",
         "transformers>4.0,<4.53.0",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
