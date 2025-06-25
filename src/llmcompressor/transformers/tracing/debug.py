@@ -1,68 +1,32 @@
+from typing import List, Type, Union, Optional, Dict, Tuple, Any
+
 import argparse
 from contextlib import nullcontext
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 import transformers
 from transformers import AutoProcessor, PreTrainedModel
 
-from llmcompressor.args import DatasetArguments
-from llmcompressor.pipelines.sequential.helpers import Subgraph, trace_subgraphs
-from llmcompressor.transformers import TextGenerationDataset
-from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.pytorch.module import get_no_split_params
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
+from llmcompressor.transformers import TextGenerationDataset
+from llmcompressor.args import DatasetArguments
+
+from llmcompressor.utils.dev import skip_weights_download
 
 __all__ = ["trace"]
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Trace a model into subgraphs")
-    parser.add_argument(
-        "--model_id", type=str, required=True, help="The stub of the model to load"
-    )  # noqa: E501
-    parser.add_argument(
-        "--model_class", type=str, required=True, help="The class name of the model"
-    )  # noqa: E501
-    parser.add_argument(
-        "--sequential_targets",
-        type=str,
-        nargs="*",
-        default=None,
-        metavar="TARGET",
-        help="List of targets for sequential tracing",
-    )  # noqa: E501
-    parser.add_argument(
-        "--ignore",
-        type=str,
-        nargs="*",
-        default=["_update_causal_mask"],
-        metavar="PATTERN",
-        help="List of patterns to ignore during tracing",
-    )  # noqa: E501
-    parser.add_argument(
-        "--modality",
-        type=str,
-        default="text",
-        help="Modality of calibration dataset, defaults to text",
-    )  # noqa: E501
-    parser.add_argument(
-        "--trust_remote_code",
-        type=bool,
-        default=False,
-        help="Whether to trust model remote code",
-    )  # noqa: E501
-    parser.add_argument(
-        "--skip_weights",
-        type=bool,
-        default=True,
-        help="Whether to load the model with dummy weights",
-    )  # noqa: E501
-    parser.add_argument(
-        "--device_map",
-        type=str,
-        default="cpu",
-        help="Device to load model and inputs onto",
-    )  # noqa: E501
+    parser.add_argument("--model_id", type=str, required=True, help="The stub of the model to load")  # noqa: E501
+    parser.add_argument("--model_class", type=str, required=True, help="The class name of the model")  # noqa: E501
+    parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing")  # noqa: E501
+    parser.add_argument("--ignore", type=str, nargs="*", default=["_update_causal_mask"], metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
+    parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
+    parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
+    parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
+    parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
     return parser.parse_args()
 
 

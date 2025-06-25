@@ -8,13 +8,13 @@ target-version = ['py38']
 
 [tool.isort]
 profile = "black"
-skip = ["src/llmcompressor/transformers/modeling/", "src/llmcompressor/version.py"]
+skip = ["src/llmcompressor/transformers/tracing/", "src/llmcompressor/transformers/modeling/", "src/llmcompressor/version.py"]
 
 [tool.mypy]
 files = "src/guidellm"
 
 [tool.ruff]
-exclude = ["build", "dist", "env", ".venv", "src/llmcompressor/modeling/"]
+exclude = ["build", "dist", "env", ".venv", "src/llmcompressor/transformers/tracing/", "src/llmcompressor/modeling/"]
 lint.select = ["E", "F", "W"]
 lint.extend-ignore = ["E203", "W605"]
 
