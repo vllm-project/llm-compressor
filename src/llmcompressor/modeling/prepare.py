@@ -18,6 +18,16 @@ def prepare_for_calibration(
     moe_calibrate_all_experts: bool = True,
     moe_calibrate_gated_acts: bool = True,
 ) -> PreTrainedModel:
+    """
+    Modify a model structure to better support calibration
+
+    :param moe_calibrate_all_experts: send all tokens to all experts for calibration
+    :param moe_calibrate_gated_acts: use moe gating mechanism when computing
+        expert input and output activations. If this is True, the model computes
+        activations similar to those found during inference. If this is False, the
+        model computes activations similar to those found during training.
+    :return: model containing calibration-friendly modules
+    """
     calib_config = CalibrationConfig(
         moe_calibrate_all_experts=moe_calibrate_all_experts,
         moe_calibrate_gated_acts=moe_calibrate_gated_acts,
