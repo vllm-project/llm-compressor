@@ -24,7 +24,6 @@ class TestFinetuneWithoutRecipe(unittest.TestCase):
         from llmcompressor import train
 
         recipe_str = None
-        device = "cuda:0"
 
         concatenate_data = False
         max_steps = 50
@@ -38,7 +37,6 @@ class TestFinetuneWithoutRecipe(unittest.TestCase):
             max_steps=max_steps,
             concatenate_data=concatenate_data,
             splits=splits,
-            oneshot_device=device,
         )
 
     def tearDown(self):
