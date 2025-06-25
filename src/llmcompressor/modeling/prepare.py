@@ -5,8 +5,7 @@ from transformers import PreTrainedModel
 
 from llmcompressor.modeling.deepseek_v3 import replace as replace_DeepseekV3MoE
 
-__all__ = ["prepare_for_calibration"]
-
+__all__ = ["prepare_for_calibration", "CalibrationConfig"]
 
 replacements = {
     "DeepseekV3MoE": replace_DeepseekV3MoE,
