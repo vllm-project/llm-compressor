@@ -77,7 +77,7 @@ def initialize_observer(
             maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
             patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
             grid=observer_kwargs.get("grid", DEFAULT_GRID),
-            norm=observer_kwargs.get("norm", DEFAULT_NORM)
+            norm=observer_kwargs.get("norm", DEFAULT_NORM),
         )
         module.register_module(f"{base_name}_observer", observer)
 
