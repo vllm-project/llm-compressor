@@ -25,6 +25,12 @@ from transformers.models.whisper.modeling_whisper import WhisperEncoder
 
 
 class WhisperEncoderPatched(WhisperEncoder):
+    """
+    Patches whisper model to support CPU offloading, which is required for
+    the sequential calibration pipelines.
+
+    For the diff, see https://github.com/huggingface/transformers/pull/38994
+    """
     def __init__(
         self, config, conv1, conv2, embed_positions, layers, layer_norm
     ):
