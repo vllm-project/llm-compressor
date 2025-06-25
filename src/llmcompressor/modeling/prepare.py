@@ -12,6 +12,7 @@ replacements = {
     "Llama4TextMoe": replace_llama4,
 }
 
+
 def prepare_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
     for name, module in model.named_modules():
         cls_name = module.__class__.__name__
@@ -21,17 +22,16 @@ def prepare_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
 
     return model
 
+
 def update_qwen3_moe(model, stack):
     for module in model.model.layers:
-        stack.enter_context(
-            patch_attr(module.mlp, "top_k", model.config.num_experts)
-        )
+        stack.enter_context(patch_attr(module.mlp, "top_k", model.config.num_experts))
 
 
 moe_context = {
     "Qwen3MoeForCausalLM": update_qwen3_moe,
 }
 
-def calibrate_moe_context(model: PreTrainedModel, stack):
+def moe_calibration_context(model: PreTrainedModel, stack):
     cls_name = model.__class__.__name__
     moe_context.get(cls_name)(model, stack)

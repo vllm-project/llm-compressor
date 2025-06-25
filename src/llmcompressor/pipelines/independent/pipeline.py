@@ -21,7 +21,7 @@ class IndependentPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        calibrate_moe_context: bool = False
+        calibrate_moe_context: bool = False,
     ):
         """
         Data pipeline where each modifier is assigned its own calibration epoch and data
