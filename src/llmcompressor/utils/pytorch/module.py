@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization.utils import is_module_quantized
-from packaging import version
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
@@ -63,10 +62,6 @@ __all__ = [
     "get_no_split_params",
     "get_layer_by_name",
 ]
-
-
-_PARSED_TORCH_VERSION = version.parse(torch.__version__)
-
 
 ALL_TARGET = "__ALL__"
 ALL_PRUNABLE_TARGET = "__ALL_PRUNABLE__"
@@ -164,8 +159,47 @@ def match_layers_params(
     return resolved
 
 
-def get_layers(targets: Union[str, List[str]], module: Module) -> Dict[str, Module]:
-    return match_layers_params(targets, module)
+def is_internal_module(name: str) -> bool:
+    """
+    llm-compressor adds additional modules to a model, like observers
+    and transforms, as part of its operation.
+    Return whether module is internally instantiated by llm-compressor,
+    based on its name.
+
+    :param name: name of module
+    :return: True if name indicates a module instantiated
+    """
+    return name.endswith(("_observer", "_transform", "perm"))
+
+
+def get_layers(
+    targets: Union[str, List[str]],
+    module: Module,
+    exclude_internal_modules: bool = False,
+) -> Dict[str, Module]:
+    """
+    Get layers (also known as submodules) of module based on targets
+
+    :param targets: names or regexes to search for
+        Can be regex, e.g. "re:.*input_layernorm$" to find all layers
+        in module whose names end in string "input_layernorm"
+    :param module: Parent module in which to search for targets
+    :param exclude_internal_modules: If True, don't include internal
+        modules added by llm-compressor, e.g. Observers and Transforms.
+        Defaults to False to maintain backward compatibility
+
+    :return: dict of layer name -> layer module of all layers in module
+        that match targets
+    """
+    layer_dict = match_layers_params(targets, module)
+    if exclude_internal_modules:
+        layer_dict = {
+            layer_name: layer
+            for layer_name, layer in layer_dict.items()
+            if not is_internal_module(layer_name)
+        }
+
+    return layer_dict
 
 
 def get_layer(target: str, module: Module) -> Tuple[str, Module]:
