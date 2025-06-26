@@ -186,6 +186,7 @@ class DatasetArguments(CustomDatasetArguments):
             "create_causal_mask",
             "make_causal_mask",
             "get_causal_mask",
+            "mask_interface",
             "mask_function",
             "_prepare_4d_causal_attention_mask",
             "_prepare_fsmt_decoder_inputs",
