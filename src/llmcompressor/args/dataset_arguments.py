@@ -181,7 +181,7 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     tracing_ignore: List[str] = field(
-        default_factory=lambda: ["_update_causal_mask"],
+        default_factory=lambda: ["_update_causal_mask", "create_causal_mask"],
         metadata={
             "help": "List of functions to ignore during tracing, either "
             "{module}.{method_name} or {function_name}"
