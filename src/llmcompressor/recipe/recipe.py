@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.utils import (
@@ -36,7 +36,7 @@ class Recipe(BaseModel):
 
     args: Dict[str, Any] = Field(default_factory=dict)
     stage: str = "default"
-    modifiers: List[Modifier]= Field(default_factory=list)
+    modifiers: List[Modifier] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
