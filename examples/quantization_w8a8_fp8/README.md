@@ -38,8 +38,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
-model = AutoModelForCausalLM.from_pretrained(
-  MODEL_ID, device_map="auto", torch_dtype="auto")
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 ```
 
@@ -65,7 +64,7 @@ recipe = QuantizationModifier(
 oneshot(model=model, recipe=recipe)
 
 # Save the model.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
 ```

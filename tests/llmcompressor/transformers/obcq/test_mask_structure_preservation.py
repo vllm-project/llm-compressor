@@ -60,7 +60,6 @@ class TestMaskStructurePreserved(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=self.initial_pruning_only_recipe,
             output_dir=self.output_first,
-            oneshot_device=self.device,
             save_compressed=False,
         )
         targetted_layer = first_tiny_model.model.layers[0].self_attn.k_proj
@@ -82,7 +81,6 @@ class TestMaskStructurePreserved(unittest.TestCase):
             num_calibration_samples=num_calibration_samples,
             recipe=self.subsequent_prune_and_quant_recipe,
             output_dir=self.output_second,
-            oneshot_device=self.device,
             save_compressed=False,
         )
 

@@ -3,13 +3,12 @@ from transformers import AutoProcessor, WhisperForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "openai/whisper-large-v2"
 
 # Load model.
-model = WhisperForConditionalGeneration.from_pretrained(
-    MODEL_ID, device_map="auto", torch_dtype="auto"
-)
+model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 model.config.forced_decoder_ids = None
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 processor.tokenizer.set_prefix_tokens(language="en", task="transcribe")
@@ -27,6 +26,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 ds = load_dataset(
     "hf-internal-testing/librispeech_asr_dummy", "clean", split="validation[:1]"
 )
@@ -41,6 +41,6 @@ print(processor.batch_decode(output_ids, skip_special_tokens=False)[0])
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-FP8-Dynamic"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)
