@@ -21,7 +21,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
     def test_oneshot_sparsification_then_finetune(self):
         recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
         model = AutoModelForCausalLM.from_pretrained(
-            "nm-testing/llama2.c-stories15M", device_map="auto", torch_dtype="auto"
+            "nm-testing/llama2.c-stories15M", torch_dtype="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
@@ -47,12 +47,11 @@ class TestOneshotThenFinetune(unittest.TestCase):
         # Explictly decompress the model for training using quantization_config
         model = AutoModelForCausalLM.from_pretrained(
             self.output / "oneshot_out",
-            device_map="auto",
             torch_dtype="auto",
             quantization_config=self.quantization_config,
         )
         distill_teacher = AutoModelForCausalLM.from_pretrained(
-            "nm-testing/llama2.c-stories15M", device_map="auto", torch_dtype="auto"
+            "nm-testing/llama2.c-stories15M", torch_dtype="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
@@ -88,7 +87,6 @@ class TestOneshotThenFinetune(unittest.TestCase):
         # Explictly decompress the model for training using quantization_config
         model = AutoModelForCausalLM.from_pretrained(
             output_dir,
-            device_map="auto",
             torch_dtype="auto",
             quantization_config=self.quantization_config,
         )
@@ -112,7 +110,7 @@ class TestOneshotThenFinetune(unittest.TestCase):
         )
 
         model = AutoModelForCausalLM.from_pretrained(
-            "TinyLlama/TinyLlama-1.1B-Chat-v1.0", device_map="auto", torch_dtype="auto"
+            "TinyLlama/TinyLlama-1.1B-Chat-v1.0", torch_dtype="auto"
         )
         dataset = "open_platypus"
         concatenate_data = False
@@ -136,7 +134,6 @@ class TestOneshotThenFinetune(unittest.TestCase):
         quantization_config = CompressedTensorsConfig(run_compressed=False)
         model = AutoModelForCausalLM.from_pretrained(
             output_dir,
-            device_map="auto",
             torch_dtype="auto",
             quantization_config=quantization_config,
         )
@@ -159,7 +156,6 @@ class TestOneshotThenFinetune(unittest.TestCase):
         # test reloading checkpoint and final model
         model = AutoModelForCausalLM.from_pretrained(
             output_dir,
-            device_map="auto",
             torch_dtype="auto",
             quantization_config=quantization_config,
         )
