@@ -36,7 +36,7 @@ class Recipe(BaseModel):
 
     args: Dict[str, Any] = Field(default_factory=dict)
     stage: str = "default"
-    modifiers: List[Dict[str, Any]]= Field(default_factory=list)
+    modifiers: List[Modifier]= Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -135,9 +135,7 @@ class Recipe(BaseModel):
             )
             logger.debug(f"Input string: {path_or_modifiers}")
             obj = _load_json_or_yaml_string(path_or_modifiers)
-            recipe = Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
-            recipe.create_modifier()
-            return recipe
+            return cls.from_dict(filter_dict(obj, target_stage=target_stage))
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
@@ -159,19 +157,25 @@ class Recipe(BaseModel):
                     raise ValueError(
                         f"Could not parse recipe from path {path_or_modifiers}"
                     )
+            return cls.from_dict(filter_dict(obj, target_stage=target_stage))
 
-            recipe = Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
-            recipe.create_modifier()
-            return recipe
-
-    @model_validator(mode="before")
     @classmethod
-    def parse_from_dict(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        args = values.get("args", {})
-        modifiers: List[Dict[str, Any]] = []
+    def from_dict(cls, recipe_dict: Dict[str, Any]) -> "Recipe":
+        """
+        Parses a dictionary representing a recipe and returns a Recipe instance.
+        Ensures all modifier entries are instantiated Modifier objects.
+
+        :param recipe_dict: Dictionary containing the recipe structure.
+        :return: Recipe instance with instantiated Modifier objects.
+        """
+        args = recipe_dict.get("args", {})
+        modifiers: List[Modifier] = []
         stage = "default"
 
-        for stage_key, stage_val in values.items():
+        if not ModifierFactory._loaded:
+            ModifierFactory.refresh()
+
+        for stage_key, stage_val in recipe_dict.items():
             if stage_key.endswith("_stage") and isinstance(stage_val, dict):
                 stage = stage_key.replace("_stage", "")
                 for group_key, group_val in stage_val.items():
@@ -179,55 +183,20 @@ class Recipe(BaseModel):
                         inferred_group = group_key.replace("_modifiers", "")
                         for mod_type, mod_args in group_val.items():
                             group = mod_args.get("group", inferred_group)
-                            modifiers.append(
-                                {
-                                    "type": mod_type,
-                                    "group": group,
-                                    "args": mod_args,
-                                }
+                            modifier = ModifierFactory.create(
+                                mod_type,
+                                group=group,
+                                allow_registered=True,
+                                allow_experimental=True,
+                                **mod_args,
                             )
+                            modifiers.append(modifier)
 
-        return {
-            "args": args,
-            "stage": stage,
-            "modifiers": modifiers,
-        }
-
-    def create_modifier(self) -> List[Modifier]:
-        """
-        Create and return a list of Modifiers for the recipe
-
-        >>> recipe_str = '''
-        ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
-        ...             start: 0.0
-        ...             end: 2.0
-        ...             targets: ['re:.*weight']
-        ... '''
-        >>> recipe = Recipe.create_instance(recipe_str)
-        >>> modifiers = recipe.modifiers
-        >>> len(modifiers) == 1
-        True
-
-        :return: A list of Modifiers for the recipe
-        """
-
-        if not ModifierFactory._loaded:
-            ModifierFactory.refresh()
-        self.modifiers = [
-            modifier
-            if isinstance(modifier, Modifier)
-            else ModifierFactory.create(
-                modifier["type"],
-                group=modifier["group"],
-                allow_registered=True,
-                allow_experimental=True,
-                **modifier["args"],
-            )
-            for modifier in self.modifiers
-        ]
-        return self.modifiers
+        return Recipe(
+            args=args,
+            stage=stage,
+            modifiers=modifiers,
+        )
 
     def dict(self, *args, **kwargs) -> Dict[str, Any]:
         """
