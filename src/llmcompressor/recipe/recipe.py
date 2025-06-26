@@ -36,7 +36,7 @@ class Recipe(BaseModel):
 
     args: Dict[str, Any] = Field(default_factory=dict)
     stage: str = "default"
-    modifiers: Union[List[Dict[str, Any]], List[Modifier]] = Field(default_factory=list)
+    modifiers: List[Dict[str, Any]]= Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
