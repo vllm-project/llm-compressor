@@ -98,7 +98,6 @@ class CompressionLifecycle:
             )
             if recipe_args:
                 self.recipe.args = {**recipe_args}
-            self.recipe.create_modifier()
 
         mod_data = []
         for mod in self.recipe.modifiers:

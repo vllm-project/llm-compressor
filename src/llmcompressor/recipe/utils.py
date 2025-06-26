@@ -111,7 +111,7 @@ def filter_dict(obj: dict, target_stage: Optional[str] = None) -> dict:
     return {k: v for k, v in obj.items() if k.startswith(target_stage)}
 
 
-def deep_merge_dicts(d1: dict, d2: dict) -> dict:
+def append_recipe_dict(d1: dict, d2: dict) -> dict:
     """
     Merge two recipe dicts by renaming top-level stage keys to numbered versions.
 

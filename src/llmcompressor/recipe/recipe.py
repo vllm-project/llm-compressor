@@ -10,7 +10,7 @@ from llmcompressor.modifiers import Modifier, ModifierFactory
 from llmcompressor.recipe.utils import (
     _load_json_or_yaml_string,
     _parse_recipe_from_md,
-    deep_merge_dicts,
+    append_recipe_dict,
     filter_dict,
     get_yaml_serializable_dict,
 )
@@ -136,7 +136,9 @@ class Recipe(BaseModel):
             )
             logger.debug(f"Input string: {path_or_modifiers}")
             obj = _load_json_or_yaml_string(path_or_modifiers)
-            return Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
+            recipe = Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
+            recipe.create_modifier()
+            return recipe
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
@@ -159,7 +161,9 @@ class Recipe(BaseModel):
                         f"Could not parse recipe from path {path_or_modifiers}"
                     )
 
-            return Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
+            recipe = Recipe.model_validate(filter_dict(obj, target_stage=target_stage))
+            recipe.create_modifier()
+            return recipe
 
     @model_validator(mode="before")
     @classmethod
@@ -205,7 +209,7 @@ class Recipe(BaseModel):
         ...             targets: ['re:.*weight']
         ... '''
         >>> recipe = Recipe.create_instance(recipe_str)
-        >>> modifiers = recipe.create_modifier()
+        >>> modifiers = recipe.modifiers
         >>> len(modifiers) == 1
         True
 
@@ -262,7 +266,7 @@ class Recipe(BaseModel):
         )
 
         # Deep merge — keep both recipe contents
-        merged_dict = deep_merge_dicts(existing_dict, self_dict)
+        merged_dict = append_recipe_dict(existing_dict, self_dict)
 
         # Dump YAML
         file_stream = None if file_path is None else open(file_path, "w")

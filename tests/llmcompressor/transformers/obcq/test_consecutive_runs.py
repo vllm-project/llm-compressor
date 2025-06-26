@@ -94,14 +94,14 @@ class TestConsecutiveRuns(unittest.TestCase):
         )
         exp_stage0_modifier_names = [
             mod.__class__.__name__
-            for mod in Recipe.create_instance(self.first_recipe).create_modifier()
+            for mod in Recipe.create_instance(self.first_recipe).modifiers
         ]
         stage1_modifier_names = list(
             list(recipe_data["test_stage_1"].values())[0].keys()
         )
         exp_stage1_modifier_names = [
             mod.__class__.__name__
-            for mod in Recipe.create_instance(self.second_recipe).create_modifier()
+            for mod in Recipe.create_instance(self.second_recipe).modifiers
         ]
         self.assertEqual(stage0_modifier_names, exp_stage0_modifier_names)
         self.assertEqual(stage1_modifier_names, exp_stage1_modifier_names)
