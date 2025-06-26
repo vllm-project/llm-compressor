@@ -8,14 +8,14 @@ from operator import attrgetter
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.transform import TransformBase
 from compressed_tensors.quantization.utils import is_module_quantized
+from compressed_tensors.transform import TransformBase
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
 
-from llmcompressor.observers import Observer
 from llmcompressor.core import ModelParameterizedLayer
+from llmcompressor.observers import Observer
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
