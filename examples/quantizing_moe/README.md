@@ -1,6 +1,6 @@
-# Quantizing Mixtral-8x7B-Instruct-v0.1 Model with W4A16
+# Quantizing Mixtral-8x7B-Instruct-v0.1 Model with FP8
 
-This directory contains an example script for quantizing the `Mixtral-8x7B-Instruct-v0.1` model using the static per-tensor W4A16 quantization scheme.
+This directory contains an example script for quantizing the `Mixtral-8x7B-Instruct-v0.1` model using the static per-tensor FP8 quantization scheme.
 
 ## Installation
 
@@ -22,7 +22,7 @@ python3 mixtral_example.py
 
 ## Creating a Quantized MoE Model
 
-This example leverages `llm-compressor` and `compressed-tensors` to create an W4A16-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `ultrachat_200k` dataset.
+This example leverages `llm-compressor` and `compressed-tensors` to create an FP8-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `ultrachat_200k` dataset.
 
 You can follow the detailed steps below or simply run the example script with:
 
@@ -36,24 +36,24 @@ In this step, you'll choose a baseline model for quantization, a dataset for cal
 
 - **Models**: Can be referenced from a local directory or retrieved from the Hugging Face Hub.
 - **Datasets**: Can also be from a local directory or the Hugging Face Hub.
-- **Recipes**: These are YAML files or Python modifier objects that describe how a model should be optimized during or after training. In this example, we use a `QuantizationModifier` object with the scheme set to `W4A16`.
+- **Recipes**: These are YAML files or Python modifier objects that describe how a model should be optimized during or after training. In this example, we use a `QuantizationModifier` object with the scheme set to `FP8`.
 
 ```python
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-recipe = QuantizationModifier(scheme="W4A16", targets="Linear", ignore=["lm_head", "re:.*block_sparse_moe.gate"])
+recipe = QuantizationModifier(scheme="FP8", targets="Linear", ignore=["lm_head", "re:.*block_sparse_moe.gate"])
 ```
 
 NOTE: `.*block_sparse_moe.gate` layers do not quantize well, hence they are ignored!
 
 ### Step 2: Run Quantization Using Oneshot
 
-The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be sparsified and saved to `Mixtral-8x7B-Instruct-v0.1-W4A16-G128`.
+The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be sparsified and saved to `Mixtral-8x7B-Instruct-v0.1-FP8`.
 
 ```python
 from llmcompressor import oneshot
 
-output_dir = "Mixtral-8x7B-Instruct-v0.1-W4A16-G128"
+output_dir = "Mixtral-8x7B-Instruct-v0.1-FP8"
 
 oneshot(
     model=model,

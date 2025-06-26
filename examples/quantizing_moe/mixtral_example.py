@@ -55,7 +55,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
 recipe = QuantizationModifier(
-    scheme="W4A16",
+    scheme="FP8",
     targets="Linear",
     ignore=[
         "lm_head",
@@ -81,6 +81,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
