@@ -8,11 +8,13 @@ from operator import attrgetter
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors.transform import TransformBase
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
 
+from llmcompressor.observers import Observer
 from llmcompressor.core import ModelParameterizedLayer
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
@@ -159,17 +161,16 @@ def match_layers_params(
     return resolved
 
 
-def is_internal_module(name: str) -> bool:
+def is_internal_module(module: Module) -> bool:
     """
     llm-compressor adds additional modules to a model, like observers
-    and transforms, as part of its operation.
-    Return whether module is internally instantiated by llm-compressor,
-    based on its name.
+    and transforms, as part of its normal operation
 
     :param name: name of module
-    :return: True if name indicates a module instantiated
+    :return: True if name indicates a module internally instantiated by
+        llm-compressor, otherwise False
     """
-    return name.endswith(("_observer", "_transform", "perm"))
+    return isinstance(module, (TransformBase, Observer))
 
 
 def get_layers(
@@ -188,15 +189,15 @@ def get_layers(
         modules added by llm-compressor, e.g. Observers and Transforms.
         Defaults to False to maintain backward compatibility
 
-    :return: dict of layer name -> layer module of all layers in module
+    :return: dict of {layer name -> module} of all layers in module
         that match targets
     """
     layer_dict = match_layers_params(targets, module)
     if exclude_internal_modules:
         layer_dict = {
-            layer_name: layer
-            for layer_name, layer in layer_dict.items()
-            if not is_internal_module(layer_name)
+            name: layer
+            for name, layer in layer_dict.items()
+            if not is_internal_module(layer)
         }
 
     return layer_dict
