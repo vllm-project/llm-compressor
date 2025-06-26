@@ -3,6 +3,10 @@ from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
 
 
 class DeepseekV3MoECalibrate(torch.nn.Module):
+    """
+    Patched DeepseekV3MoE which sends all tokens to all experts for calibration
+    """
+
     def __init__(self, config, experts, gate, shared_experts):
         super().__init__()
         self.config = config
