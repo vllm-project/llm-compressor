@@ -34,10 +34,9 @@ class Recipe(BaseModel):
     when serializing a recipe, yaml will be used by default.
     """
 
-    version: Optional[str] = None
     args: Dict[str, Any] = Field(default_factory=dict)
     stage: str = "default"
-    modifiers: List[Dict[str, Any]] = Field(default_factory=list)
+    modifiers: Union[List[Dict[str, Any]], List[Modifier]] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -168,7 +167,6 @@ class Recipe(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def parse_from_dict(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        version = values.get("version")
         args = values.get("args", {})
         modifiers: List[Dict[str, Any]] = []
         stage = "default"
@@ -190,7 +188,6 @@ class Recipe(BaseModel):
                             )
 
         return {
-            "version": version,
             "args": args,
             "stage": stage,
             "modifiers": modifiers,
