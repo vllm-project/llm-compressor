@@ -3,6 +3,7 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+import tqdm
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
@@ -15,6 +16,7 @@ from compressed_tensors.utils import (
     getattr_chain,
     update_offload_parameter,
 )
+from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
 from loguru import logger
 from pydantic import PrivateAttr, field_validator
 
@@ -28,6 +30,10 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
+from llmcompressor.modifiers.quantization.calibration import ( 
+    update_weight_global_scale,
+    update_weight_zp_scale,
+)
 
 __all__ = ["GPTQModifier"]
 
@@ -263,7 +269,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             ), self._maybe_onload_hessian(module), CompressionLogger(
                 module
             ) as comp_logger:
-                loss, quantized_weight, scale, zero_point, g_idx = quantize_weight(
+                loss, quantized_weight, scale, zero_point, g_idx, global_scale = quantize_weight(
                     module=module,
                     quant_args=quant_args,
                     hessians_dict=self._hessians,
@@ -275,10 +281,25 @@ class GPTQModifier(Modifier, QuantizationMixin):
             update_offload_parameter(module, "weight", quantized_weight)
             update_offload_parameter(module, "weight_scale", scale)
             update_offload_parameter(module, "weight_zero_point", zero_point)
+            if global_scale is not None:
+                update_offload_parameter(module, "weight_global_scale", global_scale)
             if g_idx is not None:
                 update_offload_parameter(module, "weight_g_idx", g_idx)
 
             # self._hessians[module] already deleted by quantize_weight
+            update_fused_layer_weight_global_scales(module)
+
+            try:
+                print(f"{name} weight_global_scale", module.weight_global_scale)
+                try:
+                    scale_f32 = module.weight_scale.to(torch.float32)
+                    print(f"{name} weight_scale mean={scale_f32.mean()}, min={scale_f32.min()}, max={scale_f32.max()}")
+                except Exception as e:
+                    print(f"{name} weight_scale debug failed: {str(e)}")
+
+            except Exception as e:
+                print(f"{name} debug failed: {str(e)}")
+
             del self._num_samples[module]
 
     def on_end(self, state: State, event: Event, **kwargs):
@@ -303,6 +324,53 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         self._hessians = dict()
         self._num_samples = dict()
+
+        # Inspect first and last quantized layers
+        quantized_layers = []
+        for name, module in state.model.named_modules():
+            if hasattr(module, "weight_scale") or hasattr(module, "weight_zero_point"):
+                quantized_layers.append((name, module))
+
+        # Pick first and last layer with quantization params
+        if len(quantized_layers) == 0:
+            print("No quantized layers found!")
+        else:
+            first_layer_name, first_layer = quantized_layers[0]
+            last_layer_name, last_layer = quantized_layers[-1]
+
+            print(f"==== FIRST QUANTIZED LAYER: {first_layer_name} ====")
+            if hasattr(first_layer, "weight"):
+                print(f"weight shape: {first_layer.weight.shape}")
+
+            if hasattr(first_layer, "weight_scale"):
+                scale = first_layer.weight_scale.to(torch.float32)
+                print(f"weight_scale mean={scale.mean().item():.6f}, min={scale.min().item():.6f}, max={scale.max().item():.6f}")
+            else:
+                print("weight_scale MISSING!")
+
+            if hasattr(first_layer, "weight_zero_point"):
+                zp = first_layer.weight_zero_point
+                zp_f32 = zp.to(torch.float32)
+                print(f"weight_zero_point mean={zp_f32.mean().item():.6f}, min={zp_f32.min().item():.6f}, max={zp_f32.max().item():.6f}")
+            else:
+                print("weight_zero_point MISSING!")
+
+            print(f"==== LAST QUANTIZED LAYER: {last_layer_name} ====")
+            if hasattr(last_layer, "weight"):
+                print(f"weight shape: {last_layer.weight.shape}")
+
+            if hasattr(last_layer, "weight_scale"):
+                scale = last_layer.weight_scale.to(torch.float32)
+                print(f"weight_scale mean={scale.mean().item():.6f}, min={scale.min().item():.6f}, max={scale.max().item():.6f}")
+            else:
+                print("weight_scale MISSING!")
+
+            if hasattr(last_layer, "weight_zero_point"):
+                zp = last_layer.weight_zero_point
+                zp_f32 = zp.to(torch.float32)
+                print(f"weight_zero_point mean={zp_f32.mean().item():.6f}, min={zp_f32.min().item():.6f}, max={zp_f32.max().item():.6f}")
+            else:
+                print("weight_zero_point MISSING!")
 
         return True
 

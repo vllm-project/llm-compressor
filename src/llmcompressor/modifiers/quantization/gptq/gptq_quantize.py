@@ -7,6 +7,7 @@ import transformers
 from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationArgs,
+    QuantizationType,
     QuantizationStrategy,
     fake_quantize,
 )
@@ -15,7 +16,15 @@ from loguru import logger
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-
+from compressed_tensors.quantization.lifecycle.forward import quantize
+from compressed_tensors.utils import align_module_device, update_parameter_data
+from llmcompressor.modifiers.quantization.calibration import (
+    update_weight_global_scale,
+    update_weight_zp_scale,
+)
+from compressed_tensors.utils import ( 
+    update_offload_parameter
+)
 GPTQ_PRECISION = torch.float32
 
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
@@ -67,6 +76,8 @@ def accumulate_hessian(
 
     return H, num_samples
 
+FP4_E2M1_MAX = 6
+FP8_E4M3_MAX = 448
 
 def quantize_weight(
     module: torch.nn.Module,
@@ -109,7 +120,11 @@ def quantize_weight(
     num_rows = W.shape[0]
     num_columns = W.shape[1]
 
-    if strategy == QuantizationStrategy.GROUP:
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+        global_scale = None
+        if strategy == QuantizationStrategy.TENSOR_GROUP:
+            global_scale = observer(W, should_calculate_gparam=True) 
+
         # mapping from column index to group index
         g_idx = (
             torch.arange(num_columns, device=W.device, dtype=torch.int)
@@ -119,20 +134,26 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            scale, zero_point = observer(W, g_idx=None)
-
+            scale, zero_point = observer(W, g_idx=None, global_scale=global_scale)
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            scale, zero_point = observer(W, g_idx=None)
+            scale, zero_point = observer(W, g_idx=None, global_scale=global_scale)
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
 
         else:
-            scale, zero_point = observer(W, g_idx=None)
+            scale, zero_point = observer(W, g_idx=None, global_scale=global_scale)
+            # print("ActivationOrdering.NONE")
+            # print(">>> GPTQ: group scales:", scale.flatten())
+            # print(">>> GPTQ: global_scale:", global_scale)
+
+            # print(f">>> Layer: {module}")
+            # print(f"  global_scale={global_scale.item()}")
+            # print(f"  scale stats: mean={scale.mean()}, min={scale.min()}, max={scale.max()}")
     else:
         scale, zero_point = observer(W, g_idx=None)
 
@@ -204,7 +225,7 @@ def quantize_weight(
                     zero_point[:, 0],
                     quant_args,
                 )
-            elif strategy == QuantizationStrategy.GROUP:
+            elif strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
                 # get the group index for the current column
                 column_idx = i1 + i
                 group_index = g_idx[column_idx]
@@ -218,7 +239,14 @@ def quantize_weight(
                     scale[:, group_index],
                     zero_point[:, group_index],
                     altered_qargs,
+                    global_scale=global_scale if strategy == QuantizationStrategy.TENSOR_GROUP else None,
                 )
+
+                if i1 == 0 and i < 2:
+                    print(f"[DEBUG] W (orig) col {i1+i}: {w[:5]}")
+                    print(f"[DEBUG] Q (quant) col {i1+i}: {q[:5]}")
+                    print(f"[DEBUG] Error col {i1+i}: {(w - q)[:5]}")
+
             else:
                 raise ValueError(
                     f"Quantization strategy is not supported for GPTQ: {strategy}"
@@ -247,7 +275,7 @@ def quantize_weight(
             W[:, i2:] -= w_err
 
     has_gidx = False
-    if strategy == QuantizationStrategy.GROUP:
+    if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
         if actorder == ActivationOrdering.WEIGHT:
             # restore original permutation
             invperm = torch.argsort(perm)
@@ -270,14 +298,23 @@ def quantize_weight(
     W = W.reshape(final_shape).to(final_dtype)
 
     loss = torch.sum(losses).item()
+
+    if quant_args.type == QuantizationType.FLOAT:
+        zero_point_out = zero_point  # no cast needed; can be None or float tensor
+    else:
+        zero_point_out = zero_point.to(dtype=quant_args.pytorch_dtype())
+
+    logger.info(f"GPTQ quantization loss for {module}: {loss:.5f}")
+    logger.info(f"H diag mean={torch.mean(torch.diag(H)).item():.5e}, min={torch.min(torch.diag(H)).item():.5e}, max={torch.max(torch.diag(H)).item():.5e}")
+
     return (
         loss,
         W,
         scale.to(dtype=final_dtype),
-        zero_point.to(dtype=quant_args.pytorch_dtype()),
+        zero_point_out,
         g_idx,
-    )
-
+        global_scale
+    )  
 
 def _apply_activation_ordering(
     W: torch.Tensor, H: torch.Tensor

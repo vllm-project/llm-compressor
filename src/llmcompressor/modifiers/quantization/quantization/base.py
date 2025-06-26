@@ -8,6 +8,8 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
+import torch
+
 
 __all__ = ["QuantizationModifier"]
 
@@ -98,6 +100,70 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             self, state.model
         )  # keep quantization enabled
 
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         if not self.ended_:
             self.on_end(state, None)
+
+        quantized_layers = []
+        for name, module in state.model.named_modules():
+            if hasattr(module, "weight_scale") or hasattr(module, "weight_zero_point"):
+                quantized_layers.append((name, module))
+
+        # Pick first and last layer with quantization params
+        if len(quantized_layers) == 0:
+            print("No quantized layers found!")
+        else:
+            first_layer_name, first_layer = quantized_layers[0]
+            last_layer_name, last_layer = quantized_layers[-1]
+
+            print(f"==== FIRST QUANTIZED LAYER: {first_layer_name} ====")
+            if hasattr(first_layer, "weight"):
+                print(f"weight shape: {first_layer.weight.shape}")
+
+            if hasattr(first_layer, "weight_scale"):
+                scale = first_layer.weight_scale.to(torch.float32)
+                print(f"weight_scale mean={scale.mean().item():.6f}, min={scale.min().item():.6f}, max={scale.max().item():.6f}")
+            else:
+                print("weight_scale MISSING!")
+
+            if hasattr(first_layer, "weight_zero_point"):
+                zp = first_layer.weight_zero_point
+                zp_f32 = zp.to(torch.float32)
+                print(f"weight_zero_point mean={zp_f32.mean().item():.6f}, min={zp_f32.min().item():.6f}, max={zp_f32.max().item():.6f}")
+            else:
+                print("weight_zero_point MISSING!")
+            
+            if hasattr(first_layer, "weight_g_idx"):
+                zp = first_layer.weight_g_idx
+                zp_f32 = zp.to(torch.float32)
+                print(f"weight_g_idx mean={zp_f32.mean().item():.6f}, min={zp_f32.min().item():.6f}, max={zp_f32.max().item():.6f}")
+            else:
+                print("weight_g_idx MISSING!")
+
+            print(f"==== LAST QUANTIZED LAYER: {last_layer_name} ====")
+            if hasattr(last_layer, "weight"):
+                print(f"weight shape: {last_layer.weight.shape}")
+
+            if hasattr(last_layer, "weight_scale"):
+                scale = last_layer.weight_scale.to(torch.float32)
+                print(f"weight_scale mean={scale.mean().item():.6f}, min={scale.min().item():.6f}, max={scale.max().item():.6f}")
+            else:
+                print("weight_scale MISSING!")
+
+            if hasattr(last_layer, "weight_zero_point"):
+                zp = last_layer.weight_zero_point
+                zp_f32 = zp.to(torch.float32)
+                print(f"weight_zero_point mean={zp_f32.mean().item():.6f}, min={zp_f32.min().item():.6f}, max={zp_f32.max().item():.6f}")
+            else:
+                print("weight_zero_point MISSING!")
+
+            if hasattr(last_layer, "weight_g_idx"):
+                zp = last_layer.weight_g_idx
+                zp_f32 = zp.to(torch.float32)
+                print(f"weight_g_idx mean={zp_f32.mean().item():.6f}, min={zp_f32.min().item():.6f}, max={zp_f32.max().item():.6f}")
+            else:
+                print("weight_g_idx MISSING!")
+
+
+        return True
