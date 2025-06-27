@@ -76,8 +76,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
     :param block_size: Used to determine number of columns to compress in one pass
     :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
         diagonal norm
-    :param actorder: order in which weight columns are quantized. For more information,
-        on actorder options, see https://github.com/vllm-project/vllm/pull/8135
+    :param actorder: order in which weight columns are quantized. Defaults to "static"
+        activation ordering, which achieves best accuracy recovery with no runtime cost.
+        For more information, see https://github.com/vllm-project/vllm/pull/8135
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
 
@@ -110,7 +111,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    actorder: Optional[Union[ActivationOrdering, Sentinel]] = None
+    actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
 
     # private variables
