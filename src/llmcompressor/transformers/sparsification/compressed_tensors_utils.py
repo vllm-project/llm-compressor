@@ -18,7 +18,6 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
@@ -254,17 +253,10 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
         existing recipe
     :param save_directory: path to save combined existing recipe and current recipe
     """
-    recipes_to_save = []
+
     existing_recipe = infer_recipe_from_model_path(model_stub)
-    if existing_recipe is not None:
-        recipes_to_save.append(existing_recipe)
 
-    new_recipe = active_session().lifecycle.recipe
-    if new_recipe is not None:
-        recipes_to_save.append(new_recipe)
+    recipe = active_session().lifecycle.recipe
 
-    recipe = Recipe.simplify_combine_recipes(recipes_to_save)
-
-    # save recipe
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
-    recipe.yaml(recipe_path)
+    recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
