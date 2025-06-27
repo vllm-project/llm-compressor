@@ -220,17 +220,6 @@ class CompressionSession:
 
         logger.warning("Recipe not found in session - it may have been reset")
 
-    def get_modifiers(self):
-        """
-        Get all modifiers across all stages
-        """
-        stage_modifiers = self.lifecycle.modifiers
-        return [
-            modifier
-            for stage_modifier in stage_modifiers
-            for modifier in stage_modifier.modifiers
-        ]  # noqa: E127
-
     def _log_model_info(self):
         # Log model level logs if cadence reached
         current_index = self._lifecycle.global_step

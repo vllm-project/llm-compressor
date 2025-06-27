@@ -186,9 +186,8 @@ class Oneshot:
             recipe_args=self.recipe_args.recipe_args,
             calib_data=calibration_dataloader,
         )
-
         user_pipeline = self.dataset_args.pipeline
-        modifiers = session.get_modifiers()
+        modifiers = session.lifecycle.recipe.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
         pipeline(self.model, calibration_dataloader, self.dataset_args)
 
