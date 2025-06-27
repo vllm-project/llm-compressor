@@ -22,7 +22,7 @@ def parse_args():
     parser.add_argument("--model_id", type=str, required=True, help="The stub of the model to load")  # noqa: E501
     parser.add_argument("--model_class", type=str, required=True, help="The class name of the model")  # noqa: E501
     parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing")  # noqa: E501
-    parser.add_argument("--ignore", type=str, nargs="*", default=["_update_causal_mask"], metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
+    parser.add_argument("--ignore", type=str, nargs="*", default=DatasetArguments().tracing_ignore, metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
     parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
     parser.add_argument("--trust_remote_code", type=bool, default=False, help="Whether to trust model remote code")  # noqa: E501
     parser.add_argument("--skip_weights", type=bool, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
@@ -34,7 +34,7 @@ def trace(
     model_id: str,
     model_class: Type[PreTrainedModel],
     sequential_targets: Optional[Union[List[str], str]] = None,
-    ignore: Union[List[str], str] = ["_update_causal_mask"],
+    ignore: Union[List[str], str] = DatasetArguments().tracing_ignore,
     modality: str = "text",
     trust_remote_code: bool = True,
     skip_weights: bool = True,
