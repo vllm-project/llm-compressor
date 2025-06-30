@@ -30,7 +30,7 @@ TEST_DATA_FILE = os.environ.get(
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
-
+os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
     "config.json",
     r"^model(?:-\d{5}-of-\d{5})?\.safetensors$",
@@ -81,6 +81,8 @@ class TestvLLM:
         self.save_compressed = eval_config.get("save_compressed", True)
         self.num_calibration_samples = eval_config.get("num_calibration_samples", 256)
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
+        # GPU memory utilization - only set if explicitly provided in config
+        self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -88,7 +90,6 @@ class TestvLLM:
         logger.info("========== RUNNING ==============")
         logger.info(self.save_dir)
 
-        self.device = "cuda:0"
         self.prompts = [
             "The capital of France is",
             "The president of the US is",
@@ -105,7 +106,6 @@ class TestvLLM:
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
-            device=self.device,
             num_calibration_samples=self.num_calibration_samples,
             max_seq_length=self.max_seq_length,
             scheme=self.scheme,
@@ -197,11 +197,16 @@ class TestvLLM:
         import torch
 
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
+        llm_kwargs = {"model": self.save_dir}
+
         if "W4A16_2of4" in self.scheme:
             # required by the kernel
-            llm = LLM(model=self.save_dir, dtype=torch.float16)
-        else:
-            llm = LLM(model=self.save_dir)
+            llm_kwargs["dtype"] = torch.float16
+
+        if self.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+
+        llm = LLM(**llm_kwargs)
         outputs = llm.generate(self.prompts, sampling_params)
         return outputs
 

@@ -4,15 +4,12 @@ from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
+from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 MODEL_ID = "openai/whisper-large-v3"
 
-model = WhisperForConditionalGeneration.from_pretrained(
-    MODEL_ID,
-    device_map="auto",
-    torch_dtype="auto",
-)
+model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
 model.config.forced_decoder_ids = None
 processor = WhisperProcessor.from_pretrained(MODEL_ID)
 
@@ -91,13 +88,13 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 sample_features = next(iter(ds))["input_features"]
 sample_decoder_ids = [processor.tokenizer.prefix_tokens]
 sample_input = {
     "input_features": torch.tensor(sample_features).to(model.device),
     "decoder_input_ids": torch.tensor(sample_decoder_ids).to(model.device),
 }
-
 output = model.generate(**sample_input, language="en")
 print(processor.batch_decode(output, skip_special_tokens=True))
 print("==========================================\n\n")
@@ -106,6 +103,6 @@ print("==========================================\n\n")
 # and it was a great thing for what it was at the time but it's not a passive house
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-W4A16-G128"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-G128"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 processor.save_pretrained(SAVE_DIR)
