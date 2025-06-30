@@ -87,6 +87,7 @@ print(
 # NOTE: transformers 4.49.0 results in a generation error with gemma2.
 # Consider either downgrading your transformers version to a previous version
 # or use vLLM for sample generation.
+# Note: compile is disabled: https://github.com/huggingface/transformers/issues/38333
 print("\n\n")
 dispatch_for_generation(model)
 print("========== SAMPLE GENERATION ==============")
