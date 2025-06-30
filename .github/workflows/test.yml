@@ -22,7 +22,9 @@ on:
       whl:
         description: "whl to test (variable appears late binding so unusable outside 'download artifact')"
         type: string
-        required: true
+      run_id:
+        description: run id of the BUILD job that generated the assets
+        type: string
 
   # makes workflow manually callable
   workflow_dispatch:
@@ -44,9 +46,11 @@ on:
         type: string
         required: true
       whl:
-        description: "whl to test (variable appears late binding so unusable outside 'download artifact')"
+        description: "whl to test (provide either whl or run_id)"
         type: string
-        required: true
+      run_id:
+        description: run id of the BUILD job that generated the assets
+        type: string
 
 jobs:
 
@@ -87,10 +91,32 @@ jobs:
 
             - name: download whl
               id: download
+              if: ${{ inputs.whl != '' }}
               uses: actions/download-artifact@v4
               with:
                   name: ${{ inputs.whl }}
                   path: ${{ inputs.whl }}
+
+            # GCP
+            - name: 'Authenticate to Google Cloud'
+              id: auth
+              uses: google-github-actions/auth@v2.1.3
+              with:
+                  project_id: ${{ secrets.GCP_PROJECT }}
+                  workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+                  service_account: ${{ secrets.GCP_GHA_SA }}
+
+            - name: 'Set up Cloud SDK'
+              uses: 'google-github-actions/setup-gcloud@v2'
+              with:
+                  version: '>= 473.0.0'
+
+            - name: download assets
+              if: ${{ inputs.run_id != '' }}
+              uses: neuralmagic/nm-actions/actions/gcp-download-assets@v1.1.0
+              with:
+                  bucket_source: ${{ secrets.GCP_BUILD_ML_ASSETS2 }}
+                  run_id: ${{ inputs.run_id }}
 
             - name: run tests
               id: test
@@ -109,19 +135,6 @@ jobs:
                   whl: ${{ inputs.whl }}
                   test_status: ${{ steps.test.outputs.status }}
 
-            # GCP
-            - name: 'Authenticate to Google Cloud'
-              id: auth
-              uses: google-github-actions/auth@v2.1.3
-              with:
-                  project_id: ${{ secrets.GCP_PROJECT }}
-                  workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-                  service_account: ${{ secrets.GCP_GHA_SA }}
-
-            - name: 'Set up Cloud SDK'
-              uses: 'google-github-actions/setup-gcloud@v2'
-              with:
-                  version: '>= 473.0.0'
 
             - name: copy results to GCP
               run: |
