@@ -142,7 +142,7 @@ setup(
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
-            # librosa depdency numba is currently not compatible with numpy>=2.3
+            # librosa dependency numba is currently not compatible with numpy>=2.3
             # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
             "librosa",
             "numpy<2.3",
