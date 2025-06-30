@@ -1,12 +1,14 @@
 from compressed_tensors.utils import replace_module
 from transformers import PreTrainedModel
 
-from llmcompressor.modeling.deepseek_v3 import replace as replace_DeepseekV3MoE
+from llmcompressor.modeling.deepseek_v3 import DeepseekV3MoECalibrate
+from llmcompressor.modeling.llama4 import SequentialLlama4TextMoe
 
 __all__ = ["prepare_for_calibration"]
 
 replacements = {
-    "DeepseekV3MoE": replace_DeepseekV3MoE,
+    "DeepseekV3MoE": DeepseekV3MoECalibrate,
+    "Llama4TextMoe": SequentialLlama4TextMoe,
 }
 
 
