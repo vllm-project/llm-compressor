@@ -32,7 +32,7 @@ oneshot(
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
+output = model.generate(input_ids, max_new_tokens=20, disable_compile=True)
 print(tokenizer.decode(output[0]))
 print("==========================================")
 
