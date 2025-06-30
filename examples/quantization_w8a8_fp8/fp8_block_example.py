@@ -13,8 +13,8 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
-#   * quantize the weights to fp8 with per channel via ptq
-#   * quantize the activations to fp8 with dynamic per token
+#   * quantize the weights to fp8 with block-wise quantization
+#   * quantize the activations to fp8 with dynamic per-token-group quantization
 recipe = QuantizationModifier(
     targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head"]
 )
