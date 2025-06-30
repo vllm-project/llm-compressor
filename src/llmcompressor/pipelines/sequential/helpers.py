@@ -2,7 +2,7 @@ import contextlib
 import inspect
 from collections import deque
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
 from compressed_tensors.quantization import find_name_or_class_matches
@@ -18,7 +18,6 @@ from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
-from transformers.masking_utils import LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers import Modifier
@@ -174,8 +173,7 @@ class SequentialTracer(HFTracer):
         self.offloaded = offloaded
 
         # skip any mask creation functions not already caught by the autowrapper
-        autowrap_functions = tuple(LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.values())
-        super().__init__(autowrap_functions=autowrap_functions)
+        super().__init__(autowrap_functions=_get_autowrap_functions())
 
         # check unlikely case that ancestors have direct params which are offloaded
         offloaded_ancestors = offloaded & ancestors
@@ -535,3 +533,12 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
         logger.warning("CUDA is not available! Compressing model on CPU instead")
 
     return model
+
+
+def _get_autowrap_functions() -> Tuple[Callable[[Any], Any], ...]:
+    try:
+        from transformers.masking_utils import LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING
+
+        return tuple(LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.values())
+    except ImportError:
+        return tuple()
