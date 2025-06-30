@@ -19,6 +19,9 @@ PTQ is performed to reduce the precision of quantizable weights (e.g., linear la
 - Useful for speed ups in high QPS regimes or offline serving on vLLM. 
 - Recommended for NVIDIA GPUs with compute capability >=9.0 (Hopper and Blackwell).
 
+### [W8A8-FP8_BLOCK](../examples/quantization_w8a8_fp8/fp8_block_example.py)
+- Uses block-wise quantization to compress weights to FP8 in (commonly 128×128 tiles), and dynamic per-token-group (128) quantization for activations. Does not require calibration dataset. Activation quantization is carried out during inference on vLLM.
+
 ## Sparsification
 Sparsification reduces model complexity by pruning selected weight values to zero while retaining essential weights in a subset of parameters. Supported formats include:
 
