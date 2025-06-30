@@ -112,7 +112,9 @@ setup(
     install_requires=[
         "loguru",
         "pyyaml>=5.0.0",
-        "numpy>=1.17.0",
+        # librosa dependency numba is currently not compatible with numpy>=2.3
+        # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
+        "numpy>=1.17.0,<2.3",
         "requests>=2.0.0",
         "tqdm>=4.0.0",
         # torch 1.10 and 1.11 do not support quantized onnx export
@@ -142,10 +144,7 @@ setup(
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
-            # librosa dependency numba is currently not compatible with numpy>=2.3
-            # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
             "librosa",
-            "numpy<2.3",
             "soundfile",
             # linting, formatting, and type checking
             "black~=24.4.2",
