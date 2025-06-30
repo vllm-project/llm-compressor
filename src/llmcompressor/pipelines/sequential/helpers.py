@@ -18,6 +18,7 @@ from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
+from transformers.masking_utils import LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING
 from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers import Modifier
@@ -169,9 +170,12 @@ class SequentialTracer(HFTracer):
     """
 
     def __init__(self, ancestors: Set[Module], offloaded: Set[Module]):
-        super().__init__()
         self.ancestors = ancestors
         self.offloaded = offloaded
+
+        # skip any mask creation functions not already caught by the autowrapper
+        autowrap_functions = tuple(LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.values())
+        super().__init__(autowrap_functions=autowrap_functions)
 
         # check unlikely case that ancestors have direct params which are offloaded
         offloaded_ancestors = offloaded & ancestors
