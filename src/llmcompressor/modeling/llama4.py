@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 from transformers.models.llama4.modeling_llama4 import (
     Llama4TextExperts,
@@ -16,11 +18,11 @@ class SequentialLlama4TextMoe(torch.nn.Module):
         self.top_k = original.config.num_experts_per_tok
         self.hidden_dim = original.config.hidden_size
         self.num_experts = original.config.num_local_experts
-        self.experts = SequentialLlama4TextExperts(original.config, original.experts)
+        self.experts = SequentialLlama4TextExperts(original.experts)
         self.router = original.router
         self.shared_expert = original.shared_expert
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
         router_logits = self.router(hidden_states)
 

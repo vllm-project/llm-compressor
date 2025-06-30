@@ -24,7 +24,7 @@ MAX_SEQUENCE_LENGTH = 2048
 recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
 
 # Apply algorithms.
-# due to the large size of DeepSeekV3, we specify sequential targets such that
+# due to the large size of Llama4, we specify sequential targets such that
 # only one MLP is loaded into GPU memory at a time
 oneshot(
     model=model,
