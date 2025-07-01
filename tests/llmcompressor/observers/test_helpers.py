@@ -56,7 +56,11 @@ def test_get_observer_token_count():
         },
     )
     apply_quantization_config(model, config)
-    model.apply(lambda module: initialize_observer(module, base_name="input"))
+    model.apply(
+        lambda module: initialize_observer(
+            module, "input", getattr(module, "quantization_scheme", None)
+        )
+    )
     model.apply(_prep_for_input_quant_calibration)
 
     # start calibration

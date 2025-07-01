@@ -3,6 +3,7 @@ from typing import Any, Optional
 import torch
 from compressed_tensors.quantization import (
     DynamicType,
+    QuantizationArgs,
     QuantizationStatus,
     QuantizationStrategy,
 )
@@ -11,7 +12,6 @@ from compressed_tensors.utils import align_module_device, update_parameter_data
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 from llmcompressor.utils.helpers import getattr_chain
 
@@ -36,6 +36,7 @@ __all__ = [
 def initialize_observer(
     module: Module,
     base_name: str,
+    quantization_args: Optional[QuantizationArgs],
 ):
     """
     Initialize observer module and attach as submodule.
@@ -47,14 +48,6 @@ def initialize_observer(
     :param base_name: str used to name the observer attribute
 
     """
-
-    arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    if not quantization_scheme:
-        # no quantization scheme nothing to do
-        return
-
-    quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
     if quantization_args is not None and quantization_args.dynamic in (
         False,
@@ -259,11 +252,6 @@ def freeze_module_quantization(module: Module):
         obs_name = f"{name}_observer"
         if hasattr(module, obs_name):
             delattr(module, obs_name)
-
-    # remove quantized kv_cache
-    kv_cache = getattr(module, "kv_cache", None)
-    if isinstance(kv_cache, QuantizedKVParameterCache):
-        delattr(module, "kv_cache")
 
     module.quantization_status = QuantizationStatus.FROZEN
 

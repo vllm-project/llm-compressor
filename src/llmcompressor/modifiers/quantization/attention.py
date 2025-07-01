@@ -4,11 +4,13 @@ import torch
 from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
-    calibrate_activations,
     forward_quantize,
 )
 from compressed_tensors.transform import TransformBase, TransformLocation
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, AttentionInterface
+from transformers.modeling_utils import AttentionInterface
+from transformers.models.llama.modeling_llama import eager_attention_forward
+
+from llmcompressor.modifiers.quantization.calibration import calibrate_activations
 
 
 def calibrated_attention(
@@ -34,7 +36,7 @@ def calibrated_attention(
             #     key = submodule(key)
 
     scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
-    status = Optional[QuantizationStatus] = getattr(module, "quantization_status", None)
+    status: Optional[QuantizationStatus] = getattr(module, "quantization_status", None)
     if scheme is not None:
         if scheme.input_activations is not None:
             # 2. calibrate quantization
@@ -55,7 +57,7 @@ def calibrated_attention(
         if scheme.output_activations is not None:
             raise NotImplementedError("")
 
-    return ALL_ATTENTION_FUNCTIONS["eager"](
+    return eager_attention_forward(
         module, query, key, value, attention_mask, scaling, dropout, **kwargs
     )
 

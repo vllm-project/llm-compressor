@@ -122,6 +122,7 @@ class QuantizationMixin(HooksMixin):
         # apply scheme and status to model
         config = self.resolve_quantization_config()
         apply_quantization_config(model, config)
+        breakpoint()
 
         # apply observers, disable quantization until calibration
         model.apply(self._initialize_observers)
@@ -136,7 +137,7 @@ class QuantizationMixin(HooksMixin):
         """
         hooks = set()
         for module in model.modules():
-            hooks += self._initialize_hooks(module)
+            hooks |= self._initialize_hooks(module)
         model.apply(apply_calibration_status)
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
@@ -207,29 +208,32 @@ class QuantizationMixin(HooksMixin):
         )
 
     def _initialize_observers(self, module: torch.nn.Module):
-        if not hasattr(module, "quantization_scheme"):
+        scheme: Optional[QuantizationScheme] = getattr(
+            module, "quantization_scheme", None
+        )
+        if scheme is None:
             return
 
         if isinstance(module, (torch.nn.Linear, torch.nn.Embedding)):
-            input, weight, output = _get_observer_targets(module.quantization_scheme)
+            input, weight, output = _get_observer_targets(scheme)
 
             # input activations
             if input:
-                initialize_observer(module, base_name="input")
+                initialize_observer(module, "input", scheme.input_activations)
 
             # weight observers (used by `update_weight_zp_scale` or child modifier)
             if weight:
-                initialize_observer(module, base_name="weight")
+                initialize_observer(module, "weight", scheme.weights)
 
             # output activations
             if output:
-                initialize_observer(module, base_name="output")
+                initialize_observer(module, "output", scheme.output_activations)
 
         elif is_attention_module(module):
             # attention observers
-            initialize_observer(module, base_name="q")
-            initialize_observer(module, base_name="k")
-            initialize_observer(module, base_name="v")
+            initialize_observer(module, "q", scheme.input_activations)
+            initialize_observer(module, "k", scheme.input_activations)
+            initialize_observer(module, "v", scheme.input_activations)
 
         else:
             raise ValueError(f"Unsupported quantization target {type(module)}")
@@ -256,13 +260,20 @@ class QuantizationMixin(HooksMixin):
             # wrap attention interface
             tmp = None
 
+            # This import is purely so that "calibrated_attention" gets registered
+            # as an attention implementation. There's probably a better way to do this
+            # so that registration only happens once before the model runs
+            from llmcompressor.modifiers.quantization.attention import (  # noqa: F401
+                calibrated_attention,
+            )
+
             def forward_pre(self, *args, **kwargs):
                 nonlocal tmp
-                tmp = self.config["_attn_implementation"]
-                self.config["_attn_implementation"] = "calibrated_attention"
+                tmp = self.config._attn_implementation
+                self.config._attn_implementation = "calibrated_attention"
 
             def forward(self, *args, **kwargs):
-                self.config["_attn_implementation"] = tmp
+                self.config._attn_implementation = tmp
 
             hooks.add(self.register_hook(module, forward_pre, "forward_pre"))
             hooks.add(self.register_hook(module, forward, "forward"))
