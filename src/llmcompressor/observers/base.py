@@ -63,12 +63,17 @@ class Observer(Module, RegistryMixin):
         self,
         observed: Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
+        tensor_id: Optional[Any] = None,
+        global_scale: Optional[torch.Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
             returned scale and zero point will be shaped (1,) along the
             reduced dimensions
+        :param tensor_id: Optional id if different ranges of observed tensors are
+            passed, useful for sharding tensors by group_size
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point derived from the observed tensor
         """
         raise NotImplementedError(f"{self.__class__} must implement calculate_qparams")
@@ -199,21 +204,36 @@ class Observer(Module, RegistryMixin):
                 if not (isinstance(bs, (list, tuple)) and len(bs) == 2 and all(isinstance(x, int) for x in bs)):
                     raise ValueError(f"Invalid block_structure '{bs}'. Must be a list of two ints [rows, cols].")
                 block_rows, block_cols = bs
-                num_br = int(ceil(rows / block_rows))
-                num_bc = int(ceil(cols / block_cols))
+                
+                # Enforce exact division (tensor dimensions must be divisible by block size)
+                if rows % block_rows != 0:
+                    raise ValueError(
+                        f"Tensor height {rows} is not divisible by block_rows {block_rows}. "
+                        f"Block quantization requires exact division."
+                    )
+                if cols % block_cols != 0:
+                    raise ValueError(
+                        f"Tensor width {cols} is not divisible by block_cols {block_cols}. "
+                        f"Block quantization requires exact division."
+                    )
+                    
+                num_br = rows // block_rows
+                num_bc = cols // block_cols
                 # allocate per-block scale and zero_point
                 self._scale = torch.empty((num_br, num_bc), dtype=observed.dtype, device=observed.device)
                 self._zero_point = torch.empty((num_br, num_bc), dtype=observed.dtype, device=observed.device)
                 # compute qparams for each block
                 for i in range(num_br):
                     r0 = i * block_rows
-                    r1 = min((i + 1) * block_rows, rows)
+                    r1 = (i + 1) * block_rows
                     for j in range(num_bc):
                         c0 = j * block_cols
-                        c1 = min((j + 1) * block_cols, cols)
+                        c1 = (j + 1) * block_cols
                         # reduce across both dims to get one scale and zp per block
                         scale_bp, zp_bp = self.calculate_qparams(
-                            observed[r0:r1, c0:c1], reduce_dims=(0, 1)
+                            observed[r0:r1, c0:c1], 
+                            reduce_dims=(0, 1), 
+                            tensor_id=i*num_bc+j,
                         )
                         self._scale[i, j] = scale_bp
                         self._zero_point[i, j] = zp_bp
