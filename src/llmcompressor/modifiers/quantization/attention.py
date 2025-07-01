@@ -41,8 +41,8 @@ def calibrated_attention(
         # 2. calibrate quantization
         if status == QuantizationStatus.CALIBRATION:
             calibrate_activations(module, value=query, base_name="q")
-            calibrate_activations(module, value=query, base_name="k")
-            calibrate_activations(module, value=query, base_name="v")
+            calibrate_activations(module, value=key, base_name="k")
+            calibrate_activations(module, value=value, base_name="v")
 
         # 3. apply quantization
         if status in (QuantizationStatus.CALIBRATION, QuantizationStatus.FROZEN):

@@ -122,7 +122,6 @@ class QuantizationMixin(HooksMixin):
         # apply scheme and status to model
         config = self.resolve_quantization_config()
         apply_quantization_config(model, config)
-        breakpoint()
 
         # apply observers, disable quantization until calibration
         model.apply(self._initialize_observers)
@@ -135,9 +134,9 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        hooks = set()
+        self._calibration_hooks = set()
         for module in model.modules():
-            hooks |= self._initialize_hooks(module)
+            self._calibration_hooks |= self._initialize_hooks(module)
         model.apply(apply_calibration_status)
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
@@ -253,7 +252,7 @@ class QuantizationMixin(HooksMixin):
                 )
 
             # output activations
-            elif output:
+            if output:
                 hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         elif is_attention_module(module):
