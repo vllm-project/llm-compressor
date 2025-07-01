@@ -24,8 +24,18 @@ runs:
 
     - name: clean up
       run: |
-          echo "cleaning up wheel files..."
+          echo "cleaning up disk space..."
           find . -type f -name '*.whl' -exec rm -rf {} \;
+          python -m pip cache purge
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/lib/android/sdk/ndk
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          if [[ "$(cat /etc/issue)" =~ Ubuntu ]]; then
+              sudo apt-get clean
+          fi
           df -h
       shell: bash
 
