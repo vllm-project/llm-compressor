@@ -23,9 +23,9 @@ def calibrated_attention(
     dropout: float = 0.0,
     **kwargs,
 ):
-    # 1. apply transforms
     for submodule in module.children():
         if isinstance(submodule, TransformBase):
+            # 1. apply transforms
             if TransformBase.args.location == TransformLocation.ATTN_Q:
                 query = submodule(query)
 
@@ -37,25 +37,18 @@ def calibrated_attention(
 
     scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
     status: Optional[QuantizationStatus] = getattr(module, "quantization_status", None)
-    if scheme is not None:
-        if scheme.input_activations is not None:
-            # 2. calibrate quantization
-            if status == QuantizationStatus.CALIBRATION:
-                calibrate_activations(module, value=query, base_name="q")
-                calibrate_activations(module, value=query, base_name="k")
-                calibrate_activations(module, value=query, base_name="v")
+    if getattr(scheme, "input_activations", None) is not None:
+        # 2. calibrate quantization
+        if status == QuantizationStatus.CALIBRATION:
+            calibrate_activations(module, value=query, base_name="q")
+            calibrate_activations(module, value=query, base_name="k")
+            calibrate_activations(module, value=query, base_name="v")
 
-            # 3. apply quantization
-            if status in (QuantizationStatus.CALIBRATION, QuantizationStatus.FROZEN):
-                query = forward_quantize(module, query, "q", scheme.input_activations)
-                key = forward_quantize(module, key, "k", scheme.input_activations)
-                value = forward_quantize(module, value, "v", scheme.input_activations)
-
-        if scheme.weights is not None:
-            raise ValueError("")
-
-        if scheme.output_activations is not None:
-            raise NotImplementedError("")
+        # 3. apply quantization
+        if status in (QuantizationStatus.CALIBRATION, QuantizationStatus.FROZEN):
+            query = forward_quantize(module, query, "q", scheme.input_activations)
+            key = forward_quantize(module, key, "k", scheme.input_activations)
+            value = forward_quantize(module, value, "v", scheme.input_activations)
 
     return eager_attention_forward(
         module, query, key, value, attention_mask, scaling, dropout, **kwargs
