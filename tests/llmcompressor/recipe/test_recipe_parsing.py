@@ -18,7 +18,6 @@ def setup_model_and_config(tmp_path):
     """
     model = AutoModelForCausalLM.from_pretrained(
         "Xenova/llama2.c-stories110M",
-        device_map="auto",
         torch_dtype="auto",
     )
 

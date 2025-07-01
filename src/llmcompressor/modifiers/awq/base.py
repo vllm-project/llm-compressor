@@ -304,13 +304,13 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         for mapping_idx, mapping in enumerate(self.mappings):
-            smooth_layers = get_layers(mapping.smooth_layer, model)
+            smooth_layers = get_layers(
+                mapping.smooth_layer, model, exclude_internal_modules=True
+            )
             smooth_names = [
                 smooth_name
                 for smooth_name in smooth_layers
-                if not find_name_or_class_matches(
-                    smooth_name, model, self.ignore + ["re:.*_observer$"]
-                )
+                if not find_name_or_class_matches(smooth_name, model, self.ignore)
             ]
 
             num_skipped_mappings = 0
@@ -331,6 +331,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     for balance_suffix, balance_layer in get_layers(
                         balance_regex,
                         smooth_parent,
+                        exclude_internal_modules=True,
                     ).items():
                         balance_name = f"{smooth_parent_name}.{balance_suffix}"
 
