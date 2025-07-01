@@ -180,15 +180,9 @@ class AutoWrapper(ast.NodeTransformer):
             return node
 
         if isinstance(node, ast.stmt):
-            logger.debug("---- Autowrapper ----")
-            logger.debug(ast.unparse(node))
-            logger.debug("---------------------")
             return self._wrap_stmt(node)
 
         elif isinstance(node, ast.expr):
-            logger.debug("---- Autowrapper ----")
-            logger.debug(ast.unparse(node))
-            logger.debug("---------------------")
             return self._wrap_expr(node)
 
         else:
@@ -253,6 +247,11 @@ class AutoWrapper(ast.NodeTransformer):
 
         # update local names with newly returned values
         self._local_names |= returns
+
+        # log newly created function definition
+        logger.debug("---- Autowrapper ----")
+        logger.debug(ast.unparse(ast.fix_missing_locations(fn_def)))
+        logger.debug("---------------------")
 
         return assign_call
 
