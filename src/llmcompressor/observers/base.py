@@ -198,30 +198,42 @@ class Observer(Module, RegistryMixin):
                 )
 
             elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
-                # Block-wise quantization: one scale/zero_point per block of shape [block_rows, block_cols]
+                # Block-wise quantization: one scale/zero_point per block of shape
+                # [block_rows, block_cols]
                 rows, cols = observed.shape[:2]
                 bs = self.quantization_args.block_structure
-                if not (isinstance(bs, (list, tuple)) and len(bs) == 2 and all(isinstance(x, int) for x in bs)):
-                    raise ValueError(f"Invalid block_structure '{bs}'. Must be a list of two ints [rows, cols].")
+                if not (
+                    isinstance(bs, (list, tuple))
+                    and len(bs) == 2
+                    and all(isinstance(x, int) for x in bs)
+                ):
+                    raise ValueError(
+                        f"Invalid block_structure '{bs}'. "
+                        "Must be a list of two ints [rows, cols]."
+                    )
                 block_rows, block_cols = bs
-                
-                # Enforce exact division (tensor dimensions must be divisible by block size)
+
+                # Enforce exact division (dimensions must be divisible by block size)
                 if rows % block_rows != 0:
                     raise ValueError(
-                        f"Tensor height {rows} is not divisible by block_rows {block_rows}. "
-                        f"Block quantization requires exact division."
+                        f"Tensor height {rows} is not divisible by block_rows "
+                        f"{block_rows}. Block quantization requires exact division."
                     )
                 if cols % block_cols != 0:
                     raise ValueError(
-                        f"Tensor width {cols} is not divisible by block_cols {block_cols}. "
-                        f"Block quantization requires exact division."
+                        f"Tensor width {cols} is not divisible by block_cols "
+                        f"{block_cols}. Block quantization requires exact division."
                     )
-                    
+
                 num_br = rows // block_rows
                 num_bc = cols // block_cols
                 # allocate per-block scale and zero_point
-                self._scale = torch.empty((num_br, num_bc), dtype=observed.dtype, device=observed.device)
-                self._zero_point = torch.empty((num_br, num_bc), dtype=observed.dtype, device=observed.device)
+                self._scale = torch.empty(
+                    (num_br, num_bc), dtype=observed.dtype, device=observed.device
+                )
+                self._zero_point = torch.empty(
+                    (num_br, num_bc), dtype=observed.dtype, device=observed.device
+                )
                 # compute qparams for each block
                 for i in range(num_br):
                     r0 = i * block_rows
@@ -231,9 +243,9 @@ class Observer(Module, RegistryMixin):
                         c1 = (j + 1) * block_cols
                         # reduce across both dims to get one scale and zp per block
                         scale_bp, zp_bp = self.calculate_qparams(
-                            observed[r0:r1, c0:c1], 
-                            reduce_dims=(0, 1), 
-                            tensor_id=i*num_bc+j,
+                            observed[r0:r1, c0:c1],
+                            reduce_dims=(0, 1),
+                            tensor_id=i * num_bc + j,
                         )
                         self._scale[i, j] = scale_bp
                         self._zero_point[i, j] = zp_bp
