@@ -33,7 +33,7 @@ def calibrated_attention(
                 key = submodule(key)
 
             # if TransformBase.args.location == TransformLocation.ATTN_V:
-            #     key = submodule(key)
+            #     value = submodule(value)
 
     scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
     status: Optional[QuantizationStatus] = getattr(module, "quantization_status", None)
