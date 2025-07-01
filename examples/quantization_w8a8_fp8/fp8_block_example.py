@@ -15,9 +15,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # In this case, we:
 #   * quantize the weights to fp8 with block-wise quantization
 #   * quantize the activations to fp8 with dynamic per-token-group quantization
-recipe = QuantizationModifier(
-    targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head"]
-)
+recipe = QuantizationModifier(targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head"])
 
 # Apply quantization.
 oneshot(model=model, recipe=recipe)
