@@ -34,6 +34,7 @@ def q_config_kwargs(config_0, config_1):
         )
     )
 
+
 @pytest.fixture
 def block_q_config_kwargs():
     return dict(
@@ -52,6 +53,7 @@ def block_q_config_kwargs():
             ),
         )
     )
+
 
 def test_block_strategy_parsing(block_q_config_kwargs):
     modifier = GPTQModifier(**block_q_config_kwargs)
