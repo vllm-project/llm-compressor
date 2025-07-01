@@ -1,8 +1,7 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
-    DynamicType,
     QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
@@ -20,12 +19,9 @@ from torch.utils.hooks import RemovableHandle
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     calibrate_input_hook,
-    calibrate_kv_cache_input_hook,
-    calibrate_kv_cache_output_hook,
     calibrate_output_hook,
     freeze_module_quantization,
     initialize_observer,
-    initialize_quantized_kv_cache,
     reset_quantization_status,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -138,7 +134,9 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        self._calibration_hooks = self._initialize_hooks(model)
+        hooks = set()
+        for module in model.modules():
+            hooks += self._initialize_hooks(module)
         model.apply(apply_calibration_status)
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
@@ -212,45 +210,37 @@ class QuantizationMixin(HooksMixin):
         if not hasattr(module, "quantization_scheme"):
             return
 
-        scheme: QuantizationScheme = module.quantization_scheme
-        input = scheme.input_activations and scheme.input_activations.dynamic in (
-            False,
-            DynamicType.LOCAL,
-        )
-        weight = scheme.weights is not None
-        output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding)):
+            input, weight, output = _get_observer_targets(module.quantization_scheme)
 
-        # input activations
-        if input:
-            initialize_observer(module, base_name="input")
+            # input activations
+            if input:
+                initialize_observer(module, base_name="input")
 
-        # weight observers (used by `update_weight_zp_scale` or child modifier)
-        if weight:
-            initialize_observer(module, base_name="weight")
+            # weight observers (used by `update_weight_zp_scale` or child modifier)
+            if weight:
+                initialize_observer(module, base_name="weight")
 
-        # kv_cache activations. Within `apply_quantization_config`, the config is
-        # modified to use attention output quantization if a kv_cache_scheme exists
-        if is_attention and output:
-            initialize_quantized_kv_cache(module)
+            # output activations
+            if output:
+                initialize_observer(module, base_name="output")
 
-        # output activations
-        elif output:
-            initialize_observer(module, base_name="output")
+        elif is_attention_module(module):
+            # attention observers
+            initialize_observer(module, base_name="q")
+            initialize_observer(module, base_name="k")
+            initialize_observer(module, base_name="v")
 
-    def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
+        else:
+            raise ValueError(f"Unsupported quantization target {type(module)}")
+
+    def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
-        for module in model.modules():
-            if not hasattr(module, "quantization_scheme"):
-                continue
+        if not hasattr(module, "quantization_scheme"):
+            return hooks
 
-            scheme: QuantizationScheme = module.quantization_scheme
-            input = scheme.input_activations and scheme.input_activations.dynamic in (
-                False,
-                DynamicType.LOCAL,
-            )
-            output = scheme.output_activations and not scheme.output_activations.dynamic
-            is_attention = is_attention_module(module)
+        if isinstance(module, (torch.nn.Linear, torch.nn.Embedding)):
+            input, _, output = _get_observer_targets(module.quantization_scheme)
 
             # input activations
             if input:
@@ -258,25 +248,34 @@ class QuantizationMixin(HooksMixin):
                     self.register_hook(module, calibrate_input_hook, "forward_pre")
                 )
 
-            # kv_cache activations. Within `apply_quantization_config`, the config is
-            # modified to use attention output quantization if a kv_cache_scheme exists
-            if is_attention and output:
-                hooks.add(
-                    self.register_hook(
-                        module,
-                        calibrate_kv_cache_input_hook,
-                        "forward_pre",
-                        with_kwargs=True,
-                    )
-                )
-                hooks.add(
-                    self.register_hook(
-                        module, calibrate_kv_cache_output_hook, "forward"
-                    )
-                )
-
             # output activations
             elif output:
                 hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
+        elif is_attention_module(module):
+            # wrap attention interface
+            tmp = None
+
+            def forward_pre(self, *args, **kwargs):
+                nonlocal tmp
+                tmp = self.config["_attn_implementation"]
+                self.config["_attn_implementation"] = "calibrated_attention"
+
+            def forward(self, *args, **kwargs):
+                self.config["_attn_implementation"] = tmp
+
+            hooks.add(self.register_hook(module, forward_pre, "forward_pre"))
+            hooks.add(self.register_hook(module, forward, "forward"))
+
+        else:
+            raise ValueError(f"Unsupported quantization target {type(module)}")
+
         return hooks
+
+
+def _get_observer_targets(scheme: QuantizationScheme) -> Tuple[bool, bool, bool]:
+    input = scheme.input_activations and scheme.input_activations.dynamic is not True
+    weight = scheme.weights is not None
+    output = scheme.output_activations and scheme.output_activations.dynamic is not True
+
+    return input, weight, output

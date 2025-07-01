@@ -1,15 +1,12 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 from compressed_tensors.quantization import (
     DynamicType,
-    KVCacheScaleType,
-    QuantizationScheme,
     QuantizationStatus,
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils import align_module_device, update_parameter_data
 from loguru import logger
 from torch.nn import Module
@@ -29,9 +26,6 @@ __all__ = [
     "update_weight_zp_scale",
     "calibrate_input_hook",
     "calibrate_output_hook",
-    "calibrate_kv_cache_input_hook",
-    "calibrate_kv_cache_output_hook",
-    "initialize_quantized_kv_cache",
     "freeze_module_quantization",
     "apply_calibration_status",
     "reset_quantization_status",
@@ -233,53 +227,6 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
         args=module.quantization_scheme.output_activations,
     )
     return output
-
-
-def calibrate_kv_cache_input_hook(
-    module: Module, args: Any, kwargs: Dict[str, Any]
-) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
-    """
-    Hook to update inputs to attention layers when running
-    kv_cache quantization. Will update the passed in
-    kv_cache to singleton QuantizedKVParameterCache.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    kwargs["past_key_value"] = kv_cache
-    kwargs["use_cache"] = False
-    return args, kwargs
-
-
-def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Tensor):
-    """
-    Hook to update k_scale and v_scale parameters when running kv_cache quantization.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    k_scale = kv_cache.k_scales[module.layer_idx]
-    v_scale = kv_cache.v_scales[module.layer_idx]
-    update_parameter_data(module, k_scale, KVCacheScaleType.KEY.value)
-    update_parameter_data(module, v_scale, KVCacheScaleType.VALUE.value)
-
-
-def initialize_quantized_kv_cache(module: Module):
-    """
-    Initialize a quantized kv_cache on a module (analogous to initializing an observer)
-    When a config specifying kv_cache quantization is applied to a model, the kv_cache
-    args are redefined as the output_activations targeting attention modules.
-
-    This function should be called on attention modules with output_activations
-    """
-    scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
-    existing_kv_cache = getattr(module, "kv_cache", None)
-
-    if (
-        scheme is None
-        or not is_kv_cache_quant_scheme(scheme)
-        or isinstance(existing_kv_cache, QuantizedKVParameterCache)
-    ):
-        return
-
-    quantized_kv_cache = QuantizedKVParameterCache(scheme.output_activations)
-    setattr(module, "kv_cache", quantized_kv_cache)
 
 
 def apply_calibration_status(module: Module):
