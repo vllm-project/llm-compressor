@@ -7,10 +7,15 @@ from llmcompressor.modifiers.transform.template.quip import QUIP
 
 
 @pytest.mark.parametrize(
-    "dtype,exp_max,exp_mse", [
-        (torch.bfloat16, 1.1, 0.012),  # constructing and running transforms in float32 can improve to (~0.6562, ~0.0055)  # noqa: E501
-        (torch.float32, 4e-4, 2e-9)
-    ]
+    "dtype,exp_max,exp_mse",
+    [
+        (
+            torch.bfloat16,
+            1.1,
+            0.012,
+        ),  # constructing and running transforms in float32 can improve to (~0.6562, ~0.0055)  # noqa: E501
+        (torch.float32, 4e-4, 2e-9),
+    ],
 )
 def test_apply_correctness(dtype, exp_max, exp_mse):
     model = AutoModelForCausalLM.from_pretrained(

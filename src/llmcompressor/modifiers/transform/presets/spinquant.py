@@ -1,21 +1,24 @@
 from compressed_tensors.transform import TransformArgs, TransformConfig, TransformScheme
 
-LLAMA_SPINQUANT = TransformConfig(
-    transform_groups={
+# Ref: https://arxiv.org/pdf/2405.16406 Fig 1
+
+# Mergeable rotations R1 and R2 only
+LLAMA_SPINQUANT_R1R2 = TransformConfig(
+    config_groups={
         "R1": TransformScheme(
             type="hadamard",
             apply=[
                 TransformArgs(
-                    targets=["embed_tokens", "o_proj", "down_proj"],
+                    targets=["re:.*embed_tokens$", "re:.*o_proj$", "re:.*down_proj$"],
                     location="weight_output",
                 ),
                 TransformArgs(
                     targets=[
-                        "q_proj",
-                        "k_proj",
-                        "v_proj",
-                        "up_proj",
-                        "gate_proj",
+                        "re:.*q_proj$",
+                        "re:.*k_proj$",
+                        "re:.*v_proj$",
+                        "re:.*up_proj$",
+                        "re:.*gate_proj$",
                         "lm_head",
                     ],
                     location="weight_input",
@@ -27,23 +30,31 @@ LLAMA_SPINQUANT = TransformConfig(
             type="hadamard",
             apply=[
                 TransformArgs(
-                    targets=["v_proj"],
+                    targets=["re:.*v_proj$"],
                     location="weight_output",
                 ),
                 TransformArgs(
-                    targets=["o_proj"], location="weight_input", inverse=True
+                    targets=["re:.*o_proj$"], location="weight_input", inverse=True
                 ),
             ],
         ),
+    }
+)
+
+# All rotations
+LLAMA_SPINQUANT = TransformConfig(
+    config_groups={
+        "R1": LLAMA_SPINQUANT_R1R2.config_groups["R1"],
+        "R2": LLAMA_SPINQUANT_R1R2.config_groups["R2"],
         "R3": TransformScheme(
             type="hadamard",
             apply=[
                 TransformArgs(
-                    targets=["self_attn"],
+                    targets=["re:.*self_attn$"],
                     location="k_cache",
                 ),
                 TransformArgs(
-                    targets=["self_attn"],
+                    targets=["re:.*self_attn$"],
                     location="q_attn",
                 ),
             ],
@@ -52,11 +63,11 @@ LLAMA_SPINQUANT = TransformConfig(
             type="hadamard",
             apply=[
                 TransformArgs(
-                    targets=["down_proj"],
+                    targets=["re:.*down_proj$"],
                     location="input",
                 ),
                 TransformArgs(
-                    targets=["down_proj"], location="weight_input", inverse=True
+                    targets=["re:.*down_proj$"], location="weight_input", inverse=True
                 ),
             ],
         ),
