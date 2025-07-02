@@ -1,20 +1,17 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 from compressed_tensors.quantization import (
     DynamicType,
-    KVCacheScaleType,
-    QuantizationScheme,
+    QuantizationArgs,
     QuantizationStatus,
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils import align_module_device, update_parameter_data
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 from llmcompressor.utils.helpers import getattr_chain
 
@@ -29,9 +26,6 @@ __all__ = [
     "update_weight_zp_scale",
     "calibrate_input_hook",
     "calibrate_output_hook",
-    "calibrate_kv_cache_input_hook",
-    "calibrate_kv_cache_output_hook",
-    "initialize_quantized_kv_cache",
     "freeze_module_quantization",
     "apply_calibration_status",
     "reset_quantization_status",
@@ -42,6 +36,7 @@ __all__ = [
 def initialize_observer(
     module: Module,
     base_name: str,
+    quantization_args: Optional[QuantizationArgs],
 ):
     """
     Initialize observer module and attach as submodule.
@@ -53,14 +48,6 @@ def initialize_observer(
     :param base_name: str used to name the observer attribute
 
     """
-
-    arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    if not quantization_scheme:
-        # no quantization scheme nothing to do
-        return
-
-    quantization_args = getattr(quantization_scheme, arg_name, None)
     # dont need observers for dynamic
     if quantization_args is not None and quantization_args.dynamic in (
         False,
@@ -235,53 +222,6 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     return output
 
 
-def calibrate_kv_cache_input_hook(
-    module: Module, args: Any, kwargs: Dict[str, Any]
-) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
-    """
-    Hook to update inputs to attention layers when running
-    kv_cache quantization. Will update the passed in
-    kv_cache to singleton QuantizedKVParameterCache.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    kwargs["past_key_value"] = kv_cache
-    kwargs["use_cache"] = False
-    return args, kwargs
-
-
-def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Tensor):
-    """
-    Hook to update k_scale and v_scale parameters when running kv_cache quantization.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    k_scale = kv_cache.k_scales[module.layer_idx]
-    v_scale = kv_cache.v_scales[module.layer_idx]
-    update_parameter_data(module, k_scale, KVCacheScaleType.KEY.value)
-    update_parameter_data(module, v_scale, KVCacheScaleType.VALUE.value)
-
-
-def initialize_quantized_kv_cache(module: Module):
-    """
-    Initialize a quantized kv_cache on a module (analogous to initializing an observer)
-    When a config specifying kv_cache quantization is applied to a model, the kv_cache
-    args are redefined as the output_activations targeting attention modules.
-
-    This function should be called on attention modules with output_activations
-    """
-    scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
-    existing_kv_cache = getattr(module, "kv_cache", None)
-
-    if (
-        scheme is None
-        or not is_kv_cache_quant_scheme(scheme)
-        or isinstance(existing_kv_cache, QuantizedKVParameterCache)
-    ):
-        return
-
-    quantized_kv_cache = QuantizedKVParameterCache(scheme.output_activations)
-    setattr(module, "kv_cache", quantized_kv_cache)
-
-
 def apply_calibration_status(module: Module):
     scheme = getattr(module, "quantization_scheme", None)
     if not scheme:
@@ -312,11 +252,6 @@ def freeze_module_quantization(module: Module):
         obs_name = f"{name}_observer"
         if hasattr(module, obs_name):
             delattr(module, obs_name)
-
-    # remove quantized kv_cache
-    kv_cache = getattr(module, "kv_cache", None)
-    if isinstance(kv_cache, QuantizedKVParameterCache):
-        delattr(module, "kv_cache")
 
     module.quantization_status = QuantizationStatus.FROZEN
 
