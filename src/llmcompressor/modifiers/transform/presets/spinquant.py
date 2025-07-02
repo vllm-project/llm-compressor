@@ -1,5 +1,8 @@
 from compressed_tensors.transform import TransformArgs, TransformConfig, TransformScheme
 
+# Ref: https://arxiv.org/pdf/2405.16406 Fig 1
+
+# All rotations
 LLAMA_SPINQUANT = TransformConfig(
     transform_groups={
         "R1": TransformScheme(
@@ -57,6 +60,46 @@ LLAMA_SPINQUANT = TransformConfig(
                 ),
                 TransformArgs(
                     targets=["down_proj"], location="weight_input", inverse=True
+                ),
+            ],
+        ),
+    }
+)
+
+
+# Mergeable rotations R1 and R2 only
+LLAMA_SPINQUANT_R1R2 = TransformConfig(
+    config_groups={
+        "R1": TransformScheme(
+            type="hadamard",
+            apply=[
+                TransformArgs(
+                    targets=["embed_tokens", "o_proj", "down_proj"],
+                    location="weight_output",
+                ),
+                TransformArgs(
+                    targets=[
+                        "q_proj",
+                        "k_proj",
+                        "v_proj",
+                        "up_proj",
+                        "gate_proj",
+                        "lm_head",
+                    ],
+                    location="weight_input",
+                    inverse=True,
+                ),
+            ],
+        ),
+        "R2": TransformScheme(
+            type="hadamard",
+            apply=[
+                TransformArgs(
+                    targets=["v_proj"],
+                    location="weight_output",
+                ),
+                TransformArgs(
+                    targets=["o_proj"], location="weight_input", inverse=True
                 ),
             ],
         ),

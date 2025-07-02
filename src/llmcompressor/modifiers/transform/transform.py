@@ -1,28 +1,33 @@
-from typing import Dict, Optional
+from typing import Optional
 
-from compressed_tensors.transform import TransformScheme, apply_transform_config
+from compressed_tensors.transform import TransformConfig, apply_transform_config
+from pydantic import ValidationError, model_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-
-from .template.quip import QUIP
+from llmcompressor.modifiers.transform.presets import TRANSFORM_PRESETS
 
 
 class TransformModifier(Modifier):
     preset_config: Optional[str] = None
-    config_groups: Optional[Dict[str, TransformScheme]] = None
+    config: Optional[TransformConfig] = None
 
     # model validator to validate both preset and config groups are not provided
+    @model_validator(mode="after")
+    def validate_model_after(model: "TransformModifier") -> "TransformModifier":
+        if model.preset_config is None and model.config is None:
+            raise ValidationError("Either a config or a preset_config must be provided")
+
+        if model.preset_config is not None:
+            if model.preset_config not in TRANSFORM_PRESETS:
+                raise ValidationError(
+                    f"Invalid preset_config '{model.preset_config}' "
+                    f"must be in {TRANSFORM_PRESETS.keys()}"
+                )
+            model.config = TRANSFORM_PRESETS[model.preset_config]
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        if self.preset_config is not None:
-            # import config template and customize to model
-            pass
-
-        # config = TransformConfig(config_groups=self.config_groups)
-        config = QUIP
-
-        apply_transform_config(state.model, config)
+        apply_transform_config(state.model, self.config)
 
         return True
 
