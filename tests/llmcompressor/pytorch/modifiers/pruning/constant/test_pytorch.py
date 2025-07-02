@@ -145,8 +145,8 @@ def test_constant_pruning_pytorch_is_registered():
     from llmcompressor.modifiers.pruning.constant import ConstantPruningModifier
 
     kwargs = dict(
-        start_epoch=5.0,
-        end_epoch=15.0,
+        start=5.0,
+        end=15.0,
         targets="__ALL_PRUNABLE__",
     )
     setup_modifier_factory()
