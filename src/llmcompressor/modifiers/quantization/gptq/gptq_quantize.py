@@ -286,6 +286,56 @@ def quantize_weight(
 
 
 @torch.compile(dynamic=True)
+def _process_block(
+    W1: torch.Tensor,
+    Hinv1: torch.Tensor,
+    scale_slice: torch.Tensor,
+    zero_slice: torch.Tensor,
+    mask_slice: Optional[torch.Tensor],
+    quant_min: int,
+    quant_max: int,
+    sym: bool,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    count = W1.shape[1]
+    Q1 = torch.zeros_like(W1)
+    Err1 = torch.zeros_like(W1)
+    losses1 = torch.zeros_like(W1)
+
+    for i in range(count):
+        w = W1[:, i]
+        d = Hinv1[i, i]
+
+        s = scale_slice[:, i]
+        z = zero_slice[:, i]
+
+        if sym:
+            z = torch.zeros_like(z)
+
+        scaled = w / s
+        if not sym:
+            scaled -= z
+        q = torch.clamp(torch.round(scaled), quant_min, quant_max)
+        dq = q * s
+        if not sym:
+            dq += z * s
+
+        err1 = (w - dq) / d
+        loss_col = (w - dq) ** 2 / d**2
+
+        Q1[:, i] = dq
+        Err1[:, i] = err1
+        losses1[:, i] = loss_col
+
+        w1_err = err1.unsqueeze(1) @ Hinv1[i, i:].unsqueeze(0)
+        if mask_slice is not None:
+            mask_block = mask_slice[:, i:]
+            W1[:, i:] -= w1_err * mask_block
+        else:
+            W1[:, i:] -= w1_err
+
+    return Q1, Err1, losses1
+
+
 def _quantize_core(
     W: torch.Tensor,
     Hinv: torch.Tensor,
@@ -303,55 +353,26 @@ def _quantize_core(
 
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
-        count = i2 - i1
 
-        W1 = W[:, i1:i2].clone().contiguous()
-        Q1 = torch.zeros_like(W1)
-        Err1 = torch.zeros_like(W1)
-        losses1 = torch.zeros_like(W1)
+        W1 = W[:, i1:i2].clone()
         Hinv1 = Hinv[i1:i2, i1:i2].contiguous()
-
-        for i in range(count):
-            col_idx = i1 + i
-            w = W1[:, i]
-            d = Hinv1[i, i]
-
-            s = scale_map[:, col_idx]
-            z = zero_map[:, col_idx]
-
-            if sym:
-                z = torch.zeros_like(z)
-
-            scaled = w / s
-            if not sym:
-                scaled -= z
-            q = torch.clamp(torch.round(scaled), quant_min, quant_max)
-            dq = q * s
-            if not sym:
-                dq += z * s
-
-            # propagate column error
-            Q1[:, i] = dq
-            losses1[:, i] = (w - dq) ** 2 / d**2
-
-            err1 = (w - dq) / d
-            Err1[:, i] = err1
-
-            w1_err = err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
-            if W_nz_mask is not None:
-                mask_slice = W_nz_mask[:, i1 + i : i2]
-                W1[:, i:] -= w1_err * mask_slice
-            else:
-                W1[:, i:] -= w1_err
-
-        # propagate block error
-        W[:, i1:i2] = Q1
-        losses += torch.sum(losses1.contiguous(), dim=1) / 2
-
-        w_err = Err1.matmul(Hinv[i1:i2, i2:])
+        scale_slice = scale_map[:, i1:i2]
+        zero_slice = zero_map[:, i1:i2]
+        mask_slice = None
         if W_nz_mask is not None:
-            mask_slice = W_nz_mask[:, i2:]
-            W[:, i2:] -= w_err * mask_slice
+            mask_slice = W_nz_mask[:, i1:i2]
+
+        Q1, Err1, losses1 = _process_block(
+            W1, Hinv1, scale_slice, zero_slice, mask_slice, quant_min, quant_max, sym
+        )
+
+        W[:, i1:i2] = Q1
+        losses += losses1.sum(dim=1) / 2
+
+        w_err = Err1 @ Hinv[i1:i2, i2:]
+        if W_nz_mask is not None:
+            mask_rest = W_nz_mask[:, i2:]
+            W[:, i2:] -= w_err * mask_rest
         else:
             W[:, i2:] -= w_err
 
