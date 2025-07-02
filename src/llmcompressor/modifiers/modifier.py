@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from typing import Optional
+from pydantic import BaseModel, ConfigDict
 
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
@@ -9,7 +10,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 __all__ = ["Modifier"]
 
 
-class Modifier(ModifierInterface, HooksMixin):
+class Modifier(ModifierInterface, HooksMixin, BaseModel):
     """
     A base class for all modifiers to inherit from.
     Modifiers are used to modify the training process for a model.
@@ -29,6 +30,8 @@ class Modifier(ModifierInterface, HooksMixin):
     :param end: The end step for the modifier
     :param update: The update step for the modifier
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     index: Optional[int] = None
     group: Optional[str] = None
