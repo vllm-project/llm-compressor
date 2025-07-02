@@ -3,6 +3,7 @@ from transformers import PreTrainedModel
 
 from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
 from llmcompressor.modeling.llama4 import replace as replace_llama4
+from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
 from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["prepare_for_calibration"]
@@ -24,8 +25,10 @@ def prepare_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
 
 
 def update_qwen3_moe(model, stack):
-    for module in model.model.layers:
-        stack.enter_context(patch_attr(module.mlp, "top_k", model.config.num_experts))
+    for _, module in model.named_modules():
+        cls_name = module.__class__.__name__
+        if cls_name == "Qwen3MoeDecoderLayer":
+            stack.enter_context(patch_attr(module, "mlp", replace_Qwen3MoE()))
 
 
 moe_context = {
