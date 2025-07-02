@@ -7,7 +7,7 @@ from llmcompressor.modifiers.transform import TransformModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"  # "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
@@ -57,6 +57,10 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = [
+    # TODO preset_config="LLAMA_SPINQUANT_R1R2" outputs gibberish
+    # TODO preset_config="QUIP_ONLINE" outputs gibberish
+    # preset_config="QUIP" output sensible, but cannot load saved
+    #  checkpoint or run evals (~4hrs to run)
     TransformModifier(preset_config="LLAMA_SPINQUANT_R1R2"),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
@@ -72,12 +76,12 @@ oneshot(
 )
 
 # # Confirm generations of the quantized model look sane.
-# print("\n\n")
-# print("========== SAMPLE GENERATION ==============")
-# dispatch_for_generation(model)
-# input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-# output = model.generate(input_ids, max_new_tokens=100)
-# print(tokenizer.decode(output[0]))
+print("\n\n")
+print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+output = model.generate(input_ids, max_new_tokens=100)
+print(tokenizer.decode(output[0]))
 # print("==========================================\n\n")
 
 # Save to disk compressed.
