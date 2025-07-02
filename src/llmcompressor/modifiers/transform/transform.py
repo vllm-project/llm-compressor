@@ -26,6 +26,8 @@ class TransformModifier(Modifier):
                 )
             model.config = TRANSFORM_PRESETS[model.preset_config]
 
+        return model
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         apply_transform_config(state.model, self.config)
 
