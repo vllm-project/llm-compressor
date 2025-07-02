@@ -1,11 +1,9 @@
 import os
-import re
 import weakref
 from functools import wraps
 from typing import Optional
 
 import torch
-import transformers
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
     CompressionFormat,
@@ -20,7 +18,6 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
@@ -86,11 +83,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
-            # HACK: Override the dtype_byte_size function in transformers to
-            # support float8 types. Fix is posted upstream
-            # https://github.com/huggingface/transformers/pull/30488
-            transformers.modeling_utils.dtype_byte_size = new_dtype_byte_size
-
             # compress model using compressor
             compressor = get_model_compressor(
                 model=model,
@@ -126,18 +118,6 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
-
-
-# HACK: Override the dtype_byte_size function in transformers to support float8 types
-# Fix is posted upstream https://github.com/huggingface/transformers/pull/30488
-def new_dtype_byte_size(dtype):
-    if dtype == torch.bool:
-        return 1 / 8
-    bit_search = re.search(r"[^\d](\d+)_?", str(dtype))
-    if bit_search is None:
-        raise ValueError(f"`dtype` is not a valid dtype: {dtype}.")
-    bit_size = int(bit_search.groups()[0])
-    return bit_size // 8
 
 
 def patch_tied_tensors_bug(model: torch.nn.Module):
@@ -273,17 +253,10 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
         existing recipe
     :param save_directory: path to save combined existing recipe and current recipe
     """
-    recipes_to_save = []
+
     existing_recipe = infer_recipe_from_model_path(model_stub)
-    if existing_recipe is not None:
-        recipes_to_save.append(existing_recipe)
 
-    new_recipe = active_session().lifecycle.recipe
-    if new_recipe is not None:
-        recipes_to_save.append(new_recipe)
+    recipe = active_session().lifecycle.recipe
 
-    recipe = Recipe.simplify_combine_recipes(recipes_to_save)
-
-    # save recipe
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
-    recipe.yaml(recipe_path)
+    recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)

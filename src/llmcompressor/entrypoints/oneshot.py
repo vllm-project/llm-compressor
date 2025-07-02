@@ -186,9 +186,8 @@ class Oneshot:
             recipe_args=self.recipe_args.recipe_args,
             calib_data=calibration_dataloader,
         )
-
         user_pipeline = self.dataset_args.pipeline
-        modifiers = session.get_modifiers()
+        modifiers = session.lifecycle.recipe.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
         pipeline(self.model, calibration_dataloader, self.dataset_args)
 
@@ -208,7 +207,6 @@ def oneshot(
     tie_word_embeddings: bool = False,
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
-    oneshot_device: str = "cuda:0",
     model_revision: str = "main",
     # Recipe arguments
     recipe: Optional[Union[str, List[str]]] = None,
@@ -259,7 +257,6 @@ def oneshot(
     :param trust_remote_code_model: Whether to allow for custom models to execute
         their own modeling files.
     :param save_compressed: Whether to compress sparse models during save.
-    :param oneshot_device: Device to run oneshot calibration on.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
 
