@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional
 
 import torch
 
@@ -14,6 +14,8 @@ __all__ = ["ConstantPruningModifier"]
 
 
 class ConstantPruningModifier(Modifier, LayerParamMasking):
+    start_epoch: Optional[float] = None
+    end_epoch: Optional[float] = None
     targets: Union[str, List[str]]
     parameterized_layers_: Dict[str, ModelParameterizedLayer] = None
     _epsilon: float = 10e-9
