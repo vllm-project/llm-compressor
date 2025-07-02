@@ -10,7 +10,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 __all__ = ["Modifier"]
 
 
-class Modifier(ModifierInterface, HooksMixin, BaseModel):
+class Modifier(ModifierInterface, HooksMixin):
     """
     A base class for all modifiers to inherit from.
     Modifiers are used to modify the training process for a model.
