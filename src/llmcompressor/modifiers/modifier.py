@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from typing import Optional
+
 from pydantic import ConfigDict
 
 from llmcompressor.core.events import Event, EventType
