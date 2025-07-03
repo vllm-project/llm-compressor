@@ -195,7 +195,6 @@ class Oneshot:
             self.model,
             calibration_dataloader,
             self.dataset_args,
-            calibrate_moe_context=True,
         )
 
         session.finalize()

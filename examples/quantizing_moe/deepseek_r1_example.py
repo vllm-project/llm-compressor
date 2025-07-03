@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.modeling import prepare_for_calibration
+from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.transformers import oneshot
 
@@ -20,7 +20,7 @@ model = AutoModelForCausalLM.from_pretrained(
     model_id, torch_dtype="auto", config=config
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = prepare_for_calibration(model)
+model = replace_modules_for_calibration(model)
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"

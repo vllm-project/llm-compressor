@@ -1,22 +1,16 @@
 import torch
-from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeMLP
 
 
 class Qwen3MoeSparseMoeBlock(torch.nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, gate, experts):
         super().__init__()
         self.num_experts = config.num_experts
         self.top_k = config.num_experts
         self.norm_topk_prob = config.norm_topk_prob
 
         # gating
-        self.gate = torch.nn.Linear(config.hidden_size, config.num_experts, bias=False)
-        self.experts = torch.nn.ModuleList(
-            [
-                Qwen3MoeMLP(config, intermediate_size=config.moe_intermediate_size)
-                for _ in range(self.num_experts)
-            ]
-        )
+        self.gate = gate
+        self.experts = experts
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """ """
@@ -25,7 +19,7 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate(hidden_states)
 
-        routing_weights = torch.functional.softmax(
+        routing_weights = torch.nn.functional.softmax(
             router_logits, dim=1, dtype=torch.float
         )
         routing_weights, selected_experts = torch.topk(
@@ -35,7 +29,6 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         # we cast back to the input dtype
         routing_weights = routing_weights.to(hidden_states.dtype)
-
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim),
             dtype=hidden_states.dtype,
@@ -48,7 +41,6 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
             selected_experts, num_classes=self.num_experts
         ).permute(2, 1, 0)
 
-        # Loop over all available experts in the model and perform the computation on each expert
         expert_hitted = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
         for expert_idx in expert_hitted:
             expert_layer = self.experts[expert_idx]
@@ -73,5 +65,5 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         return final_hidden_states, router_logits
 
 
-def replace(module):
-    return Qwen3MoeSparseMoeBlock(module.config)
+def replace(config, module):
+    return Qwen3MoeSparseMoeBlock(config, module.gate, module.experts)
