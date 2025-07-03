@@ -40,9 +40,12 @@ def update_qwen3_moe(model, stack):
 def update_deepseek3_moe(model, stack):
     for _, module in model.named_modules():
         cls_name = module.__class__.__name__
-        if cls_name == "DeepseekV3MoE":
-            stack.enter_context(  # ToDo - verify
-                patch_attr(module, "mlp", replace_DeepseekV3MoE(module))
+        if (
+            cls_name == "DeepseekV3DecoderLayer"
+            and module.mlp.__class__.__name__ == "DeepseekV3MoE"
+        ):
+            stack.enter_context(
+                patch_attr(module, "mlp", replace_DeepseekV3MoE(module.mlp))
             )
 
 
