@@ -22,7 +22,6 @@ class TestLMHead(unittest.TestCase):
         self.kwargs = {
             "sparsity": 0.5,
             "block_size": 128,
-            "quantize": False,
             "targets": [
                 "model.layers.0",
                 "model.layers.1",

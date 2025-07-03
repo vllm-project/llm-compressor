@@ -3,6 +3,7 @@ from typing import Dict, Optional, Tuple
 
 import torch
 import transformers
+from loguru import logger
 
 SGPT_PRECISION = torch.float32
 
@@ -108,11 +109,12 @@ def sparsify_weight(
         H = torch.linalg.cholesky(H, upper=True)
         Hinv = H
     except torch._C._LinAlgError:
-        raise torch._C._LinAlgError(
+        logger.warning(
             "Failed to invert hessian due to numerical instability. Consider "
             "increasing SparseGPTModifier.dampening_frac, increasing the number "
             "of calibration samples, or shuffling the calibration dataset"
         )
+        Hinv = H = torch.eye(num_columns, dtype=H.dtype, device=H.device)
 
     # sparsity mask
     # TODO: consider computing sparsity mask in the same way and place as gptq

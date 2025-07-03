@@ -12,7 +12,6 @@ from loguru import logger
 
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
-from llmcompressor.modifiers import StageModifiers
 from llmcompressor.recipe import Recipe, RecipeArgsInput, RecipeInput, RecipeStageInput
 
 __all__ = ["CompressionLifecycle"]
@@ -33,7 +32,6 @@ class CompressionLifecycle:
 
     state: State = field(default_factory=State)
     recipe: Recipe = field(default_factory=Recipe)
-    modifiers: List[StageModifiers] = field(default_factory=list)
 
     initialized_: bool = False
     finalized: bool = False
@@ -60,7 +58,7 @@ class CompressionLifecycle:
         """
         logger.debug("Resetting compression lifecycle")
 
-        for mod in self.modifiers:
+        for mod in self.recipe.modifiers:
             if not mod.initialized or mod.finalized:
                 continue
             try:
@@ -92,13 +90,17 @@ class CompressionLifecycle:
             return
 
         logger.debug("Initializing compression lifecycle")
-        self.recipe = Recipe.simplify_recipe(
-            recipe=recipe, target_stage=recipe_stage, override_args=recipe_args
-        )
-        self.modifiers = self.recipe.create_modifier()
+        if not recipe:
+            self.recipe = Recipe()
+        else:
+            self.recipe = Recipe.create_instance(
+                path_or_modifiers=recipe, target_stage=recipe_stage
+            )
+            if recipe_args:
+                self.recipe.args = {**recipe_args}
 
         mod_data = []
-        for mod in self.modifiers:
+        for mod in self.recipe.modifiers:
             data = mod.initialize(state=self.state, **kwargs)
             logger.debug("Initialized modifier: {}", mod)
             if data is not None:
@@ -106,7 +108,8 @@ class CompressionLifecycle:
 
         self.initialized_ = True
         logger.info(
-            "Compression lifecycle initialized for {} modifiers", len(self.modifiers)
+            "Compression lifecycle initialized for {} modifiers",
+            len(self.recipe.modifiers),
         )
 
         return mod_data
@@ -130,7 +133,7 @@ class CompressionLifecycle:
 
         logger.debug("Finalizing compression lifecycle")
         mod_data = []
-        for mod in self.modifiers:
+        for mod in self.recipe.modifiers:
             data = mod.finalize(state=self.state, **kwargs)
             logger.debug("Finalized modifier: {}", mod)
             if data is not None:
@@ -139,7 +142,8 @@ class CompressionLifecycle:
         self.finalized = True
 
         logger.info(
-            "Compression lifecycle finalized for {} modifiers", len(self.modifiers)
+            "Compression lifecycle finalized for {} modifiers",
+            len(self.recipe.modifiers),
         )
 
         return mod_data
@@ -196,7 +200,7 @@ class CompressionLifecycle:
 
         event = Event(type_=event_type)
         mod_data = []
-        for mod in self.modifiers:
+        for mod in self.recipe.modifiers:
             data = mod.update_event(state=self.state, event=event, **kwargs)
             logger.debug("Updated event with modifier: {}", mod)
             if data is not None:

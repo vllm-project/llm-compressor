@@ -51,9 +51,8 @@ def test_recipe_creates_correct_modifier():
 
     recipe_instance = Recipe.create_instance(yaml_str)
 
-    stage_modifiers = recipe_instance.create_modifier()
-    assert len(stage_modifiers) == 1
-    assert len(modifiers := stage_modifiers[0].modifiers) == 1
+    stage_modifiers = recipe_instance.modifiers
+    assert len(modifiers := stage_modifiers) == 1
     from llmcompressor.modifiers.pruning.constant import ConstantPruningModifier
 
     assert isinstance(modifier := modifiers[0], ConstantPruningModifier)
@@ -64,6 +63,7 @@ def test_recipe_creates_correct_modifier():
 def test_recipe_can_be_created_from_modifier_instances():
     modifier = SparseGPTModifier(
         sparsity=0.5,
+        group="pruning",
     )
     group_name = "dummy"
 
@@ -76,23 +76,21 @@ def test_recipe_can_be_created_from_modifier_instances():
     )
 
     expected_recipe_instance = Recipe.create_instance(recipe_str)
-    expected_modifiers = expected_recipe_instance.create_modifier()
+    expected_modifiers = expected_recipe_instance.modifiers
 
     actual_recipe_instance = Recipe.create_instance(
         [modifier], modifier_group_name=group_name
     )
-    actual_modifiers = actual_recipe_instance.create_modifier()
+    actual_modifiers = actual_recipe_instance.modifiers
 
     # assert num stages is the same
     assert len(actual_modifiers) == len(expected_modifiers)
 
     # assert num modifiers in each stage is the same
-    assert len(actual_modifiers[0].modifiers) == len(expected_modifiers[0].modifiers)
+    assert len(actual_modifiers) == len(expected_modifiers)
 
     # assert modifiers in each stage are the same type
     # and have the same parameters
-    for actual_modifier, expected_modifier in zip(
-        actual_modifiers[0].modifiers, expected_modifiers[0].modifiers
-    ):
+    for actual_modifier, expected_modifier in zip(actual_modifiers, expected_modifiers):
         assert isinstance(actual_modifier, type(expected_modifier))
         assert actual_modifier.model_dump() == expected_modifier.model_dump()

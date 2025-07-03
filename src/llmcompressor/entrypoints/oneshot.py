@@ -186,9 +186,8 @@ class Oneshot:
             recipe_args=self.recipe_args.recipe_args,
             calib_data=calibration_dataloader,
         )
-
         user_pipeline = self.dataset_args.pipeline
-        modifiers = session.get_modifiers()
+        modifiers = session.lifecycle.recipe.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
         # ToDo: wrap moe_calibrate_all_experts in some set of args
         pipeline(

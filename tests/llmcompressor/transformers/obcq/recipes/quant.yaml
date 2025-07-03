@@ -4,7 +4,7 @@ test_stage:
       smoothing_strength: 0.6
     GPTQModifier:
       block_size: 128
-      percdamp: 0.01
+      dampening_frac: 0.01
       config_groups:
         group_0:
           weights:

@@ -1,5 +1,5 @@
 from sft_trainer import SFTTrainer
-from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.args import DatasetArguments, ModelArguments
 from llmcompressor.transformers import TextGenerationDataset
@@ -48,7 +48,6 @@ test_stage:
       distill_scale: 1.0
 """
 
-data_collator = DefaultDataCollator()
 trl_sft_config_args = dict(
     output_dir=output_dir,
     num_train_epochs=0.6,
@@ -67,7 +66,6 @@ trainer = SFTTrainer(
     processing_class=tokenizer,
     recipe=recipe,
     train_dataset=train_dataset,
-    data_collator=data_collator,
     trl_sft_config_args=trl_sft_config_args,
     dataset_args=dataset_args,
     model_args=model_args,
