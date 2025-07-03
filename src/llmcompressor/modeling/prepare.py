@@ -8,6 +8,7 @@ from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["replace_modules_for_calibration"]
 
+# ---------------------- module replacements; permanent -------------------------
 replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
     "Llama4TextMoe": replace_llama4,
@@ -24,6 +25,9 @@ def replace_modules_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
     return model
 
 
+# ------------------- module replacements; during calibration --------------------
+
+
 def update_qwen3_moe(model, stack):
     for _, module in model.named_modules():
         cls_name = module.__class__.__name__
@@ -33,8 +37,18 @@ def update_qwen3_moe(model, stack):
             )
 
 
+def update_deepseek3_moe(model, stack):
+    for _, module in model.named_modules():
+        cls_name = module.__class__.__name__
+        if cls_name == "DeepseekV3MoE":
+            stack.enter_context(  # ToDo - verify
+                patch_attr(module, "mlp", replace_DeepseekV3MoE(module))
+            )
+
+
 moe_context = {
     "Qwen3MoeForCausalLM": update_qwen3_moe,
+    "DeepseekV3ForCausalLM": update_deepseek3_moe,
 }
 
 def moe_calibration_context(model: PreTrainedModel, stack):

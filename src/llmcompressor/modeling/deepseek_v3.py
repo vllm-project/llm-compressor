@@ -5,7 +5,7 @@ from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
 __all__ = ["DeepseekV3MoECalibrate"]
 
 
-class DeepseekV3MoECalibrate(torch.nn.Module):
+class DeepseekV3MoE(torch.nn.Module):
     """
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """
