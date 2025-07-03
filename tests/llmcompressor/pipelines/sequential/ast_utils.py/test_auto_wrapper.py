@@ -118,11 +118,8 @@ def test_branch_with_self_assignment():
 
     # Check if both x, y are included in args
     wrapped_fn = wrapper._wrapper_fn_defs[0]
-    arg_names = [arg.arg for arg in wrapped_fn.args.args]
+    arg_names = {arg.arg for arg in wrapped_fn.args.args}
 
-    assert "x" in arg_names, (
-        "Expected variable 'x' to be passed as an argument, but it was missing."
-    )
-    assert "y" in arg_names, (
-        "Expected variable 'y' to be passed as an argument, but it was missing."
+    assert arg_names == {"x", "y"}, (
+        f"Expected arguments {{'x', 'y'}}, but got {arg_names}"
     )
