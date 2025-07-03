@@ -123,8 +123,8 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "If during calibration, the MoE context should be enabled "
             "for the given model. This usually involves updating all MoE modules "
             "in the model for the duration of calibration. See moe_context under "
-            "modeling/prepare.py for a list of supported MoE the updated module "
-            "definitions"
+            "modeling/prepare.py for a list of supported MoEs and their updated "
+            "module definitions"
         },
     )
     shuffle_calibration_samples: Optional[bool] = field(
