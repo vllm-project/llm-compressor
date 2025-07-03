@@ -116,6 +116,21 @@ _cohere_mappings = [
     ),
 ]
 
+# DeepseekV3
+_deepseek_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*q_a_proj$", "re:.*kv_a_proj_with_mqa$"],
+    ),
+    AWQMapping("re:.*q_a_layernorm$", ["re:.*q_b_proj$"]),
+    AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
@@ -131,6 +146,7 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": _default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
+    "DeepseekV3ForCausalLM": _deepseek_mappings,
 }
 
 
