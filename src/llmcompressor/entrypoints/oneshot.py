@@ -233,6 +233,7 @@ def oneshot(
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
     trust_remote_code_data: bool = False,
+    calibrate_moe_context: bool = False,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",
