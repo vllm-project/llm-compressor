@@ -232,6 +232,7 @@ def oneshot(
     overwrite_cache: bool = False,
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
+    calibrate_moe_context: bool = False,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",
