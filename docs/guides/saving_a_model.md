@@ -1,4 +1,4 @@
-# Enhanced `save_pretrained` Arguments
+# Saving a Model
 
 The `llmcompressor` library extends Hugging Face's `save_pretrained` method with additional arguments to support model compression functionality. This document explains these extra arguments and how to use them effectively.
 
