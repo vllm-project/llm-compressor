@@ -134,6 +134,7 @@ _deepseek_mappings = [
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
+    "DeepseekV3ForCausalLM": _deepseek_mappings,
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
@@ -146,7 +147,6 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": _default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
-    "DeepseekV3ForCausalLM": _deepseek_mappings,
 }
 
 
