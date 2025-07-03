@@ -21,7 +21,6 @@ class IndependentPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        calibrate_moe_context: bool = False,
     ):
         """
         Data pipeline where each modifier is assigned its own calibration epoch and data
@@ -43,6 +42,6 @@ class IndependentPipeline(CalibrationPipeline):
                 pipeline_name = pipeline.__class__.__name__
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
-                pipeline(model, dataloader, dataset_args, calibrate_moe_context)
+                pipeline(model, dataloader, dataset_args)
 
                 # restore modifiers on exit so model can be compressed based on recipe

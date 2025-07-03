@@ -6,7 +6,7 @@ from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
 from llmcompressor.utils.helpers import patch_attr
 
-__all__ = ["prepare_for_calibration"]
+__all__ = ["replace_modules_for_calibration"]
 
 replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
@@ -14,7 +14,7 @@ replacements = {
 }
 
 
-def prepare_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
+def replace_modules_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
     for name, module in model.named_modules():
         cls_name = module.__class__.__name__
         if cls_name in replacements:
@@ -28,7 +28,9 @@ def update_qwen3_moe(model, stack):
     for _, module in model.named_modules():
         cls_name = module.__class__.__name__
         if cls_name == "Qwen3MoeDecoderLayer":
-            stack.enter_context(patch_attr(module, "mlp", replace_Qwen3MoE()))
+            stack.enter_context(
+                patch_attr(module, "mlp", replace_Qwen3MoE(model.config, module.mlp))
+            )
 
 
 moe_context = {
@@ -37,4 +39,5 @@ moe_context = {
 
 def moe_calibration_context(model: PreTrainedModel, stack):
     cls_name = model.__class__.__name__
-    moe_context.get(cls_name)(model, stack)
+    if cls_name in moe_context:
+        moe_context.get(cls_name)(model, stack)

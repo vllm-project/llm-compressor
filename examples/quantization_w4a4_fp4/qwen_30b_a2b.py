@@ -17,7 +17,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 5
+NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -60,12 +60,15 @@ recipe = QuantizationModifier(
 )
 
 # Apply quantization.
+# We see `calibrate_moe_context` to True to update all `Qwen3MoeSparseMoeBlock`
+# during calibration
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    calibrate_moe_context=True,
 )
 
 
