@@ -124,8 +124,22 @@ def call_observer(
             updated_scale, updated_zero_point = observer(
                 value, g_idx=g_idx, global_scale=global_scale
             )
-            update_parameter_data(module, updated_scale, f"{base_name}_scale")
-            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+            # register or update scale & zero_point parameters (supports block shapes)
+            scale_name = f"{base_name}_scale"
+            zp_name = f"{base_name}_zero_point"
+            for name, value in [
+                (scale_name, updated_scale),
+                (zp_name, updated_zero_point),
+            ]:
+                if (
+                    not hasattr(module, name)
+                    or getattr(module, name).shape != value.shape
+                ):
+                    if hasattr(module, name):
+                        delattr(module, name)
+                    module.register_parameter(name, torch.nn.Parameter(value.clone()))
+                else:
+                    update_parameter_data(module, value, name)
 
 
 def update_weight_global_scale(module: Module):
