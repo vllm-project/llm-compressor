@@ -66,6 +66,14 @@ class NameAnalyzer(ast.NodeVisitor):
 
         self.generic_visit(node)
 
+    def visit_Assign(self, node: ast.Assign):
+        # Visit the right side of the assignment first
+        self.visit(node.value)
+
+        # Now visit the left side of the assignment
+        for target in node.targets:
+            self.visit(target)
+
     def visit_If(self, node: ast.If):
         self.visit(node.test)
 
