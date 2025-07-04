@@ -31,7 +31,6 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        calibrate_moe_context: bool = False,
     ):
         """
         Run a sequential data pipeline according to the following steps:
