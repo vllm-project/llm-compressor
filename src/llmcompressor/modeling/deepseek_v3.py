@@ -1,8 +1,7 @@
 import torch
-from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
 
 
-class DeepseekV3MoECalibrate(torch.nn.Module):
+class DeepseekV3MoE(torch.nn.Module):
     """
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """
@@ -46,7 +45,7 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
         return hidden_states
 
 
-def replace(module: DeepseekV3MoE) -> DeepseekV3MoECalibrate:
-    return DeepseekV3MoECalibrate(
+def replace(module: "DeepseekV3MoE") -> DeepseekV3MoE:
+    return DeepseekV3MoE(
         module.config, module.experts, module.gate, module.shared_experts
     )
