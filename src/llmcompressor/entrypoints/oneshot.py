@@ -302,8 +302,9 @@ def oneshot(
     """
 
     # pass all args directly into Oneshot
-    local_args = locals()
-    local_args.pop("kwargs")
+    local_args = {
+        k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
+    }
     one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 
