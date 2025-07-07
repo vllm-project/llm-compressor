@@ -302,10 +302,10 @@ def oneshot(
     """
 
     # pass all args directly into Oneshot
-    clean_local_args = {
+    local_args = {
         k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
     }
-    one_shot = Oneshot(**clean_local_args, **kwargs)
+    one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 
     return one_shot.model
