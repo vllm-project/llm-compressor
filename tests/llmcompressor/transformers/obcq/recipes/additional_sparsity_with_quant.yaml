@@ -3,7 +3,7 @@ test_stage:
     SparseGPTModifier:
       sparsity: 0.7
       block_size: 128
-      percdamp: 0.01
+      dampening_frac: 0.01
       mask_structure: "0:0"
       targets: [
         "re:.*model.layers.0$",

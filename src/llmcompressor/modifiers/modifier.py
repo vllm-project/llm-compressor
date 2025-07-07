@@ -1,6 +1,8 @@
 from abc import abstractmethod
 from typing import Optional
 
+from pydantic import ConfigDict
+
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
 from llmcompressor.modifiers.interface import ModifierInterface
@@ -29,6 +31,8 @@ class Modifier(ModifierInterface, HooksMixin):
     :param end: The end step for the modifier
     :param update: The update step for the modifier
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     index: Optional[int] = None
     group: Optional[str] = None
