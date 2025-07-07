@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 from compressed_tensors.transform import TransformArgs, TransformScheme
@@ -41,6 +41,7 @@ class HadamardFactory(TransformFactory):
     def __init__(self, name: str, scheme: TransformScheme, seed: Optional[int] = None):
         super().__init__(name, scheme, seed)
         self.weights = ParameterizedDefaultDict(self._create_weight)
+        self.perms = ParameterizedDefaultDict(self._create_permutation)
 
     def create_transform(self, module: Module, args: TransformArgs):
         """
@@ -56,24 +57,35 @@ class HadamardFactory(TransformFactory):
         device = get_offloaded_device(module)
 
         weight = self.weights[size, dtype, device]
-        return HadamardTransform(weight, args)
+        perm = self.perms[weight] if self.scheme.randomize else None
+        return HadamardTransform(weight, perm, args)
 
     def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
         data = deterministic_hadamard_matrix(size, dtype, device)
         data = data.to(dtype=dtype, device=device)
         return Parameter(data, requires_grad=self.scheme.requires_grad)
 
+    def _create_permutation(self, weight: Parameter) -> Parameter:
+        data = torch.randperm(weight.size(0), generator=self.generator)
+        return Parameter(data, requires_grad=False)
+
 
 class HadamardTransform(TransformBase):
-    def __init__(self, weight: Parameter, args: TransformArgs):
+    def __init__(
+        self, weight: Parameter, perm: Union[Parameter, None], args: TransformArgs
+    ):
         super().__init__()
         self.weight = weight
+        self.perm = perm
         self.args = args
 
     def forward(self, value: Tensor) -> Tensor:
-        if not self.args.inverse:
-            weight = self.weight
-        else:
-            weight = self.weight.T
+        weight = self.weight
+
+        if self.perm is not None:
+            weight = weight[self.perm][:, self.perm]
+
+        if self.args.inverse:
+            weight = weight.T
 
         return apply_transform_weight(weight, value, self.args.location)

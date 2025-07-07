@@ -31,13 +31,12 @@ class TransformScheme(BaseModel):
         (see `Transforms.registered_names()`)
     :param apply: list of TransformationArgs containing the information about the
         modules that should be targeted by the specified transform
-    :param randomize_modules: True if unique transforms should be applied to each
-        unique module targeted by `apply`, otherwise reuse transform weights where
-        applicable
+    :param randomize: True if uniquely randomized transform weights should be used,
+        otherwise use identical transform weights where applicable
     :param requires_grad: True if weights include gradients for training
     """
 
     type: str
     apply: List[TransformArgs] = Field(default_factory=list)
-    randomize_modules: bool = Field(default=False)
+    randomize: bool = Field(default=False)
     requires_grad: bool = Field(default=False)

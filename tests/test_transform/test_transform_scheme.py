@@ -24,7 +24,7 @@ def test_basic_scheme():
         type="hadamard",
         apply=[basic_args],
     )
-    assert not scheme.randomize_modules
+    assert not scheme.randomize
     assert scheme.type == "hadamard"
     assert len(scheme.apply) == 1
     assert isinstance(scheme.apply[0], TransformArgs)
@@ -43,10 +43,10 @@ def test_multiple_groups_global():
     scheme = TransformScheme(
         type="hadamard",
         apply=[embedding_args, linear_args],
-        randomize_modules=True,
+        randomize=True,
     )
 
-    assert scheme.randomize_modules
+    assert scheme.randomize
     assert scheme.type == "hadamard"
     assert len(scheme.apply) == 2
     assert isinstance(scheme.apply[0], TransformArgs)
@@ -69,6 +69,6 @@ def test_multiple_groups():
         apply=apply,
     )
 
-    assert not scheme.randomize_modules
+    assert not scheme.randomize
     assert scheme.type == "hadamard"
     assert len(scheme.apply) == 20

@@ -49,7 +49,7 @@ QUIP = TransformConfig(
                     inverse=True,
                 ),
             ],
-            randomize_modules=True,
+            randomize=True,
         ),
         "u": TransformScheme(
             type="hadamard",
@@ -62,7 +62,7 @@ QUIP = TransformConfig(
                     targets=["Linear"], location="output", inverse=True  # non-mergable
                 ),
             ],
-            randomize_modules=True,
+            randomize=True,
         ),
     }
 )
