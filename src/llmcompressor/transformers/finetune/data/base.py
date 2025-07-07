@@ -53,6 +53,18 @@ class TextGenerationDataset(RegistryMixin):
         self.tokenizer = getattr(self.processor, "tokenizer", self.processor)
 
         if self.tokenizer is not None:
+            # special case: if tokenizer attribute exites but is not an expected object
+            # (e.g. tiktoken.Encoding for HY), try use the processor as a tokenizer
+            if not hasattr(self.tokenizer, "pad_token") and hasattr(
+                self.processor, "pad_token"
+            ):
+                self.tokenizer = self.processor
+                logger.warning(
+                    f"Using processor as tokenizer for "
+                    f"{self.processor.__class__.__name__} "
+                    "as the tokenizer attribute is not an expected object"
+                )
+
             # fill in pad token
             if not self.tokenizer.pad_token:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
