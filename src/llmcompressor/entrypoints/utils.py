@@ -241,7 +241,7 @@ def initialize_processor_from_path(
         )
 
     except ValueError as exception:
-        if "trust_remote_code=True" in exception.value:
+        if any(["trust_remote_code=True" in arg for arg in exception.args]):
             raise ValueError(
                 f"The repository for {processor_src} contains custom code which must "
                 "be executed to correctly load the tokenizer/processor. You can "
