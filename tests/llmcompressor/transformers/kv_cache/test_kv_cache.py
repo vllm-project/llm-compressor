@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from accelerate import init_empty_weights
 from compressed_tensors.quantization.lifecycle import KVCacheScaleType
-from compressed_tensors.quantization.utils.helpers import iter_named_quantizable_modules
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
@@ -159,9 +158,7 @@ def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
         model = AutoModelForCausalLM.from_pretrained(str(output_dir))
 
     counts = 0
-    for name, submodule in iter_named_quantizable_modules(
-        model, include_children=False, include_attn=True
-    ):
+    for name, submodule in model.named_modules():
         counts += 1
         assert "self_attn" in name
         assert hasattr(submodule, KVCacheScaleType.VALUE.value)
@@ -200,9 +197,7 @@ def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
         model = AutoModelForCausalLM.from_pretrained(output_dir)
 
     counts = 0
-    for name, submodule in iter_named_quantizable_modules(
-        model, include_children=False, include_attn=True
-    ):
+    for name, submodule in model.named_modules():
         counts += 1
         assert "self_attn" in name
         assert hasattr(submodule, KVCacheScaleType.VALUE.value)
@@ -246,9 +241,7 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
         )
 
     counts = 0
-    for name, submodule in iter_named_quantizable_modules(
-        model, include_children=False, include_attn=True
-    ):
+    for name, submodule in model.named_modules():
         counts += 1
         assert "self_attn" in name
         assert hasattr(submodule, KVCacheScaleType.VALUE.value)

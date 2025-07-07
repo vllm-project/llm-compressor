@@ -120,6 +120,7 @@ def test_branch_with_self_assignment():
     wrapped_fn = wrapper._wrapper_fn_defs[0]
     arg_names = {arg.arg for arg in wrapped_fn.args.args}
 
-    assert arg_names == {"x", "y"}, (
-        f"Expected arguments {{'x', 'y'}}, but got {arg_names}"
-    )
+    assert arg_names == {
+        "x",
+        "y",
+    }, f"Expected arguments {{'x', 'y'}}, but got {arg_names}"

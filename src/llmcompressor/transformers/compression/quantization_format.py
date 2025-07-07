@@ -6,7 +6,6 @@ from compressed_tensors.quantization import QuantizationStrategy, QuantizationTy
 from compressed_tensors.quantization.utils import (
     is_model_quantized,
     is_module_quantized,
-    iter_named_leaf_modules,
 )
 
 __all__ = ["infer_quantization_format"]
@@ -107,7 +106,7 @@ def _get_unique_quant_args(model):
     """
     quant_info_weight = []
     quant_info_inputs = []
-    for _, submodule in iter_named_leaf_modules(model):
+    for submodule in model.modules():
         if is_module_quantized(submodule):
             weight_scheme = submodule.quantization_scheme.weights
             input_scheme = submodule.quantization_scheme.input_activations
