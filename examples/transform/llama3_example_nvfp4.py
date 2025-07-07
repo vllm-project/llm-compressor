@@ -83,20 +83,22 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # -------------------- Evals -------------------------- #
+
+# Dense
 """
 # Dense
-output_dense = lm_eval.simple_evaluate(model="hf", model_args={"pretrained": MODEL_ID, "add_bos_token": True}, tasks="gsm8k", batch_size=100, limit=100)
+output_dense = lm_eval.simple_evaluate(model="hf", model_args={"pretrained": MODEL_ID, "add_bos_token": True}, tasks="gsm8k", batch_size=100)
 print(output_dense.get("results")["gsm8k"])
 
-{'alias': 'gsm8k', 'exact_match,strict-match': np.float64(0.73), 'exact_match_stderr,strict-match': 0.044619604333847394, 'exact_match,flexible-extract': np.float64(0.73), 'exact_match_stderr,flexible-extract': 0.044619604333847394}
+{'alias': 'gsm8k', 'exact_match,strict-match': np.float64(0.7581501137225171), 'exact_match_stderr,strict-match': 0.011794861371318707, 'exact_match,flexible-extract': np.float64(0.756633813495072), 'exact_match_stderr,flexible-extract': 0.011819940385701125}
 
 # NVFP4
-output_nvfp4 = lm_eval.simple_evaluate(model="hf", model_args={"pretrained": model, "add_bos_token": True}, tasks="gsm8k", batch_size=1, limit=100)
+output_nvfp4 = lm_eval.simple_evaluate(model="hf", model_args={"pretrained": model, "add_bos_token": True}, tasks="gsm8k", batch_size=1)
 print(output_nvfp4.get("results")["gsm8k"])
 
-{'alias': 'gsm8k', 'exact_match,strict-match': np.float64(0.6), 'exact_match_stderr,strict-match': 0.04923659639173309, 'exact_match,flexible-extract': np.float64(0.6), 'exact_match_stderr,flexible-extract': 0.04923659639173309}
-"""
+#{'alias': 'gsm8k', 'exact_match,strict-match': np.float64(0.66868840030326), 'exact_match_stderr,strict-match': 0.01296499967968867, 'exact_match,flexible-extract': np.float64(0.6709628506444276), 'exact_match_stderr,flexible-extract': 0.012942375603679366}
 
+"""
 # NVFP4 + Weight Transforms
 output_nvfp4_transforms = lm_eval.simple_evaluate(
     model="hf",
@@ -108,11 +110,8 @@ output_nvfp4_transforms = lm_eval.simple_evaluate(
 print(output_nvfp4_transforms.get("results")["gsm8k"])
 
 """
-{'alias': 'gsm8k', 'exact_match,strict-match': np.float64(0.65), 'exact_match_stderr,strict-match': 0.047937248544110196, 'exact_match,flexible-extract': np.float64(0.65), 'exact_match_stderr,flexible-extract': 0.047937248544110196}
-
-"""
-
 # Save to disk compressed.
 SAVE_DIR = MODEL_ID.split("/")[1] + "-NVFP4-Transforms"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
+"""
