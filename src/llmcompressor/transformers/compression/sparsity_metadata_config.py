@@ -208,7 +208,7 @@ class SparsityConfigMetadata:
         ]
 
         for submodule in model.modules():
-            if is_module_quantized(submodule):
+            if not is_module_quantized(submodule):
                 continue
 
             weight_scheme = submodule.quantization_scheme.weights
