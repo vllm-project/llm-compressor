@@ -28,7 +28,14 @@ class RandomHadamardFactory(HadamardFactory):
     :param seed: random seed used to transform weight randomization
     """
 
-    def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
-        data = random_hadamard_matrix(size, dtype, device, self.generator)
-        data = data.to(dtype=dtype, device=device)
+    def _create_weight(
+        self,
+        size: int,
+        dtype: dtype,
+        device: device,
+        construct_device: device,
+    ) -> Parameter:
+        # construct on execution device, cache on offload device
+        data = random_hadamard_matrix(size, dtype, construct_device, self.generator)
+        data = data.to(device=device)
         return Parameter(data, requires_grad=self.scheme.requires_grad)

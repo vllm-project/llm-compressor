@@ -62,6 +62,7 @@ class RandomMatrixFactory(TransformFactory):
         return RandomMatrixTransform(weight, args)
 
     def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
+        # TODO: verify that weight is invertible (has non-zero determinant)
         data = torch.rand(
             (size, size), generator=self.generator, dtype=dtype, device=device
         )

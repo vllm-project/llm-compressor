@@ -15,10 +15,11 @@
 import contextlib
 import warnings
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional
 
 import numpy
 import torch
+from frozendict import frozendict
 from transformers import AutoConfig
 
 
@@ -373,11 +374,23 @@ class ParameterizedDefaultDict(dict):
 
     def __init__(self, default_factory: Callable[[Any], Any]):
         self.default_factory = default_factory
+        self._factory_kwargs = frozendict()
 
-    def __missing__(self, key):
+    def __missing__(self, key: Any) -> Any:
         if isinstance(key, tuple):
-            value = self.default_factory(*key)
+            value = self.default_factory(*key, **self._factory_kwargs)
         else:
-            value = self.default_factory(key)
+            value = self.default_factory(key, **self._factory_kwargs)
         self[key] = value
         return value
+
+    def get(self, *args, factory_kwargs: Mapping = frozendict()) -> Any:
+        """
+        Similar to `__getitem__`, but allows passing kwargs to factory function
+
+        :param \\*args: args whose tuple will value will be treated as key
+        :param factory_kwargs: keyword arguments to pass to `default_factory`
+        :return: dictionary entry for given key
+        """
+        with patch_attr(self, "_factory_kwargs", factory_kwargs):
+            return self[args]

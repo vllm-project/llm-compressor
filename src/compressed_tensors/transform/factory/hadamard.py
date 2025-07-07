@@ -22,7 +22,7 @@ from compressed_tensors.transform.utils.utils import (
     apply_transform_weight,
     get_matrix_size,
 )
-from compressed_tensors.utils import get_offloaded_device
+from compressed_tensors.utils import get_execution_device, get_offloaded_device
 from compressed_tensors.utils.helpers import ParameterizedDefaultDict
 from torch import Tensor, device, dtype
 from torch.nn import Linear, Module, Parameter
@@ -55,14 +55,23 @@ class HadamardFactory(TransformFactory):
         size = get_matrix_size(module, args.location)
         dtype = module.weight.dtype
         device = get_offloaded_device(module)
+        exec_device = get_execution_device(module)
 
-        weight = self.weights[size, dtype, device]
+        factory_kwargs = {"construct_device": exec_device}
+        weight = self.weights.get(size, dtype, device, factory_kwargs=factory_kwargs)
         perm = self.perms[weight] if self.scheme.randomize else None
         return HadamardTransform(weight, perm, args)
 
-    def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
-        data = deterministic_hadamard_matrix(size, dtype, device)
-        data = data.to(dtype=dtype, device=device)
+    def _create_weight(
+        self,
+        size: int,
+        dtype: dtype,
+        device: device,
+        construct_device: device,
+    ) -> Parameter:
+        # construct on execution device, cache on offload device
+        data = deterministic_hadamard_matrix(size, dtype, construct_device)
+        data = data.to(device=device)
         return Parameter(data, requires_grad=self.scheme.requires_grad)
 
     def _create_permutation(self, weight: Parameter) -> Parameter:
