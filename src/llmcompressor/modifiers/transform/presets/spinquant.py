@@ -9,43 +9,54 @@ LLAMA_SPINQUANT_R1R2 = TransformConfig(
             type="hadamard",
             apply=[
                 TransformArgs(
-                    targets=["re:.*embed_tokens$", "re:.*o_proj$", "re:.*down_proj$"],
+                    targets=[
+                        # outermost rotation
+                        "re:.*embed_tokens$",
+                        # attention rotations
+                        "re:.*o_proj$",
+                        # mlp rotations
+                        "re:.*down_proj$",
+                    ],
                     location="weight_output",
                 ),
                 TransformArgs(
                     targets=[
+                        # outermost rotation
+                        "lm_head",
+                        # attention rotations
                         "re:.*q_proj$",
                         "re:.*k_proj$",
                         "re:.*v_proj$",
+                        # mlp rotations
                         "re:.*up_proj$",
                         "re:.*gate_proj$",
-                        "lm_head",
                     ],
                     location="weight_input",
                     inverse=True,
                 ),
             ],
         ),
-        "R2": TransformScheme(
-            type="hadamard",
-            apply=[
-                TransformArgs(
-                    targets=["re:.*v_proj$"],
-                    location="weight_output",
-                ),
-                TransformArgs(
-                    targets=["re:.*o_proj$"], location="weight_input", inverse=True
-                ),
-            ],
-        ),
+        # "R2": TransformScheme(
+        #     type="hadamard",
+        #     # TODO infer head_dim from config.json in SpinQuantModifier
+        #     head_dim=128,
+        #     apply=[
+        #         TransformArgs(targets=["re:.*v_proj$"], location="weight_output"),
+        #         TransformArgs(
+        #             targets=["re:.*o_proj$"],
+        #             location="weight_input",
+        #             inverse=True,
+        #         ),
+        #     ],
+        # ),
     }
 )
 
 # All rotations
 LLAMA_SPINQUANT = TransformConfig(
     config_groups={
-        "R1": LLAMA_SPINQUANT_R1R2.config_groups["R1"],
-        "R2": LLAMA_SPINQUANT_R1R2.config_groups["R2"],
+        # "R1": LLAMA_SPINQUANT_R1R2.config_groups["R1"],
+        # "R2": LLAMA_SPINQUANT_R1R2.config_groups["R2"],
         "R3": TransformScheme(
             type="hadamard",
             apply=[
