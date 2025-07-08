@@ -2,7 +2,7 @@ from math import ceil
 from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
-from compressed_tensors import InternalModule
+from compressed_tensors import UntargetableModule
 from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
@@ -17,7 +17,7 @@ from torch import FloatTensor, IntTensor, Tensor
 __all__ = ["Observer"]
 
 
-class Observer(InternalModule, RegistryMixin):
+class Observer(UntargetableModule, RegistryMixin):
     """
     Base Observer class to be subclassed for specific implementation.
     Subclasses should override `calculate_qparams` to return a scale, zero_point
