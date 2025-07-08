@@ -7,6 +7,10 @@ inputs:
   suitename:
     description: "test suite name"
     required: true
+  code_coverage:
+    description: whether to collect code coverage metrics during test run
+    type: boolean
+    default: false
 outputs:
   status:
     description: "final status from test"
@@ -44,9 +48,37 @@ runs:
       run: |
           source ${{ inputs.venv }}/bin/activate
           rm -rf src
+
+          if [[ "${ENABLE_COVERAGE}" == "true" ]]; then
+            echo "::group::Installing code coverage requirements via pip"
+            pip install bashlex https://github.com/neuralmagic/pytest-nm-releng/archive/v0.4.0.tar.gz
+            pip install coverage pytest-cov
+
+            # Adding Code coverage to the tests
+            nmre-generate-coverage-flags --package "compressed_tensors" --output-file ".coverage_flags.sh"
+            source .coverage_flags.sh
+            echo "::endgroup::"
+          fi
+
+          echo "::group::running tests"
+          echo "PYTEST_ADDOPTS set to: ${PYTEST_ADDOPTS}"
+
           SUCCESS=0
           pytest tests --junitxml=test-results/report.xml -o junit_suite_name="${{ inputs.suitename }}" || SUCCESS=$?
           echo "status=${SUCCESS}" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+
+          if [[ "${ENABLE_COVERAGE}" == "true" ]]; then
+            echo "::group::consolidating coverage reports"
+            mkdir -p coverage-results
+            mv .coverage coverage-results/ || echo ".coverage file not found"
+            mv coverage-html coverage-results/ || echo "coverage-html folder not found"
+            mv coverage.json coverage-results/ || echo "coverage.json file not found"
+            echo "::endgroup::"
+          fi
+          
           deactivate
           exit ${SUCCESS}
       shell: bash
+      env:
+        ENABLE_COVERAGE: ${{ inputs.code_coverage || false }}

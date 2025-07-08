@@ -25,6 +25,10 @@ on:
       run_id:
         description: run id of the BUILD job that generated the assets
         type: string
+      code_coverage:
+        description: whether to collect code coverage metrics during test run
+        type: boolean
+        default: false
 
   # makes workflow manually callable
   workflow_dispatch:
@@ -51,6 +55,10 @@ on:
       run_id:
         description: run id of the BUILD job that generated the assets
         type: string
+      code_coverage:
+        description: whether to collect code coverage metrics during test run
+        type: boolean
+        default: false
 
 jobs:
 
@@ -124,6 +132,7 @@ jobs:
               with:
                   venv: ${{ steps.create_venv.outputs.penv }}
                   suitename: test-${{ inputs.python }}-${{ inputs.test_label }}
+                  code_coverage: ${{ inputs.code_coverage }}
 
             - name: summary
               uses: neuralmagic/nm-actions/actions/summary-test@v1.13.0
@@ -145,4 +154,12 @@ jobs:
               with:
                   name: report-${{ inputs.test_label }}.xml
                   path: test-results/report.xml
+                  retention-days: 5
+
+            - name: upload coverage report
+              uses: actions/upload-artifact@v4
+              if: (success() || failure()) && inputs.code_coverage
+              with:
+                  name: coverage-results
+                  path: coverage-results/*
                   retention-days: 5
