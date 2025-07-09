@@ -32,6 +32,7 @@ def update_qwen3_moe(model, stack):
     for module in model.modules():
         cls_name = module.__class__.__name__
         if cls_name == "Qwen3MoeDecoderLayer":
+            # Optionally update the model.config to pass in other arguments
             stack.enter_context(
                 patch_attr(module, "mlp", replace_Qwen3MoE(model.config, module.mlp))
             )
