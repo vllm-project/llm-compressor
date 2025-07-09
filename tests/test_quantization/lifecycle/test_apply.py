@@ -31,7 +31,6 @@ from compressed_tensors.quantization.lifecycle import (
     expand_target_names,
     is_target,
 )
-from compressed_tensors.quantization.utils import iter_named_leaf_modules
 from tests.testing_utils import requires_accelerate
 from transformers import AutoModelForCausalLM
 
@@ -98,7 +97,7 @@ def test_target_prioritization(mock_frozen):
     apply_quantization_config(model, config)
     mock_frozen(model)
 
-    for name, module in iter_named_leaf_modules(model):
+    for name, module in model.named_modules():
         if name == "model.layers.0.mlp.down_proj":
             assert module.quantization_scheme.weights.num_bits == 2
         elif re.match(".*down_proj", name):

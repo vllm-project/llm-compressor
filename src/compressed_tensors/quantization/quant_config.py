@@ -22,9 +22,7 @@ from compressed_tensors.quantization.quant_scheme import (
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import (
-    calculate_compression_ratio,
     is_module_quantized,
-    iter_named_quantizable_modules,
     module_type,
     parse_out_kv_cache_args,
 )
@@ -177,9 +175,7 @@ class QuantizationConfig(BaseModel):
         quantization_status = None
         ignore = {}
         quantization_type_names = set()
-        for name, submodule in iter_named_quantizable_modules(
-            model, include_children=True, include_attn=True
-        ):
+        for name, submodule in model.named_modules():
             layer_type = module_type(submodule)
             if not is_module_quantized(submodule):
                 if layer_type not in ignore:

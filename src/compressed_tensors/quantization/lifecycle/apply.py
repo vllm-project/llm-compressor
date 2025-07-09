@@ -38,8 +38,6 @@ from compressed_tensors.quantization.utils import (
     KV_CACHE_TARGETS,
     infer_quantization_status,
     is_kv_cache_quant_scheme,
-    iter_named_leaf_modules,
-    iter_named_quantizable_modules,
 )
 from compressed_tensors.utils.helpers import fix_fsdp_module_name, replace_module
 from compressed_tensors.utils.offload import update_parameter_data
@@ -87,7 +85,7 @@ def load_pretrained_quantization_parameters(
     model_path = get_safetensors_folder(model_name_or_path)
     mapping = get_quantization_parameter_to_path_mapping(model_path)
 
-    for name, submodule in iter_named_leaf_modules(model):
+    for name, submodule in model.named_modules():
         if not is_module_quantized(submodule):
             continue
         if submodule.quantization_scheme.input_activations is not None:
@@ -152,11 +150,7 @@ def apply_quantization_config(
     # list of submodules to ignore
     ignored_submodules = defaultdict(list)
     # mark appropriate layers for quantization by setting their quantization schemes
-    for name, submodule in iter_named_quantizable_modules(
-        model,
-        include_children=True,
-        include_attn=True,
-    ):  # child modules and attention modules
+    for name, submodule in model.named_modules():
         # potentially fix module name to remove FSDP wrapper prefix
         name = fix_fsdp_module_name(name)
         if matches := find_name_or_class_matches(name, submodule, config.ignore):
@@ -287,7 +281,7 @@ def expand_target_names(
     """
     return {
         name
-        for name, module in iter_named_leaf_modules(model)
+        for name, module in model.named_modules()
         if is_target(name, module, targets, ignore)
     }
 
@@ -328,6 +322,11 @@ def find_name_or_class_matches(
         2. matches on regex patterns
         3. matches on module names
     """
+    from compressed_tensors import InternalModule
+
+    if isinstance(module, InternalModule):
+        return []
+
     targets = sorted(targets, key=lambda x: ("re:" in x, x))
     if isinstance(targets, Iterable):
         matches = _find_matches(name, targets) + _find_matches(

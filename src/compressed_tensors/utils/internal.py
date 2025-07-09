@@ -11,12 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# flake8: noqa
 
-from .helpers import *
-from .internal import *
-from .offload import *
-from .permutations_24 import *
-from .permute import *
-from .safetensors_load import *
-from .semi_structured_conversions import *
+import torch
+
+
+__all__ = ["InternalModule"]
+
+
+class InternalModule(torch.nn.Module):
+    """
+    Abstract base class for modules which are not a part of the the model definition.
+    `torch.nn.Module`s which inherit from this class will not be targeted by configs
+
+    This is typically used to skip apply configs to `Observers` and `Transforms`
+    """
+
+    pass

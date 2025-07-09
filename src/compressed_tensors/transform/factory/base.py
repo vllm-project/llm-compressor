@@ -17,6 +17,7 @@ from typing import Optional
 
 import torch
 import torch.nn.utils.parametrize as P
+from compressed_tensors import InternalModule
 from compressed_tensors.quantization.lifecycle import is_target  # TODO: move to utils
 from compressed_tensors.registry.registry import RegistryMixin, T
 from compressed_tensors.transform import (
@@ -144,7 +145,7 @@ class TransformFactory(RegistryMixin, ABC):
         # to support saving in the frozen state
 
 
-class TransformBase(Module, ABC):
+class TransformBase(InternalModule, ABC):
     """
     Represents the application of a transform accord to TransformArgs
     """

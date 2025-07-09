@@ -42,10 +42,7 @@ from compressed_tensors.quantization import (
     load_pretrained_quantization_parameters,
 )
 from compressed_tensors.quantization.lifecycle import expand_target_names
-from compressed_tensors.quantization.utils import (
-    is_module_quantized,
-    iter_named_leaf_modules,
-)
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import (
     align_module_device,
     delete_offload_parameter,
@@ -747,7 +744,7 @@ def map_module_to_scheme(model: Module) -> Dict[str, QuantizationScheme]:
     """
     return {
         fix_fsdp_module_name(name): module.quantization_scheme
-        for name, module in iter_named_leaf_modules(model)
+        for name, module in model.named_modules()
         if is_module_quantized(module)
     }
 
