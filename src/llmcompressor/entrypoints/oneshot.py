@@ -227,7 +227,6 @@ def oneshot(
     overwrite_cache: bool = False,
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
-    trust_remote_code_data: bool = False,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",
@@ -289,8 +288,6 @@ def oneshot(
         preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
-    :param trust_remote_code_data: Whether to allow for datasets defined on the Hub
-        using a dataset script.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
