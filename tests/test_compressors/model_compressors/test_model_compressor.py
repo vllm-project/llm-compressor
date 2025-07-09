@@ -413,6 +413,66 @@ def test_compress_model(model_stub, q_format, s_config, tmpdir):
 
 
 @pytest.mark.parametrize(
+    "model_stub,q_format,s_config",
+    [
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-quantized-only-uncompressed",
+            "float-quantized",
+            None,
+        ),
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-sparse-only-uncompressed",
+            None,
+            "sparse-24-bitmask",
+        ),
+        (
+            "nm-testing/llama2.c-stories42M-gsm8k-stacked-uncompressed",
+            "float-quantized",
+            "sparse-24-bitmask",
+        ),
+        (
+            "nm-testing/llama2.c-stories15M-ultrachat-mixed-uncompressed",
+            "pack-quantized",
+            None,
+        ),
+    ],
+)
+def test_compress_model_meta(model_stub, q_format, s_config):
+    # Load model on CPU to get expected compressed state_dict
+    cpu_model = AutoModelForCausalLM.from_pretrained(
+        model_stub, torch_dtype=torch.float32
+    )
+    reference_compressor = ModelCompressor.from_pretrained_model(
+        cpu_model, s_config, q_format
+    )
+    # Only stores dtype because meta model does not store values
+    expected = {
+        k: v.dtype
+        for k, v in reference_compressor.compress(cpu_model).items()
+    }
+
+    # Load model on meta device
+    meta_model = AutoModelForCausalLM.from_pretrained(
+        model_stub,
+        torch_dtype=torch.float32,
+        low_cpu_mem_usage=True,
+    )
+    for module in meta_model.modules():
+        if hasattr(module, "to_empty"):
+            module.to_empty(device="meta")
+
+    # Compress in-place on meta model
+    compressor = ModelCompressor.from_pretrained_model(meta_model, s_config, q_format)
+    compressor.compress_model(meta_model)
+
+    # Compare keys and dtypes
+    compressed = dict(meta_model.state_dict())
+    assert set(compressed.keys()) == set(expected.keys())
+    for key, dtype in expected.items():
+        assert compressed[key].dtype == dtype, f"{key} has incorrect dtype"
+
+
+@pytest.mark.parametrize(
     "model_stub,comp_stub",
     [
         (

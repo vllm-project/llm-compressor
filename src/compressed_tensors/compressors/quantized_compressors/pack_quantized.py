@@ -220,30 +220,34 @@ def pack_to_int32(
     if num_bits < 1:
         raise ValueError(f"num_bits must be at least 1, got {num_bits}")
 
-    # convert to unsigned for packing
+    # Convert to unsigned range for packing, matching quantization offset
     offset = 1 << (num_bits - 1)
     value = (value + offset).to(torch.uint8)
-    value = value.cpu().numpy().astype(np.uint32)
+    device = value.device
+
     pack_factor = 32 // num_bits
 
-    # pad input tensor and initialize packed output
-    packed_size = math.ceil(value.shape[packed_dim] / pack_factor)
-    padding = packed_size * pack_factor - value.shape[packed_dim]
-    value = np.pad(value, pad_width=[(0, 0), (0, padding)], constant_values=0)
+    if packed_dim == 0:
+        value = value.transpose(0, 1)
 
-    # pack values
-    if packed_dim == 1:
-        packed = np.zeros((value.shape[0], packed_size), dtype=np.uint32)
-        for i in range(pack_factor):
-            packed |= value[:, i::pack_factor] << num_bits * i
-    else:
-        packed = np.zeros((packed_size, value.shape[1]), dtype=np.uint32)
-        for i in range(pack_factor):
-            packed |= value[i::pack_factor, :] << num_bits * i
+    rows, cols = value.shape
+    padded_cols = math.ceil(cols / pack_factor) * pack_factor
+    pad_len = padded_cols - cols
 
-    # convert back to signed and torch
-    packed = np.ascontiguousarray(packed).view(np.int32)
-    return torch.from_numpy(packed)
+    if pad_len > 0:
+        value = torch.nn.functional.pad(value, (0, pad_len))
+
+    num_groups = padded_cols // pack_factor
+
+    # Use int32 here
+    reshaped = value.view(rows, num_groups, pack_factor).to(torch.int32)
+    bit_shifts = torch.arange(pack_factor, device=device, dtype=torch.int32) * num_bits
+    packed = (reshaped << bit_shifts).sum(dim=2, dtype=torch.int32)
+
+    if packed_dim == 0:
+        packed = packed.transpose(0, 1)
+
+    return packed
 
 
 def unpack_from_int32(

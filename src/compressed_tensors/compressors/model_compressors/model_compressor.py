@@ -390,9 +390,16 @@ class ModelCompressor:
         )
 
         for prefix, module in tqdm(model.named_modules(), desc="Compressing model"):
+
             if prefix in module_to_scheme or prefix in sparse_compression_targets:
+                module_device = get_execution_device(module).type
+                is_meta = (module_device == "meta")
+
+                exec_device = "meta" if is_meta else "cpu"
+                onloading_device = "meta" if is_meta else module_device
+
                 # in the future, support compression on same device
-                with align_module_device(module, execution_device="cpu"):
+                with align_module_device(module, execution_device=exec_device):
                     state_dict = module.state_dict(prefix=f"{prefix}.")
 
                 # quantization first
@@ -401,6 +408,7 @@ class ModelCompressor:
                         state_dict,
                         names_to_scheme=module_to_scheme,
                         show_progress=False,
+                        compression_device=exec_device,
                     )
 
                 # sparsity second
@@ -412,7 +420,6 @@ class ModelCompressor:
                     )
 
                 # remove any existing parameters
-                exec_device = get_execution_device(module)
                 offload_device = get_offloaded_device(module)
                 for name, _ in list(module.named_parameters()):
                     delete_offload_parameter(module, name)
@@ -420,7 +427,7 @@ class ModelCompressor:
                 # replace with compressed parameters
                 for name, value in state_dict.items():
                     name = name.removeprefix(f"{prefix}.")
-                    value = value.to(exec_device)
+                    value = value.to(onloading_device)
                     param = torch.nn.Parameter(value, requires_grad=False)
                     register_offload_parameter(module, name, param, offload_device)
 
