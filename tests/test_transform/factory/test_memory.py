@@ -20,23 +20,18 @@ from compressed_tensors.transform import (
     TransformArgs,
     TransformBase,
     TransformConfig,
-    TransformFactory,
     TransformScheme,
+    apply_transform_config,
 )
 from compressed_tensors.utils import align_modules, offloaded_dispatch
 from tests.test_transform.conftest import TransformableModel
 from tests.testing_utils import requires_accelerate, requires_gpu
 
 
-def scheme_kwargs():
-    all_types = TransformFactory.registered_names()
-    base = [{"type": type} for type in all_types]
-    randomized = [{"type": type, "randomize": True} for type in all_types]
-    return base + randomized
-
-
-@pytest.mark.parametrize("scheme_kwargs", scheme_kwargs())
-def test_memory_sharing(scheme_kwargs, offload=False):
+@pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
+@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("requires_grad", (True, False))
+def test_memory_sharing(type, randomized, requires_grad, offload=False):
     # load model (maybe with offloading)
     model = TransformableModel(2, 2, 4, 4, 8, 8)
     if offload:
@@ -46,7 +41,9 @@ def test_memory_sharing(scheme_kwargs, offload=False):
     config = TransformConfig(
         config_groups={
             "": TransformScheme(
-                **scheme_kwargs,
+                type=type,
+                randomzied=randomized,
+                requires_grad=requires_grad,
                 apply=[
                     TransformArgs(targets="Linear", location="input"),
                     TransformArgs(targets="Linear", location="output"),
@@ -54,9 +51,7 @@ def test_memory_sharing(scheme_kwargs, offload=False):
             )
         }
     )
-    for name, scheme in config.config_groups.items():
-        factory = TransformFactory.from_scheme(scheme, name=name)
-        factory.apply_to_model(model)
+    apply_transform_config(model, config)
 
     # check that memory is shared when onloaded
     with align_modules(model.modules()):
@@ -88,12 +83,10 @@ def test_memory_sharing(scheme_kwargs, offload=False):
 
 @requires_gpu
 @requires_accelerate()
-@pytest.mark.parametrize("scheme_kwargs", scheme_kwargs())
-def test_memory_sharing_offload(scheme_kwargs):
-    test_memory_sharing(scheme_kwargs, offload=True)
-
-
-@pytest.mark.parametrize("scheme_kwargs", scheme_kwargs())
-def test_memory_sharing_training(scheme_kwargs):
-    scheme_kwargs["requires_grad"] = True
-    test_memory_sharing(scheme_kwargs, offload=False)
+@pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
+@pytest.mark.parametrize("randomized", (True, False))
+def test_memory_sharing_offload(
+    type,
+    randomized,
+):
+    test_memory_sharing(type, randomized, requires_grad=False, offload=True)

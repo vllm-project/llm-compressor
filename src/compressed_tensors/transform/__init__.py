@@ -23,3 +23,4 @@ from .factory.base import *
 from .factory.hadamard import *
 from .factory.matrix_multiply import *
 from .factory.random_hadamard import *
+from .apply import *

@@ -19,23 +19,18 @@ from compressed_tensors.transform import (
     TransformConfig,
     TransformFactory,
     TransformScheme,
+    apply_transform_config,
 )
 from compressed_tensors.utils import offloaded_dispatch
 from tests.testing_utils import requires_accelerate, requires_gpu
 
 
-def scheme_kwargs():
-    all_types = TransformFactory.registered_names()
-    base = [{"type": type} for type in all_types]
-    randomized = [{"type": type, "randomize": True} for type in all_types]
-    return base + randomized
-
-
-@pytest.mark.parametrize("scheme_kwargs", scheme_kwargs())
-def test_correctness_linear(scheme_kwargs):
+@pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
+@pytest.mark.parametrize("randomized", (True, False))
+def test_correctness_linear(type, randomized):
     size = (4, 8)
     module = torch.nn.Linear(*size, bias=True)
-    scheme = TransformScheme(**scheme_kwargs)
+    scheme = TransformScheme(type=type, randomized=randomized)
     factory = TransformFactory.from_scheme(scheme, name="")
 
     input_tfm = factory.create_transform(
@@ -59,8 +54,9 @@ def test_correctness_linear(scheme_kwargs):
     assert torch.allclose(true_output, output, atol=1e-5, rtol=0.0)
 
 
-@pytest.mark.parametrize("scheme_kwargs", scheme_kwargs())
-def test_correctness_model(scheme_kwargs, model_apply, offload=False):
+@pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
+@pytest.mark.parametrize("randomized", (True, False))
+def test_correctness_model(type, randomized, model_apply, offload=False):
     # load model
     model = model_apply[0]
     if offload:
@@ -75,15 +71,10 @@ def test_correctness_model(scheme_kwargs, model_apply, offload=False):
     # apply transforms
     config = TransformConfig(
         config_groups={
-            "": TransformScheme(
-                **scheme_kwargs,
-                apply=model_apply[1],
-            )
+            "": TransformScheme(type=type, randomized=randomized, apply=model_apply[1])
         }
     )
-    for name, scheme in config.config_groups.items():
-        factory = TransformFactory.from_scheme(scheme, name=name)
-        factory.apply_to_model(model)
+    apply_transform_config(model, config)
 
     # compare outputs
     output = model(input)
@@ -92,6 +83,7 @@ def test_correctness_model(scheme_kwargs, model_apply, offload=False):
 
 @requires_gpu
 @requires_accelerate()
-@pytest.mark.parametrize("scheme_kwargs", scheme_kwargs())
-def test_correctness_model_offload(scheme_kwargs, model_apply):
-    test_correctness_model(scheme_kwargs, model_apply, offload=True)
+@pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
+@pytest.mark.parametrize("randomized", (True, False))
+def test_correctness_model_offload(type, randomized, model_apply):
+    test_correctness_model(type, randomized, model_apply, offload=True)

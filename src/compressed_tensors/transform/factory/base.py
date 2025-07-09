@@ -27,6 +27,7 @@ from compressed_tensors.transform import (
 )
 from compressed_tensors.utils import (
     align_module_device,
+    delete_offload_module,
     has_offloaded_params,
     patch_attr,
     register_offload_module,
@@ -100,7 +101,7 @@ class TransformFactory(RegistryMixin, ABC):
         # create transform as submodule
         transform_name = f"{self.name}_{args.location.value}"
         transform = self.create_transform(module, args)
-        register_offload_module(module, transform_name, transform)  # (1)
+        register_offload_module(module, transform_name, transform)
 
         # register input transformation hook
         if args.location == TransformLocation.INPUT:
@@ -119,6 +120,7 @@ class TransformFactory(RegistryMixin, ABC):
             assert isinstance(module, torch.nn.Linear)
             assert module.bias is None
 
+            # fuse transform into weight
             with torch.no_grad(), align_module_device(module):
                 update_offload_parameter(module, "weight", transform(module.weight))
 
@@ -128,6 +130,9 @@ class TransformFactory(RegistryMixin, ABC):
                 if has_offloaded_params(module):
                     raise ValueError("Offloaded training is not supported")
                 P.register_parametrization(module, "weight", transform)
+
+            # transform is no longer needed (unfusing is not supported)
+            delete_offload_module(module, transform_name)
 
         # register output transformation hook
         elif args.location == TransformLocation.OUTPUT:
@@ -140,9 +145,6 @@ class TransformFactory(RegistryMixin, ABC):
         # other locations such as q_attn and k_attn have not been implemented
         else:
             raise NotImplementedError()
-
-        # (1) even in the `weight` cases, this submodule attachment is needed in order
-        # to support saving in the frozen state
 
 
 class TransformBase(InternalModule, ABC):
