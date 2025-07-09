@@ -29,7 +29,7 @@ def replace_modules_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
 
 
 def update_qwen3_moe(model, stack):
-    for _, module in model.named_modules():
+    for module in model.modules():
         cls_name = module.__class__.__name__
         if cls_name == "Qwen3MoeDecoderLayer":
             stack.enter_context(
@@ -38,7 +38,7 @@ def update_qwen3_moe(model, stack):
 
 
 def update_deepseek3_moe(model, stack):
-    for _, module in model.named_modules():
+    for module in model.modules():
         cls_name = module.__class__.__name__
         if (
             cls_name == "DeepseekV3DecoderLayer"
@@ -55,6 +55,8 @@ moe_context = {
 }
 
 def moe_calibration_context(model: PreTrainedModel, stack):
+    # Temporarily updates the MoE modules within the context
+    # Once the context exists, parameter updates persist
     cls_name = model.__class__.__name__
     if cls_name in moe_context:
         moe_context.get(cls_name)(model, stack)
