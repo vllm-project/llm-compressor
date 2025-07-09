@@ -1,4 +1,7 @@
 import torch
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
+    DeepseekV3MoE as OriginalDeepseekV3MoE,
+)
 
 
 class DeepseekV3MoE(torch.nn.Module):
@@ -45,7 +48,7 @@ class DeepseekV3MoE(torch.nn.Module):
         return hidden_states
 
 
-def replace(module: "DeepseekV3MoE") -> DeepseekV3MoE:
+def replace(module: OriginalDeepseekV3MoE) -> DeepseekV3MoE:
     return DeepseekV3MoE(
         module.config, module.experts, module.gate, module.shared_experts
     )
