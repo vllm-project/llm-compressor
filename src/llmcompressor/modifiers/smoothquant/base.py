@@ -127,10 +127,7 @@ class SmoothQuantModifier(Modifier):
                 f"Expected start to be None or -1, got {self.end}"
             )
 
-        if (
-            not hasattr(state, 'data') or
-            state.data.calib is None
-        ):
+        if not hasattr(state, "data") or state.data.calib is None:
             raise ValueError(
                 f"{self.__class__.__name__} requires a calibration dataset to be "
                 "provided"
