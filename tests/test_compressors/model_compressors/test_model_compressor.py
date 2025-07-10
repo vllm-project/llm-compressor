@@ -446,10 +446,7 @@ def test_compress_model_meta(model_stub, q_format, s_config):
         cpu_model, s_config, q_format
     )
     # Only stores dtype because meta model does not store values
-    expected = {
-        k: v.dtype
-        for k, v in reference_compressor.compress(cpu_model).items()
-    }
+    expected = {k: v.dtype for k, v in reference_compressor.compress(cpu_model).items()}
 
     # Load model on meta device
     meta_model = AutoModelForCausalLM.from_pretrained(

@@ -392,8 +392,8 @@ class ModelCompressor:
         for prefix, module in tqdm(model.named_modules(), desc="Compressing model"):
 
             if prefix in module_to_scheme or prefix in sparse_compression_targets:
-                module_device = get_execution_device(module).type
-                is_meta = (module_device == "meta")
+                module_device = get_execution_device(module)
+                is_meta = module_device.type == "meta"
 
                 exec_device = "meta" if is_meta else "cpu"
                 onloading_device = "meta" if is_meta else module_device

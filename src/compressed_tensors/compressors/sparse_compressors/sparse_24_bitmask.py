@@ -178,9 +178,13 @@ def sparse24_bitmask_compress(
 
     if tensor.is_meta:
         num_rows, num_cols = tensor.shape
-        compressed_values = torch.empty((num_rows, num_cols // 2), dtype=tensor.dtype, device="meta")
+        compressed_values = torch.empty(
+            (num_rows, num_cols // 2), dtype=tensor.dtype, device="meta"
+        )
         packed_cols = (num_cols + 7) // 8
-        bitmasks_packed = torch.empty((num_rows, packed_cols), dtype=torch.uint8, device="meta")
+        bitmasks_packed = torch.empty(
+            (num_rows, packed_cols), dtype=torch.uint8, device="meta"
+        )
         return compressed_values, bitmasks_packed
 
     bytemasks = get_24_bytemasks(tensor=tensor)
