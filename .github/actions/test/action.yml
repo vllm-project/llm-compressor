@@ -69,11 +69,11 @@ runs:
           echo "::endgroup::"
 
           if [[ "${ENABLE_COVERAGE}" == "true" ]]; then
-            echo "::group::consolidating coverage reports"
-            mkdir -p coverage-results
-            mv .coverage coverage-results/ || echo ".coverage file not found"
-            mv coverage-html coverage-results/ || echo "coverage-html folder not found"
-            mv coverage.json coverage-results/ || echo "coverage.json file not found"
+            echo "::group::check coverage reports"
+            if [ ! -d coverage-html ]; then
+                echo "ERROR: coverage-html folder not found"
+                exit 1
+            fi
             echo "::endgroup::"
           fi
           

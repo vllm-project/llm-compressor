@@ -25,7 +25,7 @@ on:
 
       # test related parameters
       test_configs:
-        description: "python, label, timeout"
+        description: "python, label, timeout, etc"
         type: string
         required: true
 
@@ -53,6 +53,7 @@ jobs:
             python: ${{ matrix.test_config.python }}
             timeout: ${{ matrix.test_config.timeout }}
             whl: ${{ needs.BUILD.outputs.whl }}
+            code_coverage: ${{ matrix.test_config.code_coverage || false }}
         secrets: inherit
 
     UPLOAD:

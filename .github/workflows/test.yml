@@ -70,6 +70,10 @@ jobs:
         permissions:
             contents: 'read'
             id-token: 'write'
+            pages: 'write'
+        environment:
+            name: github-pages
+            url: ${{ steps.coverage.outputs.page_url }}
 
         steps:
 
@@ -134,6 +138,11 @@ jobs:
                   suitename: test-${{ inputs.python }}-${{ inputs.test_label }}
                   code_coverage: ${{ inputs.code_coverage }}
 
+            - name: extra info for summary
+              if: ${{ inputs.code_coverage }}
+              run: |
+                  echo "EXTRA='Code Coverage: https://neuralmagic.github.io/compressed-tensors/'" >> $GITHUB_ENV
+
             - name: summary
               uses: neuralmagic/nm-actions/actions/summary-test@v1.13.0
               if: success() || failure()
@@ -143,6 +152,7 @@ jobs:
                   python: ${{ inputs.python }}
                   whl: ${{ inputs.whl }}
                   test_status: ${{ steps.test.outputs.status }}
+                  extra: ${{ env.EXTRA }}
 
             - name: copy results to GCP
               run: |
@@ -157,9 +167,13 @@ jobs:
                   retention-days: 5
 
             - name: upload coverage report
-              uses: actions/upload-artifact@v4
-              if: (success() || failure()) && inputs.code_coverage
+              uses: actions/upload-pages-artifact@v3
+              if: ${{ inputs.code_coverage }}
               with:
-                  name: coverage-results
-                  path: coverage-results/*
+                  path: coverage-html
                   retention-days: 5
+
+            - name: deploy to Github Pages
+              id: coverage
+              uses: actions/deploy-pages@v4
+              if: ${{ inputs.code_coverage }}
