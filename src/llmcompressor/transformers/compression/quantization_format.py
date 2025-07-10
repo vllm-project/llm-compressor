@@ -3,9 +3,7 @@ from typing import Optional
 from compressed_tensors import CompressionFormat
 from compressed_tensors.config import SparsityStructure
 from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
-from compressed_tensors.quantization.utils import (
-    is_module_quantized,
-)
+from compressed_tensors.quantization.utils import is_module_quantized
 
 __all__ = ["infer_quantization_format"]
 
@@ -50,8 +48,6 @@ def infer_quantization_format(
         return quantization_format
 
     weight_args, input_args = _get_unique_quant_args(model)
-
-    # no quantization format if no weights are quantized
     if len(weight_args) <= 0:
         return None
 
