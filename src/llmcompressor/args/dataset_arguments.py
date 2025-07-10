@@ -198,3 +198,13 @@ class DatasetArguments(CustomDatasetArguments):
             "definition"
         },
     )
+    propagate_error: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "A True value means that the activations used to calibrate layers "
+            "will reflect the error induced by the quantization/optimization of "
+            "previous layers of the model. A False value means that activations will "
+            "be the same as activations produced by the original, full precision base "
+            "model. Deafults to True"
+        },
+    )
