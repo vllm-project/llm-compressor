@@ -1,5 +1,5 @@
 name: prepare code coverage
-description: installs code coverage dependencies and exports and updated 'PYTEST_ADDOPTS' env var
+description: installs code coverage dependencies and exports an updated 'PYTEST_ADDOPTS' env var
 
 runs:
   using: composite
