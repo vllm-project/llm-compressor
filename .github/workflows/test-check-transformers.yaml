@@ -1,10 +1,16 @@
 name: Test Checks (Transformers)
 on:
   pull_request:
-    branches: main
+    branches: [ main ]
     types: [ labeled, synchronize ]
   push:
-    branches: main
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      code_coverage:
+        description: if enabled, code coverage metrics will be collected during the test run
+        type: boolean
+        default: false
 
 env:
   CADENCE: "commit"
@@ -72,6 +78,9 @@ jobs:
           BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
+      - name: "⚙️ Prepare code coverage"
+        if: inputs.code_coverage
+        uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running transformers tests"
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
@@ -104,3 +113,13 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/kv_cache
+      - name: "Upload coverage report"
+        if: (success() || failure()) && inputs.code_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: transformers-tests-coverage-results
+          path: |
+            .coverage
+            coverage-html
+            coverage.json
+          retention-days: 5
