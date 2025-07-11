@@ -87,6 +87,12 @@ class SpinQuantModifier(Modifier):
     
     transform_config: Optional[TransformConfig] = None  # optional override for more fine-grained control
 
+    @field_validator("rotations", mode="before")
+    def validate_rotations(cls, value):
+        if isinstance(value, Iterable):
+            return tuple(v.upper() for v in value)
+        return value
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         # HARDCODE
         self.mappings = llama_spinquant
