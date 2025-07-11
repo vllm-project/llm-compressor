@@ -125,6 +125,18 @@ class SpinQuantModifier(Modifier):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
+        # TODO: use norm mappings
+        # Embedding fusion
+        # theoretically, doesn't do anything. Doesn't seem to help model sanity either
+        from compressed_tensors import update_offload_parameter
+        for W in [state.model.model.embed_tokens]:
+            W_ = W.weight.data.double()
+            W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
+
+            update_offload_parameter(state.model.model.embed_tokens, "weight", W.weight)
+
+        # TODO: use norm mappings
+        # layer norm fusion
         for layer in state.model.model.layers:
             fuse_norm_linears(layer.input_layernorm, (layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj))
             fuse_norm_linears(layer.post_attention_layernorm, (layer.mlp.gate_proj, layer.mlp.up_proj))
