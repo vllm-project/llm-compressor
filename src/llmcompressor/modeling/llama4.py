@@ -46,9 +46,7 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
     def __init__(self, config, original: Llama4TextExperts):
         self.num_experts = original.gate_up_proj.shape[0]
         with skip_weights_initialize():
-            super().__init__(
-                [Llama4TextMLP(config) for _ in range(self.num_experts)]
-            )
+            super().__init__([Llama4TextMLP(config) for _ in range(self.num_experts)])
 
         intermediate_size = original.down_proj.shape[1]
 

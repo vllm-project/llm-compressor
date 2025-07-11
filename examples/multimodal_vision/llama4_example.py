@@ -21,7 +21,16 @@ NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Configure the quantization algorithm to run.
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+recipe = GPTQModifier(
+    targets="Linear",
+    scheme="W4A16",
+    ignore=[
+        "re:.*lm_head",
+        "re:.*router",
+        "re:vision_model.*",
+        "re:multi_modal_projector.*",
+    ],
+)
 
 # Apply algorithms.
 # due to the large size of Llama4, we specify sequential targets such that

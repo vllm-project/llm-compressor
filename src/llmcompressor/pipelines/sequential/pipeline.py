@@ -69,7 +69,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        with calibration_forward_context(model):#, DisableQuantization(model):
+        with calibration_forward_context(model):  # , DisableQuantization(model):
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)
 

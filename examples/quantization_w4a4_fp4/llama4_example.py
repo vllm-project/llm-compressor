@@ -1,15 +1,13 @@
+import torch
+from datasets import load_dataset
+from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
-
+from llmcompressor import oneshot
 from llmcompressor.modeling import prepare_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor import oneshot
-from transformers import Llama4ForConditionalGeneration, Llama4Processor
-from datasets import load_dataset
-import torch 
-from llmcompressor.modeling import prepare_for_calibration
 
 # Select model and load it.
-model_id = "/proving-grounds/cache/hub/models--meta-llama--Llama-4-Scout-17B-16E-Instruct/snapshots/7dab2f5f854fe665b6b2f1eccbd3c48e5f627ad8"
+model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = Llama4Processor.from_pretrained(model_id)
 model = prepare_for_calibration(model)
@@ -20,21 +18,22 @@ MAX_SEQUENCE_LENGTH = 8192
 
 ds = load_dataset(DATASET_ID, name="LLM", split=f"train[:{NUM_CALIBRATION_SAMPLES}]")
 
+
 def preprocess_function(example):
     messgages = []
     for message in example["messages"]:
         messgages.append(
             {
-                "role": message["role"], 
-                "content": [{"type": "text", "text": message["content"]}]
+                "role": message["role"],
+                "content": [{"type": "text", "text": message["content"]}],
             }
         )
-    
+
     return tokenizer.apply_chat_template(
-        messgages, 
-        return_tensors="pt", 
-        padding=False, 
-        truncation=True, 
+        messgages,
+        return_tensors="pt",
+        padding=False,
+        truncation=True,
         max_length=MAX_SEQUENCE_LENGTH,
         tokenize=True,
         add_special_tokens=False,
@@ -42,28 +41,33 @@ def preprocess_function(example):
         add_generation_prompt=False,
     )
 
-ds = ds.map(
-    preprocess_function,
-    batched=False,
-    remove_columns=ds.column_names
-)
+
+ds = ds.map(preprocess_function, batched=False, remove_columns=ds.column_names)
+
 
 def data_collator(batch):
     assert len(batch) == 1
     return {
-        key: torch.tensor(value) if key != "pixel_values" else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+        key: torch.tensor(value)
+        if key != "pixel_values"
+        else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
         for key, value in batch[0].items()
     }
 
+
 # Configure the quantization algorithm to run.
-recipe = QuantizationModifier(targets="Linear", scheme="NVFP4", ignore=[
-            're:.*lm_head',
-            're:.*self_attn',
-            're:.*router',
-            "re:vision_model.*",
-            "re:multi_modal_projector.*",
-            "Llama4TextAttention",
-])
+recipe = QuantizationModifier(
+    targets="Linear",
+    scheme="NVFP4",
+    ignore=[
+        "re:.*lm_head",
+        "re:.*self_attn",
+        "re:.*router",
+        "re:vision_model.*",
+        "re:multi_modal_projector.*",
+        "Llama4TextAttention",
+    ],
+)
 
 # Apply algorithms.
 # due to the large size of Llama4, we specify sequential targets such that
@@ -78,8 +82,8 @@ oneshot(
     data_collator=data_collator,
 )
 
-# Save to disk compressed.
-SAVE_DIR = "llama4-scout" + "-NVFP4"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
 
+# Save to disk compressed.
+SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4"
+model.save_pretrained(SAVE_DIR)
+tokenizer.save_pretrained(SAVE_DIR)
