@@ -78,7 +78,6 @@ class SpinquantRotation(Enum):
 
 class SpinQuantModifier(Modifier):
     rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
-
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(default="hadamard")
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
