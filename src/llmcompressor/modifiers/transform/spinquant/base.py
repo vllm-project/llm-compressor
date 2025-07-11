@@ -1,4 +1,4 @@
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Iterable
 
 from compressed_tensors.transform import TransformConfig, TransformScheme, TransformArgs, apply_transform_config
 from pydantic import BaseModel, field_validator, Field
@@ -77,7 +77,7 @@ class SpinquantRotation(Enum):
     R4 = "R4"
 
 class SpinQuantModifier(Modifier):
-    rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
+    rotations: Iterable[SpinquantRotation] = ("R1", "R2")
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(default="hadamard")
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
