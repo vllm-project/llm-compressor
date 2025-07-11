@@ -4,6 +4,7 @@ from compressed_tensors.transform import TransformConfig, apply_transform_config
 from pydantic import ValidationError, model_validator
 
 from llmcompressor.core import Event, EventType, State
+from llmcompressor.modeling import fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.transform.presets import TRANSFORM_PRESETS
 
@@ -29,12 +30,18 @@ class TransformModifier(Modifier):
         return model
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        apply_transform_config(state.model, self.config)
-
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
+
+        for layer in state.model.model.layers:
+            fuse_norm_linears(layer.input_layernorm, (layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj))
+            fuse_norm_linears(layer.post_attention_layernorm, (layer.mlp.gate_proj, layer.mlp.up_proj))
+
+        # needs to happen after the model has been hooked to execute on the GPU
+        # otherwise we're applying weight transforms on CPU
+        apply_transform_config(state.model, self.config)
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
