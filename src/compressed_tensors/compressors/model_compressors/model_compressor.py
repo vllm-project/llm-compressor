@@ -747,12 +747,16 @@ class ModelCompressor:
 
 def map_module_to_scheme(model: Module) -> Dict[str, QuantizationScheme]:
     """
-    Returns a dictionary which maps quantized module names to their quantization schemes
+    Returns a dictionary which maps quantized module names to their quantization
+    schemes. Only includes modules with weight quantization
     """
     return {
         fix_fsdp_module_name(name): module.quantization_scheme
         for name, module in model.named_modules()
-        if is_module_quantized(module)
+        if (
+            hasattr(module, "quantization_scheme") and
+            module.quantization_scheme.weights is not None
+        )
     }
 
 
