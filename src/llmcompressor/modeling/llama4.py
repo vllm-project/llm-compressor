@@ -13,12 +13,12 @@ __all__ = ["SequentialLlama4TextMoe"]
 
 
 class SequentialLlama4TextMoe(torch.nn.Module):
-    def __init__(self, original: Llama4TextMoe):
+    def __init__(self, config, original: Llama4TextMoe):
         super().__init__()
-        self.top_k = original.config.num_experts_per_tok
-        self.hidden_dim = original.config.hidden_size
-        self.num_experts = original.config.num_local_experts
-        self.experts = SequentialLlama4TextExperts(original.experts)
+        self.top_k = config.num_experts_per_tok
+        self.hidden_dim = config.hidden_size
+        self.num_experts = config.num_local_experts
+        self.experts = SequentialLlama4TextExperts(config, original.experts)
         self.router = original.router
         self.shared_expert = original.shared_expert
 
@@ -43,11 +43,11 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
 
 class SequentialLlama4TextExperts(torch.nn.ModuleList):
-    def __init__(self, original: Llama4TextExperts):
+    def __init__(self, config, original: Llama4TextExperts):
         self.num_experts = original.gate_up_proj.shape[0]
         with skip_weights_initialize():
             super().__init__(
-                [Llama4TextMLP(original.config) for _ in range(self.num_experts)]
+                [Llama4TextMLP(config) for _ in range(self.num_experts)]
             )
 
         intermediate_size = original.down_proj.shape[1]
