@@ -59,7 +59,6 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = [
-    # TODO preset_config="LLAMA_SPINQUANT_R1R2" outputs gibberish
     # TODO preset_config="QUIP_ONLINE" outputs gibberish
     # preset_config="QUIP" output sensible, but cannot load saved
     #  checkpoint or run evals (~4hrs to run)

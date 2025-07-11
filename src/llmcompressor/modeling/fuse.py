@@ -23,7 +23,12 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
             # NOTE: spinquant does this op in float64
             exec_device = get_execution_device(norm)
             with align_module_device(norm, exec_device), align_module_device(linear, exec_device):
-                new_weight = linear.weight * norm.weight
+                
+                weight_dtype = linear.weight.dtype
+
+                new_weight = linear.weight.to(torch.float64) * norm.weight.to(torch.float64)
+
+                new_weight = new_weight.to(weight_dtype)
             
             update_offload_parameter(linear, "weight", new_weight)
 
