@@ -4,7 +4,7 @@ import torch
 from compressed_tensors.utils import update_parameter_data
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
-from llmcompressor.modifiers.transform import TransformModifier
+from llmcompressor.modifiers.transform import SpinQuantModifier
 from llmcompressor.utils import dispatch_for_generation
 from transformers.models.llama.modeling_llama import (
     LlamaRMSNorm,
@@ -94,7 +94,7 @@ orig_output = model(input_ids)
 recipe = [
     # NOTE: preset_config="QUIP" output sensible, but cannot load saved
     #  checkpoint or run evals (~4hrs to run)
-    TransformModifier(preset_config="LLAMA_SPINQUANT_R1R2"),
+    SpinQuantModifier(rotations=["R1", "R2"]),
     # QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
