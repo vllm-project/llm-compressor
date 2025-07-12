@@ -1,14 +1,13 @@
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 from compressed_tensors.utils import update_parameter_data
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.models.llama.modeling_llama import LlamaRMSNorm
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.modifiers.transform import SpinQuantModifier
 from llmcompressor.utils import dispatch_for_generation
-from transformers.models.llama.modeling_llama import (
-    LlamaRMSNorm,
-)
 
 hidden_dim = intermediate_dim = 64
 up_dim = 128

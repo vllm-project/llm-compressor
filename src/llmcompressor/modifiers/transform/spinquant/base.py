@@ -1,14 +1,18 @@
-from typing import Optional, List, Literal, Iterable
+from enum import Enum
+from typing import Iterable, List, Literal, Optional
 
-from compressed_tensors.transform import TransformConfig, TransformScheme, TransformArgs, apply_transform_config
-from pydantic import BaseModel, field_validator, Field
+from compressed_tensors.transform import (
+    TransformArgs,
+    TransformConfig,
+    TransformScheme,
+    apply_transform_config,
+)
+from pydantic import BaseModel, Field, field_validator
+from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import fuse_norm_linears
 from llmcompressor.modifiers import Modifier
-from enum import Enum
-
-from transformers import PreTrainedModel
 
 
 class SpinQuantMappings(BaseModel):
@@ -29,9 +33,10 @@ class SpinQuantMappings(BaseModel):
     def cast_to_list(cls, value):
         if isinstance(value, str):
             return [value]
-        
+
         return value
-    
+
+
 class NormMapping(BaseModel):
     norm: str
     linears: List[str]
@@ -40,22 +45,18 @@ class NormMapping(BaseModel):
     def cast_to_list(cls, value):
         if isinstance(value, str):
             return [value]
-        
-        return value
 
+        return value
 
 
 llama_spinquant = SpinQuantMappings(
     embedding="re:.*embed_tokens$",
-
     attn_q="re:.*q_proj$",
     attn_k="re:.*k_proj$",
     attn_v="re:.*v_proj$",
     attn_o="re:.*o_proj$",
-
     mlp_in=["re:.*up_proj$", "re:.*gate_proj$"],
     mlp_out="re:.*down_proj$",
-
     lm_head="lm_head",
 )
 
@@ -67,8 +68,9 @@ llama_norm_mappings = [
     NormMapping(
         norm="re:.*post_attention_layernorm$",
         linears=["re:.*up_proj$", "re:.*gate_proj$"],
-    )
+    ),
 ]
+
 
 class SpinquantRotation(Enum):
     R1 = "R1"
@@ -76,16 +78,21 @@ class SpinquantRotation(Enum):
     R3 = "R3"
     R4 = "R4"
 
+
 class SpinQuantModifier(Modifier):
     rotations: Iterable[SpinquantRotation] = ("R1", "R2")
-    transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(default="hadamard")
+    transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
+        default="hadamard"
+    )
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
 
     mappings: Optional[SpinQuantMappings] = None
     norm_mappings: Optional[List[NormMapping]] = None
-    
-    transform_config: Optional[TransformConfig] = None  # optional override for more fine-grained control
+
+    transform_config: Optional[TransformConfig] = (
+        None  # optional override for more fine-grained control
+    )
 
     @field_validator("rotations", mode="before")
     def validate_rotations(cls, value):
@@ -101,7 +108,7 @@ class SpinQuantModifier(Modifier):
         if self.transform_config is not None:
             if self.mappings is not None:
                 raise ValueError()
-            
+
             return True
 
         config_groups = {}
@@ -129,6 +136,7 @@ class SpinQuantModifier(Modifier):
         # Embedding fusion
         # theoretically, doesn't do anything. Doesn't seem to help model sanity either
         from compressed_tensors import update_offload_parameter
+
         for W in [state.model.model.embed_tokens]:
             W_ = W.weight.data.double()
             W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
@@ -138,15 +146,23 @@ class SpinQuantModifier(Modifier):
         # TODO: use norm mappings
         # layer norm fusion
         for layer in state.model.model.layers:
-            fuse_norm_linears(layer.input_layernorm, (layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj))
-            fuse_norm_linears(layer.post_attention_layernorm, (layer.mlp.gate_proj, layer.mlp.up_proj))
+            fuse_norm_linears(
+                layer.input_layernorm,
+                (
+                    layer.self_attn.q_proj,
+                    layer.self_attn.k_proj,
+                    layer.self_attn.v_proj,
+                ),
+            )
+            fuse_norm_linears(
+                layer.post_attention_layernorm, (layer.mlp.gate_proj, layer.mlp.up_proj)
+            )
+
+        fuse_norm_linears(state.model.model.norm, (state.model.lm_head,))
 
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
         apply_transform_config(state.model, self.transform_config)
-
-
-
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -169,7 +185,6 @@ class SpinQuantModifier(Modifier):
 
         return True
 
-
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(
             type=self.transform_type,
@@ -190,14 +205,14 @@ class SpinQuantModifier(Modifier):
                         self.mappings.attn_k,
                         self.mappings.attn_v,
                         *self.mappings.mlp_in,
-                        self.mappings.lm_head
+                        self.mappings.lm_head,
                     ],
                     location="weight_input",
                     inverse=True,
                 ),
-            ]
+            ],
         )
-    
+
     def _create_r2_scheme(self, model: PreTrainedModel) -> TransformScheme:
         config = model.config
 
@@ -207,7 +222,7 @@ class SpinQuantModifier(Modifier):
             head_dim = config.hidden_size // config.num_attention_heads
         else:
             raise NotImplementedError()
-        
+
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,
@@ -223,10 +238,8 @@ class SpinQuantModifier(Modifier):
             ],
         )
 
-
     def _create_r3_scheme(self) -> TransformScheme:
         raise NotImplementedError()
-
 
     def _create_r4_scheme(self) -> TransformScheme:
         raise NotImplementedError()
