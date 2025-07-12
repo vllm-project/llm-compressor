@@ -1,80 +1,22 @@
 from enum import Enum
 from typing import Iterable, List, Literal, Optional
 
-from compressed_tensors import match_named_modules, is_match
+from compressed_tensors import is_match, match_named_modules
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
     TransformScheme,
     apply_transform_config,
 )
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.modeling import normalize_embedding, fuse_norm_linears
+from llmcompressor.modeling import fuse_norm_linears, normalize_embedding
 from llmcompressor.modifiers import Modifier
 
-
-class SpinQuantMappings(BaseModel):
-    embedding: str
-
-    attn_q: str
-    attn_k: str
-    attn_v: str
-    attn_o: str
-    attn_head_dim: Optional[int] = Field(default=None)
-
-    mlp_in: List[str]  # up_proj, gate_proj
-    mlp_out: List[str]  # down_proj
-
-    lm_head: str
-
-    @field_validator("mlp_in", "mlp_out", mode="before")
-    def cast_to_list(cls, value):
-        if isinstance(value, str):
-            return [value]
-
-        return value
-
-
-class NormMapping(BaseModel):
-    norm: str
-    linears: List[str]
-
-    @field_validator("linears", mode="before")
-    def cast_to_list(cls, value):
-        if isinstance(value, str):
-            return [value]
-
-        return value
-
-
-llama_spinquant = SpinQuantMappings(
-    embedding="re:.*embed_tokens$",
-    attn_q="re:.*q_proj$",
-    attn_k="re:.*k_proj$",
-    attn_v="re:.*v_proj$",
-    attn_o="re:.*o_proj$",
-    mlp_in=["re:.*up_proj$", "re:.*gate_proj$"],
-    mlp_out="re:.*down_proj$",
-    lm_head="lm_head",
-)
-
-llama_norm_mappings = [
-    NormMapping(
-        norm="re:.*input_layernorm$",
-        linears=["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
-    ),
-    NormMapping(
-        norm="re:.*post_attention_layernorm$",
-        linears=["re:.*up_proj$", "re:.*gate_proj$"],
-    ),
-    NormMapping(
-        norm="model.norm",
-        linears=["lm_head"],
-    ),
-]
+from .mappings import SPINQUANT_MAPPING_REGISTRY, SpinQuantMappings
+from .norm_mappings import NORM_MAPPING_REGISTRY, NormMapping
 
 
 class SpinquantRotation(Enum):
@@ -92,12 +34,15 @@ class SpinQuantModifier(Modifier):
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
 
+    # norm mappings separate from spinquant mappings to allow users to
+    # override spinquant mappings with transform_config without overriding norms
+    # we can combine these mappings, but it requires some more validation logic
+    # maybe there's a reason to keep if other modifiers want norm fusing, idk
     mappings: Optional[SpinQuantMappings] = None
     norm_mappings: Optional[List[NormMapping]] = None
 
-    transform_config: Optional[TransformConfig] = (
-        None  # optional override for more fine-grained control
-    )
+    # optional override for more fine-grained control
+    transform_config: Optional[TransformConfig] = None
 
     @field_validator("rotations", mode="before")
     def validate_rotations(cls, value):
@@ -106,9 +51,9 @@ class SpinQuantModifier(Modifier):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        # HARDCODE
-        self.mappings = llama_spinquant
-        self.norm_mappings = llama_norm_mappings
+        # TODO: more validation
+        self.mappings = SPINQUANT_MAPPING_REGISTRY[state.model.__class__.__name__]
+        self.norm_mappings = NORM_MAPPING_REGISTRY[state.model.__class__.__name__]
 
         if self.transform_config is not None:
             if self.mappings is not None:
