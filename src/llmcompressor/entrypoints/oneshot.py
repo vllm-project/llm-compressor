@@ -125,7 +125,8 @@ class Oneshot:
         self.output_dir = output_dir
 
         # initialize the model and processor
-        pre_process(model_args)
+        # TODO Remove Comment before merge, this is just needed for DummyModel
+        # pre_process(model_args)
 
         # Set instance attributes
         self.model = self.model_args.model
