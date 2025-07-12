@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Iterable, List, Literal, Optional
 
+from compressed_tensors import match_named_modules, is_match
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
@@ -11,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.modeling import fuse_norm_linears
+from llmcompressor.modeling import normalize_embedding, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 
 
@@ -68,6 +69,10 @@ llama_norm_mappings = [
     NormMapping(
         norm="re:.*post_attention_layernorm$",
         linears=["re:.*up_proj$", "re:.*gate_proj$"],
+    ),
+    NormMapping(
+        norm="model.norm",
+        linears=["lm_head"],
     ),
 ]
 
@@ -132,36 +137,10 @@ class SpinQuantModifier(Modifier):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
-        # TODO: use norm mappings
-        # Embedding fusion
-        # theoretically, doesn't do anything. Doesn't seem to help model sanity either
-        from compressed_tensors import update_offload_parameter
-
-        for W in [state.model.model.embed_tokens]:
-            W_ = W.weight.data.double()
-            W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
-
-            update_offload_parameter(state.model.model.embed_tokens, "weight", W.weight)
-
-        # TODO: use norm mappings
-        # layer norm fusion
-        for layer in state.model.model.layers:
-            fuse_norm_linears(
-                layer.input_layernorm,
-                (
-                    layer.self_attn.q_proj,
-                    layer.self_attn.k_proj,
-                    layer.self_attn.v_proj,
-                ),
-            )
-            fuse_norm_linears(
-                layer.post_attention_layernorm, (layer.mlp.gate_proj, layer.mlp.up_proj)
-            )
-
-        fuse_norm_linears(state.model.model.norm, (state.model.lm_head,))
-
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
+        self._prenormalize_embeddings(state.model)
+        self._fuse_norms(state.model)
         apply_transform_config(state.model, self.transform_config)
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -184,6 +163,33 @@ class SpinQuantModifier(Modifier):
             self.on_end(state, None)
 
         return True
+
+    def _prenormalize_embeddings(self, model: PreTrainedModel):
+        for _, embedding in match_named_modules(
+            model, [self.mappings.embedding], warn_on_fail=True
+        ):
+            normalize_embedding(embedding)
+
+    def _fuse_norms(self, model: PreTrainedModel):
+        for mapping in self.norm_mappings:
+            targets = (mapping.norm, *mapping.linears)
+            matches = dict()
+
+            for name, module in model.named_modules():
+                # match until we get a full set
+                for target in targets:
+                    if is_match(name, module, target):
+                        if target in matches:
+                            raise ValueError("Cannot match twice")
+                        matches[target] = module
+
+                # once we have a full set, fuse and reset
+                if all(target in matches for target in targets):
+                    fuse_norm_linears(
+                        matches[mapping.norm],
+                        (matches[target] for target in mapping.linears),
+                    )
+                    matches = dict()
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(

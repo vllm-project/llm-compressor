@@ -8,7 +8,24 @@ from compressed_tensors import (
 )
 from transformers.models.llama.modeling_llama import LlamaRMSNorm
 
-__all__ = ["fuse_norm_linears"]
+__all__ = ["normalize_embedding", "fuse_norm_linears"]
+
+
+PRECISION = torch.float64
+
+
+def normalize_embedding(embedding: torch.nn.Module):
+    if isinstance(embedding, (torch.nn.Embedding)):
+        with align_module_device(embedding):
+            weight_dtype = embedding.weight.dtype
+            weight = embedding.weight.to(PRECISION)
+            new_weight = weight - weight.mean(dim=-1, keepdim=True)
+            new_weight = new_weight.to(weight_dtype)
+
+        update_offload_parameter(embedding, "weight", new_weight)
+
+    else:
+        raise ValueError(f"Cannot normalize embedding of type {type(embedding)}")
 
 
 def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear]):
@@ -29,11 +46,7 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
                 linear, exec_device
             ):
                 weight_dtype = linear.weight.dtype
-
-                new_weight = linear.weight.to(torch.float64) * norm.weight.to(
-                    torch.float64
-                )
-
+                new_weight = linear.weight.to(PRECISION) * norm.weight.to(PRECISION)
                 new_weight = new_weight.to(weight_dtype)
 
             update_offload_parameter(linear, "weight", new_weight)
