@@ -62,18 +62,17 @@ class SpinQuantModifier(Modifier):
             return True
 
         config_groups = {}
-        for rotation in self.rotations:
-            if rotation == SpinquantRotation.R1:
-                config_groups["R1"] = self._create_r1_scheme()
+        if SpinquantRotation.R1 in self.rotations:
+            config_groups["R1"] = self._create_r1_scheme()
 
-            if rotation == SpinquantRotation.R2:
-                config_groups["R2"] = self._create_r2_scheme(state.model)
+        if SpinquantRotation.R2 in self.rotations:
+            config_groups["R2"] = self._create_r2_scheme(state.model)
 
-            if rotation == SpinquantRotation.R3:
-                config_groups["R3"] = self._create_r3_scheme()
+        if SpinquantRotation.R3 in self.rotations:
+            config_groups["R3"] = self._create_r3_scheme()
 
-            if rotation == SpinquantRotation.R4:
-                config_groups["R4"] = self._create_r4_scheme()
+        if SpinquantRotation.R4 in self.rotations:
+            config_groups["R4"] = self._create_r4_scheme()
 
         self.transform_config = TransformConfig(config_groups=config_groups)
 
