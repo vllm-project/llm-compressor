@@ -9,7 +9,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
-tokenizer = Llama4Processor.from_pretrained(model_id)
+processor = Llama4Processor.from_pretrained(model_id)
 # We update `Llama4TextMoe` modules with custom `SequentialLlama4TextMoe`
 # To apply your own custom module for experimentation, consider updating
 # `SequentialLlama4TextMoe`` under llmcompressor/modeling/llama4.py
@@ -32,7 +32,7 @@ def preprocess_function(example):
             }
         )
 
-    return tokenizer.apply_chat_template(
+    return processor.apply_chat_template(
         messgages,
         return_tensors="pt",
         padding=False,
@@ -89,4 +89,4 @@ oneshot(
 # Save to disk compressed.
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
-tokenizer.save_pretrained(SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)
