@@ -1,8 +1,8 @@
 from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
+from llmcompressor import oneshot
 from llmcompressor.modeling import prepare_for_calibration
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
