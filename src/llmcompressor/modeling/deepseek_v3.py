@@ -1,4 +1,5 @@
 import torch
+from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
 from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
 
 __all__ = ["DeepseekV3MoECalibrate"]
@@ -9,7 +10,7 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """
 
-    def __init__(self, config, original: DeepseekV3MoE):
+    def __init__(self, config: DeepseekV3Config, original: DeepseekV3MoE):
         super().__init__()
         self.config = config
         self.experts = original.experts

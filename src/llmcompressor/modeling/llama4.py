@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import torch
+from transformers.models.llama4.configuration_llama4 import Llama4TextConfig
 from transformers.models.llama4.modeling_llama4 import (
     Llama4TextExperts,
     Llama4TextMLP,
@@ -13,7 +14,7 @@ __all__ = ["SequentialLlama4TextMoe"]
 
 
 class SequentialLlama4TextMoe(torch.nn.Module):
-    def __init__(self, config, original: Llama4TextMoe):
+    def __init__(self, config: Llama4TextConfig, original: Llama4TextMoe):
         super().__init__()
         self.top_k = config.num_experts_per_tok
         self.hidden_dim = config.hidden_size
@@ -43,7 +44,7 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
 
 class SequentialLlama4TextExperts(torch.nn.ModuleList):
-    def __init__(self, config, original: Llama4TextExperts):
+    def __init__(self, config: Llama4TextConfig, original: Llama4TextExperts):
         self.num_experts = original.gate_up_proj.shape[0]
         with skip_weights_initialize():
             super().__init__([Llama4TextMLP(config) for _ in range(self.num_experts)])
