@@ -9,9 +9,9 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """
 
-    def __init__(self, original: DeepseekV3MoE):
+    def __init__(self, config, original: DeepseekV3MoE):
         super().__init__()
-        self.config = original.config
+        self.config = config
         self.experts = original.experts
         self.gate = original.gate
         self.shared_experts = original.shared_experts
