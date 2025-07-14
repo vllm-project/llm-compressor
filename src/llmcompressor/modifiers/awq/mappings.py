@@ -121,7 +121,7 @@ _deepseek_mappings = [
     AWQMapping(
         "re:.*input_layernorm$",
         # Some models use q_proj instead of q_a_proj
-        ["re:.*q_proj$", "re:.*q_a_proj$", "re:.*kv_a_proj_with_mqa$"],
+        ["re:.*(q|q_a)_proj$", "re:.*kv_a_proj_with_mqa$"],
     ),
     AWQMapping("re:.*q_a_layernorm$", ["re:.*q_b_proj$"]),
     AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
