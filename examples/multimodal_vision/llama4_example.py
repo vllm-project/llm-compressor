@@ -10,9 +10,10 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = Llama4Processor.from_pretrained(model_id)
-# We update `Llama4TextMoe` modules with custom `SequentialLlama4TextMoe`
+# We update `Llama4TextMoe` modules with custom `SequentialLlama4TextMoe`.
+# This change allows compatibility with vllm.
 # To apply your own custom module for experimentation, consider updating
-# `SequentialLlama4TextMoe`` under llmcompressor/modeling/llama4.py
+# `SequentialLlama4TextMoe` under llmcompressor/modeling/llama4.py
 model = prepare_for_calibration(model)
 
 DATASET_ID = "neuralmagic/calibration"
