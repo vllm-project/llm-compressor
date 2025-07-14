@@ -5,20 +5,18 @@ from transformers import Llama4ForConditionalGeneration, Llama4Processor
 from llmcompressor import oneshot
 from llmcompressor.modeling import prepare_for_calibration
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = Llama4Processor.from_pretrained(model_id)
-
 # We update `Llama4TextMoe` modules with custom `SequentialLlama4TextMoe`
 # To apply your own custom module for experimentation, consider updating
 # `SequentialLlama4TextMoe`` under llmcompressor/modeling/llama4.py
 model = prepare_for_calibration(model)
 
 DATASET_ID = "neuralmagic/calibration"
-NUM_CALIBRATION_SAMPLES = 100
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 8192
 
 ds = load_dataset(DATASET_ID, name="LLM", split=f"train[:{NUM_CALIBRATION_SAMPLES}]")
@@ -86,16 +84,6 @@ oneshot(
     data_collator=data_collator,
     sequential_targets=["Llama4TextMLP"],
 )
-
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = processor("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=100)
-print(processor.decode(output[0]))
-print("==========================================\n\n")
-
 
 # Save to disk compressed.
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
