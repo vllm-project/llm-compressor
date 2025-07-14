@@ -14,6 +14,7 @@ PRECISION = torch.float64
 
 
 def normalize_embedding(embedding: torch.nn.Module):
+    """ """
     if not hasattr(embedding, "weight"):
         raise ValueError(f"Cannot fuse norm of type {type(embedding)}")
 
@@ -28,10 +29,10 @@ def normalize_embedding(embedding: torch.nn.Module):
 
 def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear]):
     """
-    Fuse a norm layer into subsequent linear layers. This useful for ensuring transform
-    invariance between norm and linear layers.
+    Fuse the scaling operation of norm layer into subsequent linear layers.
+    This useful for ensuring transform invariance between norm and linear layers.
 
-    Note that a model cannot be properly trained after its norms have been fused
+    Note that unitary transforms (rotation) commute with normalization, but not scaling
 
     :param norm: norm layer whose weight will be fused into subsequent linears
     :param linears: linear layers which directly follow the norm layer
