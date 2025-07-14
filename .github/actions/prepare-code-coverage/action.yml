@@ -1,0 +1,19 @@
+name: prepare code coverage
+description: installs code coverage dependencies and exports an updated 'PYTEST_ADDOPTS' env var
+
+runs:
+  using: composite
+  steps:
+    - run: |-
+        # install dependencies
+        pip3 install coverage pytest-cov https://github.com/neuralmagic/pytest-nm-releng/archive/v0.4.0.tar.gz
+
+        # generate and source flags
+        FLAGS_FILE="coverage_flags.sh"
+        nmre-generate-coverage-flags --package "llmcompressor" --output-file "$FLAGS_FILE"
+        source "$FLAGS_FILE"
+        rm "$FLAGS_FILE"
+
+        # export defined/updated 'PYTEST_ADDOPTS' env var
+        echo "PYTEST_ADDOPTS=$PYTEST_ADDOPTS" | tee -a "$GITHUB_ENV"
+      shell: bash
