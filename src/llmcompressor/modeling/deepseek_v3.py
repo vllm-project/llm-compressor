@@ -1,5 +1,8 @@
 import torch
+from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
 from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3MoE
+
+__all__ = ["DeepseekV3MoECalibrate"]
 
 
 class DeepseekV3MoECalibrate(torch.nn.Module):
@@ -7,14 +10,14 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """
 
-    def __init__(self, config, experts, gate, shared_experts):
+    def __init__(self, config: DeepseekV3Config, original: DeepseekV3MoE):
         super().__init__()
         self.config = config
-        self.experts = experts
-        self.gate = gate
-        self.shared_experts = shared_experts
+        self.experts = original.experts
+        self.gate = original.gate
+        self.shared_experts = original.shared_experts
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         residuals = hidden_states
         orig_shape = hidden_states.shape
         topk_indices, topk_weights = self.gate(hidden_states)
@@ -46,7 +49,5 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
         return hidden_states
 
 
-def replace(module: DeepseekV3MoE) -> DeepseekV3MoECalibrate:
-    return DeepseekV3MoECalibrate(
-        module.config, module.experts, module.gate, module.shared_experts
-    )
+def replace(config: DeepseekV3Config, module: DeepseekV3MoE):
+    return DeepseekV3MoECalibrate(config=config, original=module)
