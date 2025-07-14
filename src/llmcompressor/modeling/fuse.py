@@ -7,14 +7,18 @@ from compressed_tensors import (
     update_offload_parameter,
 )
 
-__all__ = ["normalize_embedding", "fuse_norm_linears"]
+__all__ = ["center_embeddings", "fuse_norm_linears"]
 
 
 PRECISION = torch.float64
 
 
-def normalize_embedding(embedding: torch.nn.Module):
-    """ """
+def center_embeddings(embedding: torch.nn.Module):
+    """
+    Shift each embedding to have a mean of zero
+
+    :param embedding: embedding module containing embeddings to center
+    """
     if not hasattr(embedding, "weight"):
         raise ValueError(f"Cannot fuse norm of type {type(embedding)}")
 
