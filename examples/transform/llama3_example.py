@@ -2,13 +2,11 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import SpinQuantModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-# MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
-# MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct" # TODO hidden size 3072 causes failure when creating hadamard
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
@@ -57,36 +55,32 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
+#   * apply spinquant transforms to model in order to make quantization easier
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = [
-    # TODO preset_config="QUIP_ONLINE" outputs gibberish
-    # preset_config="QUIP" output sensible, but cannot load saved
-    #  checkpoint or run evals (~4hrs to run)
-    SpinQuantModifier(rotations=["R1", "R2"]),
-    # QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+    SpinQuantModifier(rotations=["R1", "R2"], transform_type="random-hadamard"),
+    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
 # Apply algorithms.
 oneshot(
     model=model,
     recipe=recipe,
-    # dataset=ds,
-    pipeline="datafree",
-    # max_seq_length=MAX_SEQUENCE_LENGTH,
-    # num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    log_dir=None,
+    dataset=ds,
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
 )
 
-# # Confirm generations of the quantized model look sane.
+# Confirm generations of the quantized model look sane.
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
-# print("==========================================\n\n")
+print("==========================================\n\n")
 
-# # Save to disk compressed.
-# SAVE_DIR = MODEL_ID.split("/")[1] + "-transform-quant-w4a16"
-# model.save_pretrained(SAVE_DIR, save_compressed=True)
-# tokenizer.save_pretrained(SAVE_DIR)
+# Save to disk compressed.
+SAVE_DIR = MODEL_ID.split("/")[1] + "-transformed-w4a16"
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)

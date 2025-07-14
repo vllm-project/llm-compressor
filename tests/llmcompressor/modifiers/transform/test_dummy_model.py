@@ -14,9 +14,6 @@ up_dim = 128
 num_embeddings = 12
 
 
-# TODO remove file before merging
-
-
 class DummySelfAttn(torch.nn.Module):
     def __init__(self, hidden_dim, intermediate_dim):
         super().__init__()
@@ -75,37 +72,36 @@ class DummyModel(torch.nn.Module):
         return self.lm_head(x)
 
 
-model = DummyModel(num_embeddings, hidden_dim, intermediate_dim, up_dim)
+def test_dummy_model():
+    model = DummyModel(num_embeddings, hidden_dim, intermediate_dim, up_dim)
 
-# TODO Uncomment this to see norm diff > 1e-6
-# This is due to issue Kyle spotted in https://arxiv.org/pdf/2405.16406 Page 5 Footnote 2
-# Will have to fuse layernorms with subsequent layers so that input_layernorm.weight is equal to torch.ones() (this apparently makes it rotation invariant)
-# https://github.com/facebookresearch/SpinQuant/blob/8f47aa3f00e8662caf1a484153920a07e5281c3a/utils/fuse_norm_utils.py#L39
-# update_parameter_data(
-#     model.input_layernorm,
-#     torch.rand(model.input_layernorm.weight.shape),
-#     "weight",
-# )
+    # TODO Uncomment this to see norm diff > 1e-6
+    # This is due to issue Kyle spotted in https://arxiv.org/pdf/2405.16406 Page 5 Footnote 2
+    # Will have to fuse layernorms with subsequent layers so that input_layernorm.weight is equal to torch.ones() (this apparently makes it rotation invariant)
+    # https://github.com/facebookresearch/SpinQuant/blob/8f47aa3f00e8662caf1a484153920a07e5281c3a/utils/fuse_norm_utils.py#L39
+    # update_parameter_data(
+    #     model.input_layernorm,
+    #     torch.rand(model.input_layernorm.weight.shape),
+    #     "weight",
+    # )
 
-input_ids = torch.IntTensor([1, 2, 3, 4, 5])
-orig_output = model(input_ids)
+    input_ids = torch.IntTensor([1, 2, 3, 4, 5])
+    orig_output = model(input_ids)
 
-recipe = [
-    # NOTE: preset_config="QUIP" output sensible, but cannot load saved
-    #  checkpoint or run evals (~4hrs to run)
-    SpinQuantModifier(rotations=["R1", "R2"]),
-    # QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
-]
+    recipe = [
+        SpinQuantModifier(rotations=["R1", "R2"]),
+    ]
 
-oneshot(
-    model=model,
-    recipe=recipe,
-    pipeline="datafree",
-    log_dir=None,
-)
+    # TODO: work around preprocessing?
+    oneshot(
+        model=model,
+        recipe=recipe,
+        pipeline="datafree",
+        log_dir=None,
+    )
 
-# # Confirm generations of the quantized model look the same
-transformed_output = model(input_ids)
+    # # Confirm generations of the quantized model look the same
+    transformed_output = model(input_ids)
 
-print(f"Norm Diff {(orig_output-transformed_output).norm()}")
-print(f"Norm {orig_output.norm()}, {transformed_output.norm()}")
+    print(f"Norm Diff {(orig_output-transformed_output).norm()}")
+    print(f"Norm {orig_output.norm()}, {transformed_output.norm()}")
