@@ -58,7 +58,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * apply spinquant transforms to model in order to make quantization easier
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = [
-    SpinQuantModifier(rotations=["R1", "R2"], transform_type="random-hadamard"),
+    SpinQuantModifier(rotations=["R1", "R2"], transform_type="hadamard"),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 

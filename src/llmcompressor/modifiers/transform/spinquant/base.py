@@ -19,15 +19,15 @@ from .mappings import SPINQUANT_MAPPING_REGISTRY, SpinQuantMappings
 from .norm_mappings import NORM_MAPPING_REGISTRY, NormMapping
 
 
-class SpinquantRotation(Enum):
+class SpinquantRotation(str, Enum):
     R1 = "R1"
     R2 = "R2"
     R3 = "R3"
     R4 = "R4"
 
 
-class SpinQuantModifier(Modifier):
-    rotations: Iterable[SpinquantRotation] = ("R1", "R2")
+class SpinQuantModifier(Modifier, use_enum_values=True):
+    rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="hadamard"
     )
@@ -38,11 +38,12 @@ class SpinQuantModifier(Modifier):
     # override spinquant mappings with transform_config without overriding norms
     # we can combine these mappings, but it requires some more validation logic
     # maybe there's a reason to keep if other modifiers want norm fusing, idk
-    mappings: Optional[SpinQuantMappings] = None
-    norm_mappings: Optional[List[NormMapping]] = None
+    mappings: Optional[SpinQuantMappings] = Field(default=None, exclude=True)
+    norm_mappings: Optional[List[NormMapping]] = Field(default=None, exclude=True)
 
     # optional override for more fine-grained control
-    transform_config: Optional[TransformConfig] = None
+    # also included in recipe serialization
+    transform_config: Optional[TransformConfig] = Field(default=None)
 
     @field_validator("rotations", mode="before")
     def validate_rotations(cls, value):
