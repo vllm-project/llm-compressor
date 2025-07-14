@@ -56,4 +56,5 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
 
         update_offload_parameter(linear, "weight", new_weight)
 
-    update_offload_parameter(norm, "weight", torch.ones_like(norm.weight))
+    new_norm_weight = torch.ones_like(norm.weight, device="cpu")
+    update_offload_parameter(norm, "weight", new_norm_weight)
