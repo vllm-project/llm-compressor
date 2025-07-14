@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import torch
+from transformers.models import Llama4Config
 from transformers.models.llama4.configuration_llama4 import Llama4TextConfig
 from transformers.models.llama4.modeling_llama4 import (
     Llama4TextExperts,
@@ -61,3 +62,7 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
             self[i].gate_proj.weight.data = gate_proj.t().clone().contiguous()
             self[i].up_proj.weight.data = up_proj.t().clone().contiguous()
             self[i].down_proj.weight.data = down.t().clone().contiguous()
+
+
+def replace(config: Llama4Config, module: Llama4TextMoe):
+    return SequentialLlama4TextMoe(config=config.get_text_config(), original=module)

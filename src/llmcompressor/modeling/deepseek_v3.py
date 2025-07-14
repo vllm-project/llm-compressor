@@ -47,3 +47,7 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
         hidden_states = final_hidden_states.type(hidden_states.dtype).view(*orig_shape)
         hidden_states = hidden_states + self.shared_experts(residuals)
         return hidden_states
+
+
+def replace(config: DeepseekV3Config, module: DeepseekV3MoE):
+    return DeepseekV3MoECalibrate(config=config, original=module)
