@@ -15,8 +15,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
+# Select number of samples
 NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 

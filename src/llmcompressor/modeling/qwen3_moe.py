@@ -15,21 +15,26 @@
 # limitations under the License.
 
 import torch
+from transformers.models import Qwen3MoeConfig
+from transformers.models.qwen3_moe.modeling_qwen3_moe import (
+    Qwen3MoeSparseMoeBlock as OriginalQwen3MoeSparseMoeBlock,
+)
 
 
 class Qwen3MoeSparseMoeBlock(torch.nn.Module):
-    def __init__(self, config, gate, experts):
+    def __init__(
+        self, config: Qwen3MoeConfig, original: OriginalQwen3MoeSparseMoeBlock
+    ):
         super().__init__()
         self.num_experts = config.num_experts
-        self.top_k = config.num_experts
+        self.top_k = config.top_k
         self.norm_topk_prob = config.norm_topk_prob
 
         # gating
-        self.gate = gate
-        self.experts = experts
+        self.gate = original.gate
+        self.experts = original.experts
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """ """
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (batch * sequence_length, n_experts)
@@ -81,5 +86,5 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         return final_hidden_states, router_logits
 
 
-def replace(config, module):
-    return Qwen3MoeSparseMoeBlock(config, module.gate, module.experts)
+def replace(config: Qwen3MoeConfig, module: OriginalQwen3MoeSparseMoeBlock):
+    return Qwen3MoeSparseMoeBlock(config=config, original=module)

@@ -1,10 +1,11 @@
 import torch
 from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
 from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
-    DeepseekV3MoE as OriginalDeepseekV3MoE
+    DeepseekV3MoE as OriginalDeepseekV3MoE,
 )
 
-class DeepseekV3MoE(torch.nn.Module):
+
+class DeepseekV3MoECalibrate(torch.nn.Module):
     """
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """

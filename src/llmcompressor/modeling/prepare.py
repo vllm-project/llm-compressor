@@ -34,26 +34,18 @@ def update_qwen3_moe(model, stack):
         if cls_name == "Qwen3MoeDecoderLayer":
             # Optionally update the model.config to pass in other arguments
             stack.enter_context(
-                patch_attr(module, "mlp", replace_Qwen3MoE(model.config, module.mlp))
-            )
-
-
-def update_deepseek3_moe(model, stack):
-    for module in model.modules():
-        cls_name = module.__class__.__name__
-        if (
-            cls_name == "DeepseekV3DecoderLayer"
-            and module.mlp.__class__.__name__ == "DeepseekV3MoE"
-        ):
-            stack.enter_context(
-                patch_attr(module, "mlp", replace_DeepseekV3MoE(module.mlp))
+                patch_attr(
+                    module,
+                    "mlp",
+                    replace_Qwen3MoE(config=model.config, module=module.mlp),
+                )
             )
 
 
 moe_context = {
     "Qwen3MoeForCausalLM": update_qwen3_moe,
-    # "DeepseekV3ForCausalLM": update_deepseek3_moe, TODO: uncomment when tested
 }
+
 
 def moe_calibration_context(model: PreTrainedModel, stack):
     # Temporarily updates the MoE modules within the context

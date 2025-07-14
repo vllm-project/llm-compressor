@@ -11,8 +11,6 @@ from transformers.models.llama4.modeling_llama4 import (
 
 from llmcompressor.utils.dev import skip_weights_initialize
 
-__all__ = ["SequentialLlama4TextMoe"]
-
 
 class SequentialLlama4TextMoe(torch.nn.Module):
     def __init__(self, config: Llama4TextConfig, original: Llama4TextMoe):
