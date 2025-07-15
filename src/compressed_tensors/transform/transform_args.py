@@ -46,7 +46,7 @@ class TransformLocation(str, Enum):
     Q_ATTN = "q_attn"
 
 
-class TransformArgs(BaseModel):
+class TransformArgs(BaseModel, use_enum_values=True):
     """
     Arguments which define *how* and where a transform should be applied to a model
 
