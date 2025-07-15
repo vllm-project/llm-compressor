@@ -61,7 +61,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
             config = modifiers[0].resolve_quantization_config()
             if not config.requires_calibration_data():
                 return "datafree"
-            
+
         # TODO: Remove hardcode
         if len(modifiers) == 1 and isinstance(modifiers[0], SpinQuantModifier):
             return "datafree"
