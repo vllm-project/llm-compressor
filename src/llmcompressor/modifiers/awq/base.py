@@ -465,11 +465,13 @@ class AWQModifier(Modifier, QuantizationMixin):
             # Calculates the relative magnitude of the weights within
             # each of the quantization groups, and rescales each group
             # individually so that each group has weights on a 0-1 scale.
-            w_scale = weight.abs() / (weight.abs().amax(dim=1, keepdim=True) + 1e-6)
+            weight.abs_()
+            weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
             # Resizes the rescaled weight matrix back up to its original dimensions
-            w_scale = w_scale.view(org_shape)
+            weight = weight.view(org_shape)
             # Gets the average rescaled magnitude for each output channel
-            w_mean = w_scale.mean(0)
+            w_mean = weight.mean(0)
+            del weight
 
             with calibration_forward_context(model), HooksMixin.disable_hooks():
                 # [STEP 3]: Compute output of module
