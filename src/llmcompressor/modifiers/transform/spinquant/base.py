@@ -8,7 +8,7 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
@@ -27,6 +27,37 @@ class SpinquantRotation(str, Enum):
 
 
 class SpinQuantModifier(Modifier, use_enum_values=True):
+    """
+    Implements the transforms according to
+    [SpinQuant: LLM quantization with learned rotations](https://arxiv.org/abs/2405.16406)  # noqa: E501
+
+    Transforms (rotations) are extra layers added to a model which reduce the accuracy
+    loss induced by quantization. This is achived through "rotating" weights and
+    activations into a space with a smaller dynamic range of values, thus decreasing
+    the range of scales required for quantization.
+
+    The SpinQuant authors describe four different rotations which can be applied to a
+    model. R1 and R2 are "offline" rotations, meaning that they can be fused into
+    existing weights and therefore do not induce runtime cost. R3 and R4 are "online"
+    rotations, meaning that they require additional computation at runtime.
+
+    :param rotations: A list containing the names of rotations to apply to the model.
+        Possible rotations include R1, R2, R3, and R4
+    :param transform_type: The type of transform to apply to the model.
+        `"hadamard"` has the least performance cost but only supports sizes which are
+        powers of power of two.
+        `"random-matrix"` has more performance cost, but supports a much larger set of
+            sizes.
+        `"random-matrix"` has the greatest performance cost, but supports any size
+    :param randomize: if True, create distinct transforms for each application
+    :param learnable: if True, attach gradients to transform weights for training
+    :param mappings: Specifies layers within a model to target for transforms.
+        A mapping will be inferred if None is provided
+    :param norm_mappings: Specifies layers within a model to target for norm fusing.
+        A mapping will be inferred if None is provided
+    :param transform_config: Optional transform config which overrides `mappings`
+    """
+
     rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="hadamard"
@@ -43,6 +74,10 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     # also included in recipe serialization
     transform_config: Optional[TransformConfig] = Field(default=None)
 
+    @field_validator("randomize", "learnable", mode="before")
+    def validate_not_implemented(cls, value, info: ValidationInfo):
+        raise NotImplementedError(f"{info.field_name} is not supported right now")
+
     @field_validator("rotations", mode="before")
     def validate_rotations(cls, value):
         if isinstance(value, Iterable):
@@ -50,15 +85,17 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        # TODO: more validation
-        self.mappings = infer_mapping_from_model(state.model)
-        self.norm_mappings = infer_norm_mapping_from_model(state.model)
-
         if self.transform_config is not None:
             if self.mappings is not None:
-                raise ValueError()
+                raise ValueError(
+                    "Please provide either `transform_config` or `mappings` "
+                    "but not both"
+                )
 
             return True
+
+        self.mappings = infer_mapping_from_model(state.model)
+        self.norm_mappings = infer_norm_mapping_from_model(state.model)
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
