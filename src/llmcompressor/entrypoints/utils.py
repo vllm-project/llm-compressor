@@ -20,7 +20,7 @@ from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     modify_save_pretrained,
-    patch_tied_tensors_bug,
+    untie_word_embeddings,
 )
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
@@ -61,7 +61,8 @@ def pre_process(model_args: "ModelArguments"):
         )
 
     # untie tie_word_embeddings weights
-    patch_tied_tensors_bug(model_args.model)
+    if not model_args.tie_word_embeddings:
+        untie_word_embeddings(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
@@ -143,7 +144,6 @@ def initialize_model_from_path(
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
-        tie_word_embeddings=model_args.tie_word_embeddings,
         trust_remote_code=model_args.trust_remote_code_model,
     )
 
@@ -156,7 +156,6 @@ def initialize_model_from_path(
             AutoConfig.from_pretrained(
                 model_args.distill_teacher,
                 use_auth_token=True if model_args.use_auth_token else None,
-                tie_word_embeddings=model_args.tie_word_embeddings,
                 trust_remote_code=model_args.trust_remote_code_model,
             )
             if model_args.distill_teacher
