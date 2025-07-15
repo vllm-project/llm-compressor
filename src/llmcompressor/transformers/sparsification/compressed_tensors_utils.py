@@ -14,7 +14,6 @@ from compressed_tensors import (
     register_offload_parameter,
 )
 from loguru import logger
-from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
