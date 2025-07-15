@@ -62,7 +62,6 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
             selected_experts, num_classes=self.num_experts
         ).permute(2, 1, 0)
 
-        # Loop over all available experts in the model and perform the computation on each expert
         expert_hitted = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
         for expert_idx in expert_hitted:
             expert_layer = self.experts[expert_idx]
