@@ -16,7 +16,7 @@ DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
 # Select number of samples
-NUM_CALIBRATION_SAMPLES = 20
+NUM_CALIBRATION_SAMPLES = 200
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
