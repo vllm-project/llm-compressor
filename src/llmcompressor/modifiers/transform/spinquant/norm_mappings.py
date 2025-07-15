@@ -1,6 +1,10 @@
 from typing import Dict, List
 
+from loguru import logger
 from pydantic import BaseModel, field_validator
+from transformers import PreTrainedModel
+
+__all__ = ["infer_norm_mapping_from_model"]
 
 
 class NormMapping(BaseModel):
@@ -15,7 +19,7 @@ class NormMapping(BaseModel):
         return value
 
 
-_default_norm_mappings = [
+_default_mappings = [
     NormMapping(
         norm="re:.*input_layernorm$",
         linears=["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
@@ -31,5 +35,16 @@ _default_norm_mappings = [
 ]
 
 NORM_MAPPING_REGISTRY: Dict[str, NormMapping] = {
-    "LlamaForCausalLM": _default_norm_mappings,
+    "LlamaForCausalLM": _default_mappings,
 }
+
+
+def infer_norm_mapping_from_model(model: PreTrainedModel) -> List[NormMapping]:
+    architecture = model.__class__.__name__
+    if architecture not in NORM_MAPPING_REGISTRY:
+        logger.info(
+            f"Unrecognized model architecture {architecture}. "
+            "Falling back to default mappings"
+        )
+
+    return NORM_MAPPING_REGISTRY.get(architecture, _default_mappings)

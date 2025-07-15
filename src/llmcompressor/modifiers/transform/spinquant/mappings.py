@@ -1,9 +1,13 @@
 from typing import Dict, List, Optional
 
+from loguru import logger
 from pydantic import BaseModel, Field, field_validator
+from transformers import PreTrainedModel
+
+__all__ = ["SpinQuantMapping", "infer_mapping_from_model"]
 
 
-class SpinQuantMappings(BaseModel):
+class SpinQuantMapping(BaseModel):
     embedding: str
 
     attn_q: str
@@ -25,7 +29,7 @@ class SpinQuantMappings(BaseModel):
         return value
 
 
-_default_mappings = SpinQuantMappings(
+_default_mappings = SpinQuantMapping(
     embedding="re:.*embed_tokens$",
     attn_q="re:.*q_proj$",
     attn_k="re:.*k_proj$",
@@ -37,6 +41,17 @@ _default_mappings = SpinQuantMappings(
 )
 
 
-SPINQUANT_MAPPING_REGISTRY: Dict[str, SpinQuantMappings] = {
+SPINQUANT_MAPPING_REGISTRY: Dict[str, SpinQuantMapping] = {
     "LlamaForCausalLM": _default_mappings,
 }
+
+
+def infer_mapping_from_model(model: PreTrainedModel) -> SpinQuantMapping:
+    architecture = model.__class__.__name__
+    if architecture not in SPINQUANT_MAPPING_REGISTRY:
+        logger.info(
+            f"Unrecognized model architecture {architecture}. "
+            "Falling back to default mappings"
+        )
+
+    return SPINQUANT_MAPPING_REGISTRY.get(architecture, _default_mappings)

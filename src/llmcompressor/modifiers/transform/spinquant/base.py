@@ -15,8 +15,8 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import fuse_norm_linears, normalize_embedding
 from llmcompressor.modifiers import Modifier
 
-from .mappings import SPINQUANT_MAPPING_REGISTRY, SpinQuantMappings
-from .norm_mappings import NORM_MAPPING_REGISTRY, NormMapping
+from .mappings import SpinQuantMapping, infer_mapping_from_model
+from .norm_mappings import NormMapping, infer_norm_mapping_from_model
 
 
 class SpinquantRotation(str, Enum):
@@ -36,9 +36,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     # norm mappings separate from spinquant mappings to allow users to
     # override spinquant mappings with transform_config without overriding norms
-    # we can combine these mappings, but it requires some more validation logic
-    # maybe there's a reason to keep if other modifiers want norm fusing, idk
-    mappings: Optional[SpinQuantMappings] = Field(default=None, exclude=True)
+    mappings: Optional[SpinQuantMapping] = Field(default=None, exclude=True)
     norm_mappings: Optional[List[NormMapping]] = Field(default=None, exclude=True)
 
     # optional override for more fine-grained control
@@ -53,8 +51,8 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         # TODO: more validation
-        self.mappings = SPINQUANT_MAPPING_REGISTRY[state.model.__class__.__name__]
-        self.norm_mappings = NORM_MAPPING_REGISTRY[state.model.__class__.__name__]
+        self.mappings = infer_mapping_from_model(state.model)
+        self.norm_mappings = infer_norm_mapping_from_model(state.model)
 
         if self.transform_config is not None:
             if self.mappings is not None:
