@@ -1,4 +1,4 @@
-from typing import Iterable, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from compressed_tensors.transform import (
     TransformArgs,
@@ -24,7 +24,7 @@ class QuIPModifier(Modifier):
     loss induced by quantization. This is achived through "rotating" weights and
     activations into a space with a smaller dynamic range of values, thus decreasing
     the range of scales required for quantization.
-    
+
     QuIP and QuIP# apply transforms to every linear layer, two of which are fused into
     the model weights and two of which remain as online rotations computed at runtime.
 
