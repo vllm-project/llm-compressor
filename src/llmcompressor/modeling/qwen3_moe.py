@@ -27,7 +27,7 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
     ):
         super().__init__()
         self.num_experts = config.num_experts
-        self.top_k = config.top_k
+        self.top_k = config.num_experts
         self.norm_topk_prob = config.norm_topk_prob
 
         # gating
