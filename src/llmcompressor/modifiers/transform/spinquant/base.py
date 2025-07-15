@@ -55,24 +55,34 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         A mapping will be inferred if None is provided
     :param norm_mappings: Specifies layers within a model to target for norm fusing.
         A mapping will be inferred if None is provided
-    :param transform_config: Optional transform config which overrides `mappings`
+    :param transform_config: Optional transform config for overriding provided arguments
     """
 
-    rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
-    transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
-        default="hadamard"
+    rotations: List[SpinquantRotation] = Field(
+        default_factory=lambda: ["R1", "R2"], exclude=True
     )
-    randomize: bool = Field(default=False)
-    learnable: bool = Field(default=False)
+    transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
+        default="hadamard", exclude=True
+    )
+    randomize: bool = Field(default=False, exclude=True)
+    learnable: bool = Field(default=False, exclude=True)
 
     # norm mappings separate from spinquant mappings to allow users to
     # override spinquant mappings with transform_config without overriding norms
-    mappings: Optional[SpinQuantMapping] = Field(default=None, exclude=True)
-    norm_mappings: Optional[List[NormMapping]] = Field(default=None, exclude=True)
+    mappings: Optional[SpinQuantMapping] = Field(
+        default=None,
+        repr=False,
+        exclude=True,
+    )
+    norm_mappings: Optional[List[NormMapping]] = Field(
+        default=None,
+        repr=False,
+        exclude=True,
+    )
 
     # optional override for more fine-grained control
     # also included in recipe serialization
-    transform_config: Optional[TransformConfig] = Field(default=None)
+    transform_config: Optional[TransformConfig] = Field(default=None, repr=False)
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -86,12 +96,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.transform_config is not None:
-            if self.mappings is not None:
-                raise ValueError(
-                    "Please provide either `transform_config` or `mappings` "
-                    "but not both"
-                )
-
             return True
 
         self.mappings = infer_mapping_from_model(state.model)
