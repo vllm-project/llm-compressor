@@ -38,7 +38,7 @@ def test_set_module_for_calibration():
 
     initialize_module_for_quantization(layer, quantization_scheme)
     layer.quantization_status = QuantizationStatus("calibration")
-    initialize_observer(layer, "weight")
+    initialize_observer(layer, "weight", quantization_scheme.weights)
 
     # should have both input and weight observer after initalizing
     assert hasattr(layer, "weight_observer")

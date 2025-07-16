@@ -39,9 +39,9 @@ def test_observers_update(shape, group_size, actorder):
     output = torch.empty(module.out_features, dtype=module.weight.dtype)
 
     initialize_module_for_quantization(module, scheme)
-    initialize_observer(module, "weight")
-    initialize_observer(module, "input")
-    initialize_observer(module, "output")
+    initialize_observer(module, "weight", scheme.weights)
+    initialize_observer(module, "input", scheme.input_activations)
+    initialize_observer(module, "output", scheme.output_activations)
 
     for location, value in (
         ("weight", module.weight),
