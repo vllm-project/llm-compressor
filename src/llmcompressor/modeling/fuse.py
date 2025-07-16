@@ -15,6 +15,11 @@ PRECISION = torch.float64
 
 
 def normalize_embedding(embedding: torch.nn.Module):
+    """
+    Normalize each embedding to have a mean of zero
+
+    :param embedding: embedding module containing embeddings to center
+    """
     if isinstance(embedding, (torch.nn.Embedding)):
         with align_module_device(embedding):
             weight_dtype = embedding.weight.dtype
@@ -26,7 +31,6 @@ def normalize_embedding(embedding: torch.nn.Module):
 
     else:
         raise ValueError(f"Cannot normalize embedding of type {type(embedding)}")
-
 
 def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear]):
     """

@@ -1,3 +1,7 @@
+# NOTE: Fine tuning can require more steps than is shown in the example
+# See the Axolotl integration blog post for best fine tuning practices
+# https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open
+
 from pathlib import Path
 
 import torch
@@ -74,6 +78,7 @@ oneshot(
 )
 
 # Sparse finetune
+# This step can be supplanted by fine tuning via integrated FT libraries such as Axolotl
 train(
     model=(output_path / "sparsity_stage"),
     **oneshot_kwargs,
