@@ -14,6 +14,7 @@
 
 from typing import Optional, Union
 
+import math
 import torch
 from compressed_tensors.transform import TransformArgs, TransformScheme
 from compressed_tensors.transform.factory.base import TransformBase, TransformFactory
@@ -87,6 +88,7 @@ class HadamardTransform(TransformBase):
         self.weight = weight
         self.perm = perm
         self.args = args
+        self._scale = math.sqrt(weight.size(0))
 
     def forward(self, value: Tensor) -> Tensor:
         weight = self.weight
@@ -97,4 +99,4 @@ class HadamardTransform(TransformBase):
         if self.args.inverse:
             weight = weight.T
 
-        return apply_transform_weight(weight, value, self.args.location)
+        return apply_transform_weight(weight, value, self.args.location) / self._scale

@@ -45,7 +45,7 @@ _atol = 1e-1  # bfloat16 is low precision for large matrices
 def test_random_hadamard_matrix_compliant(size):
     # (H / sqrt(n))(H.T / sqrt(n)) == I
     matrix = random_hadamard_matrix(size, device="cuda")
-    product = matrix @ matrix.T
+    product = (matrix @ matrix.T) / matrix.size(0)
     eye = torch.eye(size, dtype=product.dtype, device="cuda")
     assert torch.allclose(product, eye, atol=_atol)
 
@@ -85,6 +85,6 @@ def test_deterministic_hadamard_compliant(size):
 
     # (H / sqrt(n))(H.T / sqrt(n)) == I
     matrix = deterministic_hadamard_matrix(size, device="cuda")
-    product = matrix @ matrix.T
+    product = (matrix @ matrix.T) / matrix.size(0)
     eye = torch.eye(size, dtype=product.dtype, device="cuda")
     assert torch.allclose(product, eye, atol=_atol)

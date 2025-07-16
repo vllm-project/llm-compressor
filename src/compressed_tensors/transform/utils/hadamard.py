@@ -59,7 +59,7 @@ def deterministic_hadamard_matrix(
     for _ in range(log2):
         H = torch.vstack((torch.hstack((H, H)), torch.hstack((H, -H))))
 
-    return H / math.sqrt(size)
+    return H
 
 
 def random_hadamard_matrix(
@@ -86,7 +86,7 @@ def random_hadamard_matrix(
     Q = Q.to(device=device)
     Q = Q * 2 - 1
     Q = torch.diag(Q)
-    return _matmul_hadU(Q) / math.sqrt(size)
+    return _matmul_hadU(Q)
 
 
 def is_pow2(n: int) -> bool:
