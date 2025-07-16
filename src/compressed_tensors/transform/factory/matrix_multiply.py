@@ -17,9 +17,9 @@ from typing import Optional
 import torch
 from compressed_tensors.transform import TransformArgs, TransformScheme
 from compressed_tensors.transform.factory.base import TransformBase, TransformFactory
-from compressed_tensors.transform.utils.utils import (
+from compressed_tensors.transform.utils.matrix import (
     apply_transform_weight,
-    get_matrix_size,
+    get_transform_size,
 )
 from compressed_tensors.utils import get_offloaded_device
 from compressed_tensors.utils.helpers import ParameterizedDefaultDict
@@ -50,8 +50,8 @@ class RandomMatrixFactory(TransformFactory):
         :param module: parent module that transform will be applied to
         :param args: defines how the transform will be applied to the module
         """
-        assert isinstance(module, Linear)
-        size = get_matrix_size(module, args.location)
+        assert hasattr(module, "weight")
+        size = get_transform_size(module, args.location, self.scheme.head_dim)
         dtype = module.weight.dtype
         device = get_offloaded_device(module)
 
@@ -59,7 +59,7 @@ class RandomMatrixFactory(TransformFactory):
         if args.inverse:
             weight = self.inverses[weight]
 
-        return RandomMatrixTransform(weight, args)
+        return RandomMatrixTransform(weight, args, type(module))
 
     def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
         # TODO: verify that weight is invertible (has non-zero determinant)
@@ -74,17 +74,27 @@ class RandomMatrixFactory(TransformFactory):
 
 
 class RandomMatrixTransform(TransformBase):
-    def __init__(self, weight: Tensor, args: TransformArgs):
+    def __init__(
+        self,
+        weight: Tensor,
+        args: TransformArgs,
+        module_type: type[torch.nn.Module],
+    ):
         super().__init__()
         self.weight = weight  # is an inverse if args.inverse
         self.args = args
+        self.module_type = module_type
 
     def forward(self, value: Tensor) -> Parameter:
-        return apply_transform_weight(self.weight, value, self.args.location)
+        return apply_transform_weight(
+            self.weight, value, self.args.location, self.module_type
+        )
 
     def right_inverse(self, value: Tensor) -> Tensor:
         inverse = high_precision_invert(self.weight)
-        return apply_transform_weight(inverse, value, self.args.location)
+        return apply_transform_weight(
+            inverse, value, self.args.location, self.module_type
+        )
 
 
 def high_precision_invert(weight: Tensor) -> Tensor:
