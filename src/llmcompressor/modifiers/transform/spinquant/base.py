@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Iterable, List, Literal, Optional
 
-from compressed_tensors import is_match, match_named_modules
+from compressed_tensors import match_modules_set, match_named_modules
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
@@ -156,24 +156,10 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     def _fuse_norms(self, model: PreTrainedModel):
         for mapping in self.norm_mappings:
-            targets = (mapping.norm, *mapping.linears)
-            matches = dict()
-
-            for name, module in model.named_modules():
-                # match until we get a full set
-                for target in targets:
-                    if is_match(name, module, target):
-                        if target in matches:
-                            raise ValueError("Cannot match twice")
-                        matches[target] = module
-
-                # once we have a full set, fuse and reset
-                if all(target in matches for target in targets):
-                    fuse_norm_linears(
-                        matches[mapping.norm],
-                        (matches[target] for target in mapping.linears),
-                    )
-                    matches = dict()
+            for norm, *linears in match_modules_set(
+                model, (mapping.norm, *mapping.linears)
+            ):
+                fuse_norm_linears(norm, linears)
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(
