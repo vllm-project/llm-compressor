@@ -32,11 +32,6 @@ def mock_is_model_quantized(model):
     return model.is_quantized
 
 
-def mock_iter_named_leaf_modules(model):
-    for name, module in model.named_modules():
-        yield name, module
-
-
 # Mock model class
 class MockModel(Module):
     def __init__(
@@ -98,10 +93,6 @@ class TestSparse24BitmaskSupport:
             patch(
                 f"{SPARSITY_CONFIG_LOCATION}.is_model_quantized",
                 side_effect=mock_is_model_quantized,
-            ),
-            patch(
-                f"{SPARSITY_CONFIG_LOCATION}.iter_named_leaf_modules",
-                side_effect=mock_iter_named_leaf_modules,
             ),
         ]
         for patcher in patchers:

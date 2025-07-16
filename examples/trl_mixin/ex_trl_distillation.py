@@ -1,3 +1,7 @@
+# NOTE: Fine tuning can require more steps than is shown in the example
+# See the Axolotl integration blog post for best fine tuning practices
+# https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open
+
 from sft_trainer import SFTTrainer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -60,6 +64,7 @@ trl_sft_config_args = dict(
 )
 model_args = ModelArguments(model=model, distill_teacher=teacher)
 
+# This step can be supplanted by fine tuning via integrated FT libraries such as Axolotl
 trainer = SFTTrainer(
     model=model,
     teacher=teacher,

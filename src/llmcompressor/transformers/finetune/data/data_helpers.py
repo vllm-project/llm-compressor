@@ -32,7 +32,6 @@ def get_raw_dataset(
         dataset_args.dataset_config_name,
         cache_dir=cache_dir,
         streaming=streaming,
-        trust_remote_code=dataset_args.trust_remote_code_data,
         **kwargs,
     )
     return raw_datasets

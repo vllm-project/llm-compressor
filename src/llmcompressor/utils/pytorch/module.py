@@ -8,14 +8,13 @@ from operator import attrgetter
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
+from compressed_tensors import InternalModule
 from compressed_tensors.quantization.utils import is_module_quantized
-from compressed_tensors.transform import TransformBase
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
 from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
-from llmcompressor.observers import Observer
 from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
@@ -161,18 +160,6 @@ def match_layers_params(
     return resolved
 
 
-def is_internal_module(module: Module) -> bool:
-    """
-    llm-compressor adds additional modules to a model, like observers
-    and transforms, as part of its normal operation
-
-    :param name: name of module
-    :return: True if name indicates a module internally instantiated by
-        llm-compressor, otherwise False
-    """
-    return isinstance(module, (TransformBase, Observer))
-
-
 def get_layers(
     targets: Union[str, List[str]],
     module: Module,
@@ -197,7 +184,7 @@ def get_layers(
         layer_dict = {
             name: layer
             for name, layer in layer_dict.items()
-            if not is_internal_module(layer)
+            if not isinstance(layer, InternalModule)
         }
 
     return layer_dict

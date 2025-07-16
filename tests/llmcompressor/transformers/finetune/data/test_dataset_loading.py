@@ -154,7 +154,6 @@ class TestDatasets(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["ptb", "penn_treebank", "train[:5%]", False],
             ["gsm8k", "main", "train[:5%]", True],
             ["ultrachat_200k", "default", "train_sft[:1%]", False],
         ]
@@ -164,7 +163,6 @@ class TestDatasets(unittest.TestCase):
             dataset=dataset_key,
             dataset_config_name=dataset_config,
             concatenate_data=do_concat,
-            trust_remote_code_data=True,
         )
         manager = TextGenerationDataset.load_from_registry(
             dataset_args.dataset,
@@ -270,7 +268,6 @@ class TestSplitLoading(unittest.TestCase):
         dataset_args = DatasetArguments(
             dataset="open_platypus",
             splits=split_def,
-            trust_remote_code_data=True,
         )
 
         dataset = get_processed_dataset(

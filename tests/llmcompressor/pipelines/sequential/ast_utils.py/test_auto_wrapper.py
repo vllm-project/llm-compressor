@@ -98,3 +98,29 @@ def test_ignore_methods():
     """
     namespace = {"self": Model()}
     check_wrapping(source, None, 1, namespace=namespace, ignore=["meth_one"])
+
+
+def test_branch_with_self_assignment():
+    source = """
+    def forward(x, y):
+        if y > 0:
+            x = x + 1
+        else:
+            x = x - 1
+        return x
+    """
+
+    tree = ast.parse(textwrap.dedent(source))
+    wrapper = AutoWrapper(namespace={}, ignore=[])
+    wrapper.auto_wrap(tree)
+
+    assert len(wrapper._wrapper_fn_defs) == 1
+
+    # Check if both x, y are included in args
+    wrapped_fn = wrapper._wrapper_fn_defs[0]
+    arg_names = {arg.arg for arg in wrapped_fn.args.args}
+
+    assert arg_names == {
+        "x",
+        "y",
+    }, f"Expected arguments {{'x', 'y'}}, but got {arg_names}"

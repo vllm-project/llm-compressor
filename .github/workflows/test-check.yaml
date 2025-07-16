@@ -4,6 +4,12 @@ on:
     branches:
       - main
   push:
+  workflow_dispatch:
+    inputs:
+      code_coverage:
+        description: if enabled, code coverage metrics will be collected during the test run
+        type: boolean
+        default: false
 
 env:
   CADENCE: "commit"
@@ -36,8 +42,21 @@ jobs:
           BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
+      - name: "⚙️ Prepare code coverage"
+        if: inputs.code_coverage
+        uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running base tests"
         run: make test
+      - name: "Upload coverage report"
+        if: (success() || failure()) && inputs.code_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-tests-coverage-results
+          path: |
+            .coverage
+            coverage-html
+            coverage.json
+          retention-days: 5
 
   pytorch-tests:
     runs-on: ubuntu-22.04
@@ -65,9 +84,23 @@ jobs:
           BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
+      - name: "⚙️ Prepare code coverage"
+        if: inputs.code_coverage
+        uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+      - name: "Upload coverage report"
+        if: (success() || failure()) && inputs.code_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytorch-tests-coverage-results
+          path: |
+            .coverage
+            coverage-html
+            coverage.json
+          retention-days: 5
+
 
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
@@ -95,6 +128,19 @@ jobs:
           BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
+      - name: "⚙️ Prepare code coverage"
+        if: inputs.code_coverage
+        uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+      - name: "Upload coverage report"
+        if: (success() || failure()) && inputs.code_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-pytorch-tests-coverage-results
+          path: |
+            .coverage
+            coverage-html
+            coverage.json
+          retention-days: 5

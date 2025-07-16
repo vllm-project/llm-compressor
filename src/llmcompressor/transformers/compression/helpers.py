@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Tuple
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
-from compressed_tensors.quantization.utils import iter_named_leaf_modules, module_type
+from compressed_tensors.quantization.utils import module_type
 from compressed_tensors.utils import align_module_device
 from tqdm import tqdm
 
@@ -163,7 +163,7 @@ def _get_sparse_targets_ignore_dicts(
     exhaustive_targets = defaultdict(list)
     exhaustive_ignore = defaultdict(list)
 
-    for name, submodule in iter_named_leaf_modules(module):
+    for name, submodule in module.named_modules():
         submodule_type = module_type(submodule)
         is_target = is_sparse_compression_target(
             module=submodule,

@@ -2,6 +2,7 @@ from math import ceil
 from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
+from compressed_tensors import InternalModule
 from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
@@ -12,12 +13,11 @@ from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import safe_permute
 from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
-from torch.nn import Module
 
 __all__ = ["Observer"]
 
 
-class Observer(Module, RegistryMixin):
+class Observer(InternalModule, RegistryMixin):
     """
     Base Observer class to be subclassed for specific implementation.
     Subclasses should override `calculate_qparams` to return a scale, zero_point

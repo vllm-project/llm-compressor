@@ -162,15 +162,6 @@ class DatasetArguments(CustomDatasetArguments):
             ),
         },
     )
-    trust_remote_code_data: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether or not to allow for datasets defined on the Hub using "
-            "a dataset script. This option should only be set to True for "
-            "repositories you trust and in which you have read the code, as it "
-            "will execute code present on the Hub on your local machine."
-        },
-    )
     # --- pipeline arguments --- #
     pipeline: Optional[str] = field(
         default="independent",

@@ -5,7 +5,6 @@ import unittest
 
 import torch
 from compressed_tensors.linear.compressed_linear import CompressedLinear
-from compressed_tensors.quantization.utils import iter_named_leaf_modules
 from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
@@ -132,9 +131,7 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
 
     def test_compressed_linear_modules_exist(self):
         compressed_linear_counts = 0
-        for _, submodule in iter_named_leaf_modules(
-            self.compressed_model,
-        ):
+        for submodule in self.compressed_model.modules():
             if isinstance(submodule, CompressedLinear):
                 compressed_linear_counts += 1
 

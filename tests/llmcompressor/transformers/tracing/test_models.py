@@ -121,7 +121,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             WhisperForConditionalGeneration,
             ["WhisperDecoderLayer"],
             "audio",
-            ["librosa", "soundfile"],
+            ["librosa", "soundfile", "torchcodec"],
         ),
     ],
 )
