@@ -5,17 +5,13 @@ creating bug reports. See `.github/ISSUE_TEMPLATE/bug_report.md`
 
 import platform
 import sys
-import importlib.util
+import importlib
 
 def get_version(pkg_name):
     try:
-        spec = importlib.util.find_spec(pkg_name)
-        if spec is None:
-            return "Not installed"
-        pkg = importlib.import_module(pkg_name)
-        return getattr(pkg, '__version__', 'Unknown version')
-    except Exception as e:
-        return f"Error: {e}"
+        return importlib.metadata.version(pkg_name)
+    except importlib.metadata.PackageNotFoundError:
+        return "None"
 
 def get_torch_hardware_info():
     try:

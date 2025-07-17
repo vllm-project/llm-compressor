@@ -8,7 +8,7 @@ body:
 - type: markdown
   attributes:
     value: >
-      #### Before submitting an issue, please make sure the issue hasn't been already addressed by searching through [the existing and past issues](https://github.com/vllm-project/vllm/issues?q=is%3Aissue+sort%3Acreated-desc+).
+      #### Before submitting an issue, please make sure the issue hasn't been already addressed by searching through [the existing and past issues](https://github.com/vllm-project/llm-compressor/issues?q=is%3Aissue+sort%3Acreated-desc+).
 
       #### ⚠️ For any issues related vLLM which are not related to quantization or compressed models, please create an issue in [vllm-project/vllm](https://github.com/vllm-project/vllm/issues).
 - type: textarea
