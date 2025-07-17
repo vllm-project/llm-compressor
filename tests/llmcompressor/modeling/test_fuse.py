@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from llmcompressor.modeling.fuse import normalize_embedding, fuse_norm_linears
+from llmcompressor.modeling.fuse import fuse_norm_linears, normalize_embedding
 
 
 @pytest.mark.unit
