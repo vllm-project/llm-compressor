@@ -1,13 +1,13 @@
 import pytest
 import torch
 
-from llmcompressor.modeling.fuse import center_embeddings, fuse_norm_linears
+from llmcompressor.modeling.fuse import normalize_embedding, fuse_norm_linears
 
 
 @pytest.mark.unit
-def test_center_embeddings():
+def test_normalize_embedding():
     embedding = torch.nn.Embedding(10, 10)
-    center_embeddings(embedding)
+    normalize_embedding(embedding)
 
     assert torch.allclose(
         embedding.weight.mean(dim=1), torch.zeros(embedding.num_embeddings), atol=1e-5

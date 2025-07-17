@@ -32,6 +32,7 @@ def normalize_embedding(embedding: torch.nn.Module):
     else:
         raise ValueError(f"Cannot normalize embedding of type {type(embedding)}")
 
+
 def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear]):
     """
     Fuse a norm layer into subsequent linear layers. This useful for ensuring transform
@@ -42,7 +43,7 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
     :param norm: norm layer whose weight will be fused into subsequent linears
     :param linears: linear layers which directly follow the norm layer
     """
-    if isinstance(norm, (torch.nn.RMSNorm, LlamaRMSNorm)):
+    if isinstance(norm, (torch.nn.RMSNorm, LlamaRMSNorm, torch.nn.LayerNorm)):
         for linear in linears:
             # NOTE: spinquant does this op in float64
             exec_device = get_execution_device(norm)
