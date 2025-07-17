@@ -31,7 +31,6 @@ ds = load_dataset(
     DATASET_ID,
     DATASET_SUBSET,
     split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
-    trust_remote_code=True,
 )
 
 
