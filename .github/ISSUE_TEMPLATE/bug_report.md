@@ -1,31 +1,48 @@
 ---
-name: Bug report
-about: Create a report to help us improve
+name: 🐛 Bug report
+about: Raise an issue here if you find a bug.
 labels: bug
+title: "[Bug]: "
 
----
+body:
+- type: markdown
+  attributes:
+    value: >
+      #### Before submitting an issue, please make sure the issue hasn't been already addressed by searching through [the existing and past issues](https://github.com/vllm-project/vllm/issues?q=is%3Aissue+sort%3Acreated-desc+).
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+      #### ⚠️ For any issues related vLLM which are not related to quantization or compressed models, please create an issue in [vllm-project/vllm](https://github.com/vllm-project/vllm/issues).
+- type: textarea
+  attributes:
+    label: ⚙️ Your current environment
+    description: |
+      Please run the following and paste the output below.
+      ```bash
+      wget https://raw.githubusercontent.com/vllm-project/llm-compressor/main/tools/collect_env.py
+      # For security purposes, please feel free to check the contents of collect_env.py before running it.
+      python collect_env.py
+      ```
+    value: |
+      <details>
+      <summary>The output of <code>python collect_env.py</code></summary>
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+      ```text
+      Your output of `python collect_env.py` here
+      ```
 
-**Environment**
-Include all relevant environment information:
-1. OS [e.g. Ubuntu 20.04]:
-2. Python version [e.g. 3.7]:
-3. LLM Compressor version or commit hash [e.g. 0.1.0, `f7245c8`]:
-4. ML framework version(s) [e.g. torch 2.3.1]:
-5. Other Python package versions [e.g. vLLM, compressed-tensors, numpy, ONNX]:
-6. Other relevant environment information [e.g. hardware, CUDA version]:
-
-**To Reproduce**
-Exact steps to reproduce the behavior:
-
-
-**Errors**
-If applicable, add a full print-out of any errors or exceptions that are raised or include screenshots to help explain your problem.
-
-**Additional context**
-Add any other context about the problem here. Also include any relevant files.
+      </details>
+  validations:
+    required: true
+- type: textarea
+  attributes:
+    label: 🐛 Describe the bug
+    description: |
+      Please provide a clear and concise description of what the bug is.
+  validations:
+    required: true
+- type: textarea
+  attributes:
+    label: 🛠️ Steps to reproduce
+    description: |
+      If applicable, please describe any steps required to reproduce. If you can share an applicable huggingface model stub, please do so here.
+  validations:
+    required: false
