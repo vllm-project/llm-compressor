@@ -53,6 +53,8 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.cache/*
+docs/.cache/*
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
