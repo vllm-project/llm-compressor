@@ -158,7 +158,6 @@ setup(
             # docs
             "mkdocs",
             "mkdocs-material[imaging]",
-            "mike",
             "markdown",
             "pymdown-extensions",
             "mkdocs-section-index",

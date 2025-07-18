@@ -1,6 +1,6 @@
 site_name: LLM Compressor Docs
 site_description: Documentation for LLM Compressor, an easy-to-use library for compressing large language models for deployment with vLLM.
-site_url: https://vllm-project.github.io/llm-compressor
+site_url: https://docs.vllm.ai/projects/llm-compressor
 repo_url: https://github.com/vllm-project/llm-compressor
 edit_uri: https://github.com/vllm-project/llm-compressor/tree/main/docs
 
@@ -88,7 +88,6 @@ plugins:
   - gen-files:
       scripts:
         - docs/scripts/gen_files.py
-  - mike
   - minify:
       minify_html: true
   - mkdocs-nav-weight
@@ -105,12 +104,6 @@ plugins:
 
 extra:
   generator: false
-  version:
-    provider: mike
-    alias: true
-    default:
-      - stable
-      - development
 
 extra_css:
   - stylesheets/style.css
