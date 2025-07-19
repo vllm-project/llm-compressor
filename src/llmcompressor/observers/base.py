@@ -181,8 +181,11 @@ class Observer(InternalModule, RegistryMixin):
                     self._zero_point[:, group_index] = zero_point.squeeze(1)
 
             elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
-                # assume observed is transposed, because its the output, hence use dim 0
-                self._scale, self._zero_point = self.get_qparams_along_dim(observed, 0)
+                # 1. dim=2 scenario: in kv cache quant scenario which is
+                # [batch_size, seq_len - residual_length, num_heads * head_dim]
+                # 2. dim=0 scenario: assume observed is transposed, because its the output, hence use dim 0
+                dim = 2 if observed.dim() == 3 else 0
+                self._scale, self._zero_point = self.get_qparams_along_dim(observed, dim)
 
             elif self.quantization_args.strategy == QuantizationStrategy.TOKEN:
                 # use dim 1, assume the obsersed.shape = [batch, token, hidden]
