@@ -1,3 +1,4 @@
+import contextlib
 from typing import TYPE_CHECKING
 
 import torch
@@ -6,6 +7,7 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.prepare import moe_calibration_context
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -26,7 +28,9 @@ __all__ = ["SequentialPipeline"]
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
     def __call__(
-        model: torch.nn.Module, dataloader: DataLoader, dataset_args: "DatasetArguments"
+        model: torch.nn.Module,
+        dataloader: DataLoader,
+        dataset_args: "DatasetArguments",
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -69,7 +73,13 @@ class SequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        with calibration_forward_context(model), DisableQuantization(model):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(calibration_forward_context(model))
+            stack.enter_context(DisableQuantization(model))
+
+            if dataset_args.calibrate_moe_context:
+                moe_calibration_context(model, stack)
+
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)
 

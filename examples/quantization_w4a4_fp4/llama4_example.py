@@ -3,7 +3,7 @@ from datasets import load_dataset
 from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import prepare_for_calibration
+from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Select model and load it.
@@ -14,7 +14,7 @@ processor = Llama4Processor.from_pretrained(model_id)
 # This change allows compatibility with vllm.
 # To apply your own custom module for experimentation, consider updating
 # `SequentialLlama4TextMoe` under llmcompressor/modeling/llama4.py
-model = prepare_for_calibration(model)
+model = replace_modules_for_calibration(model)
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 20

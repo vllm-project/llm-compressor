@@ -189,7 +189,11 @@ class Oneshot:
         user_pipeline = self.dataset_args.pipeline
         modifiers = session.lifecycle.recipe.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
-        pipeline(self.model, calibration_dataloader, self.dataset_args)
+        pipeline(
+            self.model,
+            calibration_dataloader,
+            self.dataset_args,
+        )
 
         session.finalize()
 
@@ -227,6 +231,7 @@ def oneshot(
     overwrite_cache: bool = False,
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
+    calibrate_moe_context: bool = False,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",

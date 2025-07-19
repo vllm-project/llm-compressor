@@ -117,6 +117,16 @@ class DatasetArguments(CustomDatasetArguments):
         default=512,
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
+    calibrate_moe_context: bool = field(
+        default=False,
+        metadata={
+            "help": "If during calibration, the MoE context should be enabled "
+            "for the given model. This usually involves updating all MoE modules "
+            "in the model for the duration of calibration. See moe_context under "
+            "modeling/prepare.py for a list of supported MoEs and their updated "
+            "module definitions"
+        },
+    )
     shuffle_calibration_samples: Optional[bool] = field(
         default=True,
         metadata={
