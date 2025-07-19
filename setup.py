@@ -155,6 +155,17 @@ setup(
             "flake8~=7.0.0",
             # pre commit hooks
             "pre-commit",
+            # docs
+            "mkdocs",
+            "mkdocs-material[imaging]",
+            "markdown",
+            "pymdown-extensions",
+            "mkdocs-section-index",
+            "mkdocs-minify-plugin",
+            "mkdocs-api-autonav",
+            "mkdocstrings-python",
+            "mkdocs-gen-files",
+            "mkdocs-nav-weight",
         ]
     },
     entry_points={

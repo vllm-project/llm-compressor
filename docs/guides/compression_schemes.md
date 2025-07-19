@@ -1,4 +1,4 @@
-# Optimization Schemes
+# Compression Schemes
 
 ## PTQ
 PTQ is performed to reduce the precision of quantizable weights (e.g., linear layers) to a lower bit-width. Supported formats are:
