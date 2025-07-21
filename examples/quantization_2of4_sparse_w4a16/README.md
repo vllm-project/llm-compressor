@@ -74,7 +74,7 @@ max_seq_length = 512
 num_calibration_samples = 512
 
 # set training parameters for finetuning
-num_train_epochs = 0.01
+num_train_epochs = 0.5
 logging_steps = 500
 save_steps = 5000
 gradient_checkpointing = True  # saves memory during training
@@ -82,27 +82,7 @@ learning_rate = 0.0001
 bf16 = False  # using full precision for training
 lr_scheduler_type = "cosine"
 warmup_ratio = 0.1
-preprocessing_num_workers = 64
-
-oneshot_kwargs = dict(
-    dataset=dataset,
-    recipe=recipe,
-    num_calibration_samples=num_calibration_samples,
-    preprocessing_num_workers=preprocessing_num_workers,
-    splits=splits,
-)
-
-training_kwargs = dict(
-    bf16=bf16,
-    max_seq_length=max_seq_length,
-    num_train_epochs=num_train_epochs,
-    logging_steps=logging_steps,
-    save_steps=save_steps,
-    gradient_checkpointing=gradient_checkpointing,
-    learning_rate=learning_rate,
-    lr_scheduler_type=lr_scheduler_type,
-    warmup_ratio=warmup_ratio,
-)
+preprocessing_num_workers = 8
 ```
 
 ## Step 2: Run `sparsification`, `fine-tuning`, and `quantization`
