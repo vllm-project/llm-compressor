@@ -162,15 +162,6 @@ class DatasetArguments(CustomDatasetArguments):
             ),
         },
     )
-    trust_remote_code_data: bool = field(
-        default=False,
-        metadata={
-            "help": "Whether or not to allow for datasets defined on the Hub using "
-            "a dataset script. This option should only be set to True for "
-            "repositories you trust and in which you have read the code, as it "
-            "will execute code present on the Hub on your local machine."
-        },
-    )
     # --- pipeline arguments --- #
     pipeline: Optional[str] = field(
         default="independent",
@@ -181,7 +172,17 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     tracing_ignore: List[str] = field(
-        default_factory=lambda: ["_update_causal_mask"],
+        default_factory=lambda: [
+            "_update_causal_mask",
+            "create_causal_mask",
+            "make_causal_mask",
+            "get_causal_mask",
+            "mask_interface",
+            "mask_function",
+            "_prepare_4d_causal_attention_mask",
+            "_prepare_fsmt_decoder_inputs",
+            "_prepare_4d_causal_attention_mask_with_cache_position",
+        ],
         metadata={
             "help": "List of functions to ignore during tracing, either "
             "{module}.{method_name} or {function_name}"
