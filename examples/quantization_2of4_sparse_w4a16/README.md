@@ -170,7 +170,7 @@ tokenizer.save_pretrained(f"{output_dir}/quantization_stage")
 ### Custom Quantization
 The current repo supports multiple quantization techniques configured using a recipe. Supported strategies are tensor, group, and channel.
 
-The recipe `(2of4_w4a16_recipe.yaml)` uses channel-wise quantization `(strategy: "channel")`.
+The recipe (`2of4_w4a16_recipe.yaml`) uses channel-wise quantization (`strategy: "channel"`).
 To change the quantization strategy, edit the recipe file accordingly:
 
 Use `tensor` for per-tensor quantization
