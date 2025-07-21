@@ -12,7 +12,6 @@ from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils import (
     align_module_device,
-    delete_offload_parameter,
     update_offload_parameter,
     update_parameter_data,
 )
@@ -137,7 +136,9 @@ def call_observer(
                 (zp_name, updated_zero_point),
             ]:
                 if not hasattr(module, name):
-                    module.register_parameter(name, torch.nn.Parameter(value.clone(), requires_grad=False))
+                    module.register_parameter(
+                        name, torch.nn.Parameter(value.clone(), requires_grad=False)
+                    )
                 else:
                     update_offload_parameter(module, name, value)
 
