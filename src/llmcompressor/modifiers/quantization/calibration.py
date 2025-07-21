@@ -139,7 +139,7 @@ def call_observer(
                         delattr(module, name)
                     module.register_parameter(name, torch.nn.Parameter(value.clone()))
                 else:
-                    update_parameter_data(module, value, name)
+                    update_offload_parameter(module, value, name)
 
 
 def update_weight_global_scale(module: Module):
