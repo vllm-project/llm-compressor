@@ -20,7 +20,11 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationStrategy,
 )
-from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
+from compressed_tensors.quantization.utils import (
+    calculate_qparams,
+    compute_dynamic_scales_and_zp,
+    generate_gparam,
+)
 
 
 @pytest.mark.parametrize(
@@ -73,3 +77,26 @@ def test_fused_global_scales():
     assert max_tensor_value.item() == pytest.approx(
         FP4_E2M1_DATA.max * FP8_E4M3_DATA.max / global_scale, abs=0.001
     )
+
+
+@pytest.mark.parametrize(
+    "shape,group_size,exp_shape",
+    [
+        # Only batch size =1 is supported for dynamic GROUP quantization
+        ((1, 4, 8), 4, torch.Size([4, 2])),
+    ],
+)
+def test_compute_dynamic_scales_and_zp_group(shape, group_size, exp_shape):
+    """
+    Dynamic group quantization should reduce activations in groups, producing
+    scales and zero points of shape [batch, num_groups].
+    """
+    value = torch.randn(*shape)
+    args = QuantizationArgs(
+        strategy=QuantizationStrategy.GROUP,
+        group_size=group_size,
+        dynamic=True,
+    )
+    scale, zp = compute_dynamic_scales_and_zp(value, args, module=torch.nn.Module())
+    assert scale.shape == exp_shape
+    assert zp.shape == exp_shape

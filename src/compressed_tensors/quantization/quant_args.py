@@ -14,7 +14,7 @@
 
 import warnings
 from enum import Enum
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from compressed_tensors.utils import Aliasable
@@ -153,8 +153,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     :param symmetric: whether or not quantization scale is symmetric about zero-point
     :param strategy: string id determining the scope of scale/zero-point to apply
     :param group_size: group length to use for the group strategy
-    :param block_structure: 2d block structure to use for the block strategy, must be
-    of the format "2x4", "8x16", etc.
+    :param block_structure: 2d block structure to use for the block strategy; must be
+        a list of two ints [rows, cols] like [128, 128].
     :param dynamic: set True to perform dynamic quantization - values will not be
         calibrated during calibration phase, instead during inference new quantization
         ranges will be observed with every sample. Defaults to False for static
@@ -169,7 +169,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     symmetric: bool = True
     group_size: Optional[int] = None
     strategy: Optional[QuantizationStrategy] = None
-    block_structure: Optional[str] = None
+    block_structure: Optional[List[int]] = None
     dynamic: Union[DynamicType, bool] = False
     actorder: Union[ActivationOrdering, bool, None] = None
     observer: Optional[str] = Field(
@@ -206,6 +206,28 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             )
 
         return value
+
+    @field_validator("block_structure", mode="before")
+    def validate_block_structure(cls, value) -> Optional[List[int]]:
+        if value is None:
+            return value
+        # For backward compatibility, allow string format "2x4", "8x16", etc.
+        if isinstance(value, str):
+            try:
+                return [int(x) for x in value.split("x")]
+            except Exception:
+                raise ValueError(
+                    f"Invalid block_structure '{value}'. Must be a list of two ints [rows, cols]."
+                )
+        if isinstance(value, (list, tuple)):
+            if len(value) != 2 or not all(isinstance(v, int) for v in value):
+                raise ValueError(
+                    f"Invalid block_structure '{value}'. Must be a list of two ints [rows, cols]."
+                )
+            return list(value)
+        raise ValueError(
+            f"Invalid block_structure '{value}'. Must be a list of two ints [rows, cols]."
+        )
 
     @field_validator("strategy", mode="before")
     def validate_strategy(cls, value) -> Union[QuantizationStrategy, None]:
@@ -277,14 +299,15 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
 
         # infer observer w.r.t. dynamic
         if dynamic:
-            if strategy not in (
+            supported_strategies = (
                 QuantizationStrategy.TOKEN,
                 QuantizationStrategy.TENSOR,
                 QuantizationStrategy.TENSOR_GROUP,
-            ):
+                QuantizationStrategy.GROUP,
+            )
+            if strategy not in supported_strategies:
                 raise ValueError(
-                    f"One of {(QuantizationStrategy.TOKEN, QuantizationStrategy.TENSOR, QuantizationStrategy.TENSOR_GROUP)} "
-                    "must be used for dynamic quantization",
+                    f"One of {supported_strategies} must be used for dynamic quantization"
                 )
 
             if (

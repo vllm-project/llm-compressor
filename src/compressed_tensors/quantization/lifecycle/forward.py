@@ -111,11 +111,18 @@ def dequantize(
         elif scale.ndim == 2:
             if scale.shape[1] == 1:
                 args = QuantizationArgs(strategy=QuantizationStrategy.CHANNEL)
-            else:
+            # Scale height matches input or is 1 -> group quantization across columns
+            # 
+            # Example 1: scale.shape[0] == 1
+            # x_q: (4, 8), scale: (1, 4) -> 2 columns per group
+            #
+            # Example 2: scale.shape[0] == x_q.shape[0] 
+            # x_q: (4, 8), scale: (4, 4) -> 2 elements per group (per row)
+            elif (scale.shape[0] == 1) or (scale.shape[0] == x_q.shape[0]):
                 group_size = int(x_q.shape[1] / scale.shape[1])
-                args = QuantizationArgs(
-                    strategy=QuantizationStrategy.GROUP, group_size=group_size
-                )
+                args = QuantizationArgs(strategy=QuantizationStrategy.GROUP, group_size=group_size)
+            else:
+                args = QuantizationArgs(strategy=QuantizationStrategy.BLOCK, block_structure=scale.shape)
         else:
             raise ValueError(
                 f"Could not infer a quantization strategy from scale with {scale.ndim} "
@@ -189,7 +196,63 @@ def _process_quantization(
     q_min, q_max = calculate_range(args, x.device)
     group_size = args.group_size
 
-    if args.strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
+    # blockwise FP8: quantize per 2D block, supports block_structure for static block quant
+    if args.strategy == QuantizationStrategy.BLOCK:
+        original_shape = x.shape
+        rows, cols = x.shape[-2], x.shape[-1]
+        block_height, block_width = args.block_structure
+
+        # Ensure exact division (tensor dimensions must be divisible by block size)
+        if rows % block_height != 0:
+            raise ValueError(
+                f"Tensor height {rows} is not divisible by block_height {block_height}. "
+                f"Block quantization requires exact division."
+            )
+        if cols % block_width != 0:
+            raise ValueError(
+                f"Tensor width {cols} is not divisible by block_width {block_width}. "
+                f"Block quantization requires exact division."
+            )
+
+        # reshape into blocks and transpose to make each block contiguous
+        num_rows_blocks = rows // block_height
+        num_cols_blocks = cols // block_width
+        x_blocks = x.reshape(
+            num_rows_blocks,
+            block_height,
+            num_cols_blocks,
+            block_width,
+        ).transpose(1, 2)
+
+        # expand scale/zero_point for blocks
+        sb = scale.unsqueeze(-1).unsqueeze(-1)
+        zb = zero_point.unsqueeze(-1).unsqueeze(-1) if zero_point is not None else None
+        if do_quantize:
+            # quantize blocks
+            x_blocks = _quantize(
+                x=x_blocks,
+                scale=sb,
+                zero_point=zb,
+                q_min=q_min,
+                q_max=q_max,
+                args=args,
+                dtype=dtype,
+                global_scale=global_scale,
+            )
+        if do_dequantize:
+            # dequantize blocks
+            x_blocks = _dequantize(
+                x_q=x_blocks,
+                scale=sb,
+                zero_point=zb,
+                global_scale=global_scale,
+            )
+        # restore original shape
+        output = x_blocks.transpose(1, 2).reshape(original_shape)
+    elif args.strategy in (
+        QuantizationStrategy.GROUP,
+        QuantizationStrategy.TENSOR_GROUP,
+    ):
         n_dims = x.shape
         if len(n_dims) > 2:
             x = x.squeeze(0)

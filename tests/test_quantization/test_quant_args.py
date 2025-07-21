@@ -59,7 +59,8 @@ def test_block():
 
     block = QuantizationArgs(**kwargs)
     assert block.strategy == QuantizationStrategy.BLOCK
-    assert block.block_structure == kwargs["block_structure"]
+    assert block.block_structure == [2, 4]
+    assert block.block_structure != kwargs["block_structure"]  # "2x4" != [2, 4]
 
 
 def test_infer_strategy():

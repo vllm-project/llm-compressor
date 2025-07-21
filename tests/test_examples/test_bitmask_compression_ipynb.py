@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import nbformat
 import pytest
+
+
+nbformat = pytest.importorskip("nbformat")
 from nbconvert.preprocessors import ExecutePreprocessor
 
 
