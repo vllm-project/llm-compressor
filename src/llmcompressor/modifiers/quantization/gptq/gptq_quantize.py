@@ -18,10 +18,6 @@ from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
 from llmcompressor.observers.base import Observer
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 
-torch._dynamo.config.capture_scalar_outputs = True
-torch._inductor.config.triton.tile_reductions = True
-torch.set_float32_matmul_precision("high")
-
 GPTQ_PRECISION = torch.float32
 
 __all__ = ["make_empty_hessian", "accumulate_hessian", "quantize_weight"]
@@ -296,6 +292,7 @@ def _process_block(
     quant_max: int,
     sym: bool,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Process a single block of weight columns using with torch.compile support."""
     count = W1.shape[1]
     Q1 = torch.zeros_like(W1)
     Err1 = torch.zeros_like(W1)
@@ -349,11 +346,13 @@ def _quantize_core(
     num_rows: int,
     num_columns: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Core GPTQ quantization loop processing weights in blocks."""
     losses = torch.zeros(num_rows, device=W.device, dtype=W.dtype)
 
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
 
+        # Extract current block and corresponding Hessian/quantization params
         W1 = W[:, i1:i2].clone()
         Hinv1 = Hinv[i1:i2, i1:i2].contiguous()
         scale_slice = scale_map[:, i1:i2]
@@ -362,6 +361,7 @@ def _quantize_core(
         if W_nz_mask is not None:
             mask_slice = W_nz_mask[:, i1:i2]
 
+        # Quantize the current block
         Q1, Err1, losses1 = _process_block(
             W1, Hinv1, scale_slice, zero_slice, mask_slice, quant_min, quant_max, sym
         )
@@ -369,6 +369,7 @@ def _quantize_core(
         W[:, i1:i2] = Q1
         losses += losses1.sum(dim=1) / 2
 
+        # Propagate block error to remaining unprocessed columns
         w_err = Err1 @ Hinv[i1:i2, i2:]
         if W_nz_mask is not None:
             mask_rest = W_nz_mask[:, i2:]
