@@ -1,17 +1,4 @@
-# Home
-
-!!! info "New Feature: Axolotl Sparse Finetuning Integration"
-    Easily finetune sparse LLMs through our seamless integration with Axolotl.
-    [Learn more](https://docs.axolotl.ai/docs/custom_integrations.html#llmcompressor).
-
-!!! info "New Feature: AutoAWQ Integration"
-    Perform low-bit weight-only quantization efficiently using AutoAWQ, now part of LLM Compressor. [Learn more](https://github.com/vllm-project/llm-compressor/pull/1177).
-
-## <div style="display: flex; align-items: center;"><img alt="LLM Compressor Logo" src="assets/llmcompressor-icon.png" width="40" style="vertical-align: middle; margin-right: 10px" /> LLM Compressor</div>
-
-<p align="center">
-   <img alt="LLM Compressor Flow" src="assets/llmcompressor-user-flows.png" width="100%" style="max-width: 100%;"s  />
-</p>
+# About LLM Compressor
 
 **LLM Compressor** is an easy-to-use library for optimizing large language models for deployment with vLLM, enabling up to **5X faster, cheaper inference**. It provides a comprehensive toolkit for:
 
@@ -19,6 +6,31 @@
 - Seamlessly integrating with Hugging Face Transformers, Models, and Datasets 
 - Using a `safetensors`-based file format for compressed model storage that is compatible with `vLLM`
 - Supporting performant compression of large models via `accelerate`
+
+## <div style="display: flex; align-items: center;"><img alt="LLM Compressor Logo" src="assets/llmcompressor-icon.png" width="40" style="vertical-align: middle; margin-right: 10px" /> LLM Compressor</div>
+
+<p align="center">
+   <img alt="LLM Compressor Flow" src="assets/llmcompressor-user-flows.png" width="100%" style="max-width: 100%;"/>
+</p>
+
+## Recent Updates
+
+!!! info "Llama4 Quantization Support"
+    Quantize a Llama4 model to [W4A16](examples/quantization_w4a16.md) or [NVFP4](examples/quantization_w4a16.md). The checkpoint produced can seamlessly run in vLLM.
+
+!!! info "Large Model Support with Sequential Onloading"
+    As of llm-compressor>=0.6.0, you can now quantize very large language models on a single GPU. Models are broken into disjoint layers which are then onloaded to the GPU one layer at a time. For more information on sequential onloading, see [Big Modeling with Sequential Onloading](examples/big_models_with_sequential_onloading.md) as well as the [DeepSeek-R1 Example](examples/quantizing_moe.md).
+
+!!! info "Preliminary FP4 Quantization Support"
+    Quantize weights and activations to FP4 and seamlessly run the compressed model in vLLM. Model weights and activations are quantized following the NVFP4 [configuration](https://github.com/neuralmagic/compressed-tensors/blob/f5dbfc336b9c9c361b9fe7ae085d5cb0673e56eb/src/compressed_tensors/quantization/quant_scheme.py#L104). See examples of [weight-only quantization](examples/quantization_w4a16_fp4.md) and [fp4 activation support](examples/quantization_w4a4_fp4.md). Support is currently preliminary and additional support will be added for MoEs.
+
+!!! info "Updated AWQ Support"
+    Improved support for MoEs with better handling of larger models
+
+!!! info "Axolotl Sparse Finetuning Integration"
+    Seamlessly finetune sparse LLMs with our Axolotl integration. Learn how to create [fast sparse open-source models with Axolotl and LLM Compressor](https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open). See also the [Axolotl integration docs](https://docs.axolotl.ai/docs/custom_integrations.html#llmcompressor).
+
+For more information, check out the [latest release on GitHub](https://github.com/vllm-project/llm-compressor/releases/latest).
 
 ## Key Features
 
