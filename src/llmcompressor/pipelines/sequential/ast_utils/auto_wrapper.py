@@ -26,6 +26,7 @@ class AutoWrapper(ast.NodeTransformer):
         self.ignore = ignore
         self._wrapper_fn_defs: List[ast.FunctionDef] = list()
         self._local_names = set()
+        self._wrapped_counter = 0
 
     def auto_wrap(self, tree: ast.Module) -> ast.Module:
         """
@@ -56,6 +57,14 @@ class AutoWrapper(ast.NodeTransformer):
         if node.name == "forward":
             for arg in node.args.args:
                 self._local_names.add(arg.arg)
+            for arg in node.args.posonlyargs:
+                self._local_names.add(arg.arg)
+            for arg in node.args.kwonlyargs:
+                self._local_names.add(arg.arg)
+            if node.args.vararg:
+                self._local_names.add(node.args.vararg.arg)
+            if node.args.kwarg:
+                self._local_names.add(node.args.kwarg.arg)
         return super().generic_visit(node)
 
     def visit_Name(self, node: ast.Name):
@@ -203,6 +212,11 @@ class AutoWrapper(ast.NodeTransformer):
         returns = assigned | conditionally_assigned
         assert "self" not in args, "Cannot trace self, this should be in the namespace"
 
+        # sort arguments for reproducability
+        args = sorted(args)
+        kwargs = sorted(kwargs)
+        returns = sorted(returns)
+
         # build function arguments
         args_obj = ast.arguments(
             args=[ast.arg(arg=name) for name in args],
@@ -217,14 +231,14 @@ class AutoWrapper(ast.NodeTransformer):
         # build body and return statement
         return_stmt = ast.Return(
             value=ast.Tuple(
-                elts=[ast.Name(id=name, ctx=ast.Load()) for name in sorted(returns)],
+                elts=[ast.Name(id=name, ctx=ast.Load()) for name in returns],
                 ctx=ast.Load(),
             )
         )
         body = [node, return_stmt]
 
         # build function definition, store in `_wrapper_fn_defs`
-        fn_name = f"wrapped_{hash(node)}"
+        fn_name = f"wrapped_{self._wrapped_counter}"
         fn_def = ast.FunctionDef(
             name=fn_name,
             args=args_obj,
@@ -232,6 +246,7 @@ class AutoWrapper(ast.NodeTransformer):
             decorator_list=[ast.Name(id="torch.fx.wrap", ctx=ast.Load())],
         )
         self._wrapper_fn_defs.append(fn_def)
+        self._wrapped_counter += 1
 
         # build call and assignment
         fn_call = ast.Call(
@@ -240,13 +255,13 @@ class AutoWrapper(ast.NodeTransformer):
             keywords=list(),
         )
         return_tuple = ast.Tuple(
-            elts=[ast.Name(id=name, ctx=ast.Store()) for name in sorted(returns)],
+            elts=[ast.Name(id=name, ctx=ast.Store()) for name in returns],
             ctx=ast.Store(),
         )
         assign_call = ast.Assign(targets=[return_tuple], value=fn_call)
 
         # update local names with newly returned values
-        self._local_names |= returns
+        self._local_names |= set(returns)
 
         # log newly created function definition
         logger.debug("---- Autowrapper ----")
