@@ -18,7 +18,6 @@ from typing import Optional
 import torch
 import torch.nn.utils.parametrize as P
 from compressed_tensors import InternalModule
-from compressed_tensors.quantization.lifecycle import is_target  # TODO: move to utils
 from compressed_tensors.registry.registry import RegistryMixin, T
 from compressed_tensors.transform import (
     TransformArgs,
@@ -29,6 +28,7 @@ from compressed_tensors.utils import (
     align_module_device,
     delete_offload_module,
     has_offloaded_params,
+    match_named_modules,
     patch_attr,
     register_offload_module,
     update_offload_parameter,
@@ -87,9 +87,8 @@ class TransformFactory(RegistryMixin, ABC):
         :param model: module to apply transforms to
         """
         for arg in self.scheme.apply:
-            for name, module in list(model.named_modules()):
-                if is_target(name, module, arg.targets, arg.ignore):
-                    self._apply_to_module(module, arg)
+            for _, module in match_named_modules(model, arg.targets, arg.ignore):
+                self._apply_to_module(module, arg)
 
     def _apply_to_module(self, module: Module, args: TransformArgs):
         """

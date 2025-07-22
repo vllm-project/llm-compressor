@@ -15,6 +15,7 @@
 
 from .helpers import *
 from .internal import *
+from .match import *
 from .offload import *
 from .permutations_24 import *
 from .permute import *
