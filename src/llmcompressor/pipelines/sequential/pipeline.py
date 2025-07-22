@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+import time
+import gc
 import torch
 from compressed_tensors.utils import disable_offloading, get_execution_device
 from torch.utils.data.dataloader import DataLoader
@@ -97,6 +99,9 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+
+                # unfortunately
+                gc.collect()
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()

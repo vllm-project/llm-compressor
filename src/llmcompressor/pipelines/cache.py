@@ -1,9 +1,12 @@
+import sys
 import warnings
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Dict, Generator, List, Optional, Union
 
 import torch
 from tqdm import tqdm
+
+from loguru import logger
 
 
 @dataclass
@@ -35,12 +38,12 @@ class IntermediatesCache:
     Construct using `empty` and `from_dataloader` class methods
     """
 
-    batch_intermediates: List[IntermediateValues]
+    batch_intermediates: List[Dict[str, IntermediateValues]]
     offload_device: Optional[torch.device]
 
     def __init__(
         self,
-        batch_intermediates: Optional[List[IntermediateValues]] = None,
+        batch_intermediates: Optional[List[Dict[str, IntermediateValues]]] = None,
         offload_device: Optional[torch.device] = "cpu",
     ):
         self.batch_intermediates = batch_intermediates or []
@@ -142,6 +145,17 @@ class IntermediatesCache:
         for batch_index in range(len(self.batch_intermediates)):
             yield self.fetch(batch_index, input_names)
 
+    def size(self) -> int:
+        """
+        Returns the size of all the values stored in the cache
+        """
+        total_size = 0
+        for intermediates in self.batch_intermediates:
+            for value in intermediates.values():
+                total_size += self._size_value(value)
+                
+        return total_size
+
     def __iter__(self) -> Generator[Any, None, None]:
         yield from self.iter()
 
@@ -204,6 +218,29 @@ class IntermediatesCache:
             warnings.warn(f"Offloading not implemented for type {type(value)}.")
 
         return IntermediateValue(value=value, device=None)
+    
+    def _size_value(self, intermediate: IntermediateValue) -> int:
+        value = intermediate.value
+
+        if isinstance(value, torch.Tensor):
+            return value.nbytes
+
+        if is_dataclass(value):
+            return sum(
+                [
+                    self.size_helper(getattr(value, field.name))
+                    for field in fields(value)
+                ],
+                0
+            )
+
+        if isinstance(value, tuple):
+            return sum([self._size_value(v) for v in value], 0)
+
+        if isinstance(value, dict):
+            return sum([self._size_value(v) for v in value.values()], 0)
+
+        return sys.getsizeof(value, 0)
 
     @staticmethod
     def _mask_padding(
