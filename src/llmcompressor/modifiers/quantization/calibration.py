@@ -10,7 +10,11 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils import align_module_device, update_parameter_data
+from compressed_tensors.utils import (
+    align_module_device,
+    update_offload_parameter,
+    update_parameter_data,
+)
 from loguru import logger
 from torch.nn import Module
 
@@ -124,8 +128,19 @@ def call_observer(
             updated_scale, updated_zero_point = observer(
                 value, g_idx=g_idx, global_scale=global_scale
             )
-            update_parameter_data(module, updated_scale, f"{base_name}_scale")
-            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+            # register or update scale & zero_point parameters (supports block shapes)
+            scale_name = f"{base_name}_scale"
+            zp_name = f"{base_name}_zero_point"
+            for name, value in [
+                (scale_name, updated_scale),
+                (zp_name, updated_zero_point),
+            ]:
+                if not hasattr(module, name):
+                    module.register_parameter(
+                        name, torch.nn.Parameter(value.clone(), requires_grad=False)
+                    )
+                else:
+                    update_offload_parameter(module, name, value)
 
 
 def update_weight_global_scale(module: Module):
