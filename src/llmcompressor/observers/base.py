@@ -214,13 +214,13 @@ class Observer(InternalModule, RegistryMixin):
                 self._scale = torch.empty(
                     (num_br, num_bc), dtype=observed.dtype, device=observed.device
                 )
-                
+
                 # Use same dtype logic as GROUP strategy for zero_point
                 if is_fp4(quantization_args=self.quantization_args):
                     zp_dtype = FP8_E4M3_DATA.dtype
                 else:
                     zp_dtype = self.quantization_args.pytorch_dtype()
-                
+
                 self._zero_point = torch.empty(
                     (num_br, num_bc), dtype=zp_dtype, device=observed.device
                 )
