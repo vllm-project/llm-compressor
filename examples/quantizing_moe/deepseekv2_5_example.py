@@ -12,7 +12,7 @@ from llmcompressor.utils import dispatch_for_generation
 # previous version or upgrading to a version where this bug is fixed
 
 # select a Mixture of Experts model for quantization
-MODEL_ID = "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct"
+MODEL_ID = "deepseek-ai/DeepSeek-V2.5"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
@@ -20,10 +20,9 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # Select calibration dataset.
-# its recommended to use more calibration samples for MoE models so each expert is hit
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 2048
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 
@@ -57,16 +56,12 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# define a llmcompressor recipe for INT8 W8A8 quantization
+# Configure the quantization algorithm to run.
 # since the MoE gate layers are sensitive to quantization, we add them to the ignore
 # list so they remain at full precision
-recipe = [
-    GPTQModifier(
-        targets="Linear",
-        scheme="W8A8",
-        ignore=["lm_head", "re:.*mlp.gate$"],
-    ),
-]
+recipe = GPTQModifier(
+    targets="Linear", scheme="W4A16", ignore=["lm_head", "re:.*mlp.gate$"]
+)
 
 oneshot(
     model=model,
@@ -82,12 +77,10 @@ oneshot(
 if Version(__version__) < Version("4.48"):
     print("========== SAMPLE GENERATION ==============")
     dispatch_for_generation(model)
-    SAMPLE_INPUT = ["I love quantization because"]
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    inputs = tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(model.device)
-    output = model.generate(**inputs, max_length=50)
-    text_output = tokenizer.batch_decode(output)
-    print(text_output)
+    sample = tokenizer("Hello my name is", return_tensors="pt")
+    sample = {key: value.to("cuda") for key, value in sample.items()}
+    output = model.generate(**sample, max_new_tokens=100)
+    print(tokenizer.decode(output[0]))
     print("==========================================")
 else:
     print(
@@ -96,6 +89,6 @@ else:
     )
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W8A8"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
