@@ -10,7 +10,11 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils import align_module_device, update_parameter_data
+from compressed_tensors.utils import (
+    align_module_device,
+    delete_offload_parameter,
+    update_offload_parameter,
+)
 from loguru import logger
 from torch.nn import Module
 
@@ -116,7 +120,7 @@ def call_observer(
                 value,
                 should_calculate_gparam=True,
             )
-            update_parameter_data(module, global_scale, f"{base_name}_global_scale")
+            update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
         else:
             global_scale = getattr(module, f"{base_name}_global_scale", None)
 
@@ -127,22 +131,21 @@ def call_observer(
             # register or update scale & zero_point parameters (supports block shapes)
             scale_name = f"{base_name}_scale"
             zp_name = f"{base_name}_zero_point"
-            if not hasattr(module, scale_name) or getattr(module, scale_name).shape != updated_scale.shape:
-                if hasattr(module, scale_name):
-                    delattr(module, scale_name)
-                module.register_parameter(
-                    scale_name, torch.nn.Parameter(updated_scale.clone())
-                )
-            else:
-                update_parameter_data(module, updated_scale, scale_name)
-            if not hasattr(module, zp_name) or getattr(module, zp_name).shape != updated_zero_point.shape:
-                if hasattr(module, zp_name):
-                    delattr(module, zp_name)
-                module.register_parameter(
-                    zp_name, torch.nn.Parameter(updated_zero_point.clone())
-                )
-            else:
-                update_parameter_data(module, updated_zero_point, zp_name)
+            for name, value in [
+                (scale_name, updated_scale),
+                (zp_name, updated_zero_point),
+            ]:
+                if (
+                    not hasattr(module, name)
+                    or getattr(module, name).shape != value.shape
+                ):
+                    if hasattr(module, name):
+                        delete_offload_parameter(module, name)
+                    module.register_offload_parameter(
+                        name, torch.nn.Parameter(value.clone(), requires_grad=False)
+                    )
+                else:
+                    update_offload_parameter(module, name, value)
 
 
 def update_weight_global_scale(module: Module):
@@ -273,8 +276,8 @@ def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Te
     kv_cache = getattr(module, "kv_cache")
     k_scale = kv_cache.k_scales[module.layer_idx]
     v_scale = kv_cache.v_scales[module.layer_idx]
-    update_parameter_data(module, k_scale, KVCacheScaleType.KEY.value)
-    update_parameter_data(module, v_scale, KVCacheScaleType.VALUE.value)
+    update_offload_parameter(module, KVCacheScaleType.KEY.value, k_scale)
+    update_offload_parameter(module, KVCacheScaleType.VALUE.value, v_scale)
 
 
 def initialize_quantized_kv_cache(module: Module):

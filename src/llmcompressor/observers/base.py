@@ -193,17 +193,29 @@ class Observer(InternalModule, RegistryMixin):
                 )
 
             elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
-                # Block-wise quantization: one scale/zero_point per block of shape [block_rows, block_cols]
+                # Block-wise quantization: one scale/zero_point per block of shape
+                # [block_rows, block_cols]
                 rows, cols = observed.shape[:2]
                 bs = self.quantization_args.block_structure
-                if not (isinstance(bs, (list, tuple)) and len(bs) == 2 and all(isinstance(x, int) for x in bs)):
-                    raise ValueError(f"Invalid block_structure '{bs}'. Must be a list of two ints [rows, cols].")
+                if not (
+                    isinstance(bs, (list, tuple))
+                    and len(bs) == 2
+                    and all(isinstance(x, int) for x in bs)
+                ):
+                    raise ValueError(
+                        f"Invalid block_structure '{bs}'. "
+                        f"Must be a list of two ints [rows, cols]."
+                    )
                 block_rows, block_cols = bs
                 num_br = int(ceil(rows / block_rows))
                 num_bc = int(ceil(cols / block_cols))
                 # allocate per-block scale and zero_point
-                self._scale = torch.empty((num_br, num_bc), dtype=observed.dtype, device=observed.device)
-                self._zero_point = torch.empty((num_br, num_bc), dtype=observed.dtype, device=observed.device)
+                self._scale = torch.empty(
+                    (num_br, num_bc), dtype=observed.dtype, device=observed.device
+                )
+                self._zero_point = torch.empty(
+                    (num_br, num_bc), dtype=observed.dtype, device=observed.device
+                )
                 # compute qparams for each block
                 for i in range(num_br):
                     r0 = i * block_rows
