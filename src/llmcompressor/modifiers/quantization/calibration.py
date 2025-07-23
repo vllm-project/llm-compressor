@@ -141,7 +141,7 @@ def call_observer(
                 ):
                     if hasattr(module, name):
                         delete_offload_parameter(module, name)
-                    module.register_offload_parameter(
+                    register_offload_parameter(module
                         name, torch.nn.Parameter(value.clone(), requires_grad=False)
                     )
                 else:
