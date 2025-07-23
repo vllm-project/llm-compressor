@@ -94,13 +94,14 @@ class QuantizedKVParameterCache(DynamicCache):
             _pad_and_append_at_idx_(self.k_observers, layer_idx, k_observer)
             _pad_and_append_at_idx_(self.v_observers, layer_idx, v_observer)
 
-        # reshape for per channel scenario
-        num_heads = key_states.shape[1]
-        head_dim = key_states.shape[-1]
-        # from [batch_size, num_heads, seq_len - residual_length, head_dim]
-        # to [batch_size, seq_len - residual_length, num_heads * head_dim]
-        key_states = key_states.transpose(1, 2).flatten(2)
-        value_states = value_states.transpose(1, 2).flatten(2)
+        if key_states.dim() == 4:
+            # reshape for per channel scenario
+            num_heads = key_states.shape[1]
+            head_dim = key_states.shape[-1]
+            # from [batch_size, num_heads, seq_len - residual_length, head_dim]
+            # to [batch_size, seq_len - residual_length, num_heads * head_dim]
+            key_states = key_states.transpose(1, 2).flatten(2)
+            value_states = value_states.transpose(1, 2).flatten(2)
 
         q_key_states = self._quantize(
             key_states.contiguous(), KVCacheScaleType.KEY, layer_idx
@@ -114,13 +115,18 @@ class QuantizedKVParameterCache(DynamicCache):
             q_value_states, KVCacheScaleType.VALUE, layer_idx
         )
 
-        # reshape for per channel scenario
-        # from [batch_size, seq_len - residual_length, num_heads * head_dim]
-        # to [batch_size, num_heads, seq_len - residual_length, head_dim]
-        qdq_key_states = qdq_key_states.view(
-            qdq_key_states.shape[0], qdq_key_states.shape[1], num_heads, head_dim).transpose(1, 2)
-        qdq_value_states = qdq_value_states.view(
-            qdq_value_states.shape[0], qdq_value_states.shape[1], num_heads, head_dim).transpose(1, 2)
+        if key_states.dim() == 4:
+            # reshape for per channel scenario
+            # from [batch_size, seq_len - residual_length, num_heads * head_dim]
+            # to [batch_size, num_heads, seq_len - residual_length, head_dim]
+            qdq_key_states = qdq_key_states.view(
+                qdq_key_states.shape[0], qdq_key_states.shape[1],
+                num_heads, head_dim
+            ).transpose(1, 2).contiguous()
+            qdq_value_states = qdq_value_states.view(
+                qdq_value_states.shape[0], qdq_value_states.shape[1],
+                num_heads, head_dim
+            ).transpose(1, 2).contiguous()
 
         keys_to_return, values_to_return = qdq_key_states, qdq_value_states
 
