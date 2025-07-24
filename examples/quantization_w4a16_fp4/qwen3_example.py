@@ -1,4 +1,5 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
@@ -6,12 +7,9 @@ from llmcompressor.utils import dispatch_for_generation
 # Load model.
 MODEL_ID = "Qwen/Qwen3-32B"
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    torch_dtype="auto",
-    device_map="auto", 
-    trust_remote_code=True
+    MODEL_ID, torch_dtype="auto", trust_remote_code=True
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID,trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
@@ -19,11 +17,13 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID,trust_remote_code=True)
 recipe = QuantizationModifier(targets="Linear", scheme="NVFP4A16", ignore=["lm_head"])
 
 # Apply quantization.
-oneshot(model=model,recipe=recipe)
+oneshot(model=model, recipe=recipe)
 
 print("\n\n========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(model.device)
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0], skip_special_tokens=True))
 print("==========================================\n\n")
