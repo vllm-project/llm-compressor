@@ -184,17 +184,12 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         model._group_size = next(iter(group_size_set))
 
-        num_bits_set = set(
-            group.input_activations.num_bits
+        num_bits_set = {
+            act.num_bits
             for group in config.config_groups.values()
-            if group.input_activations is not None
-        ).union(
-            set(
-                group.output_activations.num_bits
-                for group in config.config_groups.values()
-                if group.output_activations is not None
-            )
-        )
+            for act in (group.input_activations, group.output_activations)
+            if act is not None
+        }
         if not (len(num_bits_set) == 0 or num_bits_set == {16}):
             warnings.warn(
                 "A strategy including activation quantization was detected. "
