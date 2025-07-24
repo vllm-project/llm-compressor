@@ -74,6 +74,7 @@ max_seq_length = 512
 num_calibration_samples = 512
 
 # set training parameters for finetuning
+# increase num_train_epochs for longer training
 num_train_epochs = 0.5
 logging_steps = 500
 save_steps = 5000
@@ -140,6 +141,8 @@ quantized_model = oneshot(
     output_dir=output_dir,
     stage="quantization_stage",
 )
+# skip_sparsity_compression_stats is set to False
+# to account for sparsity in the model when compressing
 quantized_model.save_pretrained(
     f"{output_dir}/quantization_stage", skip_sparsity_compression_stats=False
 )
