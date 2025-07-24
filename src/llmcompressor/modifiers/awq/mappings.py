@@ -116,9 +116,26 @@ _cohere_mappings = [
     ),
 ]
 
+# DeepseekV3
+_deepseek_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        # Some models use q_proj instead of q_a_proj
+        ["re:.*(q|q_a)_proj$", "re:.*kv_a_proj_with_mqa$"],
+    ),
+    AWQMapping("re:.*q_a_layernorm$", ["re:.*q_b_proj$"]),
+    AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
+    "DeepseekV3ForCausalLM": _deepseek_mappings,
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,
