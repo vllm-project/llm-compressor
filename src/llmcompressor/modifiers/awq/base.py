@@ -194,7 +194,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             warnings.warn(
                 "A strategy including activation quantization was detected. "
                 "AWQ was originally intended for weight-only quantization. "
-                "Lower-precision activations are an experimental feautre, and "
+                "Lower-precision activations are an experimental feature, and "
                 "overall performance may be poor. If it is, consider using "
                 "`W4A16` or `W4A16_ASYM` quantization schemes instead."
             )
