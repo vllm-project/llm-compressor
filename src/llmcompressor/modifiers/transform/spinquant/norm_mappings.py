@@ -18,6 +18,7 @@ class NormMapping(BaseModel):
     :param linears: list of names or regexes of Linear layers that
     receive input from norm.
     """
+
     norm: str
     linears: List[str]
 
