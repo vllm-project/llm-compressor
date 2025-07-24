@@ -75,7 +75,7 @@ num_calibration_samples = 512
 
 # set training parameters for finetuning
 # increase num_train_epochs for longer training
-num_train_epochs = 0.5
+num_train_epochs = 0.01
 logging_steps = 500
 save_steps = 5000
 gradient_checkpointing = True  # saves memory during training
@@ -103,8 +103,8 @@ oneshot(
     dataset=dataset,
     recipe=recipe,
     splits=splits,
-    num_calibration_samples=512,
-    preprocessing_num_workers=8,
+    num_calibration_samples=num_calibration_samples,
+    preprocessing_num_workers=preprocessing_num_workers,
     output_dir=output_dir,
     stage="sparsity_stage",
 )
@@ -115,17 +115,17 @@ train(
     dataset=dataset,
     recipe=recipe,
     splits=splits,
-    num_calibration_samples=512,
-    preprocessing_num_workers=8,
-    bf16=False,
-    max_seq_length=512,
-    num_train_epochs=0.5,
-    logging_steps=500,
-    save_steps=5000,
-    gradient_checkpointing=True,
-    learning_rate=0.0001,
-    lr_scheduler_type="cosine",
-    warmup_ratio=0.1,
+    num_calibration_samples=num_calibration_samples,
+    preprocessing_num_workers=preprocessing_num_workers,
+    bf16=bf16,
+    max_seq_length=max_seq_length,
+    num_train_epochs=num_train_epochs,
+    logging_steps=logging_steps,
+    save_steps=save_steps,
+    gradient_checkpointing=gradient_checkpointing,
+    learning_rate=learning_rate,
+    lr_scheduler_type=lr_scheduler_type,
+    warmup_ratio=warmup_ratio,
     output_dir=output_dir,
     stage="finetuning_stage",
 )
@@ -136,8 +136,8 @@ quantized_model = oneshot(
     dataset=dataset,
     recipe=recipe,
     splits=splits,
-    num_calibration_samples=512,
-    preprocessing_num_workers=8,
+    num_calibration_samples=num_calibration_samples,
+    preprocessing_num_workers=preprocessing_num_workers,
     output_dir=output_dir,
     stage="quantization_stage",
 )
