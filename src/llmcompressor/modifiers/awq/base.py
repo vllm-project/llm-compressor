@@ -1,6 +1,6 @@
 import inspect
-from typing import Dict, List, Optional, Tuple, Union
 import warnings
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
