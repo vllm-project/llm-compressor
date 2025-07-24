@@ -41,6 +41,20 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     existing weights and therefore do not induce runtime cost. R3 and R4 are "online"
     rotations, meaning that they require additional computation at runtime.
 
+    Lifecycle:
+        - on_initialize
+            - infer SpinQuantMappings & NormMappings
+            - as needed, create transform schemes for R1, R2, R3, & R4
+        - on_start
+            - normalize embeddings
+            - fuse norm layers into subsequent Linear layers
+            - apply TransformConfig
+                - fuse transforms into weights for mergeable transforms
+                - add hooks for online transforms
+        - on sequential epoch end
+        - on_end
+        - on_finalize
+
     :param rotations: A list containing the names of rotations to apply to the model.
         Possible rotations include R1, R2, R3, and R4
     :param transform_type: The type of transform to apply to the model.

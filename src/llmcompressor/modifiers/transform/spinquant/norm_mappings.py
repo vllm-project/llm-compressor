@@ -8,6 +8,16 @@ __all__ = ["infer_norm_mapping_from_model"]
 
 
 class NormMapping(BaseModel):
+    """
+    SpinQuant needs to know where every norm layer exists in the model,
+    as well as all the subsequent Linear layers the norm passes into.
+    This is because the norm layer weights need to normalized before
+    transforms can be fused into Linear layers.
+
+    :param norm: name or regex that matches norm layer in model
+    :param linears: list of names or regexes of Linear layers that
+    receive input from norm.
+    """
     norm: str
     linears: List[str]
 
