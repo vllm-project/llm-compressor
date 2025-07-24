@@ -12,8 +12,6 @@ from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils import (
     align_module_device,
-    delete_offload_parameter,
-    register_offload_parameter,
     update_offload_parameter,
 )
 from loguru import logger
