@@ -10,10 +10,7 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils import (
-    align_module_device,
-    update_offload_parameter,
-)
+from compressed_tensors.utils import align_module_device, update_offload_parameter
 from loguru import logger
 from torch.nn import Module
 
