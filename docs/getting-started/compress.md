@@ -4,14 +4,14 @@ weight: -8
 
 # Compress Your Model
 
-LLM Compressor provides a straightforward way to compress your models using various optimization techniques. This guide will walk you through the process of compressing a model using different quantization methods.
+LLM Compressor provides a straightforward way to compress your models using various optimization techniques. This guide walks you through the process of compressing a model with different quantization methods.
 
 ## Prerequisites
 
-Before you begin, ensure you have the following prerequisites:
+Before you begin, ensure that your environment meets the following prerequisites:
 - **Operating System:** Linux (recommended for GPU support)
 - **Python Version:** 3.9 or newer
-- **Available GPU:** For optimal performance, it's recommended to use a GPU. LLM Compressor supports the latest PyTorch and CUDA versions for compatability with NVIDIA GPUs.
+- **Available GPU:** For optimal performance, it's recommended to use a GPU. LLM Compressor supports the latest PyTorch and CUDA versions for compatibility with NVIDIA GPUs.
 
 ## Select a Model and Dataset
 
@@ -21,17 +21,11 @@ For this guide, we'll use the `TinyLlama` model and the `open_platypus` dataset 
 
 ## Select a Quantization Method and Scheme
 
-LLM Compressor supports several quantization methods and schemes, each with its own strengths and weaknesses. The choice of method and scheme will depend on your specific use case, hardware capabilities, and desired trade-offs between model size, speed, and accuracy.
+LLM Compressor supports several quantization methods and schemes, each with its own strengths and weaknesses. The choice of method and scheme will depend on your specific use case, hardware capabilities, and chosen trade-offs between model size, speed, and accuracy.
 
-Some common quantization schemes include:
+Supported compression schemes include quantization into W4A16, W8A8‑INT8, and W8A8‑FP8 formats, and sparsification. For a more detailed overview of available quantization schemes, see [Compression Schemes](../guides/compression_schemes.md).
 
-| Scheme | Description | Hardware Compatibility |
-|--------|-------------|------------------------|
-| **FP W8A8** | 8-bit floating point (FP8) quantization for weights and activations, providing ~2X smaller weights with 8-bit arithmetic operations. Good for general performance and compression, especially for server and batch inference. | Latest NVIDIA GPUs (Ada Lovelace, Hopper, and later) and latest AMD GPUs |
-| **INT W8A8** | 8-bit integer (INT8) quantization for weights and activations, providing ~2X smaller weights with 8-bit arithmetic operations. Good for general performance and compression, especially for server and batch inference. | All NVIDIA GPUs, AMD GPUs, TPUs, CPUs, and other accelerators |
-| **W4A16** | 4-bit integer (INT4) weights with 16-bit floating point (FP16) activations, providing ~3.7X smaller weights but requiring 16-bit arithmetic operations. Maximum compression for latency-sensitive applications with limited memory. | All NVIDIA GPUs, AMD GPUs, TPUs, CPUs, and other accelerators |
-
-Some common quantization methods include:
+Compression schemes use quantization methods including the following:
 
 | Method | Description | Accuracy Recovery vs. Time |
 |--------|-------------|----------------------------|
@@ -43,7 +37,7 @@ For this guide, we'll use `GPTQ` composed with `SmoothQuant` to create an `INT W
 
 ## Apply the Recipe
 
-LLM Compressor provides the `oneshot` API for simple and straightforward model compression. This API allows you to apply a pre-defined recipe to your model and dataset, making it easy to get started with compression. To apply what we discussed above, we'll import the necessary modifiers and create a recipe to apply to our model and dataset:
+LLM Compressor provides the `oneshot` API for simple and straightforward model compression. This API allows you to apply a predefined recipe to your model and dataset, making it easy to get started with compression. To apply what we discussed above, we'll import the necessary modifiers and create a recipe to apply to our model and dataset:
 
 ```python
 from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
@@ -64,4 +58,4 @@ oneshot(
 )
 ```
 
-Once the above code is run, it will save the compressed model to the specified output directory: `TinyLlama-1.1B-Chat-v1.0-INT8`. You can then load this model using the Hugging Face Transformers library or vLLM for inference and testing.
+When you run the above code, the compressed model is saved to the specified output directory: `TinyLlama-1.1B-Chat-v1.0-INT8`. You can then load this model using the Hugging Face Transformers library or vLLM for inference and testing.
