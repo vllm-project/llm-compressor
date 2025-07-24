@@ -8,7 +8,6 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform import SpinQuantModifier
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -61,9 +60,5 @@ class CalibrationPipeline(ABC, RegistryMixin):
             config = modifiers[0].resolve_quantization_config()
             if not config.requires_calibration_data():
                 return "datafree"
-
-        # TODO: Remove hardcode
-        if len(modifiers) == 1 and isinstance(modifiers[0], SpinQuantModifier):
-            return "datafree"
 
         return "sequential"
