@@ -15,6 +15,7 @@
 
 import logging
 import math
+import warnings
 from enum import Enum
 from typing import List, Optional
 
@@ -172,14 +173,41 @@ def _initialize_scale_zero_point(
 
     if base_name == "weight" and weight_shape is not None:
         if quantization_args.strategy == QuantizationStrategy.CHANNEL:
-            # (output_channels, 1)
+            # (output_channels, 1) - only for weights
             expected_shape = (weight_shape[0], 1)
         elif quantization_args.strategy in (
             QuantizationStrategy.TENSOR_GROUP,
             QuantizationStrategy.GROUP,
         ):
+            # GROUP/TENSOR_GROUP for both weights and activations
             num_groups = math.ceil(weight_shape[1] / quantization_args.group_size)
             expected_shape = (weight_shape[0], max(num_groups, 1))
+        elif quantization_args.strategy == QuantizationStrategy.BLOCK:
+            # For block quantization, scale shape should match number of blocks - only for weights
+            if quantization_args.block_structure is None:
+                raise ValueError("Block quantization requires block_structure to be specified")
+            block_height, block_width = quantization_args.block_structure
+            rows, cols = weight_shape[-2], weight_shape[-1]
+            num_rows_blocks = math.ceil(rows / block_height)
+            num_cols_blocks = math.ceil(cols / block_width)
+            
+            # Warn if dimensions don't divide evenly
+            if rows % block_height != 0 or cols % block_width != 0:
+                warnings.warn(
+                    f"Block quantization: tensor shape {weight_shape} does not divide evenly "
+                    f"by block structure {quantization_args.block_structure}. "
+                    f"Some blocks will be incomplete which may affect quantization quality.",
+                    UserWarning
+                )
+            
+            expected_shape = (num_rows_blocks, num_cols_blocks)
+    elif quantization_args.strategy == QuantizationStrategy.BLOCK:
+        warnings.warn(
+            f"BLOCK quantization not supported for {base_name} activations. "
+            f"Falling back to tensor-level quantization.",
+            UserWarning
+        )
+        expected_shape = 1
 
     # 3. Identify quantization scale and zp dtype
     scale_dtype = scale_dtype if scale_dtype is not None else module.weight.dtype

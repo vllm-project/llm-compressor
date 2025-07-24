@@ -174,8 +174,8 @@ def test_initialize_module_for_quantization_offloaded(
             ),
         ),
         (
-            QuantizationArgs(strategy="block"),
-            QuantizationArgs(strategy="block"),
+            QuantizationArgs(strategy="block", block_structure=[2, 4]),
+            None,
         ),
         (
             QuantizationArgs(strategy="token"),
@@ -227,7 +227,17 @@ def test_initialize_quantization_parameters(weights, input_activations):
             expected_shape = (layer.weight.shape[0], max(num_groups, 1))
 
         elif args.strategy == QuantizationStrategy.BLOCK:
-            expected_shape = (1,)
+            # For block quantization, only weights get block-level scales
+            # Activations fall back to tensor-level since shape is unknown at init
+            if q_type == "weights" and args.block_structure is not None:
+                block_height, block_width = args.block_structure
+                rows, cols = layer.weight.shape[-2], layer.weight.shape[-1]
+                num_rows_blocks = math.ceil(rows / block_height)
+                num_cols_blocks = math.ceil(cols / block_width)
+                expected_shape = (num_rows_blocks, num_cols_blocks)
+            else:
+                # For activations or when block_structure is None
+                expected_shape = (1,)
 
         elif args.strategy == QuantizationStrategy.TOKEN:
             expected_shape = (1, 1)
