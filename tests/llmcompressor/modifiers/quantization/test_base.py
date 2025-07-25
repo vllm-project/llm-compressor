@@ -66,23 +66,25 @@ def test_block_strategy_parsing(block_q_config_kwargs):
 @pytest.mark.parametrize(
     "has_actorder,actorder,config_0,config_1,expected_0,expected_1",
     [
-        # defaults to None if nothing provided
-        (False, None, None, None, None, None),
+        # defaults to "static" if nothing provided
+        (False, "N/A", None, None, "static", "static"),
         # modifier overrides config if no config provided
         (True, "group", None, None, "group", "group"),
         # modifier overrides if config partially matches anyways
         (True, "group", None, "group", "group", "group"),
         (True, "group", "group", None, "group", "group"),
-        # modifier errors if conflict with config
+        # modifier errors if explicitly conflicts with config
+        (True, "static", None, "group", "error", "error"),
+        (True, "static", "group", None, "error", "error"),
         (True, "group", None, "static", "error", "error"),
         (True, "group", "static", None, "error", "error"),
-        # modifier does not override if not provided
-        (False, "N/A", None, None, None, None),
-        (False, "N/A", None, "static", None, "static"),
-        (False, "N/A", "static", None, "static", None),
+        # modifier overrides to static if nothing is provided
+        (False, "N/A", None, "static", "static", "static"),
+        (False, "N/A", "static", None, "static", "static"),
         (False, "N/A", "static", "static", "static", "static"),
-        (False, "N/A", None, "group", None, "group"),
-        (False, "N/A", "group", None, "group", None),
+        # modifier does not override set config vaules
+        (False, "N/A", None, "group", "static", "group"),
+        (False, "N/A", "group", None, "group", "static"),
         (False, "N/A", "group", "group", "group", "group"),
     ],
 )
