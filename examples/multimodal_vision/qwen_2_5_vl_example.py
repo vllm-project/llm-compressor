@@ -73,7 +73,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["lm_head", "re:visual.*", "re:model.visual.*"],
+        ignore=["lm_head", "re:model.visual.*"],
     ),
 ]
 
