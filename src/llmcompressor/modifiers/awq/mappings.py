@@ -132,7 +132,28 @@ _deepseek_mappings = [
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
 
+_bloom_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*query_key_value$"]
+    ),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*dense_h_to_4h$"]
+    ),
+    AWQMapping(
+        "re:.*gelu_impl$",
+        ["re:.*dense_4h_to_h$"]
+    ),
+    # Note: AutoAWQ excludes this mapping, based on researcher's post in
+    # https://github.com/mit-han-lab/llm-awq/issues/2#issuecomment-1606297469
+    # AWQMapping(
+    #     "re:.*query_key_value$",
+    #     ["re:.*dense$"]
+    # ),
+]
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
+    "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
     "DeepseekV3ForCausalLM": _deepseek_mappings,
