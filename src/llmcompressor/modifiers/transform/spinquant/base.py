@@ -19,6 +19,15 @@ from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
 
 
+import torch
+
+from llmcompressor.modeling import normalize_embedding, fuse_norm_linears
+
+from compressed_tensors.utils import is_match
+from compressed_tensors.transform.utils.hadamard import deterministic_hadamard_matrix
+from compressed_tensors.utils import align_module_device, update_offload_parameter
+
+
 class SpinquantRotation(str, Enum):
     R1 = "R1"
     R2 = "R2"
@@ -121,33 +130,33 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
-        # output_full = state.model(**state.model.dummy_inputs)
+        # # needs to happen after the model has been hooked to execute on the GPU
+        # # otherwise we're applying weight transforms on CPU
+        # self._prenormalize_embeddings(state.model)
+        # self._fuse_norms(state.model)
 
-        # needs to happen after the model has been hooked to execute on the GPU
-        # otherwise we're applying weight transforms on CPU
-        self._prenormalize_embeddings(state.model)
-        self._fuse_norms(state.model)
+        # apply_transform_config(state.model, self.transform_config)
 
-        # output_fuse = state.model(**state.model.dummy_inputs)
+        model = state.model
 
-        apply_transform_config(state.model, self.transform_config)
+        normalize_embedding(model.model.embed_tokens)
+        for layer in model.model.layers:
+            fuse_norm_linears(
+                layer.input_layernorm,
+                [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj],
+            )
+            fuse_norm_linears(
+                layer.post_attention_layernorm,
+                [layer.mlp.up_proj, layer.mlp.gate_proj],
+            )
+        fuse_norm_linears(
+            model.model.norm,
+            [model.lm_head],
+        )
+        print("normalized embeddings and fused norms")
 
-        # output_transform = state.model(**state.model.dummy_inputs)
-
-        from compressed_tensors.quantization import apply_quantization_config, QuantizationConfig, QuantizationScheme
-        from compressed_tensors.quantization.quant_scheme import W4A16
-        q_config = QuantizationConfig(config_groups={"": QuantizationScheme(targets=["Linear"], weights=W4A16["weights"])}, ignore=["lm_head"])
-        apply_quantization_config(state.model, q_config)
-        mock_calibrate_forward(state.model)
-
-        # output_quant = state.model(**state.model.dummy_inputs)
-
-        # loss = torch.nn.MSELoss()
-        # fuse_loss = loss(output_fuse.logits, output_full.logits)
-        # transform_loss = loss(output_transform.logits, output_full.logits)
-        # quant_loss = loss(output_quant.logits, output_full.logits)
-
-        # assert fuse_loss < transform_loss < quant_loss
+        transform_and_quant(model)
+        print("transformed and quanted")
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -243,47 +252,84 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         raise NotImplementedError()
 
 
-import torch
-from compressed_tensors import update_offload_parameter
-from compressed_tensors.quantization.utils import calculate_qparams
+def transform(weight: torch.Tensor, loc: str):
+    if loc == "embed_output":
+        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, weight.device)
+        return (weight @ hadamard) / torch.tensor(hadamard.size(0)).sqrt()
+
+    if loc == "weight_output":
+        hadamard = deterministic_hadamard_matrix(weight.size(0), weight.dtype, weight.device)
+        return (hadamard.T @ weight) / torch.tensor(hadamard.size(0)).sqrt()
+    
+    if loc == "weight_input":
+        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, weight.device)
+        inv = hadamard.T
+        return (weight @ inv.T) / torch.tensor(hadamard.size(0)).sqrt()
+
+    assert False
 
 
-def mock_calibrate_forward(model: torch.nn.Module):
+def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
+    # calibrate
+    group_size = 128
+    num_groups = weight.size(-1) // group_size
+    values = weight.unflatten(-1, (num_groups, group_size))
+
+    max_values = values.max(dim=-1).values
+    min_values = values.min(dim=-1).values
+
+    value_range = torch.maximum(max_values.abs(), min_values.abs()) * 2
+    scale = value_range / (7 + 8)
+    scale = scale.clamp(min=torch.finfo(torch.float32).eps)
+    zero_point = torch.zeros_like(scale)
+
+    # quantize
+    x = weight
+    x_q = (x.unflatten(-1, (scale.size(-1), -1)) / scale[:, :, None]) + zero_point[:, :, None]
+    x_q = torch.round(x_q)
+    x_q = torch.clamp(x_q, -8, 7)  # unlike current impl, round then clamp
+
+    # dequantize
+    x_qdq = (x_q - zero_point[:, :, None]) * scale[:, :, None]
+    x_qdq = x_qdq.flatten(-2, -1)
+    return x_qdq
+
+
+def transform_and_quant(model: torch.nn.Module, do_transform=True):
     for name, module in model.named_modules():
-        if (scheme := getattr(module, "quantization_scheme", None)):
-            if scheme.weights.strategy == "group":
-                group_size = scheme.weights.group_size
-                num_groups = module.weight.size(-1) // group_size
-                values = module.weight.unflatten(-1, (num_groups, group_size))
+        if is_match(name, module, "re:.*embed_tokens$"):
+            with align_module_device(module):
+                transformed = transform(module.weight, "embed_output")
 
-            elif scheme.weights.strategy == "channel":
-                values = module.weight.unflatten(-1, (1, module.weight.size(-1)))
+        elif any(is_match(name, module, t) for t in ["re:.*o_proj$", "re:.*down_proj$"]):
+            with align_module_device(module):
+                transformed = transform(module.weight, "weight_output")
+            
+        elif any(is_match(name, module, t) for t in ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$", "re:.*up_proj$", "re:.*gate_proj$", "lm_head"]):
+            with align_module_device(module):
+                transformed = transform(module.weight, "weight_input")
 
-            max_values = values.max(dim=-1).values
-            min_values = values.min(dim=-1).values
-            scale, zero_point = calculate_qparams(min_values, max_values, scheme.weights)
+        else:
+            continue
 
-            update_offload_parameter(module, "weight_scale", scale)
-            update_offload_parameter(module, "weight_zero_point", zero_point)
+        with align_module_device(module):
+            quant = calibrate_fake_quantize(module.weight)
+            transformed_quant = calibrate_fake_quantize(transformed)
 
-            # mock_group_fake_quantize(module)
+            loss = torch.nn.MSELoss()
+            with torch.no_grad():
+                quant_loss = loss(quant, module.weight)
+                transform_quant_loss = loss(transformed_quant, transformed)
 
+            if not transform_quant_loss < quant_loss < 1e-05:
+                print((name.rjust(32), transform_quant_loss, quant_loss))
 
-def mock_group_fake_quantize(module: torch.nn.Module):
-    with align_module_device(module):
-        scale = module.weight_scale
-        zero_point = module.weight_zero_point
-        original_dtype = module.weight.dtype
+            if "embed_tokens" or "lm_head" in name:
+                if do_transform:
+                    update_offload_parameter(module, "weight", transformed)
+            else:
+                if do_transform:
+                    update_offload_parameter(module, "weight", transformed_quant)
 
-        # quantize
-        x = module.weight
-        x_q = (x.unflatten(-1, (scale.size(-1), -1)) / scale[:, :, None]) + zero_point[:, :, None]
-        x_q = torch.round(x_q)
-        x_q = torch.clamp(x_q, -8, 7)  # unlike current impl, round then clamp
-
-        # dequantize
-        x_qdq = (x_q - zero_point[:, :, None]) * scale[:, :, None]
-        x_qdq = x_qdq.flatten(-2, -1)
-
-        #print(f"quant_loss: {torch.nn.MSELoss()(x_qdq, module.weight.data)}")
-        update_offload_parameter(module, "weight", x_qdq.to(original_dtype))
+                else:
+                    update_offload_parameter(module, "weight", quant)
