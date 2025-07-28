@@ -324,7 +324,7 @@ def transform_and_quant(model: torch.nn.Module, do_transform=True):
             if not transform_quant_loss < quant_loss < 1e-05:
                 print((name.rjust(32), transform_quant_loss, quant_loss))
 
-            if "embed_tokens" or "lm_head" in name:
+            if "embed_tokens" in name or "lm_head" in name:
                 if do_transform:
                     update_offload_parameter(module, "weight", transformed)
             else:
