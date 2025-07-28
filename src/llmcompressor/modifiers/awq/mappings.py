@@ -145,12 +145,12 @@ _bloom_mappings = [
         "re:.*gelu_impl$",
         ["re:.*dense_4h_to_h$"]
     ),
-   #Note: AutoAWQ excludes this mapping, based on researcher's post in
-   #https://github.com/mit-han-lab/llm-awq/issues/2#issuecomment-1606297469
-   #AWQMapping(
-   #    "re:.*query_key_value$",
-   #    ["re:.*dense$"]
-   #),
+   # Note: AutoAWQ excludes this mapping, based on researcher's post in
+   # https://github.com/mit-han-lab/llm-awq/issues/2#issuecomment-1606297469
+   # AWQMapping(
+   #     "re:.*query_key_value$",
+   #     ["re:.*dense$"]
+   # ),
 ]
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "BloomForCausalLM": _bloom_mappings,
