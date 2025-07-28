@@ -132,6 +132,17 @@ _deepseek_mappings = [
     AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
 ]
 
+_bloom_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        ["re:.*query_key_value$"]
+    ),
+    AWQMapping(
+        "re:.*post_attention_layernorm$", 
+        ["re:.*dense_h_to_4h$"]
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
@@ -148,6 +159,7 @@ AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "Qwen2MoeForCausalLM": _moe_default_mappings,
     "Qwen3ForCausalLM": _default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
+    "BloomForCausalLM": _bloom_mappings,
 }
 
 
