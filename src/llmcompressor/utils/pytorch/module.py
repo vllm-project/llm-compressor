@@ -58,10 +58,8 @@ __all__ = [
     "get_prunable_layers",
     "get_quantizable_layers",
     "qat_active",
-    "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
-    "get_layer_by_name",
 ]
 
 ALL_TARGET = "__ALL__"
@@ -290,22 +288,6 @@ def qat_active(module: Module) -> bool:
             return True
 
     return False
-
-
-def get_layers_params(
-    targets: Union[str, List[str]], module: Module
-) -> Dict[str, ModelParameterizedLayer]:
-    params = get_params(targets, module)
-    layers = get_layers(targets, module)
-
-    parameterized_layers = {}
-    for name, param in params.items():
-        param_layer = ModelParameterizedLayer(
-            layer_name=name, layer=layers[name], param_name=name, param=param
-        )
-        parameterized_layers[name] = param_layer
-
-    return parameterized_layers
 
 
 def get_matching_layer(
