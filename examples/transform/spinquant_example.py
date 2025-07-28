@@ -13,7 +13,7 @@ model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     torch_dtype="auto",
 )
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, attn_implementation="eager")
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -58,8 +58,10 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * apply spinquant transforms to model in order to make quantization easier
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = [
-    SpinQuantModifier(rotations=["R1", "R2"], transform_type="hadamard"),
-    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+    SpinQuantModifier(
+        rotations=["R1", "R2", "R3", "R4"], transform_type="random-hadamard"
+    ),
+    # QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
 # Apply algorithms.
@@ -75,9 +77,12 @@ oneshot(
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
+from llmcompressor.utils import calibration_forward_context
+
+with calibration_forward_context(model):
+    input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+    output = model.generate(input_ids, max_new_tokens=100)
+    print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.

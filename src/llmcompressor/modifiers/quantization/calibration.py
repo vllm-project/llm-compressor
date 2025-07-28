@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional, Tuple
+from functools import partial
+from typing import TYPE_CHECKING, Any, Dict, Optional, Set, Tuple
 
 import torch
 from compressed_tensors.quantization import (
@@ -13,10 +14,17 @@ from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils import align_module_device, update_parameter_data
 from loguru import logger
 from torch.nn import Module
+from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 from llmcompressor.utils.helpers import getattr_chain
+
+if TYPE_CHECKING:
+    from compressed_tensors.modeling.attention import CompressedAttentionImpl
+
+    from llmcompressor.modifiers.utils.hooks import HooksMixin
+
 
 DEFAULT_MAXSHRINK = 0.20
 DEFAULT_PATIENCE = 5
@@ -25,6 +33,7 @@ DEFAULT_GRID = 100.0
 DEFAULT_NORM = 2.4
 
 __all__ = [
+    "register_calibrate_attn_hooks",
     "initialize_observer",
     "update_weight_zp_scale",
     "calibrate_input_hook",
@@ -205,14 +214,30 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     )
 
 
-def calibrate_input_hook(module: Module, args: Any):
+def register_calibrate_attn_hooks(
+    modifier: "HooksMixin", attention_impl: "CompressedAttentionImpl"
+) -> Set[RemovableHandle]:
+    return {
+        modifier.register_hook(
+            attention_impl, partial(calibrate_input_hook, basename="q"), "query"
+        ),
+        modifier.register_hook(
+            attention_impl, partial(calibrate_input_hook, basename="k"), "key"
+        ),
+        modifier.register_hook(
+            attention_impl, partial(calibrate_input_hook, basename="v"), "value"
+        ),
+    }
+
+
+def calibrate_input_hook(module: Module, args: Any, base_name: str = "input"):
     """
     Hook to calibrate input activations.
     Will call the observers to update the scales/zp before applying
     input QDQ in the module's forward pass.
     """
     args = args[0] if isinstance(args, tuple) else args
-    calibrate_activations(module, value=args, base_name="input")
+    calibrate_activations(module, value=args, base_name=base_name)
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
@@ -280,6 +305,14 @@ def initialize_quantized_kv_cache(module: Module):
 
     quantized_kv_cache = QuantizedKVParameterCache(scheme.output_activations)
     setattr(module, "kv_cache", quantized_kv_cache)
+
+
+def initialize_attention_observers(module: Module):
+    input_args = getattr_chain(module, "quantization_scheme.input_activations", None)
+    if input_args is not None:
+        initialize_observer(module, "q", input_args)
+        initialize_observer(module, "k", input_args)
+        initialize_observer(module, "v", input_args)
 
 
 def apply_calibration_status(module: Module):
