@@ -137,11 +137,7 @@ _bloom_mappings = [
         "re:.*input_layernorm$",
         ["re:.*query_key_value$"]
     ),
-    AWQMapping(
-        "re:.*query_key_value$",
-        ["re:.*dense$"]
-    ),
-    AWQMapping(
+   AWQMapping(
         "re:.*post_attention_layernorm$",
         ["re:.*dense_h_to_4h$"]
     ),
@@ -149,6 +145,11 @@ _bloom_mappings = [
         "re:.*gelu_impl$",
         ["re:.*dense_4h_to_h$"]
     ),
+   #https://github.com/mit-han-lab/llm-awq/issues/2#issuecomment-1606297469
+   #AWQMapping(
+   #    "re:.*query_key_value$",
+   #    ["re:.*dense$"]
+   #),
 ]
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "BloomForCausalLM": _bloom_mappings,
