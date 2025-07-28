@@ -138,11 +138,18 @@ _bloom_mappings = [
         ["re:.*query_key_value$"]
     ),
     AWQMapping(
-        "re:.*post_attention_layernorm$", 
+        "re:.*query_key_value$",
+        ["re:.*dense$"]
+    ),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
         ["re:.*dense_h_to_4h$"]
     ),
+    AWQMapping(
+        "re:.*dense_h_to_4h$",
+        ["re:.*dense_4h_to_h$"]
+    ),
 ]
-
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
