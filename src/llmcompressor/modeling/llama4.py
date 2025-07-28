@@ -1,8 +1,10 @@
 from typing import Tuple
 
 import torch
-from transformers.models import Llama4Config
-from transformers.models.llama4.configuration_llama4 import Llama4TextConfig
+from transformers.models.llama4.configuration_llama4 import (
+    Llama4Config,
+    Llama4TextConfig,
+)
 from transformers.models.llama4.modeling_llama4 import (
     Llama4TextExperts,
     Llama4TextMLP,
@@ -10,8 +12,6 @@ from transformers.models.llama4.modeling_llama4 import (
 )
 
 from llmcompressor.utils.dev import skip_weights_initialize
-
-__all__ = ["SequentialLlama4TextMoe"]
 
 
 class SequentialLlama4TextMoe(torch.nn.Module):
