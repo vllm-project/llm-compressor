@@ -64,8 +64,9 @@ class QuantizationScheme(BaseModel):
                 raise ValueError("Cannot apply actorder to output activations")
 
         if (
-            inputs and weights
-            and weights.strategy == QuantizationStrategy.GROUP 
+            inputs
+            and weights
+            and weights.strategy == QuantizationStrategy.GROUP
             and inputs.strategy == QuantizationStrategy.GROUP
             and weights.group_size != inputs.group_size
         ):
@@ -75,7 +76,7 @@ class QuantizationScheme(BaseModel):
                 "may complicate fused kernel implementations. Consider using "
                 "TENSOR_GROUP strategy for both or matching group sizes.",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
 
         return model

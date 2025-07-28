@@ -185,27 +185,29 @@ def _initialize_scale_zero_point(
         elif quantization_args.strategy == QuantizationStrategy.BLOCK:
             # For block quantization, scale shape should match number of blocks - only for weights
             if quantization_args.block_structure is None:
-                raise ValueError("Block quantization requires block_structure to be specified")
+                raise ValueError(
+                    "Block quantization requires block_structure to be specified"
+                )
             block_height, block_width = quantization_args.block_structure
             rows, cols = weight_shape[-2], weight_shape[-1]
             num_rows_blocks = math.ceil(rows / block_height)
             num_cols_blocks = math.ceil(cols / block_width)
-            
+
             # Warn if dimensions don't divide evenly
             if rows % block_height != 0 or cols % block_width != 0:
                 warnings.warn(
                     f"Block quantization: tensor shape {weight_shape} does not divide evenly "
                     f"by block structure {quantization_args.block_structure}. "
                     f"Some blocks will be incomplete which may affect quantization quality.",
-                    UserWarning
+                    UserWarning,
                 )
-            
+
             expected_shape = (num_rows_blocks, num_cols_blocks)
     elif quantization_args.strategy == QuantizationStrategy.BLOCK:
         warnings.warn(
             f"BLOCK quantization not supported for {base_name} activations. "
             f"Falling back to tensor-level quantization.",
-            UserWarning
+            UserWarning,
         )
         expected_shape = 1
 

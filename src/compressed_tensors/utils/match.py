@@ -18,6 +18,7 @@ from collections.abc import Generator
 from typing import Iterable, Tuple
 
 import torch
+from compressed_tensors.utils.internal import InternalModule
 
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -28,8 +29,6 @@ __all__ = [
     "match_named_parameters",
     "match_modules_set",
     "is_match",
-    "match_name",
-    "match_class",
 ]
 
 
@@ -83,13 +82,16 @@ def match_named_parameters(
     """
     unmatched_targets = set(targets)
     for module_name, module in model.named_modules():
+        if isinstance(module, InternalModule):
+            continue
+
         for param_name, param in module.named_parameters(recurse=False):
             param_fqn = f"{module_name}.{param_name}"
             for target in targets:
-                if match_name(param_fqn, target):
+                if _match_name(param_fqn, target):
                     unmatched_targets -= {target}
 
-                    if not any(match_name(param_fqn, ign) for ign in ignore):
+                    if not any(_match_name(param_fqn, ign) for ign in ignore):
                         yield param_fqn, module, param
 
     if warn_on_fail:
@@ -165,11 +167,14 @@ def match_modules_set(
 def is_match(name: str, module: torch.nn.Module, target: str) -> bool:
     """
     Returns true if either module name or module parent classes match against target
+    and the module is not an internal module
     """
-    return match_name(name, target) or match_class(module, target)
+    return not isinstance(module, InternalModule) and (
+        _match_name(name, target) or _match_class(module, target)
+    )
 
 
-def match_name(name: str, target: str) -> bool:
+def _match_name(name: str, target: str) -> bool:
     """
     Returns true if target string begins with "re:" and
     regex matches or if target string exactly matches name
@@ -180,7 +185,7 @@ def match_name(name: str, target: str) -> bool:
         return target == name
 
 
-def match_class(module: torch.nn.Module, target: str) -> bool:
+def _match_class(module: torch.nn.Module, target: str) -> bool:
     """
     Returns true if any torch parent class names match the target string exactly
     """

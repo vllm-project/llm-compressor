@@ -112,17 +112,21 @@ def dequantize(
             if scale.shape[1] == 1:
                 args = QuantizationArgs(strategy=QuantizationStrategy.CHANNEL)
             # Scale height matches input or is 1 -> group quantization across columns
-            # 
+            #
             # Example 1: scale.shape[0] == 1
             # x_q: (4, 8), scale: (1, 4) -> 2 columns per group
             #
-            # Example 2: scale.shape[0] == x_q.shape[0] 
+            # Example 2: scale.shape[0] == x_q.shape[0]
             # x_q: (4, 8), scale: (4, 4) -> 2 elements per group (per row)
             elif (scale.shape[0] == 1) or (scale.shape[0] == x_q.shape[0]):
                 group_size = int(x_q.shape[1] / scale.shape[1])
-                args = QuantizationArgs(strategy=QuantizationStrategy.GROUP, group_size=group_size)
+                args = QuantizationArgs(
+                    strategy=QuantizationStrategy.GROUP, group_size=group_size
+                )
             else:
-                args = QuantizationArgs(strategy=QuantizationStrategy.BLOCK, block_structure=scale.shape)
+                args = QuantizationArgs(
+                    strategy=QuantizationStrategy.BLOCK, block_structure=scale.shape
+                )
         else:
             raise ValueError(
                 f"Could not infer a quantization strategy from scale with {scale.ndim} "

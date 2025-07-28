@@ -19,14 +19,14 @@ import torch.nn as nn
 from accelerate import init_empty_weights
 
 # Assuming the module is named "module_matching" - adjust import as needed
-from compressed_tensors.utils.match import (
+from compressed_tensors.utils import (
+    InternalModule,
     is_match,
-    match_class,
     match_modules_set,
-    match_name,
     match_named_modules,
     match_named_parameters,
 )
+from compressed_tensors.utils.match import _match_class, _match_name
 
 
 class DummyModel(nn.Module):
@@ -66,14 +66,14 @@ class DummyModel(nn.Module):
 
 
 class TestMatchName:
-    """Test cases for match_name function"""
+    """Test cases for _match_name function"""
 
     def test_exact_match(self):
         """Test exact string matching"""
-        assert match_name("layer1", "layer1") == True
-        assert match_name("layer1", "layer2") == False
+        assert _match_name("layer1", "layer1") == True
+        assert _match_name("layer1", "layer2") == False
         assert (
-            match_name(
+            _match_name(
                 "transformer.layers.0.self_attn.q_proj",
                 "transformer.layers.0.self_attn.q_proj",
             )
@@ -82,14 +82,14 @@ class TestMatchName:
 
     def test_regex_match(self):
         """Test regex matching with "re:" prefix"""
-        assert match_name("layer1", "re:layer.*") == True
-        assert match_name("layer1", "re:^layer1$") == True
-        assert match_name("layer1", "re:layer2") == False
+        assert _match_name("layer1", "re:layer.*") == True
+        assert _match_name("layer1", "re:^layer1$") == True
+        assert _match_name("layer1", "re:layer2") == False
         assert (
-            match_name("transformer.layers.0.self_attn.q_proj", "re:.*q_proj") == True
+            _match_name("transformer.layers.0.self_attn.q_proj", "re:.*q_proj") == True
         )
         assert (
-            match_name(
+            _match_name(
                 "transformer.layers.0.self_attn.q_proj",
                 "re:transformer\\.layers\\.\\d+\\.self_attn\\..*_proj$",
             )
@@ -98,49 +98,49 @@ class TestMatchName:
 
     def test_empty_strings(self):
         """Test edge cases with empty strings"""
-        assert match_name("", "") == True
-        assert match_name("layer1", "") == False
-        assert match_name("", "layer1") == False
+        assert _match_name("", "") == True
+        assert _match_name("layer1", "") == False
+        assert _match_name("", "layer1") == False
 
     def test_regex_special_characters(self):
         """Test regex with special characters"""
-        assert match_name("layer.1", "re:layer\\.1") == True
-        assert match_name("layer.1", "re:layer.1") == True  # . matches any char
-        assert match_name("layer_1", "re:layer_1") == True
+        assert _match_name("layer.1", "re:layer\\.1") == True
+        assert _match_name("layer.1", "re:layer.1") == True  # . matches any char
+        assert _match_name("layer_1", "re:layer_1") == True
 
 
 class TestMatchClass:
-    """Test cases for match_class function"""
+    """Test cases for _match_class function"""
 
     def test_direct_class_match(self):
         """Test matching direct class names"""
         linear = nn.Linear(10, 20)
-        assert match_class(linear, "Linear") == True
-        assert match_class(linear, "Conv2d") == False
+        assert _match_class(linear, "Linear") == True
+        assert _match_class(linear, "Conv2d") == False
 
         norm = nn.LayerNorm(10)
-        assert match_class(norm, "LayerNorm") == True
-        assert match_class(norm, "BatchNorm1d") == False
+        assert _match_class(norm, "LayerNorm") == True
+        assert _match_class(norm, "BatchNorm1d") == False
 
     def test_parent_class_match(self):
         """Test matching parent class names"""
         linear = nn.Linear(10, 20)
-        assert match_class(linear, "Module") == True
+        assert _match_class(linear, "Module") == True
 
         conv = nn.Conv2d(3, 16, 3)
-        assert match_class(conv, "Module") == True
-        assert match_class(conv, "_ConvNd") == True
+        assert _match_class(conv, "Module") == True
+        assert _match_class(conv, "_ConvNd") == True
 
     def test_non_torch_module(self):
         """Test with non-torch modules"""
         regular_object = object()
-        assert match_class(regular_object, "object") == False  # not a torch.nn.Module
+        assert _match_class(regular_object, "object") == False  # not a torch.nn.Module
 
     def test_custom_module(self):
         """Test with custom module classes"""
         model = DummyModel()
-        assert match_class(model, "DummyModel") == True
-        assert match_class(model, "Module") == True
+        assert _match_class(model, "DummyModel") == True
+        assert _match_class(model, "Module") == True
 
 
 class TestIsMatch:
@@ -170,6 +170,15 @@ class TestIsMatch:
         linear = nn.Linear(10, 20)
         assert is_match("layer1", linear, "re:layer.*") == True
         assert is_match("layer1", linear, "re:conv.*") == False
+
+    def test_internal_module_match(self):
+        """Test not matching internal modules"""
+
+        class InternalLinear(InternalModule, nn.Linear):
+            pass
+
+        linear = InternalLinear(10, 20)
+        assert is_match("layer1", linear, "re:layer.*") == False
 
 
 class TestMatchNamedModules:
@@ -236,6 +245,16 @@ class TestMatchNamedModules:
         assert "Could not match" in warning_msg
         assert "nonexistent_module" in warning_msg
 
+    def test_internal_match(self):
+        """Test not matching internal modules"""
+
+        class InternalLinear(InternalModule, nn.Linear):
+            pass
+
+        linear = InternalLinear(10, 20)
+        matches = list(match_named_modules(linear, ["re:.*"]))
+        assert len(matches) == 0
+
 
 class TestMatchNamedParameters:
     """Test cases for match_named_parameters function"""
@@ -297,6 +316,16 @@ class TestMatchNamedParameters:
         warning_msg = mock_logger.warning.call_args[0][0]
         assert "Could not match" in warning_msg
         assert "nonexistent.param" in warning_msg
+
+    def test_internal_match(self):
+        """Test not matching internal modules"""
+
+        class InternalLinear(InternalModule, nn.Linear):
+            pass
+
+        linear = InternalLinear(10, 20)
+        matches = list(match_named_parameters(linear, ["re:.*"]))
+        assert len(matches) == 0
 
 
 class TestMatchModulesSet:
@@ -376,6 +405,16 @@ class TestMatchModulesSet:
 
         # Should have 2 sets (layers 1 and 2, but not 0)
         assert len(matches) == 2
+
+    def test_internal_match(self):
+        """Test not matching internal modules"""
+
+        class InternalLinear(InternalModule, nn.Linear):
+            pass
+
+        linear = InternalLinear(10, 20)
+        matches = list(match_modules_set(linear, ["re:.*"]))
+        assert len(matches) == 0
 
 
 class TestIntegration:
