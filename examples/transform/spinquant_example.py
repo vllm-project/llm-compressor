@@ -1,86 +1,121 @@
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
-from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform import SpinQuantModifier
-from llmcompressor.utils import dispatch_for_generation
+from transformers import AutoModelForCausalLM, PreTrainedModel, AutoTokenizer
+from llmcompressor.modeling import normalize_embedding, fuse_norm_linears
 
-# Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    torch_dtype="auto",
-)
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 512
-MAX_SEQUENCE_LENGTH = 2048
-
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
+from compressed_tensors.utils import is_match
+from compressed_tensors.transform.utils.hadamard import deterministic_hadamard_matrix
 
 
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
+def transform(weight: torch.Tensor, loc: str):
+    if loc == "embed_output":
+        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, "cuda")
+        return (weight @ hadamard) / torch.tensor(hadamard.size(0)).sqrt()
+
+    if loc == "weight_output":
+        hadamard = deterministic_hadamard_matrix(weight.size(0), weight.dtype, "cuda")
+        return (hadamard.T @ weight) / torch.tensor(hadamard.size(0)).sqrt()
+    
+    if loc == "weight_input":
+        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, "cuda")
+        inv = hadamard.T
+        return (weight @ inv.T) / torch.tensor(hadamard.size(0)).sqrt()
+
+    assert False
+
+
+def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
+    # calibrate
+    group_size = 128
+    num_groups = weight.size(-1) // group_size
+    values = weight.unflatten(-1, (num_groups, group_size))
+
+    max_values = values.max(dim=-1).values
+    min_values = values.min(dim=-1).values
+
+    value_range = torch.maximum(max_values.abs(), min_values.abs()) * 2
+    scale = value_range / (7 + 8)
+    scale = scale.clamp(min=torch.finfo(torch.float32).eps)
+    zero_point = torch.zeros_like(scale)
+
+    # quantize
+    x = weight
+    x_q = (x.unflatten(-1, (scale.size(-1), -1)) / scale[:, :, None]) + zero_point[:, :, None]
+    x_q = torch.round(x_q)
+    x_q = torch.clamp(x_q, -8, 7)  # unlike current impl, round then clamp
+
+    # dequantize
+    x_qdq = (x_q - zero_point[:, :, None]) * scale[:, :, None]
+    x_qdq = x_qdq.flatten(-2, -1)
+    return x_qdq
+
+
+def transform_and_quant(model: torch.nn.Module):
+    for name, module in model.named_modules():
+        if is_match(name, module, "re:.*embed_tokens$"):
+            transformed = transform(module.weight, "embed_output")
+
+        elif any(is_match(name, module, t) for t in ["re:.*o_proj$", "re:.*down_proj$"]):
+            transformed = transform(module.weight, "weight_output")
+            
+        elif any(is_match(name, module, t) for t in ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$", "re:.*up_proj$", "re:.*gate_proj$", "lm_head"]):
+            transformed = transform(module.weight, "weight_input")
+
+        else:
+            continue
+
+        quant = calibrate_fake_quantize(module.weight)
+        transformed_quant = calibrate_fake_quantize(transformed)
+
+        loss = torch.nn.MSELoss()
+        with torch.no_grad():
+            quant_loss = loss(quant, module.weight)
+            transform_quant_loss = loss(transformed_quant, transformed)
+
+        if not transform_quant_loss < quant_loss < 1e-05:
+            print((name.rjust(32), transform_quant_loss, quant_loss))
+
+        if "embed_tokens" or "lm_head" in name:
+            pass
+            #module.weight.data = transformed
+        else:
+            module.weight.data = quant
+            #module.weight.data = transformed_quant
+
+
+if __name__ == "__main__":
+    # Select model and load it.
+    MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+    model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=torch.bfloat16, device_map="cuda")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    # print("loaded model")
+
+    normalize_embedding(model.model.embed_tokens)
+    for layer in model.model.layers:
+        fuse_norm_linears(
+            layer.input_layernorm,
+            [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj],
         )
-    }
-
-
-ds = ds.map(preprocess)
-
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
+        fuse_norm_linears(
+            layer.post_attention_layernorm,
+            [layer.mlp.up_proj, layer.mlp.gate_proj],
+        )
+    fuse_norm_linears(
+        model.model.norm,
+        [model.lm_head],
     )
+    print("normalized embeddings and fused norms")
 
+    transform_and_quant(model)
+    print("transformed and quanted")
 
-ds = ds.map(tokenize, remove_columns=ds.column_names)
-
-# Configure the quantization algorithm to run.
-#   * apply spinquant transforms to model in order to make quantization easier
-#   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = [
-    SpinQuantModifier(rotations=["R1", "R2"], transform_type="hadamard"),
-    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
-]
-
-# Apply algorithms.
-oneshot(
-    model=model,
-    recipe=recipe,
-    dataset=ds,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-)
-
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
-
-# Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-transformed-w4a16"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+    save_path = "Llama-3.1-8B-Instruct-quant-only"
+    model.save_pretrained(save_path)
+    tokenizer.save_pretrained(save_path)
+    print("\n\n")
+    print("========== SAMPLE GENERATION ==============")
+    sample = tokenizer("Hello my name is", return_tensors="pt")
+    sample = {key: value.to("cuda") for key, value in sample.items()}
+    output = model.generate(**sample, max_new_tokens=100)
+    print(tokenizer.decode(output[0]))
+    print("==========================================\n\n")
