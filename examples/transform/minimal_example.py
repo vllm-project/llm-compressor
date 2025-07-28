@@ -8,20 +8,23 @@ from compressed_tensors.transform.utils.hadamard import deterministic_hadamard_m
 
 
 def transform(weight: torch.Tensor, loc: str):
+    original_dtype = weight.dtype
+    weight = weight.to(torch.float64)
+
     if loc == "embed_output":
         hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, "cuda")
-        return (weight @ hadamard) / torch.tensor(hadamard.size(0)).sqrt()
+        ret = (weight @ hadamard) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
 
-    if loc == "weight_output":
+    elif loc == "weight_output":
         hadamard = deterministic_hadamard_matrix(weight.size(0), weight.dtype, "cuda")
-        return (hadamard.T @ weight) / torch.tensor(hadamard.size(0)).sqrt()
+        ret = (hadamard.T @ weight) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
     
-    if loc == "weight_input":
+    elif loc == "weight_input":
         hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, "cuda")
         inv = hadamard.T
-        return (weight @ inv.T) / torch.tensor(hadamard.size(0)).sqrt()
+        ret = (weight @ inv.T) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
 
-    assert False
+    return ret.to(original_dtype)
 
 
 def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
@@ -93,7 +96,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     # print("loaded model")
 
-    #normalize_embedding(model.model.embed_tokens)
+    normalize_embedding(model.model.embed_tokens)
     for layer in model.model.layers:
         fuse_norm_linears(
             layer.input_layernorm,
@@ -109,10 +112,10 @@ if __name__ == "__main__":
     )
     print("normalized embeddings and fused norms")
 
-    transform_and_quant(model, do_transform=False)
+    transform_and_quant(model, do_transform=True)
     print("transformed and quanted")
 
-    SAVE_DIR = MODEL_ID.split("/")[1] + "-minimal-zero-no-embed-norm"
+    SAVE_DIR = MODEL_ID.split("/")[1] + "-minimal-high-precision"
     model.save_pretrained(SAVE_DIR)
     tokenizer.save_pretrained(SAVE_DIR)
     print("\n\n")
