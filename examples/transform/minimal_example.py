@@ -3,7 +3,7 @@ import torch
 from transformers import AutoModelForCausalLM, PreTrainedModel, AutoTokenizer
 from llmcompressor.modeling import normalize_embedding, fuse_norm_linears
 
-from compressed_tensors.utils import is_match, align_module_device, update_offload_parameter
+from compressed_tensors.utils import is_match
 from compressed_tensors.transform.utils.hadamard import deterministic_hadamard_matrix
 
 
@@ -53,41 +53,37 @@ def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
 def transform_and_quant(model: torch.nn.Module, do_transform=True):
     for name, module in model.named_modules():
         if is_match(name, module, "re:.*embed_tokens$"):
-            with align_module_device(module):
-                transformed = transform(module.weight, "embed_output")
+            transformed = transform(module.weight, "embed_output")
 
         elif any(is_match(name, module, t) for t in ["re:.*o_proj$", "re:.*down_proj$"]):
-            with align_module_device(module):
-                transformed = transform(module.weight, "weight_output")
+            transformed = transform(module.weight, "weight_output")
             
         elif any(is_match(name, module, t) for t in ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$", "re:.*up_proj$", "re:.*gate_proj$", "lm_head"]):
-            with align_module_device(module):
-                transformed = transform(module.weight, "weight_input")
+            transformed = transform(module.weight, "weight_input")
 
         else:
             continue
 
-        with align_module_device(module):
-            quant = calibrate_fake_quantize(module.weight)
-            transformed_quant = calibrate_fake_quantize(transformed)
+        quant = calibrate_fake_quantize(module.weight)
+        transformed_quant = calibrate_fake_quantize(transformed)
 
-            loss = torch.nn.MSELoss()
-            with torch.no_grad():
-                quant_loss = loss(quant, module.weight)
-                transform_quant_loss = loss(transformed_quant, transformed)
+        loss = torch.nn.MSELoss()
+        with torch.no_grad():
+            quant_loss = loss(quant, module.weight)
+            transform_quant_loss = loss(transformed_quant, transformed)
 
-            if not transform_quant_loss < quant_loss < 1e-05:
-                print((name.rjust(32), transform_quant_loss, quant_loss))
+        if not transform_quant_loss < quant_loss < 1e-05:
+            print((name.rjust(32), transform_quant_loss, quant_loss))
 
-            if "embed_tokens" in name or "lm_head" in name:
-                if do_transform:
-                    update_offload_parameter(module, "weight", transformed)
+        if "embed_tokens" in name or "lm_head" in name:
+            if do_transform:
+                module.weight.data = transformed
+        else:
+            if do_transform:
+                module.weight.data = transformed_quant
+
             else:
-                if do_transform:
-                    update_offload_parameter(module, "weight", transformed_quant)
-
-                else:
-                    update_offload_parameter(module, "weight", quant)
+                module.weight.data = quant
 
 
 if __name__ == "__main__":
@@ -97,7 +93,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     # print("loaded model")
 
-    normalize_embedding(model.model.embed_tokens)
+    #normalize_embedding(model.model.embed_tokens)
     for layer in model.model.layers:
         fuse_norm_linears(
             layer.input_layernorm,
@@ -113,10 +109,10 @@ if __name__ == "__main__":
     )
     print("normalized embeddings and fused norms")
 
-    transform_and_quant(model)
+    transform_and_quant(model, do_transform=False)
     print("transformed and quanted")
 
-    SAVE_DIR = MODEL_ID.split("/")[1] + "-minimal-one"
+    SAVE_DIR = MODEL_ID.split("/")[1] + "-minimal-zero-no-embed-norm"
     model.save_pretrained(SAVE_DIR)
     tokenizer.save_pretrained(SAVE_DIR)
     print("\n\n")

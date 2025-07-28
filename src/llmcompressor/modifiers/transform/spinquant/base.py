@@ -130,33 +130,33 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
-        # # needs to happen after the model has been hooked to execute on the GPU
-        # # otherwise we're applying weight transforms on CPU
-        # self._prenormalize_embeddings(state.model)
-        # self._fuse_norms(state.model)
+        # needs to happen after the model has been hooked to execute on the GPU
+        # otherwise we're applying weight transforms on CPU
+        #self._prenormalize_embeddings(state.model)
+        self._fuse_norms(state.model)
 
-        # apply_transform_config(state.model, self.transform_config)
+        apply_transform_config(state.model, self.transform_config)
 
-        model = state.model
+        # model = state.model
 
-        normalize_embedding(model.model.embed_tokens)
-        for layer in model.model.layers:
-            fuse_norm_linears(
-                layer.input_layernorm,
-                [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj],
-            )
-            fuse_norm_linears(
-                layer.post_attention_layernorm,
-                [layer.mlp.up_proj, layer.mlp.gate_proj],
-            )
-        fuse_norm_linears(
-            model.model.norm,
-            [model.lm_head],
-        )
-        print("normalized embeddings and fused norms")
+        # normalize_embedding(model.model.embed_tokens)
+        # for layer in model.model.layers:
+        #     fuse_norm_linears(
+        #         layer.input_layernorm,
+        #         [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj],
+        #     )
+        #     fuse_norm_linears(
+        #         layer.post_attention_layernorm,
+        #         [layer.mlp.up_proj, layer.mlp.gate_proj],
+        #     )
+        # fuse_norm_linears(
+        #     model.model.norm,
+        #     [model.lm_head],
+        # )
+        # print("normalized embeddings and fused norms")
 
-        transform_and_quant(model)
-        print("transformed and quanted")
+        # transform_and_quant(model)
+        # print("transformed and quanted")
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:

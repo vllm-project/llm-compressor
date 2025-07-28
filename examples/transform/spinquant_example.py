@@ -59,7 +59,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
 recipe = [
     SpinQuantModifier(rotations=["R1", "R2"], transform_type="hadamard"),
-    #QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+    QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
 # Apply algorithms.
@@ -81,6 +81,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-one"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-no_norm_embeddings"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
