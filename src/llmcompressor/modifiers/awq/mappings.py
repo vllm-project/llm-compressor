@@ -146,7 +146,7 @@ _bloom_mappings = [
         ["re:.*dense_h_to_4h$"]
     ),
     AWQMapping(
-        "re:.*dense_h_to_4h$",
+        "re:.*gelu_impl$",
         ["re:.*dense_4h_to_h$"]
     ),
 ]
