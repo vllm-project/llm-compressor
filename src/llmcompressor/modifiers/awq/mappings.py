@@ -137,7 +137,7 @@ _bloom_mappings = [
         "re:.*input_layernorm$",
         ["re:.*query_key_value$"]
     ),
-   AWQMapping(
+    AWQMapping(
         "re:.*post_attention_layernorm$",
         ["re:.*dense_h_to_4h$"]
     ),
