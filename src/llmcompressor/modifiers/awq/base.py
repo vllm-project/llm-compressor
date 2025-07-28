@@ -14,6 +14,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import ConfigDict, PrivateAttr, model_validator
 from torch.nn import Module
+from operator import attrgetter
 from tqdm import tqdm
 
 from llmcompressor.core import Event, EventType, State
@@ -29,7 +30,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_layer_by_name, get_layers
+from llmcompressor.utils.pytorch.module import get_layers
 
 __all__ = ["AWQModifier"]
 
@@ -323,7 +324,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 smooth_layer = smooth_layers[smooth_name]
 
                 smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
-                smooth_parent = get_layer_by_name(smooth_parent_name, model)
+                smooth_parent = attrgetter(smooth_parent_name)(model)
 
                 balance_layers, balance_names = [], []
                 for balance_regex in mapping.balance_layers:
@@ -765,7 +766,7 @@ def get_lowest_common_parent(names: List[str], module: Module) -> Tuple[str, Mod
     while True:
         if parent_name == "":
             return "", module
-        parent = get_layer_by_name(parent_name, module)
+        parent = attrgetter(parent_name)(module)
         if not isinstance(parent, torch.nn.ModuleList):
             return parent_name, parent
         parent_name = ".".join(parent_name.split(".")[:-1])
