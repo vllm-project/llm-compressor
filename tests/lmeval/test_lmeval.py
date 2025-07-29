@@ -35,7 +35,7 @@ except ImportError:
     lm_eval_installed = False
     logger.warning("lm_eval is not installed. This test will be skipped")
 
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "tests/lmeval/configs/w4a4_nvfp4.yaml")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
@@ -90,7 +90,7 @@ class TestLMEval:
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
 
-        self.num_calibration_samples = 512
+        self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
         self.max_seq_length = 2048
 
     def test_lm_eval(self, test_data_file: str):
