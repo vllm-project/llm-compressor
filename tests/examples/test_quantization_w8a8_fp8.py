@@ -47,3 +47,13 @@ class TestQuantizationW8A8_FP8:
         command, result = copy_and_run_script(tmp_path, example_dir, script_filename)
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
+
+    def test_fp8_block_example_script(self, example_dir: str, tmp_path: Path):
+        """
+        Test for the "fp8_block_example.py" script in the folder.
+        """
+        script_filename = "fp8_block_example.py"
+        command, result = copy_and_run_script(tmp_path, example_dir, script_filename)
+
+        assert result.returncode == 0, gen_cmd_fail_message(command, result)
+
