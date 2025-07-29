@@ -14,9 +14,9 @@ from transformers import (
     WhisperForConditionalGeneration,
 )
 
-from llmcompressor.pipelines.sequential.helpers import match_modules
 from llmcompressor.transformers.tracing.debug import trace
 from llmcompressor.utils.pytorch.module import get_no_split_params
+from compressed_tensors import match_named_modules
 
 
 @pytest.mark.skipif(
@@ -148,7 +148,7 @@ def get_target_modules(model, sequential_targets):
     if isinstance(sequential_targets, str):
         sequential_targets = [sequential_targets]
 
-    return match_modules(model, sequential_targets)
+    return match_named_modules(model, sequential_targets)
 
 
 def run_subgraphs(model, subgraphs, inputs):

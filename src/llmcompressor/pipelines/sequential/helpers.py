@@ -24,6 +24,7 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.helpers import calibration_forward_context, patch_attr
 from llmcompressor.utils.pytorch.module import get_no_split_params
+from compressed_tensors import match_named_modules
 
 from .ast_helpers import autowrap_forwards
 
@@ -100,7 +101,7 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     # find modules
-    targets = match_modules(model, sequential_targets)
+    targets = match_named_modules(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
     offloaded = set(m for m in model.modules() if has_offloaded_params(m))
 
