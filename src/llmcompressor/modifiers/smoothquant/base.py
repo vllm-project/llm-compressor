@@ -16,7 +16,6 @@ from llmcompressor.modifiers.smoothquant.utils import (
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.pytorch.module import (
     get_matching_layer,
-    match_targets,
 )
 from compressed_tensors import match_named_modules
 MINIMUM_SMOOTHING_SCALE = 1e-5
@@ -205,7 +204,7 @@ class SmoothQuantModifier(Modifier):
         for to_balance, to_smooth in self.mappings:
             to_smooth_layers = match_named_modules(to_smooth, model)
             for layer_name, smooth_layer in to_smooth_layers.items():
-                if not match_targets(layer_name, self.ignore)[0]:
+                if not match_named_modules(layer_name, self.ignore)[0]:
                     balance_layers = []
                     for balance_suffix in to_balance:
                         # find the submodule that matches the activation layer

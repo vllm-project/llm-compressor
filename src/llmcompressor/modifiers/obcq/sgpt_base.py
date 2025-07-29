@@ -14,8 +14,6 @@ from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.pytorch.module import (
     get_no_split_params,
-    get_prunable_layers,
-    match_targets,
 )
 from compressed_tensors import match_named_modules
 
@@ -149,11 +147,11 @@ class SparsityModifierBase(Modifier):
                 layer_sparsity = self.sparsity[index]
             else:
                 layer_sparsity = self.sparsity
-
-            for name, module in get_prunable_layers(layer).items():
+            prunable_targets = ["Linear", "Conv1d", "Conv2d", "Conv3d", "QATLinear", "QATConv2d", "QATConv3d", "Conv1D"]
+            for name, module in match_named_modules(layer, prunable_targets).items():
                 name = f"{layer_name}.{name}"
 
-                if match_targets(name, self.ignore)[0]:
+                if match_named_modules(name, self.ignore)[0]:
                     continue
 
                 # HACK: previously, embeddings were not quantized because they were not
@@ -210,7 +208,8 @@ class SparsityModifierBase(Modifier):
 
         groups = {}
         for name, layer in layers.items():
-            prunable_layers = get_prunable_layers(layer)
+            prunable_targets = ["Linear", "Conv1d", "Conv2d", "Conv3d", "QATLinear", "QATConv2d", "QATConv3d", "Conv1D"]
+            prunable_layers = match_named_modules(layer, prunable_targets)
             z = [
                 m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)
                 for n, m in prunable_layers.items()

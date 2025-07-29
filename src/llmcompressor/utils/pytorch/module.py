@@ -47,10 +47,6 @@ except Exception as _err:
 
 
 __all__ = [
-    "match_targets",
-    "get_terminal_layers",
-    "get_prunable_layers",
-    "get_quantizable_layers",
     "qat_active",
     "get_matching_layer",
     "get_no_split_params",
@@ -59,21 +55,6 @@ __all__ = [
 ALL_TARGET = "__ALL__"
 ALL_PRUNABLE_TARGET = "__ALL_PRUNABLE__"
 ALL_QUANTIZABLE_TARGET = "__ALL_QUANTIZABLE__"
-
-
-def match_targets(name: str, targets: Union[str, List[str]]) -> Tuple[bool, int]:
-    if isinstance(targets, str):
-        targets = [targets]
-
-    for index, target in enumerate(targets):
-        if target[:3] == "re:":
-            pattern = target[3:]
-            if re.match(pattern, name):
-                return True, index
-        elif name == target:
-            return True, index
-
-    return False, -1
 
 
 def match_class(layer: Module, targets: Union[str, List[str]]) -> Tuple[bool, int]:
@@ -85,51 +66,6 @@ def match_class(layer: Module, targets: Union[str, List[str]]) -> Tuple[bool, in
             return True, index
 
     return False, -1
-
-
-def get_terminal_layers(module: Module) -> Dict[str, Module]:
-    terminal = {}
-
-    for name, layer in module.named_modules():
-        if len(list(layer.named_modules())) > 1:
-            continue
-
-        terminal[name] = layer
-
-    return terminal
-
-
-def get_prunable_layers(module: Module) -> Dict[str, Module]:
-    prunable = {}
-
-    for name, layer in module.named_modules():
-        if (
-            isinstance(layer, Linear)
-            or isinstance(layer, _ConvNd)
-            or (QATLinear and isinstance(layer, QATLinear))
-            or (QATConv2d and isinstance(layer, QATConv2d))
-            or (QATConv3d and isinstance(layer, QATConv3d))
-            or (TransformerConv1D and isinstance(layer, TransformerConv1D))
-        ):
-            prunable[name] = layer
-
-    return prunable
-
-
-def get_quantizable_layers(module: Module) -> Dict[str, Module]:
-    if QATLinear is None:
-        raise ImportError(
-            "PyTorch version is not setup for Quantization. "
-            "Please install a QAT compatible version of PyTorch"
-        )
-
-    quantizable = {}
-
-    for name, layer in module.named_modules():
-        if isinstance(layer, Linear) or isinstance(layer, _ConvNd):
-            quantizable[name] = layer
-
-    return quantizable
 
 
 def qat_active(module: Module) -> bool:
