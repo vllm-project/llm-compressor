@@ -48,8 +48,6 @@ except Exception as _err:
 
 __all__ = [
     "match_targets",
-    "get_default_params",
-    "match_layers_params",
     "get_terminal_layers",
     "get_prunable_layers",
     "get_quantizable_layers",
@@ -87,71 +85,6 @@ def match_class(layer: Module, targets: Union[str, List[str]]) -> Tuple[bool, in
             return True, index
 
     return False, -1
-
-
-def get_default_params(layers: Dict[str, Module]) -> Dict[str, Parameter]:
-    params = {}
-    for name, layer in layers.items():
-        for param_name, param in layer.named_parameters():
-            if param_name == "weight":
-                params[name] = param
-                break
-    return params
-
-
-def match_layers_params(
-    targets: Union[str, List[str]], module: Module, params: bool = False
-) -> Dict[str, Union[Module, Parameter]]:
-    if targets == ALL_TARGET:
-        values = get_terminal_layers(module)
-
-        return values if not params else get_default_params(values)
-
-    if targets == ALL_PRUNABLE_TARGET:
-        values = get_prunable_layers(module)
-
-        return values if not params else get_default_params(values)
-
-    if targets == ALL_QUANTIZABLE_TARGET:
-        values = get_quantizable_layers(module)
-
-        return values if not params else get_default_params(values)
-
-    if isinstance(targets, str):
-        targets = [targets]
-
-    resolved = {}
-    targets_found = [False for _ in range(len(targets))]
-
-    for name, layer in module.named_modules():
-        # due to nesting, FSDP may not be the top layer
-        name = fix_fsdp_module_name(name)
-        match, match_index = match_targets(name, targets)
-        if match and not params:
-            targets_found[match_index] = True
-            resolved[name] = layer
-        else:
-            match, match_index = match_class(layer, targets)
-            if match:
-                targets_found[match_index] = True
-                resolved[name] = layer
-
-        for param_name, param in layer.named_parameters():
-            if "." in param_name:  # skip parameters of nested layers
-                continue
-
-            param_match, param_match_index = match_targets(
-                f"{name}.{param_name}", targets
-            )
-            if param_match:
-                targets_found[param_match_index] = True
-                resolved[f"{name}"] = layer if not params else param
-
-    missed = [target for found, target in zip(targets_found, targets) if not found]
-    if len(missed) > 0:
-        raise ValueError(f"Could not find targets {missed} in module {module}")
-
-    return resolved
 
 
 def get_terminal_layers(module: Module) -> Dict[str, Module]:
