@@ -2,6 +2,7 @@ from math import ceil
 from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
+from compressed_tensors import InternalModule
 from compressed_tensors.quantization.quant_args import (
     FP8_E4M3_DATA,
     QuantizationArgs,
@@ -12,12 +13,11 @@ from compressed_tensors.registry.registry import RegistryMixin
 from compressed_tensors.utils import safe_permute
 from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
-from torch.nn import Module
 
 __all__ = ["Observer"]
 
 
-class Observer(Module, RegistryMixin):
+class Observer(InternalModule, RegistryMixin):
     """
     Base Observer class to be subclassed for specific implementation.
     Subclasses should override `calculate_qparams` to return a scale, zero_point
@@ -193,12 +193,51 @@ class Observer(Module, RegistryMixin):
                 )
 
             elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
-                # TODO (#1475) add support for block-wise quantization
-                raise NotImplementedError(
-                    "Block-wise quantization is not yet supported, "
-                    "consider group-wise quantization instead. More info at "
-                    "https://github.com/vllm-project/llm-compressor/issues/1475"
+                # Block-wise quantization: one scale/zero_point per block of shape
+                # [block_rows, block_cols]
+                rows, cols = observed.shape[:2]
+                bs = self.quantization_args.block_structure
+                if not (
+                    isinstance(bs, (list, tuple))
+                    and len(bs) == 2
+                    and all(isinstance(x, int) for x in bs)
+                ):
+                    raise ValueError(
+                        f"Invalid block_structure '{bs}'. "
+                        f"Must be a list of two ints [rows, cols]."
+                    )
+                block_rows, block_cols = bs
+                num_br = int(ceil(rows / block_rows))
+                num_bc = int(ceil(cols / block_cols))
+
+                # allocate per-block scale and zero_point
+                self._scale = torch.empty(
+                    (num_br, num_bc), dtype=observed.dtype, device=observed.device
                 )
+
+                # Use same dtype logic as GROUP strategy for zero_point
+                if is_fp4(quantization_args=self.quantization_args):
+                    zp_dtype = FP8_E4M3_DATA.dtype
+                else:
+                    zp_dtype = self.quantization_args.pytorch_dtype()
+
+                self._zero_point = torch.empty(
+                    (num_br, num_bc), dtype=zp_dtype, device=observed.device
+                )
+
+                # compute qparams for each block
+                for i in range(num_br):
+                    r0 = i * block_rows
+                    r1 = min((i + 1) * block_rows, rows)
+                    for j in range(num_bc):
+                        c0 = j * block_cols
+                        c1 = min((j + 1) * block_cols, cols)
+                        # reduce across both dims to get one scale and zp per block
+                        scale_bp, zp_bp = self.calculate_qparams(
+                            observed[r0:r1, c0:c1], reduce_dims=(0, 1)
+                        )
+                        self._scale[i, j] = scale_bp
+                        self._zero_point[i, j] = zp_bp
 
         return self._scale, self._zero_point
 

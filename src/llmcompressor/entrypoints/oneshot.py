@@ -186,11 +186,14 @@ class Oneshot:
             recipe_args=self.recipe_args.recipe_args,
             calib_data=calibration_dataloader,
         )
-
         user_pipeline = self.dataset_args.pipeline
-        modifiers = session.get_modifiers()
+        modifiers = session.lifecycle.recipe.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
-        pipeline(self.model, calibration_dataloader, self.dataset_args)
+        pipeline(
+            self.model,
+            calibration_dataloader,
+            self.dataset_args,
+        )
 
         session.finalize()
 
@@ -228,7 +231,7 @@ def oneshot(
     overwrite_cache: bool = False,
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
-    trust_remote_code_data: bool = False,
+    calibrate_moe_context: bool = False,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",
@@ -290,8 +293,6 @@ def oneshot(
         preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
-    :param trust_remote_code_data: Whether to allow for datasets defined on the Hub
-        using a dataset script.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
@@ -303,8 +304,9 @@ def oneshot(
     """
 
     # pass all args directly into Oneshot
-    local_args = locals()
-    local_args.pop("kwargs")
+    local_args = {
+        k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
+    }
     one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 

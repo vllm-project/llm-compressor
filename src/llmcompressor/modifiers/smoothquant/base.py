@@ -127,6 +127,11 @@ class SmoothQuantModifier(Modifier):
                 f"Expected start to be None or -1, got {self.end}"
             )
 
+        if not hasattr(state, "data") or state.data.calib is None:
+            raise ValueError(
+                f"{self.__class__.__name__} requires a calibration dataset to be "
+                "provided"
+            )
         self.ignore = [] if not self.ignore else self.ignore
         self.mappings = self._infer_mappings_from_model(state.model)
         self.resolved_mappings_ = self._resolve_mappings(state.model)

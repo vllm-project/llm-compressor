@@ -1,0 +1,113 @@
+site_name: LLM Compressor Docs
+site_description: Documentation for LLM Compressor, an easy-to-use library for compressing large language models for deployment with vLLM.
+site_url: !ENV READTHEDOCS_CANONICAL_URL
+repo_url: https://github.com/vllm-project/llm-compressor
+edit_uri: https://github.com/vllm-project/llm-compressor/tree/main/docs
+
+theme:
+  name: material
+  font:
+    text: Roboto
+    code: Roboto Mono
+  language: en
+  logo: assets/llmcompressor-icon-white.png
+  favicon: assets/llmcompressor-icon-white.png
+  features:
+    - content.action.edit
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.path
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+  palette:
+    # Palette toggle for automatic mode
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: youtube
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.blocks.caption
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - tables
+
+plugins:
+  - api-autonav:
+      modules: ['src/llmcompressor']
+  - gen-files:
+      scripts:
+        - docs/scripts/gen_files.py
+  - minify:
+      minify_html: true
+  - mkdocs-nav-weight
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          options:
+            docstring_style: sphinx
+  - search
+  - section-index
+  - social
+  - tags
+
+extra:
+  generator: false
+
+extra_css:
+  - stylesheets/style.css
+
+extra_javascript:
+  - scripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js

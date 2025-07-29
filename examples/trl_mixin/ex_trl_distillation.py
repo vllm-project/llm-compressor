@@ -1,5 +1,9 @@
+# NOTE: Fine tuning can require more steps than is shown in the example
+# See the Axolotl integration blog post for best fine tuning practices
+# https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open
+
 from sft_trainer import SFTTrainer
-from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor.args import DatasetArguments, ModelArguments
 from llmcompressor.transformers import TextGenerationDataset
@@ -48,7 +52,6 @@ test_stage:
       distill_scale: 1.0
 """
 
-data_collator = DefaultDataCollator()
 trl_sft_config_args = dict(
     output_dir=output_dir,
     num_train_epochs=0.6,
@@ -61,13 +64,13 @@ trl_sft_config_args = dict(
 )
 model_args = ModelArguments(model=model, distill_teacher=teacher)
 
+# This step can be supplanted by fine tuning via integrated FT libraries such as Axolotl
 trainer = SFTTrainer(
     model=model,
     teacher=teacher,
     processing_class=tokenizer,
     recipe=recipe,
     train_dataset=train_dataset,
-    data_collator=data_collator,
     trl_sft_config_args=trl_sft_config_args,
     dataset_args=dataset_args,
     model_args=model_args,

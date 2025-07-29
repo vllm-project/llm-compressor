@@ -112,11 +112,14 @@ setup(
     install_requires=[
         "loguru",
         "pyyaml>=5.0.0",
-        "numpy>=1.17.0,<2.0",
+        # librosa dependency numba is currently not compatible with numpy>=2.3
+        # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
+        "numpy>=1.17.0,<2.3",
         "requests>=2.0.0",
         "tqdm>=4.0.0",
-        "torch>=1.7.0",
-        "transformers>4.0,<5.0",
+        # torch 1.10 and 1.11 do not support quantized onnx export
+        "torch>=1.7.0,!=1.10,!=1.11",
+        "transformers>4.0",
         "datasets",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml",
@@ -143,6 +146,7 @@ setup(
             "torchvision",
             "librosa",
             "soundfile",
+            "torchcodec",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
@@ -151,6 +155,17 @@ setup(
             "flake8~=7.0.0",
             # pre commit hooks
             "pre-commit",
+            # docs
+            "mkdocs",
+            "mkdocs-material[imaging]",
+            "markdown",
+            "pymdown-extensions",
+            "mkdocs-section-index",
+            "mkdocs-minify-plugin",
+            "mkdocs-api-autonav",
+            "mkdocstrings-python",
+            "mkdocs-gen-files",
+            "mkdocs-nav-weight",
         ]
     },
     entry_points={

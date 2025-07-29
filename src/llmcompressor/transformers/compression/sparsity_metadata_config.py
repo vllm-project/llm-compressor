@@ -6,7 +6,6 @@ from compressed_tensors.quantization import QuantizationType
 from compressed_tensors.quantization.utils import (
     is_model_quantized,
     is_module_quantized,
-    iter_named_leaf_modules,
 )
 from loguru import logger
 from torch import Tensor
@@ -17,7 +16,7 @@ from llmcompressor.pytorch.utils import ModuleSparsificationInfo
 from llmcompressor.transformers.compression.helpers import (
     infer_sparse_targets_and_ignores,
     infer_sparsity_structure_from_model,
-    infer_sparsity_structure_from_stage_modifiers,
+    infer_sparsity_structure_from_modifiers,
 )
 
 
@@ -67,9 +66,9 @@ class SparsityConfigMetadata:
         sparsity_structure = None
 
         current_session = active_session()
-        stage_modifiers = current_session.lifecycle.modifiers
+        stage_modifiers = current_session.lifecycle.recipe.modifiers
         if stage_modifiers:
-            sparsity_structure = infer_sparsity_structure_from_stage_modifiers(
+            sparsity_structure = infer_sparsity_structure_from_modifiers(
                 stage_modifiers
             )
 
@@ -208,33 +207,34 @@ class SparsityConfigMetadata:
             QuantizationType.FLOAT.value,
         ]
 
-        for _, submodule in iter_named_leaf_modules(model):
-            if is_module_quantized(submodule):
-                weight_scheme = submodule.quantization_scheme.weights
-                input_scheme = submodule.quantization_scheme.input_activations
+        for submodule in model.modules():
+            if not is_module_quantized(submodule):
+                continue
 
-                if weight_scheme and input_scheme:
-                    # weight and activation quantization
-                    # check schemes are supported
-                    for scheme in [weight_scheme, input_scheme]:
-                        scheme_supported = (
-                            scheme.num_bits == 8
-                            and scheme.type in supported_scheme_types
-                        )
-                        if not scheme_supported:
-                            logger.info(
-                                "Quantization scheme not supported,"
-                                " turning off sparse 24 compression."
-                                f" Invalid Scheme: {scheme}"
-                            )
-                            return False
+            weight_scheme = submodule.quantization_scheme.weights
+            input_scheme = submodule.quantization_scheme.input_activations
 
-                elif weight_scheme or input_scheme:
-                    # weight only quantization
-                    logger.info(
-                        "Weight only quantization detected, "
-                        "turning off sparse 24 compression."
+            if weight_scheme and input_scheme:
+                # weight and activation quantization
+                # check schemes are supported
+                for scheme in [weight_scheme, input_scheme]:
+                    scheme_supported = (
+                        scheme.num_bits == 8 and scheme.type in supported_scheme_types
                     )
-                    return False
+                    if not scheme_supported:
+                        logger.info(
+                            "Quantization scheme not supported,"
+                            " turning off sparse 24 compression."
+                            f" Invalid Scheme: {scheme}"
+                        )
+                        return False
+
+            elif weight_scheme or input_scheme:
+                # weight only quantization
+                logger.info(
+                    "Weight only quantization detected, "
+                    "turning off sparse 24 compression."
+                )
+                return False
 
         return True

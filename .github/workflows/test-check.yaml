@@ -4,6 +4,12 @@ on:
     branches:
       - main
   push:
+  workflow_dispatch:
+    inputs:
+      code_coverage:
+        description: if enabled, code coverage metrics will be collected during the test run
+        type: boolean
+        default: false
 
 env:
   CADENCE: "commit"
@@ -12,6 +18,8 @@ jobs:
 
   base-tests:
     runs-on: ubuntu-22.04
+    env:
+      COVERAGE_FILE: ".coverage.base"
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -36,11 +44,31 @@ jobs:
           BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
+      - name: "⚙️ Prepare code coverage"
+        if: inputs.code_coverage
+        uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running base tests"
         run: make test
+      - name: "Upload coverage report"
+        if: (success() || failure()) && inputs.code_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: base-tests-coverage-results
+          path: |
+            .coverage*
+            coverage-html
+            coverage.json
+          include-hidden-files: true
+          retention-days: 5
+      - name: "Report coverage"
+        if: (success() || failure()) && inputs.code_coverage
+        run: |
+          coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
   pytorch-tests:
     runs-on: ubuntu-22.04
+    env:
+      COVERAGE_FILE: ".coverage.pytorch"
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -65,12 +93,32 @@ jobs:
           BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
+      - name: "⚙️ Prepare code coverage"
+        if: inputs.code_coverage
+        uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+      - name: "Upload coverage report"
+        if: (success() || failure()) && inputs.code_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytorch-tests-coverage-results
+          path: |
+            .coverage*
+            coverage-html
+            coverage.json
+          include-hidden-files: true
+          retention-days: 5
+      - name: "Report coverage"
+        if: (success() || failure()) && inputs.code_coverage
+        run: |
+          coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
   compat-pytorch-1_9-pytorch-tests:
     runs-on: ubuntu-22.04
+    env:
+      COVERAGE_FILE: ".coverage.compat-pytorch-1.9"
     steps:
       - uses: actions/setup-python@v5
         with:
@@ -95,6 +143,71 @@ jobs:
           BUILD_TYPE=nightly pip3 install .
       - name: "Clean compressed-tensors directory"
         run: rm -r compressed-tensors/
+      - name: "⚙️ Prepare code coverage"
+        if: inputs.code_coverage
+        uses: ./.github/actions/prepare-code-coverage
       - name: "🔬 Running pytorch tests"
         run: |
           pytest -v tests/llmcompressor/pytorch
+      - name: "Upload coverage report"
+        if: (success() || failure()) && inputs.code_coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-pytorch-tests-coverage-results
+          path: |
+            .coverage*
+            coverage-html
+            coverage.json
+          include-hidden-files: true
+          retention-days: 5
+      - name: "Report coverage"
+        if: (success() || failure()) && inputs.code_coverage
+        run: |
+          coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
+
+  combine-coverage:
+    runs-on: ubuntu-22.04
+    needs: [base-tests, pytorch-tests, compat-pytorch-1_9-pytorch-tests]
+    if: (success() || failure()) && inputs.code_coverage
+    steps:
+      - name: "Checkout llm-compressor"
+        uses: actions/checkout@v4
+
+      - name: "Download coverage artifacts"
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: "Install dependencies"
+        run: |
+          pip3 install -U pip setuptools
+          pip3 install coverage setuptools-scm
+          make build  # need to build to generate the version.py file
+
+      - name: "Combine and report coverage"
+        run: |
+          cat << EOF > .coveragerc
+          [paths]
+          source =
+              src/
+              */site-packages/
+          EOF
+          coverage combine
+          coverage report --skip-empty --format="markdown" >> "$GITHUB_STEP_SUMMARY"
+          coverage html --directory coverage-html
+          coverage json -o coverage.json
+
+      - name: "Upload coverage report"
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-coverage-results
+          path: |
+            .coverage
+            coverage-html
+            coverage.json
+          include-hidden-files: true
+          retention-days: 5

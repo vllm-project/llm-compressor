@@ -9,16 +9,15 @@ from compressed_tensors import (
     CompressionFormat,
     ModelCompressor,
     SparsityCompressionConfig,
+    delete_offload_parameter,
     is_module_offloaded,
-    update_offload_parameter,
+    register_offload_parameter,
 )
 from loguru import logger
-from safetensors.torch import storage_ptr
 from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.recipe.recipe import Recipe
 from llmcompressor.transformers.compression.quantization_format import (
     infer_quantization_format,
 )
@@ -28,7 +27,7 @@ from llmcompressor.transformers.compression.sparsity_metadata_config import (
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 
-__all__ = ["modify_save_pretrained"]
+__all__ = ["modify_save_pretrained", "untie_word_embeddings"]
 
 
 def modify_save_pretrained(model: PreTrainedModel):
@@ -121,7 +120,7 @@ def modify_save_pretrained(model: PreTrainedModel):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
 
 
-def patch_tied_tensors_bug(model: torch.nn.Module):
+def untie_word_embeddings(model: PreTrainedModel):
     """
     Patches bug where HF transformers will fail to untie weights under specific
     circumstances (https://github.com/huggingface/transformers/issues/33689).
@@ -130,28 +129,27 @@ def patch_tied_tensors_bug(model: torch.nn.Module):
 
     :param model: model to fix
     """
-    if (
-        hasattr(model.config, "tie_word_embeddings")
-        and not model.config.tie_word_embeddings
-    ):
-        input_embed = model.get_input_embeddings()
-        output_embed = model.get_output_embeddings()
+    input_embed = model.get_input_embeddings()
+    output_embed = model.get_output_embeddings()
 
-        if input_embed is None or output_embed is None:
-            # some models fail to properly override the abstract methods
-            return
+    for module in (input_embed, output_embed):
+        if module is None or not hasattr(module, "weight"):
+            logger.warning(f"Cannot untie {module} which does not have weight param")
+            continue
 
-        if storage_ptr(input_embed.weight) == storage_ptr(output_embed.weight):
-            for module in (input_embed, output_embed):
-                if not is_module_offloaded(module):
-                    # create new storage ptr for onloaded weight
-                    untied_data = module.weight.data.clone()
-                    module.weight.data = untied_data
-                else:
-                    # create new storage ptr for offloaded weight
-                    # note `update_offload_parameter` does not create a new storage ptr
-                    untied_data = module._hf_hook.weights_map["weight"].clone()
-                    update_offload_parameter(module, "weight", untied_data)
+        # this could be replaced by a `get_offloaded_parameter` util
+        if not is_module_offloaded(module):
+            untied_data = module.weight.data.clone()
+        else:
+            untied_data = module._hf_hook.weights_map["weight"].clone()
+
+        requires_grad = module.weight.requires_grad
+        new_parameter = torch.nn.Parameter(untied_data, requires_grad=requires_grad)
+        delete_offload_parameter(module, "weight")
+        register_offload_parameter(module, "weight", new_parameter)
+
+    if hasattr(model.config, "tie_word_embeddings"):
+        model.config.tie_word_embeddings = False
 
 
 def get_model_compressor(
@@ -254,17 +252,10 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
         existing recipe
     :param save_directory: path to save combined existing recipe and current recipe
     """
-    recipes_to_save = []
+
     existing_recipe = infer_recipe_from_model_path(model_stub)
-    if existing_recipe is not None:
-        recipes_to_save.append(existing_recipe)
 
-    new_recipe = active_session().lifecycle.recipe
-    if new_recipe is not None:
-        recipes_to_save.append(new_recipe)
+    recipe = active_session().lifecycle.recipe
 
-    recipe = Recipe.simplify_combine_recipes(recipes_to_save)
-
-    # save recipe
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
-    recipe.yaml(recipe_path)
+    recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
