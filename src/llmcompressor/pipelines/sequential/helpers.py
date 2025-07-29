@@ -73,7 +73,7 @@ class Subgraph:
         except Exception as exception:
             raise RuntimeError(
                 "Raised an exception during execution of the following code:\n"
-                f"```\n{add_line_numbers(self._code.src)}\n```\n"
+                f"```\n{add_line_numbers(self._code.src)}\n```"
             ) from exception
 
         return outputs
