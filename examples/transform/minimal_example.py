@@ -42,16 +42,15 @@ def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
     value_range = torch.maximum(max_values.abs(), min_values.abs()) * 2
     scale = value_range / (7 + 8)
     scale = scale.clamp(min=torch.finfo(torch.float32).eps)
-    zero_point = torch.zeros_like(scale)
 
     # quantize
     x = weight
-    x_q = (x.unflatten(-1, (scale.size(-1), -1)) / scale[:, :, None]) + zero_point[:, :, None]
+    x_q = x.unflatten(-1, (num_groups, group_size)) / scale[:, :, None]
     x_q = torch.round(x_q)
     x_q = torch.clamp(x_q, -8, 7)  # unlike current impl, round then clamp
 
     # dequantize
-    x_qdq = (x_q - zero_point[:, :, None]) * scale[:, :, None]
+    x_qdq = x_q * scale[:, :, None]
     x_qdq = x_qdq.flatten(-2, -1)
     return x_qdq
 
