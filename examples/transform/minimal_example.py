@@ -34,23 +34,27 @@ def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
     # calibrate
     group_size = 128
     num_groups = weight.size(-1) // group_size
-    values = weight.unflatten(-1, (num_groups, group_size))
 
+    values = weight.unflatten(-1, (num_groups, group_size))
     max_values = values.max(dim=-1).values
     min_values = values.min(dim=-1).values
 
-    value_range = torch.maximum(max_values.abs(), min_values.abs()) * 2
-    scale = value_range / (7 + 8)
+    quant_max = 7
+    quant_min = -8
+
+    scale = (max_values - min_values) / (quant_max - quant_min)
     scale = scale.clamp(min=torch.finfo(torch.float32).eps)
+    zero_point = quant_min - torch.round(min_values / scale)
+    zero_point = zero_point.clamp(quant_min, quant_max)
 
     # quantize
     x = weight
-    x_q = x.unflatten(-1, (num_groups, group_size)) / scale[:, :, None]
+    x_q = (x.unflatten(-1, (num_groups, group_size)) / scale[:, :, None]) + zero_point[:, :, None]
     x_q = torch.round(x_q)
     x_q = torch.clamp(x_q, -8, 7)  # unlike current impl, round then clamp
 
     # dequantize
-    x_qdq = x_q * scale[:, :, None]
+    x_qdq = (x_q - zero_point[:, :, None]) * scale[:, :, None]
     x_qdq = x_qdq.flatten(-2, -1)
     return x_qdq
 
@@ -78,7 +82,8 @@ def transform_and_quant(model: torch.nn.Module, do_transform, do_quant):
             transform_quant_loss = loss(transformed_quant, transformed)
 
         # All modules except 3 have (transform_quant_loss < quant_loss)
-        #print((name.rjust(32), transform_quant_loss, quant_loss))
+        if transform_quant_loss >= quant_loss:
+            print((name.rjust(32), transform_quant_loss.item(), quant_loss.item()))
 
         if do_quant and not ("embed_tokens" in name or "lm_head" in name):
             if do_transform:
