@@ -51,7 +51,6 @@ __all__ = [
     "match_layers_params",
     "get_layers",
     "get_layer",
-    "set_layer",
     "get_params",
     "get_param",
     "get_terminal_layers",
@@ -195,22 +194,6 @@ def get_layer(target: str, module: Module) -> Tuple[str, Module]:
     name, layer = next(iter(layers.items()))
 
     return name, layer
-
-
-def set_layer(target: str, layer: Module, module: Module) -> Module:
-    with summon_full_params_context(module):
-        # importing here to avoid circular import
-        from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
-
-        parent_target = ".".join(target.split(".")[:-1])
-        if parent_target != "":
-            parent_layer = get_layer(parent_target, module)[1]
-        else:
-            parent_layer = maybe_get_wrapped(module)
-        old_layer = getattr(parent_layer, target.split(".")[-1])
-        setattr(parent_layer, target.split(".")[-1], layer)
-
-    return old_layer
 
 
 def get_params(targets: Union[str, List[str]], module: Module) -> Dict[str, Parameter]:

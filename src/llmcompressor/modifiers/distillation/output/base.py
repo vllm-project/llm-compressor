@@ -11,7 +11,7 @@ from llmcompressor.modifiers.distillation.utils.pytorch import (
 )
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped, set_wrapped_model
-from llmcompressor.utils.pytorch.module import get_layers, set_layer
+from llmcompressor.utils.pytorch.module import get_layers
 
 __all__ = ["OutputDistillationModifier"]
 
@@ -85,8 +85,8 @@ class OutputDistillationModifier(Modifier):
 
         with summon_full_params_context(state.teacher_model, offload_to_cpu=True):
             for key, (student_wrapper, teacher_wrapper) in self.wrappers_.items():
-                set_layer(key, student_wrapper, state.model)
-                set_layer(key, teacher_wrapper, state.teacher_model)
+                Module.set_submodule(key, student_wrapper, state.model)
+                Module.set_submodule(key, teacher_wrapper, state.teacher_model)
 
         self.wrapped_kd_model_ = self._create_model_wrapper(
             student_model=maybe_get_wrapped(state.model),
@@ -109,8 +109,8 @@ class OutputDistillationModifier(Modifier):
 
         with summon_full_params_context(state.teacher_model, offload_to_cpu=True):
             for key, (student_wrapper, teacher_wrapper) in self.wrappers_.items():
-                set_layer(key, student_wrapper.layer, state.model)
-                set_layer(key, teacher_wrapper.layer, state.teacher_model)
+                Module.set_submodule(key, student_wrapper.layer, state.model)
+                Module.set_submodule(key, teacher_wrapper.layer, state.teacher_model)
                 del student_wrapper
                 del teacher_wrapper
 
