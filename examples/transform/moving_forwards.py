@@ -15,15 +15,15 @@ def transform(weight: torch.Tensor, loc: str):
     weight = weight.to(TRANFORM_PRECISION)
 
     if loc == "embed_output":
-        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, "cuda")
+        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, weight.device)
         ret = (weight @ hadamard) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
 
     elif loc == "weight_output":
-        hadamard = deterministic_hadamard_matrix(weight.size(0), weight.dtype, "cuda")
+        hadamard = deterministic_hadamard_matrix(weight.size(0), weight.dtype, weight.device)
         ret = (hadamard.T @ weight) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
     
     elif loc == "weight_input":
-        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, "cuda")
+        hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, weight.device)
         inv = hadamard.T
         ret = (weight @ inv.T) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
 
@@ -61,41 +61,42 @@ def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
 
 def transform_and_quant(model: torch.nn.Module, do_transform, do_quant):
     for name, module in model.named_modules():
-        if is_match(name, module, "re:.*embed_tokens$"):
-            transformed = transform(module.weight, "embed_output")
+        with align_module_device(module):
+            if is_match(name, module, "re:.*embed_tokens$"):
+                transformed = transform(module.weight, "embed_output")
 
-        elif any(is_match(name, module, t) for t in ["re:.*o_proj$", "re:.*down_proj$"]):
-            transformed = transform(module.weight, "weight_output")
-            
-        elif any(is_match(name, module, t) for t in ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$", "re:.*up_proj$", "re:.*gate_proj$", "lm_head"]):
-            transformed = transform(module.weight, "weight_input")
+            elif any(is_match(name, module, t) for t in ["re:.*o_proj$", "re:.*down_proj$"]):
+                transformed = transform(module.weight, "weight_output")
+                
+            elif any(is_match(name, module, t) for t in ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$", "re:.*up_proj$", "re:.*gate_proj$", "lm_head"]):
+                transformed = transform(module.weight, "weight_input")
 
-        else:
-            continue
-
-        quant = calibrate_fake_quantize(module.weight)
-        transformed_quant = calibrate_fake_quantize(transformed)
-
-        loss = torch.nn.MSELoss()
-        with torch.no_grad():
-            quant_loss = loss(quant, module.weight)
-            transform_quant_loss = loss(transformed_quant, transformed)
-
-        # All modules except 3 have (transform_quant_loss < quant_loss)
-        if transform_quant_loss >= quant_loss:
-            print((name.rjust(32), transform_quant_loss.item(), quant_loss.item()))
-
-        if do_quant and not ("embed_tokens" in name or "lm_head" in name):
-            if do_transform:
-                module.weight.data = transformed_quant
             else:
-                module.weight.data = quant
+                continue
 
-        else:
-            if do_transform:
-                module.weight.data = transformed
+            quant = calibrate_fake_quantize(module.weight)
+            transformed_quant = calibrate_fake_quantize(transformed)
+
+            loss = torch.nn.MSELoss()
+            with torch.no_grad():
+                quant_loss = loss(quant, module.weight)
+                transform_quant_loss = loss(transformed_quant, transformed)
+
+            # All modules except 3 have (transform_quant_loss < quant_loss)
+            if transform_quant_loss >= quant_loss:
+                print((name.rjust(32), transform_quant_loss.item(), quant_loss.item()))
+
+            if do_quant and not ("embed_tokens" in name or "lm_head" in name):
+                if do_transform:
+                    update_offload_parameter(module, "weight", transformed_quant)
+                else:
+                    update_offload_parameter(module, "weight", quant)
+
             else:
-                pass
+                if do_transform:
+                    update_offload_parameter(module, "weight", transformed)
+                else:
+                    pass
 
 
 if __name__ == "__main__":

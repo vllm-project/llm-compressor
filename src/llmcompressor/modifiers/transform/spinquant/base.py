@@ -132,31 +132,33 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
-        #self._prenormalize_embeddings(state.model)
-        self._fuse_norms(state.model)
+        # self._prenormalize_embeddings(state.model)
+        # self._fuse_norms(state.model)
 
-        apply_transform_config(state.model, self.transform_config)
+        # apply_transform_config(state.model, self.transform_config)
 
-        # model = state.model
+        model = state.model
 
-        # normalize_embedding(model.model.embed_tokens)
-        # for layer in model.model.layers:
-        #     fuse_norm_linears(
-        #         layer.input_layernorm,
-        #         [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj],
-        #     )
-        #     fuse_norm_linears(
-        #         layer.post_attention_layernorm,
-        #         [layer.mlp.up_proj, layer.mlp.gate_proj],
-        #     )
-        # fuse_norm_linears(
-        #     model.model.norm,
-        #     [model.lm_head],
-        # )
-        # print("normalized embeddings and fused norms")
+        # preprocess model
+        normalize_embedding(model.model.embed_tokens)
+        for layer in model.model.layers:
+            fuse_norm_linears(
+                layer.input_layernorm,
+                [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj],
+            )
+            fuse_norm_linears(
+                layer.post_attention_layernorm,
+                [layer.mlp.up_proj, layer.mlp.gate_proj],
+            )
+        fuse_norm_linears(
+            model.model.norm,
+            [model.lm_head],
+        )
+        print("normalized embeddings and fused norms")
 
-        # transform_and_quant(model)
-        # print("transformed and quanted")
+        # transform and quantize model
+        transform_and_quant(model, do_transform=True, do_quant=True)
+        print("transformed and quanted")
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -252,40 +254,49 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         raise NotImplementedError()
 
 
+TRANFORM_PRECISION = torch.float64
+
+
 def transform(weight: torch.Tensor, loc: str):
+    original_dtype = weight.dtype
+    weight = weight.to(TRANFORM_PRECISION)
+
     if loc == "embed_output":
         hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, weight.device)
-        return (weight @ hadamard) / torch.tensor(hadamard.size(0)).sqrt()
+        ret = (weight @ hadamard) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
 
-    if loc == "weight_output":
+    elif loc == "weight_output":
         hadamard = deterministic_hadamard_matrix(weight.size(0), weight.dtype, weight.device)
-        return (hadamard.T @ weight) / torch.tensor(hadamard.size(0)).sqrt()
+        ret = (hadamard.T @ weight) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
     
-    if loc == "weight_input":
+    elif loc == "weight_input":
         hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, weight.device)
         inv = hadamard.T
-        return (weight @ inv.T) / torch.tensor(hadamard.size(0)).sqrt()
+        ret = (weight @ inv.T) / torch.tensor(hadamard.size(0), dtype=weight.dtype).sqrt()
 
-    assert False
+    return ret.to(original_dtype)
 
 
 def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
     # calibrate
     group_size = 128
     num_groups = weight.size(-1) // group_size
-    values = weight.unflatten(-1, (num_groups, group_size))
 
+    values = weight.unflatten(-1, (num_groups, group_size))
     max_values = values.max(dim=-1).values
     min_values = values.min(dim=-1).values
 
-    value_range = torch.maximum(max_values.abs(), min_values.abs()) * 2
-    scale = value_range / (7 + 8)
+    quant_max = 7
+    quant_min = -8
+
+    scale = (max_values - min_values) / (quant_max - quant_min)
     scale = scale.clamp(min=torch.finfo(torch.float32).eps)
-    zero_point = torch.zeros_like(scale)
+    zero_point = quant_min - torch.round(min_values / scale)
+    zero_point = zero_point.clamp(quant_min, quant_max)
 
     # quantize
     x = weight
-    x_q = (x.unflatten(-1, (scale.size(-1), -1)) / scale[:, :, None]) + zero_point[:, :, None]
+    x_q = (x.unflatten(-1, (num_groups, group_size)) / scale[:, :, None]) + zero_point[:, :, None]
     x_q = torch.round(x_q)
     x_q = torch.clamp(x_q, -8, 7)  # unlike current impl, round then clamp
 
@@ -295,24 +306,21 @@ def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
     return x_qdq
 
 
-def transform_and_quant(model: torch.nn.Module, do_transform=True):
+def transform_and_quant(model: torch.nn.Module, do_transform, do_quant):
     for name, module in model.named_modules():
-        if is_match(name, module, "re:.*embed_tokens$"):
-            with align_module_device(module):
+        with align_module_device(module):
+            if is_match(name, module, "re:.*embed_tokens$"):
                 transformed = transform(module.weight, "embed_output")
 
-        elif any(is_match(name, module, t) for t in ["re:.*o_proj$", "re:.*down_proj$"]):
-            with align_module_device(module):
+            elif any(is_match(name, module, t) for t in ["re:.*o_proj$", "re:.*down_proj$"]):
                 transformed = transform(module.weight, "weight_output")
-            
-        elif any(is_match(name, module, t) for t in ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$", "re:.*up_proj$", "re:.*gate_proj$", "lm_head"]):
-            with align_module_device(module):
+                
+            elif any(is_match(name, module, t) for t in ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$", "re:.*up_proj$", "re:.*gate_proj$", "lm_head"]):
                 transformed = transform(module.weight, "weight_input")
 
-        else:
-            continue
+            else:
+                continue
 
-        with align_module_device(module):
             quant = calibrate_fake_quantize(module.weight)
             transformed_quant = calibrate_fake_quantize(transformed)
 
@@ -321,15 +329,18 @@ def transform_and_quant(model: torch.nn.Module, do_transform=True):
                 quant_loss = loss(quant, module.weight)
                 transform_quant_loss = loss(transformed_quant, transformed)
 
-            if not transform_quant_loss < quant_loss < 1e-05:
-                print((name.rjust(32), transform_quant_loss, quant_loss))
+            # All modules except 3 have (transform_quant_loss < quant_loss)
+            if transform_quant_loss >= quant_loss:
+                print((name.rjust(32), transform_quant_loss.item(), quant_loss.item()))
 
-            if "embed_tokens" in name or "lm_head" in name:
-                if do_transform:
-                    update_offload_parameter(module, "weight", transformed)
-            else:
+            if do_quant and not ("embed_tokens" in name or "lm_head" in name):
                 if do_transform:
                     update_offload_parameter(module, "weight", transformed_quant)
-
                 else:
                     update_offload_parameter(module, "weight", quant)
+
+            else:
+                if do_transform:
+                    update_offload_parameter(module, "weight", transformed)
+                else:
+                    pass
