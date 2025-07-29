@@ -44,7 +44,7 @@ class TestQuantizingMOE:
         "script_filename",
         [
             pytest.param(
-                "deepseekv3_example.py",
+                "deepseek_r1_example.py",
                 marks=pytest.mark.skip(reason="exceptionally long run time"),
             ),
             pytest.param("mixtral_example.py"),
