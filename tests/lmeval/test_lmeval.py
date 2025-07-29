@@ -35,7 +35,7 @@ except ImportError:
     lm_eval_installed = False
     logger.warning("lm_eval is not installed. This test will be skipped")
 
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "tests/lmeval/configs/w4a4_nvfp4.yaml")
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
