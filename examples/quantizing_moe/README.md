@@ -61,7 +61,6 @@ oneshot(
     recipe=recipe,
     save_compressed=True,
     output_dir=output_dir,
-    
     max_seq_length=2048,
     num_calibration_samples=512,
 )
@@ -74,7 +73,7 @@ NOTE: Only per-tensor quantization is supported in vLLM as of now (`vllm==0.6.1`
 
 The repository supports multiple quantization techniques configured via a recipe. Supported strategies include `tensor`, `group`, and `channel` quantization.
 
-In the above example, quantization is specified by the `W4A18` scheme. For other preset schemes, refer to the [quantization schemes](https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py) in the `compressed-tensors` library.
+In the above example, quantization is specified by the `FP8` scheme. For other preset schemes, refer to the [quantization schemes](https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py) in the `compressed-tensors` library.
 
 A custom scheme can also be specified using `config_groups`:
 
@@ -91,7 +90,7 @@ config_groups = {
         "weights": {
             "num_bits": 8,
             "type": "int",
-            "symmetric": true,
+            "symmetric": True,
             "strategy": "group",
             "group_size": 128, 
         }
