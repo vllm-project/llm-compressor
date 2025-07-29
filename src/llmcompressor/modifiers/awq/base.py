@@ -30,7 +30,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_layers
+from compressed_tensors import match_named_modules
 
 __all__ = ["AWQModifier"]
 
@@ -305,7 +305,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         for mapping_idx, mapping in enumerate(self.mappings):
-            smooth_layers = get_layers(
+            smooth_layers = match_named_modules(
                 mapping.smooth_layer, model, exclude_internal_modules=True
             )
             smooth_names = [
@@ -329,7 +329,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 balance_layers, balance_names = [], []
                 for balance_regex in mapping.balance_layers:
                     # find the submodules that match the activation layer
-                    for balance_suffix, balance_layer in get_layers(
+                    for balance_suffix, balance_layer in match_named_modules(
                         balance_regex,
                         smooth_parent,
                         exclude_internal_modules=True,

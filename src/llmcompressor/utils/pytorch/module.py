@@ -19,6 +19,7 @@ from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
 )
+from compressed_tensors import match_named_modules
 
 try:
     quant_err = None
@@ -49,8 +50,6 @@ __all__ = [
     "match_targets",
     "get_default_params",
     "match_layers_params",
-    "get_layers",
-    "get_layer",
     "get_terminal_layers",
     "get_prunable_layers",
     "get_quantizable_layers",
@@ -155,45 +154,6 @@ def match_layers_params(
     return resolved
 
 
-def get_layers(
-    targets: Union[str, List[str]],
-    module: Module,
-    exclude_internal_modules: bool = False,
-) -> Dict[str, Module]:
-    """
-    Get layers (also known as submodules) of module based on targets
-
-    :param targets: names or regexes to search for
-        Can be regex, e.g. "re:.*input_layernorm$" to find all layers
-        in module whose names end in string "input_layernorm"
-    :param module: Parent module in which to search for targets
-    :param exclude_internal_modules: If True, don't include internal
-        modules added by llm-compressor, e.g. Observers and Transforms.
-        Defaults to False to maintain backward compatibility
-
-    :return: dict of {layer name -> module} of all layers in module
-        that match targets
-    """
-    layer_dict = match_layers_params(targets, module)
-    if exclude_internal_modules:
-        layer_dict = {
-            name: layer
-            for name, layer in layer_dict.items()
-            if not isinstance(layer, InternalModule)
-        }
-
-    return layer_dict
-
-
-def get_layer(target: str, module: Module) -> Tuple[str, Module]:
-    layers = get_layers(target, module)
-    if len(layers) != 1:
-        raise ValueError(f"Expected 1 layer for target {target}, found {len(layers)}")
-    name, layer = next(iter(layers.items()))
-
-    return name, layer
-
-
 def get_terminal_layers(module: Module) -> Dict[str, Module]:
     terminal = {}
 
@@ -271,7 +231,7 @@ def get_matching_layer(
     :return: Tuple containing the layer name and module that fits the target regex and
     best matches name_to_match, or None if no match can be found
     """
-    potential_matches = get_layers(target, module)
+    potential_matches = match_named_modules(target, module)
     largest_substring = 0
     match = None
     for name, module in potential_matches.items():

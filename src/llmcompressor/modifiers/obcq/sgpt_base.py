@@ -13,11 +13,11 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.pytorch.module import (
-    get_layers,
     get_no_split_params,
     get_prunable_layers,
     match_targets,
 )
+from compressed_tensors import match_named_modules
 
 
 class SparsityModifierBase(Modifier):
@@ -114,8 +114,8 @@ class SparsityModifierBase(Modifier):
 
         # infer module and sequential targets
         self.sequential_targets = self._infer_sequential_targets(model)
-        layers = get_layers(self.sequential_targets, model)
-        self._target_layers = get_layers(
+        layers = match_named_modules(self.sequential_targets, model)
+        self._target_layers = match_named_modules(
             self.targets, model
         )  # layers containing targets
 
