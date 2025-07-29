@@ -7,9 +7,12 @@ from compressed_tensors.utils import is_match
 from compressed_tensors.transform.utils.hadamard import deterministic_hadamard_matrix
 
 
+TRANFORM_PRECISION = torch.float64
+
+
 def transform(weight: torch.Tensor, loc: str):
     original_dtype = weight.dtype
-    weight = weight.to(torch.float64)
+    weight = weight.to(TRANFORM_PRECISION)
 
     if loc == "embed_output":
         hadamard = deterministic_hadamard_matrix(weight.size(1), weight.dtype, "cuda")
@@ -53,7 +56,7 @@ def calibrate_fake_quantize(weight: torch.Tensor) -> torch.Tensor:
     return x_qdq
 
 
-def transform_and_quant(model: torch.nn.Module, do_transform=True):
+def transform_and_quant(model: torch.nn.Module, do_transform, do_quant):
     for name, module in model.named_modules():
         if is_match(name, module, "re:.*embed_tokens$"):
             transformed = transform(module.weight, "embed_output")
@@ -75,27 +78,32 @@ def transform_and_quant(model: torch.nn.Module, do_transform=True):
             quant_loss = loss(quant, module.weight)
             transform_quant_loss = loss(transformed_quant, transformed)
 
-        if not transform_quant_loss < quant_loss < 1e-05:
-            print((name.rjust(32), transform_quant_loss, quant_loss))
+        # All modules except 3 have (transform_quant_loss < quant_loss)
+        #print((name.rjust(32), transform_quant_loss, quant_loss))
 
-        if "embed_tokens" in name or "lm_head" in name:
-            if do_transform:
-                module.weight.data = transformed
-        else:
+        if do_quant and not ("embed_tokens" in name or "lm_head" in name):
             if do_transform:
                 module.weight.data = transformed_quant
-
             else:
                 module.weight.data = quant
 
+        else:
+            if do_transform:
+                module.weight.data = transformed
+            else:
+                pass
+
 
 if __name__ == "__main__":
-    # Select model and load it.
+    TRANSFORM = True
+    QUANT = True
+
+    # load model
     MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
     model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=torch.bfloat16, device_map="cuda")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    # print("loaded model")
 
+    # preprocess model
     normalize_embedding(model.model.embed_tokens)
     for layer in model.model.layers:
         fuse_norm_linears(
@@ -112,12 +120,17 @@ if __name__ == "__main__":
     )
     print("normalized embeddings and fused norms")
 
-    transform_and_quant(model, do_transform=True)
+    # transform and quantize model
+    transform_and_quant(model, do_transform=TRANSFORM, do_quant=QUANT)
     print("transformed and quanted")
 
-    SAVE_DIR = MODEL_ID.split("/")[1] + "-minimal-high-precision"
+    # save model
+    SAVE_DIR = MODEL_ID.split("/")[1] + f"T{TRANSFORM:d}-Q{QUANT:d}"
+    print(f"saving: {SAVE_DIR}")
     model.save_pretrained(SAVE_DIR)
     tokenizer.save_pretrained(SAVE_DIR)
+
+    # sanity check
     print("\n\n")
     print("========== SAMPLE GENERATION ==============")
     sample = tokenizer("Hello my name is", return_tensors="pt")
