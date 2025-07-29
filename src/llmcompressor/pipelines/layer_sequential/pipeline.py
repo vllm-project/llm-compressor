@@ -1,3 +1,4 @@
+import contextlib
 from typing import TYPE_CHECKING
 
 import torch
@@ -6,6 +7,7 @@ from compressed_tensors.utils import disable_offloading, get_execution_device
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.prepare import moe_calibration_context
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
@@ -69,7 +71,13 @@ class LayerSequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        with calibration_forward_context(model), DisableQuantization(model):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(calibration_forward_context(model))
+            stack.enter_context(DisableQuantization(model))
+
+            if dataset_args.calibrate_moe_context:
+                moe_calibration_context(model, stack)
+
             # prepare intermediates cache
             intermediates: IntermediatesCache = capture_first_layer_intermediates(
                 model, layers[0], dataloader, model_device
