@@ -51,8 +51,6 @@ __all__ = [
     "match_layers_params",
     "get_layers",
     "get_layer",
-    "get_params",
-    "get_param",
     "get_terminal_layers",
     "get_prunable_layers",
     "get_quantizable_layers",
@@ -194,21 +192,6 @@ def get_layer(target: str, module: Module) -> Tuple[str, Module]:
     name, layer = next(iter(layers.items()))
 
     return name, layer
-
-
-def get_params(targets: Union[str, List[str]], module: Module) -> Dict[str, Parameter]:
-    return match_layers_params(targets, module, params=True)
-
-
-def get_param(target: str, module: Module) -> Tuple[str, Parameter]:
-    params = get_params(target, module)
-    if len(params) != 1:
-        raise ValueError(
-            f"Expected 1 parameter for target {target}, found {len(params)}"
-        )
-    name, param = next(iter(params.items()))
-
-    return name, param
 
 
 def get_terminal_layers(module: Module) -> Dict[str, Module]:
