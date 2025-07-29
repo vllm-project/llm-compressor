@@ -44,10 +44,6 @@ class TestQuantizingMOE:
         "script_filename",
         [
             pytest.param(
-                "deepseekv2_5_example.py",
-                marks=pytest.mark.skip(reason="exceptionally long run time"),
-            ),
-            pytest.param(
                 "deepseekv3_example.py",
                 marks=pytest.mark.skip(reason="exceptionally long run time"),
             ),
