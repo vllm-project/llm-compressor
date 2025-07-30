@@ -10,7 +10,7 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
-from compressed_tensors.utils import align_module_device, update_parameter_data
+from compressed_tensors.utils import align_module_device, update_offload_parameter
 from loguru import logger
 from torch.nn import Module
 
@@ -116,7 +116,7 @@ def call_observer(
                 value,
                 should_calculate_gparam=True,
             )
-            update_parameter_data(module, global_scale, f"{base_name}_global_scale")
+            update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
         else:
             global_scale = getattr(module, f"{base_name}_global_scale", None)
 
@@ -124,8 +124,11 @@ def call_observer(
             updated_scale, updated_zero_point = observer(
                 value, g_idx=g_idx, global_scale=global_scale
             )
-            update_parameter_data(module, updated_scale, f"{base_name}_scale")
-            update_parameter_data(module, updated_zero_point, f"{base_name}_zero_point")
+            # register or update scale & zero_point parameters (supports block shapes)
+            scale_name = f"{base_name}_scale"
+            zp_name = f"{base_name}_zero_point"
+            update_offload_parameter(module, scale_name, updated_scale)
+            update_offload_parameter(module, zp_name, updated_zero_point)
 
 
 def update_weight_global_scale(module: Module):
@@ -256,8 +259,8 @@ def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Te
     kv_cache = getattr(module, "kv_cache")
     k_scale = kv_cache.k_scales[module.layer_idx]
     v_scale = kv_cache.v_scales[module.layer_idx]
-    update_parameter_data(module, k_scale, KVCacheScaleType.KEY.value)
-    update_parameter_data(module, v_scale, KVCacheScaleType.VALUE.value)
+    update_offload_parameter(module, KVCacheScaleType.KEY.value, k_scale)
+    update_offload_parameter(module, KVCacheScaleType.VALUE.value, v_scale)
 
 
 def initialize_quantized_kv_cache(module: Module):

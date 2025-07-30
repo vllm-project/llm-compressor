@@ -116,9 +116,38 @@ _cohere_mappings = [
     ),
 ]
 
+# DeepseekV3
+_deepseek_mappings = [
+    AWQMapping(
+        "re:.*input_layernorm$",
+        # Some models use q_proj instead of q_a_proj
+        ["re:.*(q|q_a)_proj$", "re:.*kv_a_proj_with_mqa$"],
+    ),
+    AWQMapping("re:.*q_a_layernorm$", ["re:.*q_b_proj$"]),
+    AWQMapping("re:.*kv_a_layernorm$", ["re:.*kv_b_proj$"]),
+    AWQMapping(
+        "re:.*post_attention_layernorm$",
+        ["re:.*gate_proj$", "re:.*up_proj$"],
+    ),
+    AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]),
+]
+
+_bloom_mappings = [
+    AWQMapping("re:.*input_layernorm$", ["re:.*query_key_value$"]),
+    AWQMapping("re:.*post_attention_layernorm$", ["re:.*dense_h_to_4h$"]),
+    AWQMapping("re:.*gelu_impl$", ["re:.*dense_4h_to_h$"]),
+    # Note: AutoAWQ excludes this mapping, based on researcher's post in
+    # https://github.com/mit-han-lab/llm-awq/issues/2#issuecomment-1606297469
+    # AWQMapping(
+    #     "re:.*query_key_value$",
+    #     ["re:.*dense$"]
+    # ),
+]
 AWQ_MAPPING_REGISTRY: Dict[str, list[AWQMapping]] = {
+    "BloomForCausalLM": _bloom_mappings,
     "CohereForCausalLM": _cohere_mappings,
     "Cohere2ForCausalLM": _cohere_mappings,
+    "DeepseekV3ForCausalLM": _deepseek_mappings,
     "Gemma2ForCausalLM": _gemma_mappings,
     "Gemma3ForCausalLM": _gemma_mappings,
     "Gemma3ForConditionalGeneration": _gemma_mappings,

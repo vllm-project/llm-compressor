@@ -1,3 +1,4 @@
+import contextlib
 from typing import TYPE_CHECKING, Union
 
 import torch
@@ -6,6 +7,7 @@ from compressed_tensors.utils import get_execution_device
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks
+from llmcompressor.modeling.prepare import moe_calibration_context
 from llmcompressor.modifiers.utils.pytorch_helpers import apply_pad_mask_to_batch
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
@@ -42,7 +44,12 @@ class BasicPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
-        with calibration_forward_context(model):
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(calibration_forward_context(model))
+
+            if dataset_args is not None and dataset_args.calibrate_moe_context:
+                moe_calibration_context(model, stack)
+
             for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
                 batch = apply_pad_mask_to_batch(batch)
                 batch = tensors_to_device(batch, model_device)
