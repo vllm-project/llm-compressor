@@ -1,4 +1,3 @@
----
 name: 🐛 Bug report
 about: Raise an issue here if you find a bug.
 labels: bug
