@@ -306,7 +306,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         resolved_mappings: list[ResolvedMapping] = []
         for mapping_idx, mapping in enumerate(self.mappings):
             smooth_layers = match_named_modules(
-                mapping.smooth_layer, model, exclude_internal_modules=True
+                model, [mapping.smooth_layer]
             )
             smooth_names = [
                 smooth_name
