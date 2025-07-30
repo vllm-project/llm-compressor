@@ -198,17 +198,17 @@ def test_walrus():
 
     source = """
     def forward():
-        if (asdf := (1 + 2)):
+        if (x := (1 + 2)):
             pass
     """
     output = """
     @torch.fx.wrap
     def wrapped_0():
-        if (asdf := (1 + 2)):
+        if (x := (1 + 2)):
             pass
-        return (asdf,)
+        return (x,)
     
     def forward():
-        (asdf,) = wrapped_0()
+        (x,) = wrapped_0()  # skip: some envs use "(x,)" -> "x,"
     """
     check_wrapping(source, output)
