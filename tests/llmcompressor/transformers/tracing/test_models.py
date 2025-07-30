@@ -4,6 +4,7 @@ import pytest
 from transformers import (
     AutoModelForCausalLM,
     Gemma3ForConditionalGeneration,
+    Gemma3nForConditionalGeneration,
     Idefics3ForConditionalGeneration,
     Llama4ForConditionalGeneration,
     LlavaForConditionalGeneration,
@@ -49,6 +50,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "text",
             [],
         ),
+        ("google/gemma-3n-E2B-it", AutoModelForCausalLM, None, "text", []),
         ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
         # --- vision ---
         (
@@ -122,6 +124,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "vision",
             [],
         ),
+        ("google/gemma-3n-E2B-it", Gemma3nForConditionalGeneration, None, "vision", []),
         # --- audio ---
         (
             "openai/whisper-large-v3",
