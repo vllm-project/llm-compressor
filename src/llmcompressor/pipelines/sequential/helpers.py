@@ -484,12 +484,6 @@ def get_sequential_targets(
         return sequential_targets
 
 
-def add_line_numbers(text: str) -> str:
-    lines = text.splitlines()
-    numbered_lines = [f"{i + 1} {line}" for i, line in enumerate(lines)]
-    return "\n".join(numbered_lines)
-
-
 def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]:
     """
     Find modules which are call graph ancestors of the given sequential targets
