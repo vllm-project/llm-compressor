@@ -55,6 +55,8 @@ oneshot(
     data_collator=data_collator,
     # gemma3n has broken weight offloading which is required by the sequential pipeline
     pipeline="basic",
+    # gemma3n does not support untying word embeddings
+    tie_word_embeddings=True,
 )
 
 # Confirm generations of the quantized model look sane.
