@@ -21,13 +21,14 @@ def check_wrapping(
 
     wrapped_lines = ast.unparse(wrapped).splitlines()
     output_lines = textwrap.dedent(output).splitlines()[1:]
+    lines = ("\n".join(wrapped_lines), "\n".join(output_lines))
 
-    assert len(wrapped_lines) == len(output_lines)
+    assert len(wrapped_lines) == len(output_lines), lines
     for wrapped_line, output_line in zip(wrapped_lines, output_lines):
         if "# skip" in output:
             continue
 
-        assert wrapped_line == output_line
+        assert wrapped_line == output_line, lines
 
 
 def test_static_if():
@@ -187,5 +188,26 @@ def test_function_variadic():
 
     def forward(a, *b, c=5, **d):
         () = wrapped_0(a, b, c, d)
+    """
+    check_wrapping(source, output)
+
+
+def test_walrus():
+    """Checks for handling variadic names created via function def"""
+
+    source = """
+    def forward():
+        if (asdf := (1 + 2)):
+            pass
+    """
+    output = """
+    @torch.fx.wrap
+    def wrapped_0():
+        if (asdf := (1 + 2)):
+            pass
+        return (asdf,)
+    
+    def forward():
+        (asdf,) = wrapped_0()
     """
     check_wrapping(source, output)
