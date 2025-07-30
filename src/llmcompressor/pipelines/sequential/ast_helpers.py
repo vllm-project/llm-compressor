@@ -88,7 +88,6 @@ def append_autowrap_source_on_fail():
         _exc_type, _exc_value, exc_tb = sys.exc_info()
         tb_list = traceback.extract_tb(exc_tb)
 
-        collected_sources = []
         for frame in reversed(tb_list):
             if "Autowrapped" in frame.filename:
                 source_lines = linecache.getlines(frame.filename)
@@ -100,12 +99,9 @@ def append_autowrap_source_on_fail():
                     for i, line in enumerate(source_lines)
                 ]
 
-                collected_sources.append(
-                    f"\n--- Autowrapped source for {frame.filename}:{lineno} ---\n"
-                    + "".join(source_lines)
-                )
-
-                new_message = f"{exception}\n\n" + "\n".join(collected_sources)
-                raise RuntimeError(new_message) from exception
+                message = f"{exception}\n\n"
+                message += f"\n--- {frame.filename}:{lineno} ---\n"
+                message += "".join(source_lines)
+                raise RuntimeError(message) from exception
 
         raise exception
