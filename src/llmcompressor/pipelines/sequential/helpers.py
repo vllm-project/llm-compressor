@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
+from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.quantization import find_name_or_class_matches
 from compressed_tensors.utils import (
     has_offloaded_params,
@@ -177,13 +178,12 @@ class SequentialTracer(HFTracer):
 
         # check unlikely case that ancestors have direct params which are offloaded
         offloaded_ancestors = offloaded & ancestors
-        if offloaded_ancestors:
-            names = set(module.__class__.__name__ for module in offloaded_ancestors)
+        for ancestor in offloaded_ancestors:
+            remove_hook_from_module(ancestor, recurse=False)
+            self.offloaded.remove(ancestor)
             logger.warning(
-                "The following modules are call graph ancestors of sequential targets,"
-                f"but also contain offloaded modules: {names}.\n"
-                "These modules will not be traced, and any sequential target children "
-                "will be executed jointly, which may lead to OOM errors"
+                f"Direct parameters attached to {ancestor.__class__.__name__} have "
+                "been onloaded in order to ensure safe graph capture and execution"
             )
 
     def create_arg(self, a: Any) -> Argument:
