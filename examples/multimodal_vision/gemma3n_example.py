@@ -38,9 +38,13 @@ recipe = [
             "re:.*altup.*",
             "re:.*lm_head.*",
             "re:.*laurel.*",
+            "re:model\.language_model\.layers\.\d+\.per_layer_input_gate",
+            "re:model\.language_model\.layers\.\d+\.per_layer_projection",
+            "model.language_model.per_layer_model_projection",
         ],
     ),
 ]
+breakpoint()
 
 # Perform oneshot
 oneshot(
@@ -81,7 +85,7 @@ output = model.generate(**inputs, max_new_tokens=100, disable_compile=True)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")
 
-# Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-processor.save_pretrained(SAVE_DIR)
+# # Save to disk compressed.
+# SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
+# model.save_pretrained(SAVE_DIR, save_compressed=True)
+# processor.save_pretrained(SAVE_DIR)
