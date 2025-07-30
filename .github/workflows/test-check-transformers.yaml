@@ -122,4 +122,9 @@ jobs:
             .coverage
             coverage-html
             coverage.json
+          include-hidden-files: true
           retention-days: 5
+      - name: "Report coverage"
+        if: (success() || failure()) && inputs.code_coverage
+        run: |
+          coverage report --data-file=".coverage" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
