@@ -133,18 +133,9 @@ _deepseek_mappings = [
 ]
 
 _bloom_mappings = [
-    AWQMapping(
-        "re:.*input_layernorm$",
-        ["re:.*query_key_value$"]
-    ),
-    AWQMapping(
-        "re:.*post_attention_layernorm$",
-        ["re:.*dense_h_to_4h$"]
-    ),
-    AWQMapping(
-        "re:.*gelu_impl$",
-        ["re:.*dense_4h_to_h$"]
-    ),
+    AWQMapping("re:.*input_layernorm$", ["re:.*query_key_value$"]),
+    AWQMapping("re:.*post_attention_layernorm$", ["re:.*dense_h_to_4h$"]),
+    AWQMapping("re:.*gelu_impl$", ["re:.*dense_4h_to_h$"]),
     # Note: AutoAWQ excludes this mapping, based on researcher's post in
     # https://github.com/mit-han-lab/llm-awq/issues/2#issuecomment-1606297469
     # AWQMapping(
