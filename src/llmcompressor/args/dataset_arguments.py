@@ -192,6 +192,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_4d_causal_attention_mask",
             "_prepare_fsmt_decoder_inputs",
             "_prepare_4d_causal_attention_mask_with_cache_position",
+            "project_per_layer_inputs",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "
