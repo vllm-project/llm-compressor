@@ -257,13 +257,10 @@ def _process_quantization(
         QuantizationStrategy.GROUP,
         QuantizationStrategy.TENSOR_GROUP,
     ):
-        n_dims = x.shape
-        if len(n_dims) > 2:
-            x = x.squeeze(0)
 
         output_dtype = dtype if dtype is not None else x.dtype
         output = torch.zeros_like(x).to(output_dtype)
-        columns = output.shape[1]
+        columns = output.shape[-1]
 
         # TODO: make validation step for inputs
 
@@ -293,14 +290,12 @@ def _process_quantization(
             perm = torch.argsort(g_idx)
             x = safe_permute(x, perm, dim=1)
 
-        x = torch.reshape(
-            x,
-            (
-                x.shape[0],
-                ceil(x.shape[1] / group_size),
-                group_size,
-            ),
+        # Maintain all dimensions apart from the last dim, which is divided by the group_size
+        reshaped_dims = (
+            ceil(x.shape[-1] / group_size),
+            group_size,
         )
+        x = x.unflatten(-1, reshaped_dims)
 
         if do_quantize:
             output = _quantize(
@@ -323,18 +318,11 @@ def _process_quantization(
                 global_scale=global_scale,
             )
 
-        output = torch.reshape(
-            output,
-            (output.shape[0], output.shape[1] * output.shape[2]),
-        )
-
+        output = output.flatten(start_dim=-2)
         output = output.to(output_dtype)
 
         if not is_column_order:
             output = safe_permute(output, torch.argsort(perm), dim=1)
-
-        if len(n_dims) > 2:
-            output = output.unsqueeze(0)
 
     else:  # covers channel, token and tensor strategies
         if do_quantize:

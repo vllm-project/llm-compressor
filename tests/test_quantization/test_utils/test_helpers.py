@@ -83,7 +83,7 @@ def test_fused_global_scales():
     "shape,group_size,exp_shape",
     [
         # Only batch size =1 is supported for dynamic GROUP quantization
-        ((1, 4, 8), 4, torch.Size([4, 2])),
+        ((1, 4, 8), 4, torch.Size([1, 4, 2])),
     ],
 )
 def test_compute_dynamic_scales_and_zp_group(shape, group_size, exp_shape):
