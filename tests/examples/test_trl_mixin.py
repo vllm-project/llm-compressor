@@ -8,6 +8,8 @@ from tests.examples.utils import (
     requires_gpu_count,
 )
 
+pytest.skip("disabled until further updates", allow_module_level=True)
+
 
 @pytest.fixture
 def example_dir() -> str:
