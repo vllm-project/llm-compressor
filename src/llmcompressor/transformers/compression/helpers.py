@@ -8,8 +8,8 @@ from compressed_tensors.utils import align_module_device
 from tqdm import tqdm
 
 from llmcompressor.modifiers import Modifier
-from llmcompressor.pytorch.utils import get_linear_layers
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
+from compressed_tensors import match_named_modules
 
 __ALL__ = [
     "tensor_follows_mask_structure",
@@ -76,7 +76,7 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
     # check for the common sparsity structures
     structures = {"2:4"}
     for sparsity_structure in structures:
-        linear_modules = get_linear_layers(model)
+        linear_modules = match_named_modules(model, linear=True)
         offloaded_params = get_state_dict_offloaded_model(model)
 
         linear_modules_with_sparsity_structure = [
