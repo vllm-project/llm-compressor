@@ -110,7 +110,7 @@ setup(
         "src", include=["llmcompressor", "llmcompressor.*"], exclude=["*.__pycache__.*"]
     ),
     install_requires=[
-        "loguru",
+        "loguru>=0.7.2",
         "pyyaml>=5.0.0",
         # librosa dependency numba is currently not compatible with numpy>=2.3
         # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
@@ -120,10 +120,10 @@ setup(
         # torch 1.10 and 1.11 do not support quantized onnx export
         "torch>=1.7.0,!=1.10,!=1.11",
         "transformers>4.0",
-        "datasets",
+        "datasets>=3.0.0",
         "accelerate>=0.20.3,!=1.1.0",
-        "pynvml",
-        "pillow",
+        "pynvml>=11.5.3",
+        "pillow>=10.4.0",
         (
             "compressed-tensors==0.10.2"
             if BUILD_TYPE == "release"
