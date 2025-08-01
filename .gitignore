@@ -93,9 +93,6 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# Sphinx documentation
-docs/_build/
-
 # PyBuilder
 target/
 
@@ -129,6 +126,7 @@ venv.bak/
 
 # mkdocs documentation
 /site
+docs/.cache/
 
 # mypy
 .mypy_cache/
