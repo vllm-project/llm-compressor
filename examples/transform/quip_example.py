@@ -69,7 +69,7 @@ oneshot(
     dataset=ds,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    pipeline="basic",
+    pipeline="datafree",
 )
 
 # Confirm generations of the quantized model look sane.
@@ -82,6 +82,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-transformed-w4a16"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-quip-w4a16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
