@@ -4,18 +4,30 @@ from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
     DeepseekV3MoE as OriginalDeepseekV3MoE,
 )
 
+from llmcompressor.modeling.config import CalibrationConfig
+
 
 class DeepseekV3MoECalibrate(torch.nn.Module):
     """
     Patched DeepseekV3MoE which sends all tokens to all experts for calibration
     """
 
-    def __init__(self, config: DeepseekV3Config, original: OriginalDeepseekV3MoE):
+    def __init__(
+        self,
+        config: DeepseekV3Config,
+        original: OriginalDeepseekV3MoE,
+        calib_config: CalibrationConfig,
+    ):
         super().__init__()
         self.config = config
         self.experts = original.experts
         self.gate = original.gate
         self.shared_experts = original.shared_experts
+
+        self.calib_config = calib_config
+
+        if not calib_config.moe_calibrate_gated_acts:
+            self.gate.top_k = self.gate.n_routed_experts  # ungate experts
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         residuals = hidden_states
@@ -35,13 +47,18 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
             mask = expert_mask[expert_idx]
             token_indices, weight_indices = torch.where(mask)
 
-            expert_weights = topk_weights[token_indices, weight_indices]
-            expert_input = hidden_states[token_indices]
-            expert_output = expert(expert_input)
-            weighted_output = expert_output * expert_weights.unsqueeze(-1)
+            has_tokens = token_indices.numel() > 0
 
-            if token_indices.numel() > 0:
-                final_hidden_states.index_add_(0, token_indices, weighted_output)
+            if self.calib_config.moe_calibrate_all_experts or has_tokens:
+                # calibrate one expert
+                expert_weights = topk_weights[token_indices, weight_indices]
+                expert_input = hidden_states[token_indices]
+                expert_output = expert(expert_input)
+                weighted_output = expert_output * expert_weights.unsqueeze(-1)
+
+                if has_tokens and self.calib_config.moe_calibrate_gated_acts:
+                    # expert contributes to output activations
+                    final_hidden_states.index_add_(0, token_indices, weighted_output)
         # End MoE
 
         hidden_states = final_hidden_states.type(hidden_states.dtype).view(*orig_shape)
@@ -49,5 +66,11 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
         return hidden_states
 
 
-def replace(config: DeepseekV3Config, module: OriginalDeepseekV3MoE):
-    return DeepseekV3MoECalibrate(config=config, original=module)
+def replace(
+    config: DeepseekV3Config,
+    module: OriginalDeepseekV3MoE,
+    calib_config: CalibrationConfig,
+):
+    return DeepseekV3MoECalibrate(
+        config=config, original=module, calib_config=calib_config
+    )

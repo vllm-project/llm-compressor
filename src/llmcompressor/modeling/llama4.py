@@ -11,11 +11,17 @@ from transformers.models.llama4.modeling_llama4 import (
     Llama4TextMoe,
 )
 
+from llmcompressor.modeling.config import CalibrationConfig
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
 class SequentialLlama4TextMoe(torch.nn.Module):
-    def __init__(self, config: Llama4TextConfig, original: Llama4TextMoe):
+    def __init__(
+        self,
+        config: Llama4TextConfig,
+        original: Llama4TextMoe,
+        calib_config: CalibrationConfig,
+    ):
         super().__init__()
         self.top_k = config.num_experts_per_tok
         self.hidden_dim = config.hidden_size
@@ -23,6 +29,8 @@ class SequentialLlama4TextMoe(torch.nn.Module):
         self.experts = SequentialLlama4TextExperts(config, original.experts)
         self.router = original.router
         self.shared_expert = original.shared_expert
+
+        self.calib_config = calib_config
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
@@ -39,7 +47,15 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
         out = self.shared_expert(hidden_states)
         for i in range(self.num_experts):
-            out += self.experts[i](hidden_states) * router_scores[i].reshape(-1, 1)
+            score = router_scores[i]
+            has_tokens = torch.any(score > 0)
+
+            if self.calib_config.moe_calibrate_all_experts or has_tokens:
+                expert_output = self.experts[i](hidden_states)
+
+                if has_tokens and self.calib_config.moe_calibrate_gated_acts:
+                    # expert contributes to output activations
+                    out += expert_output * score.unsqueeze(-1)
 
         return out, router_scores
 
@@ -64,5 +80,9 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
             self[i].down_proj.weight.data = down.t().clone().contiguous()
 
 
-def replace(config: Llama4Config, module: Llama4TextMoe):
-    return SequentialLlama4TextMoe(config=config.get_text_config(), original=module)
+def replace(
+    config: Llama4Config, module: Llama4TextMoe, calib_config: CalibrationConfig
+):
+    return SequentialLlama4TextMoe(
+        config=config.get_text_config(), original=module, calib_config=calib_config
+    )
