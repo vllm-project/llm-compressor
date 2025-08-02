@@ -8,6 +8,7 @@ lmeval:
   model: "vllm"
   model_args:
     add_bos_token: true
+    enforce_eager: true
   metrics:
     exact_match,flexible-extract: 0.73
     exact_match,strict-match: 0.73
