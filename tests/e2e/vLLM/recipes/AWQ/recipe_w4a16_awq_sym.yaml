@@ -7,7 +7,7 @@ quant_stage:
           weights:
             num_bits: 4
             type: "int"
-            symmetric: false
+            symmetric: true
             strategy: "group"
             group_size: 128
           targets: ["Linear"]
