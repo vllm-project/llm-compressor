@@ -94,7 +94,8 @@ class QuantizedKVParameterCache(DynamicCache):
             _pad_and_append_at_idx_(self.k_observers, layer_idx, k_observer)
             _pad_and_append_at_idx_(self.v_observers, layer_idx, v_observer)
 
-        if key_states.dim() == 4:
+        kv_states_dim = key_states.dim()
+        if kv_states_dim == 4:
             # reshape for per channel scenario
             num_heads = key_states.shape[1]
             head_dim = key_states.shape[-1]
@@ -115,7 +116,7 @@ class QuantizedKVParameterCache(DynamicCache):
             q_value_states, KVCacheScaleType.VALUE, layer_idx
         )
 
-        if key_states.dim() == 4:
+        if kv_states_dim == 4:
             # reshape for per channel scenario
             # from [batch_size, seq_len - residual_length, num_heads * head_dim]
             # to [batch_size, num_heads, seq_len - residual_length, head_dim]

@@ -256,6 +256,9 @@ def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Te
     kv_cache = getattr(module, "kv_cache")
     k_scale = kv_cache.k_scales[module.layer_idx]
     v_scale = kv_cache.v_scales[module.layer_idx]
+    if kv_cache.quantization_args.strategy == QuantizationStrategy.CHANNEL:
+        k_scale = k_scale.unsqueeze(-1)
+        v_scale = v_scale.unsqueeze(-1)
     update_parameter_data(module, k_scale, KVCacheScaleType.KEY.value)
     update_parameter_data(module, v_scale, KVCacheScaleType.VALUE.value)
 
