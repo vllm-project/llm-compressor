@@ -7,7 +7,7 @@ from llmcompressor.modifiers.transform import QuIPModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,

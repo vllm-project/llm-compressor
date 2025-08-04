@@ -21,7 +21,7 @@ class QuIPModifier(Modifier):
     [QuIP: 2-Bit Quantization of Large Language Models With Guarantees](https://arxiv.org/abs/2307.13304)  # noqa: E501
 
     Transforms (rotations) are extra layers added to a model which reduce the accuracy
-    loss induced by quantization. This is achived through "rotating" weights and
+    loss induced by quantization. This is achieved through "rotating" weights and
     activations into a space with a smaller dynamic range of values, thus decreasing
     the range of scales required for quantization.
 
@@ -31,7 +31,7 @@ class QuIPModifier(Modifier):
     :param transform_type: The type of transform to apply to the model.
         `"hadamard"` has the least performance cost but only supports sizes which are
         powers of power of two.
-        `"random-matrix"` has more performance cost, but supports a much larger set of
+        `"random-hadamard"` has more performance cost, but supports a much larger set of
             sizes.
         `"random-matrix"` has the greatest performance cost, but supports any size
     :param randomize: If true, create distinct transforms for each application
@@ -53,7 +53,9 @@ class QuIPModifier(Modifier):
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
-        raise NotImplementedError(f"{info.field_name} is not supported right now")
+        if value:
+            raise NotImplementedError(f"{info.field_name} is not supported right now")
+        return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.transform_config is not None:
@@ -102,6 +104,7 @@ class QuIPModifier(Modifier):
                         TransformArgs(
                             targets=["Linear"],
                             location="weight_input",
+                            # location="input",
                             inverse=True,
                             ignore=self.ignore,
                         ),
@@ -115,6 +118,7 @@ class QuIPModifier(Modifier):
                         TransformArgs(
                             targets=["Linear"],
                             location="weight_output",
+                            # location="output",
                             ignore=self.ignore,
                         ),
                         TransformArgs(
