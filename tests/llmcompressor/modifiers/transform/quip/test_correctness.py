@@ -1,4 +1,5 @@
 import os
+
 import pytest
 import torch
 from transformers import AutoModelForCausalLM
@@ -9,23 +10,25 @@ from tests.testing_utils import requires_gpu
 
 
 @requires_gpu
-# @pytest.mark.skipif(
-#     (not os.getenv("HF_TOKEN")),
-#     reason="Skipping tracing tests requiring gated model access",
-# )
+@pytest.mark.skipif(
+    (not os.getenv("HF_TOKEN")),
+    reason="Skipping tracing tests requiring gated model access",
+)
 @pytest.mark.parametrize(
-    "dtype,exp_mse",
+    "model_dtype,precision,exp_mse",
     [
-        (torch.bfloat16, 5e-3),
-        (torch.float32, 5e-11),
+        (torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0019
+        (torch.bfloat16, torch.float32, 5e-3),  # 0.0022
+        (torch.float32, torch.float32, 5e-10),  # 1.0777e-10
+        (torch.float32, torch.float64, 5e-11),  # 2.6632e-11
     ],
 )
-def test_apply_correctness(dtype, exp_mse):
+def test_apply_correctness(model_dtype, precision, exp_mse):
     model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Llama-3.2-1B-Instruct", device_map="cuda", torch_dtype=dtype
+        "meta-llama/Llama-3.2-1B-Instruct", device_map="cuda", torch_dtype=model_dtype
     )
     state = State(model=model)
-    modifier = QuIPModifier(transform_type="random-hadamard")
+    modifier = QuIPModifier(transform_type="random-hadamard", precision=precision)
 
     input = {k: v.to("cuda") for k, v in model.dummy_inputs.items()}
     with torch.no_grad():

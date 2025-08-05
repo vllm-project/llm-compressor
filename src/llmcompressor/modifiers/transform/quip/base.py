@@ -1,11 +1,13 @@
 from typing import List, Literal, Optional, Union
 
+import torch
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
     TransformScheme,
     apply_transform_config,
 )
+from compressed_tensors.utils import TorchDtype
 from pydantic import Field, ValidationInfo, field_validator
 
 from llmcompressor.core import Event, EventType, State
@@ -36,17 +38,19 @@ class QuIPModifier(Modifier):
         `"random-matrix"` has the greatest performance cost, but supports any size
     :param randomize: If true, create distinct transforms for each application
     :param learnable: If true, attach gradients to transform weights for training
+    :param precision: Precision at which all transforms should be applied. This applies
+        to both weight fusing and online rotations
     :param ignore: Modules to ignore when attaching transforms
     :param transform_config: Optional transform config for overriding provided arguments
     """
 
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
-        default="hadamard", exclude=True
+        default="random-hadamard"
     )
-    randomize: bool = Field(default=False, exclude=True)
-    learnable: bool = Field(default=False, exclude=True)
-    precision: 
-    ignore: Union[str, List[str]] = Field(default="lm_head", exclude=True)
+    randomize: bool = Field(default=False)
+    learnable: bool = Field(default=False)
+    precision: TorchDtype = Field(default=torch.float64)
+    ignore: Union[str, List[str]] = Field(default="lm_head")
 
     # optional override for more fine-grained control
     # also included in recipe serialization
@@ -105,13 +109,13 @@ class QuIPModifier(Modifier):
                         TransformArgs(
                             targets=["Linear"],
                             location="weight_input",
-                            # location="input",
                             inverse=True,
                             ignore=self.ignore,
                         ),
                     ],
                     randomize=self.randomize,
                     requires_grad=self.learnable,
+                    precision=self.precision,
                 ),
                 "u": TransformScheme(
                     type=self.transform_type,
@@ -119,7 +123,6 @@ class QuIPModifier(Modifier):
                         TransformArgs(
                             targets=["Linear"],
                             location="weight_output",
-                            # location="output",
                             ignore=self.ignore,
                         ),
                         TransformArgs(
@@ -131,6 +134,7 @@ class QuIPModifier(Modifier):
                     ],
                     randomize=self.randomize,
                     requires_grad=self.learnable,
+                    precision=self.precision,
                 ),
             }
         )
