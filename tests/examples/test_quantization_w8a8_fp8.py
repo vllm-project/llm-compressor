@@ -39,11 +39,16 @@ class TestQuantizationW8A8_FP8:
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
 
-    def test_gemma2_example_script(self, example_dir: str, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "script_file",
+        [
+            "gemma2_example.py",
+            "fp8_block_example.py",
+        ],
+    )
+    def test_example_scripts(self, example_dir: str, tmp_path: Path, script_file: str):
         """
-        Test for the "gemma2_example.py" script in the folder.
+        Test for example scripts in the folder.
         """
-        script_filename = "gemma2_example.py"
-        command, result = copy_and_run_script(tmp_path, example_dir, script_filename)
-
+        command, result = copy_and_run_script(tmp_path, example_dir, script_file)
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
