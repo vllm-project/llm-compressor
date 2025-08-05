@@ -45,6 +45,7 @@ class QuIPModifier(Modifier):
     )
     randomize: bool = Field(default=False, exclude=True)
     learnable: bool = Field(default=False, exclude=True)
+    precision: 
     ignore: Union[str, List[str]] = Field(default="lm_head", exclude=True)
 
     # optional override for more fine-grained control
