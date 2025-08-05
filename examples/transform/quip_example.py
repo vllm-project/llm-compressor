@@ -1,5 +1,6 @@
 """
 NOTE: models produced using this example will not be capable of running in vLLM.
+You will also need to install `transformers>=4.56` or install from source
 See https://github.com/vllm-project/vllm/pull/22219 for progress updates
 """
 
