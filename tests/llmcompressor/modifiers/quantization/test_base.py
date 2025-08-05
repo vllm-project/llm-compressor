@@ -35,6 +35,34 @@ def q_config_kwargs(config_0, config_1):
     )
 
 
+@pytest.fixture
+def block_q_config_kwargs():
+    return dict(
+        config_groups=dict(
+            group_block=dict(
+                targets=["Linear"],
+                input_activations=dict(
+                    num_bits=8, symmetric=True, strategy="group", group_size=128
+                ),
+                weights=dict(
+                    num_bits=8,
+                    symmetric=True,
+                    strategy="block",
+                    block_structure=[128, 128],
+                ),
+            ),
+        )
+    )
+
+
+def test_block_strategy_parsing(block_q_config_kwargs):
+    modifier = GPTQModifier(**block_q_config_kwargs)
+    resolved = modifier.resolve_quantization_config()
+    w_scheme = resolved.config_groups["group_block"].weights
+    assert w_scheme.strategy == "block"
+    assert w_scheme.block_structure == [128, 128]
+
+
 @pytest.mark.parametrize(
     "has_actorder,actorder,config_0,config_1,expected_0,expected_1",
     [

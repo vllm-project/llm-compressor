@@ -17,17 +17,17 @@ pip install -e .
 The provided example script demonstrates an end-to-end process for applying the quantization algorithm:
 
 ```bash
-python3 mixtral_moe_w8a8_fp8.py
+python3 mixtral_example.py
 ```
 
 ## Creating a Quantized MoE Model
 
-This example leverages `llm-compressor` and `compressed-tensors` to create an FP8-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `open_platypus` dataset.
+This example leverages `llm-compressor` and `compressed-tensors` to create an FP8-quantized `Mixtral-8x7B-Instruct-v0.1` model. The model is calibrated and trained using the `ultrachat_200k` dataset.
 
 You can follow the detailed steps below or simply run the example script with:
 
 ```bash
-python mixtral_moe_w8a8_fp8.py
+python mixtral_example.py
 ```
 
 ### Step 1: Select a Model, Dataset, and Recipe
@@ -61,7 +61,6 @@ oneshot(
     recipe=recipe,
     save_compressed=True,
     output_dir=output_dir,
-    
     max_seq_length=2048,
     num_calibration_samples=512,
 )
@@ -74,7 +73,7 @@ NOTE: Only per-tensor quantization is supported in vLLM as of now (`vllm==0.6.1`
 
 The repository supports multiple quantization techniques configured via a recipe. Supported strategies include `tensor`, `group`, and `channel` quantization.
 
-In the above example, FP8 per-tensor quantization is used as specified by the `FP8` scheme. For other preset schemes, refer to the [quantization schemes](https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py) in the `compressed-tensors` library.
+In the above example, quantization is specified by the `FP8` scheme. For other preset schemes, refer to the [quantization schemes](https://github.com/neuralmagic/compressed-tensors/blob/main/src/compressed_tensors/quantization/quant_scheme.py) in the `compressed-tensors` library.
 
 A custom scheme can also be specified using `config_groups`:
 
@@ -84,18 +83,18 @@ A custom scheme can also be specified using `config_groups`:
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
 config_groups = {
-                "group_0": {
-                    "targets": ["Linear"],
-                    "input_activations": None,
-                    "output_activations": None,
-                    "weights": {
-                        "num_bits": 8,
-                        "type": "int",
-                        "symmetric": true,
-                        "strategy": "group",
-                        "group_size": 128, 
-                    }
-               }
+    "group_0": {
+        "targets": ["Linear"],
+        "input_activations": None,
+        "output_activations": None,
+        "weights": {
+            "num_bits": 8,
+            "type": "int",
+            "symmetric": True,
+            "strategy": "group",
+            "group_size": 128, 
+        }
+    }
 }
 
 recipe = GPTQModifier(config_groups=config_groups)
