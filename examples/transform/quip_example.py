@@ -1,3 +1,8 @@
+"""
+NOTE: models produced using this example will not be capable of running in vLLM.
+See https://github.com/vllm-project/vllm/pull/22219 for progress updates
+"""
+
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
