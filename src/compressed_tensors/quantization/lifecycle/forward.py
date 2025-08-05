@@ -124,8 +124,13 @@ def dequantize(
                     strategy=QuantizationStrategy.GROUP, group_size=group_size
                 )
             else:
+                rows, cols = x_q.shape[-2], x_q.shape[-1]
+                block_height = rows // scale.shape[0]  # Rows per block
+                block_width = cols // scale.shape[1]  # Columns per block
+
                 args = QuantizationArgs(
-                    strategy=QuantizationStrategy.BLOCK, block_structure=scale.shape
+                    strategy=QuantizationStrategy.BLOCK,
+                    block_structure=[block_height, block_width],
                 )
         else:
             raise ValueError(
