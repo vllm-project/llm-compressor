@@ -1,4 +1,5 @@
 
+import json
 import shlex
 from pathlib import Path
 from typing import List
@@ -51,6 +52,6 @@ class TestQuantizationW4A4_FP4:
         print(list(nvfp4_dirs[0].iterdir()))
 
         # is the generated content in the expected format?
-        config_json = Path(nvfp4_dirs[0] / "config.json").read_text()
+        config_json = json.loads(Path(nvfp4_dirs[0] / "config.json").read_text())
         config_format = config_json["quantization_config"]["format"]
         assert(config_format == "nvfp4-pack-quantized")
