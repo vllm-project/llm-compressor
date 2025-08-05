@@ -16,7 +16,6 @@ from unittest.mock import patch
 
 import pytest
 import torch.nn as nn
-from accelerate import init_empty_weights
 
 # Assuming the module is named "module_matching" - adjust import as needed
 from compressed_tensors.utils import (
@@ -33,6 +32,11 @@ class DummyModel(nn.Module):
     """Test model for unit tests. Weights are initialized on meta device"""
 
     def __init__(self):
+        try:
+            from accelerate import init_empty_weights
+        except ImportError:
+            pytest.skip("Skipping weight init requires accelerate")
+
         super().__init__()
         with init_empty_weights():
             self.layer1 = nn.Linear(10, 20)
@@ -142,6 +146,15 @@ class TestMatchClass:
         assert _match_class(model, "DummyModel") == True
         assert _match_class(model, "Module") == True
 
+    def test_linear_base(self):
+        """Test matching against vllm's LinearBase class"""
+
+        class LinearBase(nn.Module):
+            pass
+
+        linear = LinearBase()
+        assert _match_class(linear, "Linear") == True
+
 
 class TestIsMatch:
     """Test cases for is_match function"""
@@ -179,6 +192,23 @@ class TestIsMatch:
 
         linear = InternalLinear(10, 20)
         assert is_match("layer1", linear, "re:layer.*") == False
+
+    def test_fused_mapping(self):
+        """"""
+        linear = nn.Linear(10, 20)
+        mapping = {
+            "qkv_proj": ["q_proj", "k_proj", "v_proj"],
+            "gate_up_proj": ["gate_proj", "up_proj"],
+        }
+
+        assert is_match("dummy.qkv_proj", linear, "re:.*q_proj", mapping) == True
+        assert is_match("dummy.qkv_proj", linear, "re:.*k_proj", mapping) == True
+        assert is_match("dummy.qkv_proj", linear, "re:.*v_proj", mapping) == True
+        assert is_match("dummy.qkv_proj", linear, "Linear", mapping) == True
+
+        assert is_match("dummy.gate_up_proj", linear, "re:.*gate_proj", mapping) == True
+        assert is_match("dummy.gate_up_proj", linear, "re:.*up_proj", mapping) == True
+        assert is_match("dummy.gate_up_proj", linear, "Linear", mapping) == True
 
 
 class TestMatchNamedModules:

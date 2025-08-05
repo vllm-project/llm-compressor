@@ -15,7 +15,7 @@
 import logging
 import re
 from collections.abc import Generator
-from typing import Iterable, Tuple
+from typing import Iterable, Mapping, Optional, Tuple
 
 import torch
 from compressed_tensors.utils.internal import InternalModule
@@ -32,10 +32,14 @@ __all__ = [
 ]
 
 
+FusedMappping = Mapping[str, Iterable[str]]
+
+
 def match_named_modules(
     model: torch.nn.Module,
     targets: Iterable[str],
     ignore: Iterable[str] = tuple(),
+    fused: Optional[FusedMappping] = None,
     warn_on_fail: bool = False,
 ) -> Generator[Tuple[str, torch.nn.Module]]:
     """
@@ -45,16 +49,18 @@ def match_named_modules(
     :param model: model containing submodules to match against
     :param targets: target strings, potentially containing "re:" prefixes
     :param ignore: targets to ignore, potentially containing "re:" prefixes
+    :fused: optional mapping from suffixes of fused modules to the suffixes of their
+        corresponding shards. See `compressed_tensors.utils.match.is_match`
     :param warn_on_fail: if True, warns if any targets do not match any modules in model
     :return: generator of module names and modules
     """
     unmatched_targets = set(targets)
     for name, module in model.named_modules():
         for target in targets:
-            if is_match(name, module, target):
+            if is_match(name, module, target, fused):
                 unmatched_targets -= {target}
 
-                if not any(is_match(name, module, ign) for ign in ignore):
+                if not any(is_match(name, module, ign, fused) for ign in ignore):
                     yield name, module
 
     if warn_on_fail:
@@ -68,6 +74,7 @@ def match_named_parameters(
     model: torch.nn.Module,
     targets: Iterable[str],
     ignore: Iterable[str] = tuple(),
+    fused: Optional[FusedMappping] = None,
     warn_on_fail: bool = False,
 ) -> Generator[Tuple[str, torch.nn.Module, torch.nn.Parameter]]:
     """
@@ -77,6 +84,8 @@ def match_named_parameters(
     :param model: model containing params to match against
     :param targets: target strings, potentially containing "re:" prefixes
     :param ignore: targets to ignore, potentially containing "re:" prefixes
+    :fused: optional mapping from suffixes of fused modules to the suffixes of their
+        corresponding shards. See `compressed_tensors.utils.match.is_match`
     :param warn_on_fail: if True, warns if any targets do not match any params in model
     :return: generator of fully-qualified param names, parent modules, and params
     """
@@ -88,10 +97,10 @@ def match_named_parameters(
         for param_name, param in module.named_parameters(recurse=False):
             param_fqn = f"{module_name}.{param_name}"
             for target in targets:
-                if _match_name(param_fqn, target):
+                if _match_name(param_fqn, target, fused):
                     unmatched_targets -= {target}
 
-                    if not any(_match_name(param_fqn, ign) for ign in ignore):
+                    if not any(_match_name(param_fqn, ign, fused) for ign in ignore):
                         yield param_fqn, module, param
 
     if warn_on_fail:
@@ -164,21 +173,56 @@ def match_modules_set(
         raise ValueError(f"Unable to match targets into set: {unmatched_keys}")
 
 
-def is_match(name: str, module: torch.nn.Module, target: str) -> bool:
+def is_match(
+    name: str,
+    module: torch.nn.Module,
+    target: str,
+    fused: Optional[FusedMappping] = None,
+) -> bool:
     """
     Returns true if either module name or module parent classes match against target
-    and the module is not an internal module
+    and the module is not an internal module. The name and module may refer to a fused
+    module defined by vLLM. In these cases, a `fused` mapping must be provided.
+
+    For example, in `vllm/model_executor/models/llama.py`:
+    ```python
+    packed_modules_mapping = {
+        "qkv_proj": ["q_proj", "k_proj", "v_proj"],
+        "gate_up_proj": ["gate_proj", "up_proj"]
+    }
+    ```
+
+    :param name: name of module
+    :param module: module to match
+    :param target: target which matches name or module, potentially contains regex
+    :fused: optional mapping from suffixes of fused modules to the suffixes of their
+        corresponding shards
     """
     return not isinstance(module, InternalModule) and (
-        _match_name(name, target) or _match_class(module, target)
+        _match_name(name, target, fused) or _match_class(module, target)
     )
 
 
-def _match_name(name: str, target: str) -> bool:
+def _match_name(name: str, target: str, fused: Optional[FusedMappping] = None) -> bool:
     """
-    Returns true if target string begins with "re:" and
-    regex matches or if target string exactly matches name
+    Returns true if target string begins with "re:" and regex matches or if target
+    string exactly matches name. If the name refers to a fused module defined by vLLM,
+    a `fused` mapping must be provided.
+
+    :param name: name of module
+    :param target: target name, potentially contains regex
+    :fused: optional mapping from suffixes of fused modules to the suffixes of their
+        corresponding shards
     """
+    if fused is not None:
+        for fused_suffix in fused:
+            if name.endswith(fused_suffix):
+                name_stripped = name.removesuffix(fused_suffix)
+                return any(
+                    _match_name(name_stripped + shard_suffix, target)
+                    for shard_suffix in fused[fused_suffix]
+                )
+
     if target.startswith("re:"):
         return re.match(target.removeprefix("re:"), name) is not None
     else:
@@ -187,10 +231,20 @@ def _match_name(name: str, target: str) -> bool:
 
 def _match_class(module: torch.nn.Module, target: str) -> bool:
     """
-    Returns true if any torch parent class names match the target string exactly
+    Returns true if any torch parent class names match the target string exactly.
+    A special exception is made for vllm's `LinearBase` class which matches `Linear`
+
+    :param module: module to match
+    :param target: target which matches name or module
     """
     # will never match against a regex pattern since `:` is not allowed in class names
     return any(
-        issubclass(cls, torch.nn.Module) and cls.__name__ == target
+        (
+            issubclass(cls, torch.nn.Module)
+            and (
+                cls.__name__ == target
+                or (cls.__name__ == "LinearBase" and target == "Linear")
+            )
+        )
         for cls in module.__class__.__mro__
     )
