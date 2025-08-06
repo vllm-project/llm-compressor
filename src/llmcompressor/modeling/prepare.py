@@ -4,6 +4,7 @@ from transformers import PreTrainedModel
 from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
 from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
+from llmcompressor.modeling.gpt_oss import replace as replace_gpt_oss
 from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["replace_modules_for_calibration"]
@@ -12,6 +13,7 @@ __all__ = ["replace_modules_for_calibration"]
 replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
     "Llama4TextMoe": replace_llama4,
+    "GptOssMLP": replace_gpt_oss,
 }
 
 
