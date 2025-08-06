@@ -233,8 +233,10 @@ class Observer(InternalModule, RegistryMixin):
                         c0 = j * block_cols
                         c1 = min((j + 1) * block_cols, cols)
                         # reduce across both dims to get one scale and zp per block
+                        # Use unique tensor_id for each block to maintain separate running stats
+                        block_tensor_id = f"block_{i}_{j}"
                         scale_bp, zp_bp = self.calculate_qparams(
-                            observed[r0:r1, c0:c1], reduce_dims=(0, 1)
+                            observed[r0:r1, c0:c1], reduce_dims=(0, 1), tensor_id=block_tensor_id
                         )
                         self._scale[i, j] = scale_bp
                         self._zero_point[i, j] = zp_bp
