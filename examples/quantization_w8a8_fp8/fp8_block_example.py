@@ -3,7 +3,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
