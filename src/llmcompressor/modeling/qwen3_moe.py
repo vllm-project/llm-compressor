@@ -20,19 +20,28 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeSparseMoeBlock as OriginalQwen3MoeSparseMoeBlock,
 )
 
+from llmcompressor.modeling.config import CalibrationConfig
+
 
 class Qwen3MoeSparseMoeBlock(torch.nn.Module):
     def __init__(
-        self, config: Qwen3MoeConfig, original: OriginalQwen3MoeSparseMoeBlock
+        self,
+        config: Qwen3MoeConfig,
+        original: OriginalQwen3MoeSparseMoeBlock,
+        calib_config: CalibrationConfig,
     ):
         super().__init__()
         self.num_experts = config.num_experts
         self.top_k = config.top_k
         self.norm_topk_prob = config.norm_topk_prob
+        self.calib_config = calib_config
 
         # gating
         self.gate = original.gate
         self.experts = original.experts
+
+        if not self.calib_config.moe_calibrate_gated_acts:
+            self.gate.top_k = self.num_experts  # ungate experts
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -40,16 +49,32 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate(hidden_states)
 
-        routing_weights = torch.nn.functional.softmax(
-            router_logits, dim=1, dtype=torch.float
-        )
-        routing_weights, selected_experts = torch.topk(
-            routing_weights, self.top_k, dim=-1
-        )
-        if self.norm_topk_prob:  # only diff with mixtral sparse moe block!
-            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-        # we cast back to the input dtype
-        routing_weights = routing_weights.to(hidden_states.dtype)
+        if self.calib_config.moe_calibrate_gated_acts:
+            routing_weights = torch.nn.functional.softmax(
+                router_logits, dim=1, dtype=torch.float
+            )
+            routing_weights, selected_experts = torch.topk(
+                routing_weights, self.top_k, dim=-1
+            )
+            # only diff with mixtral sparse moe block!
+            if self.norm_topk_prob:
+                routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+            # we cast back to the input dtype
+            routing_weights = routing_weights.to(hidden_states.dtype)
+
+        else:
+            # ungate experts
+            selected_experts = torch.arange(
+                self.num_experts, device=hidden_states.device
+            )
+            selected_experts = selected_experts.unsqueeze(0).expand(
+                hidden_states.shape[0], -1
+            )
+            routing_weights = (
+                torch.ones_like(selected_experts, dtype=hidden_states.dtype)
+                / self.num_experts
+            )
+
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim),
             dtype=hidden_states.dtype,
@@ -65,17 +90,25 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         for expert_idx in range(len(self.experts)):
             expert_layer = self.experts[expert_idx]
             idx, top_x = torch.where(expert_mask[expert_idx].squeeze(0))
-            # Index the correct hidden states and compute the expert hidden state for
-            # the current expert. We need to make sure to multiply the output hidden
-            # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
-            current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
-            expert_output = expert_layer(current_state)
-            current_hidden_states = expert_output * routing_weights[top_x, idx, None]
-            # However `index_add_` only support torch tensors for indexing so we'll use
-            # the `top_x` tensor here.
-            final_hidden_states.index_add_(
-                0, top_x, current_hidden_states.to(hidden_states.dtype)
-            )
+
+            has_tokens = idx.numel() > 0
+
+            if self.calib_config.moe_calibrate_all_experts or has_tokens:
+                # Index the correct hidden states and compute the expert hidden state for
+                # the current expert. We need to make sure to multiply the output hidden
+                # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
+                current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
+                expert_output = expert_layer(current_state)
+                current_hidden_states = (
+                    expert_output * routing_weights[top_x, idx, None]
+                )
+
+                # However `index_add_` only support torch tensors for indexing so we'll use
+                # the `top_x` tensor here.
+                if has_tokens and self.calib_config.moe_calibrate_gated_acts:
+                    final_hidden_states.index_add_(
+                        0, top_x, current_hidden_states.to(hidden_states.dtype)
+                    )
 
         final_hidden_states = final_hidden_states.reshape(
             batch_size, sequence_length, hidden_dim
@@ -83,5 +116,11 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         return final_hidden_states, router_logits
 
 
-def replace(config: Qwen3MoeConfig, module: OriginalQwen3MoeSparseMoeBlock):
-    return Qwen3MoeSparseMoeBlock(config=config, original=module)
+def replace(
+    config: Qwen3MoeConfig,
+    module: OriginalQwen3MoeSparseMoeBlock,
+    calib_config: CalibrationConfig,
+):
+    return Qwen3MoeSparseMoeBlock(
+        config=config, original=module, calib_config=calib_config
+    )
