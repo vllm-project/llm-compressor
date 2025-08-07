@@ -22,7 +22,6 @@ from llmcompressor.utils import dispatch_for_generation
 _, ct_version = _is_package_available("compressed_tensors", return_version=True)
 _, tfms_version = _is_package_available("transformers", return_version=True)
 if version.parse(ct_version) < version.parse("0.10.3.dev"):
-    print(version.parse(ct_version))
     raise ValueError("Please install compressed-tensors>=0.10.3 or from source")
 if version.parse(tfms_version) < version.parse("4.56.dev"):
     raise ValueError("Please install transformers>=4.56 or from source")

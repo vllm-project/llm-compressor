@@ -19,8 +19,8 @@ __all__ = ["QuIPModifier"]
 class QuIPModifier(Modifier):
     """
     Implements the transforms according to
-    [QuIP#: Even Better LLM Quantization with Hadamard Incoherence and Lattice Codebooks](https://arxiv.org/pdf/2402.04396)  # noqa: E501
-    [QuIP: 2-Bit Quantization of Large Language Models With Guarantees](https://arxiv.org/abs/2307.13304)  # noqa: E501
+    [QuIP#: Even Better LLM Quantization with Hadamard Incoherence and Lattice Codebooks](https://arxiv.org/pdf/2402.04396)
+    [QuIP: 2-Bit Quantization of Large Language Models With Guarantees](https://arxiv.org/abs/2307.13304)
 
     Transforms (rotations) are extra layers added to a model which reduce the accuracy
     loss induced by quantization. This is achieved through "rotating" weights and
@@ -42,7 +42,7 @@ class QuIPModifier(Modifier):
         to both weight fusing and online rotations
     :param ignore: Modules to ignore when attaching transforms
     :param transform_config: Optional transform config for overriding provided arguments
-    """
+    """  # noqa: E501
 
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="random-hadamard"
