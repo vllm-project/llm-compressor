@@ -14,12 +14,13 @@
 
 import pytest
 import torch
-from compressed_tensors.transform import TransformArgs
+from compressed_tensors.transform import TransformArgs, TransformFactory
+from transformers import PretrainedConfig, PreTrainedModel
 
 
-class TransformableModel(torch.nn.Module):
+class TransformableModel(PreTrainedModel):
     def __init__(self, *sizes):
-        super().__init__()
+        super().__init__(config=PretrainedConfig())
         self.fcs = torch.nn.ModuleList(
             [
                 torch.nn.Linear(sizes[index], sizes[index + 1], bias=False)

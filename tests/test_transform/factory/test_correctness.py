@@ -27,13 +27,13 @@ from tests.testing_utils import requires_accelerate, requires_gpu
 
 
 @pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
-@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("randomize", (True, False))
 @pytest.mark.parametrize("head_dim", (None, 2, 4))
 @pytest.mark.parametrize("input_batch_size", (1, 5, 17))
-def test_correctness_linear(type, randomized, head_dim, input_batch_size):
+def test_correctness_linear(type, randomize, head_dim, input_batch_size):
     size = (4, 8)
     module = torch.nn.Linear(*size, bias=False)
-    scheme = TransformScheme(type=type, randomized=randomized, head_dim=head_dim)
+    scheme = TransformScheme(type=type, randomize=randomize, head_dim=head_dim)
     factory = TransformFactory.from_scheme(scheme, name="")
 
     input_tfm = factory.create_transform(
@@ -58,10 +58,10 @@ def test_correctness_linear(type, randomized, head_dim, input_batch_size):
 
 
 @pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
-@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("randomize", (True, False))
 @pytest.mark.parametrize("embed_loc", ("weight_output", "output"))
 @pytest.mark.parametrize("linear_loc", ("input", "weight_input"))
-def test_correctness_embedding(type, randomized, embed_loc, linear_loc):
+def test_correctness_embedding(type, randomize, embed_loc, linear_loc):
     model = torch.nn.Sequential(
         torch.nn.Embedding(2, 4),
         torch.nn.Linear(4, 8, bias=False),
@@ -74,7 +74,7 @@ def test_correctness_embedding(type, randomized, embed_loc, linear_loc):
         config_groups={
             "": TransformScheme(
                 type=type,
-                randomized=randomized,
+                randomize=randomize,
                 apply=[
                     TransformArgs(targets="Embedding", location=embed_loc),
                     TransformArgs(targets="Linear", location=linear_loc, inverse=True),
@@ -90,10 +90,10 @@ def test_correctness_embedding(type, randomized, embed_loc, linear_loc):
 
 
 @pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
-@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("randomize", (True, False))
 @pytest.mark.parametrize("input_batch_size", (1, 5, 17))
 def test_correctness_model(
-    type, randomized, input_batch_size, model_apply, offload=False
+    type, randomize, input_batch_size, model_apply, offload=False
 ):
     # load model
     model = model_apply[0]
@@ -109,7 +109,7 @@ def test_correctness_model(
     # apply transforms
     config = TransformConfig(
         config_groups={
-            "": TransformScheme(type=type, randomized=randomized, apply=model_apply[1])
+            "": TransformScheme(type=type, randomize=randomize, apply=model_apply[1])
         }
     )
     apply_transform_config(model, config)
@@ -122,19 +122,17 @@ def test_correctness_model(
 @requires_gpu
 @requires_accelerate()
 @pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
-@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("randomize", (True, False))
 @pytest.mark.parametrize("input_batch_size", (1, 5, 17))
-def test_correctness_model_offload(type, randomized, input_batch_size, model_apply):
-    test_correctness_model(
-        type, randomized, input_batch_size, model_apply, offload=True
-    )
+def test_correctness_model_offload(type, randomize, input_batch_size, model_apply):
+    test_correctness_model(type, randomize, input_batch_size, model_apply, offload=True)
 
 
 @pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
-@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("randomize", (True, False))
 @pytest.mark.parametrize("head_dim", (4, 8))
 @pytest.mark.parametrize("input_batch_size", (1, 5, 17))
-def test_correctness_attention_heads(type, randomized, head_dim, input_batch_size):
+def test_correctness_attention_heads(type, randomize, head_dim, input_batch_size):
     hidden_size = 64
     num_attention_heads = 8
 
@@ -151,7 +149,7 @@ def test_correctness_attention_heads(type, randomized, head_dim, input_batch_siz
         config_groups={
             "": TransformScheme(
                 type=type,
-                randomized=randomized,
+                randomize=randomize,
                 head_dim=head_dim,
                 apply=[
                     TransformArgs(targets="v_proj", location="weight_output"),

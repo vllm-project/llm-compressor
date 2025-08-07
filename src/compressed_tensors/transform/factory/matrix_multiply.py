@@ -70,6 +70,7 @@ class RandomMatrixFactory(TransformFactory):
 
     def _create_inverse(self, weight: Parameter) -> Parameter:
         data = high_precision_invert(weight.data)
+        data = data.contiguous()  # ensure proper serialization
         return Parameter(data, requires_grad=False)
 
 

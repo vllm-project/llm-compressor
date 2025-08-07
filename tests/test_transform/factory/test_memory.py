@@ -29,9 +29,9 @@ from tests.testing_utils import requires_accelerate, requires_gpu
 
 
 @pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
-@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("randomize", (True, False))
 @pytest.mark.parametrize("requires_grad", (True, False))
-def test_memory_sharing(type, randomized, requires_grad, offload=False):
+def test_memory_sharing(type, randomize, requires_grad, offload=False):
     # load model (maybe with offloading)
     model = TransformableModel(2, 2, 4, 4, 8, 8)
     if offload:
@@ -42,7 +42,7 @@ def test_memory_sharing(type, randomized, requires_grad, offload=False):
         config_groups={
             "": TransformScheme(
                 type=type,
-                randomzied=randomized,
+                randomzied=randomize,
                 requires_grad=requires_grad,
                 apply=[
                     TransformArgs(targets="Linear", location="input"),
@@ -84,9 +84,9 @@ def test_memory_sharing(type, randomized, requires_grad, offload=False):
 @requires_gpu
 @requires_accelerate()
 @pytest.mark.parametrize("type", ("hadamard", "random-hadamard"))
-@pytest.mark.parametrize("randomized", (True, False))
+@pytest.mark.parametrize("randomize", (True, False))
 def test_memory_sharing_offload(
     type,
-    randomized,
+    randomize,
 ):
-    test_memory_sharing(type, randomized, requires_grad=False, offload=True)
+    test_memory_sharing(type, randomize, requires_grad=False, offload=True)
