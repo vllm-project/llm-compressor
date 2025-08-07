@@ -1,16 +1,14 @@
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.modeling import replace_modules_for_calibration
-from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
 model_id = "unsloth/gpt-oss-20b-BF16"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-#replace_modules_for_calibration(model)  # linearize experts so they can be targeted
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
@@ -18,7 +16,7 @@ DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 512 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 1#512
+NUM_CALIBRATION_SAMPLES = 1  # 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.

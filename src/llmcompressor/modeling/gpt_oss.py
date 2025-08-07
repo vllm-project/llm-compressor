@@ -1,14 +1,12 @@
+# flake8: noqa
 from typing import List
 
 import torch
-import contextlib
-
-from transformers import GptOssForCausalLM
-from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
+from compressed_tensors.utils import align_module_device, update_offload_parameter
 from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
-from llmcompressor.utils.dev import skip_weights_initialize
+from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
 
-from compressed_tensors.utils import update_offload_parameter, align_module_device
+from llmcompressor.utils.dev import skip_weights_initialize
 
 
 class GptOssExpert(torch.nn.Module):
@@ -28,9 +26,24 @@ class GptOssExpert(torch.nn.Module):
         assert experts.down_proj.dtype == experts.down_proj_bias.dtype
 
         with skip_weights_initialize():
-            self.gate_proj = torch.nn.Linear(self.hidden_size, self.expert_dim, bias=True, dtype=experts.gate_up_proj.dtype)
-            self.up_proj = torch.nn.Linear(self.hidden_size, self.expert_dim, bias=True, dtype=experts.gate_up_proj.dtype)
-            self.down_proj = torch.nn.Linear(self.expert_dim, self.hidden_size, bias=True, dtype=experts.down_proj.dtype)
+            self.gate_proj = torch.nn.Linear(
+                self.hidden_size,
+                self.expert_dim,
+                bias=True,
+                dtype=experts.gate_up_proj.dtype,
+            )
+            self.up_proj = torch.nn.Linear(
+                self.hidden_size,
+                self.expert_dim,
+                bias=True,
+                dtype=experts.gate_up_proj.dtype,
+            )
+            self.down_proj = torch.nn.Linear(
+                self.expert_dim,
+                self.hidden_size,
+                bias=True,
+                dtype=experts.down_proj.dtype,
+            )
 
     def forward(self, hidden_states: torch.Tensor):
         gate = self.gate_proj(hidden_states)
@@ -42,7 +55,6 @@ class GptOssExpert(torch.nn.Module):
         glu = gate * torch.sigmoid(gate * self.alpha)
         return self.down_proj((up + 1) * glu)
 
-    
 
 class GptOssExpertsLinear(torch.nn.Module):
     experts: List[GptOssExpert]
@@ -56,7 +68,9 @@ class GptOssExpertsLinear(torch.nn.Module):
         self.expert_dim = experts.expert_dim
 
         with skip_weights_initialize():
-            self.experts = torch.nn.ModuleList([GptOssExpert(experts) for _ in range(self.num_experts)])
+            self.experts = torch.nn.ModuleList(
+                [GptOssExpert(experts) for _ in range(self.num_experts)]
+            )
 
         self.load_weights(experts)
 
@@ -66,14 +80,34 @@ class GptOssExpertsLinear(torch.nn.Module):
     def load_weights(self, experts: GptOssExperts):
         with align_module_device(experts):
             for expert_index, expert in enumerate(self.experts):
-                update_offload_parameter(expert.gate_proj, "weight", experts.gate_up_proj[expert_index, ..., ::2].T)
-                update_offload_parameter(expert.gate_proj, "bias", experts.gate_up_proj_bias[expert_index, ..., ::2])
+                update_offload_parameter(
+                    expert.gate_proj,
+                    "weight",
+                    experts.gate_up_proj[expert_index, ..., ::2].T,
+                )
+                update_offload_parameter(
+                    expert.gate_proj,
+                    "bias",
+                    experts.gate_up_proj_bias[expert_index, ..., ::2],
+                )
 
-                update_offload_parameter(expert.up_proj, "weight", experts.gate_up_proj[expert_index, ..., 1::2].T)
-                update_offload_parameter(expert.up_proj, "bias", experts.gate_up_proj_bias[expert_index, ..., 1::2])
+                update_offload_parameter(
+                    expert.up_proj,
+                    "weight",
+                    experts.gate_up_proj[expert_index, ..., 1::2].T,
+                )
+                update_offload_parameter(
+                    expert.up_proj,
+                    "bias",
+                    experts.gate_up_proj_bias[expert_index, ..., 1::2],
+                )
 
-                update_offload_parameter(expert.down_proj, "weight", experts.down_proj[expert_index].T)
-                update_offload_parameter(expert.down_proj, "bias", experts.down_proj_bias[expert_index])
+                update_offload_parameter(
+                    expert.down_proj, "weight", experts.down_proj[expert_index].T
+                )
+                update_offload_parameter(
+                    expert.down_proj, "bias", experts.down_proj_bias[expert_index]
+                )
 
     def to_original(self) -> GptOssExperts:
         # TODO: this doesn't really handle offloading or correct device placement
@@ -84,31 +118,57 @@ class GptOssExpertsLinear(torch.nn.Module):
                 hidden_size=self.hidden_size,
             )
             experts = GptOssExperts(fake_config)
-            experts.gate_up_proj = torch.nn.Parameter(experts.gate_up_proj.to(dtype=self.experts[0].gate_proj.weight.dtype), requires_grad=False)
-            experts.gate_up_proj_bias = torch.nn.Parameter(experts.gate_up_proj_bias.to(dtype=self.experts[0].gate_proj.weight.dtype), requires_grad=False)
-            experts.down_proj = torch.nn.Parameter(experts.down_proj.to(dtype=self.experts[0].down_proj.weight.dtype), requires_grad=False)
-            experts.down_proj_bias = torch.nn.Parameter(experts.down_proj_bias.to(dtype=self.experts[0].down_proj.weight.dtype), requires_grad=False)
+            experts.gate_up_proj = torch.nn.Parameter(
+                experts.gate_up_proj.to(dtype=self.experts[0].gate_proj.weight.dtype),
+                requires_grad=False,
+            )
+            experts.gate_up_proj_bias = torch.nn.Parameter(
+                experts.gate_up_proj_bias.to(
+                    dtype=self.experts[0].gate_proj.weight.dtype
+                ),
+                requires_grad=False,
+            )
+            experts.down_proj = torch.nn.Parameter(
+                experts.down_proj.to(dtype=self.experts[0].down_proj.weight.dtype),
+                requires_grad=False,
+            )
+            experts.down_proj_bias = torch.nn.Parameter(
+                experts.down_proj_bias.to(dtype=self.experts[0].down_proj.weight.dtype),
+                requires_grad=False,
+            )
 
         for expert_index, expert in enumerate(self.experts):
-            with align_module_device(expert.gate_proj, "cpu"), align_module_device(expert.up_proj, "cpu"), align_module_device(expert.down_proj, "cpu"):
-                experts.gate_up_proj[expert_index, ..., ::2].copy_(expert.gate_proj.weight.data.T)
-                experts.gate_up_proj_bias[expert_index, ..., ::2].copy_(expert.gate_proj.bias.data)
+            with align_module_device(expert.gate_proj, "cpu"), align_module_device(
+                expert.up_proj, "cpu"
+            ), align_module_device(expert.down_proj, "cpu"):
+                experts.gate_up_proj[expert_index, ..., ::2].copy_(
+                    expert.gate_proj.weight.data.T
+                )
+                experts.gate_up_proj_bias[expert_index, ..., ::2].copy_(
+                    expert.gate_proj.bias.data
+                )
 
-                experts.gate_up_proj[expert_index, ..., 1::2].copy_(expert.up_proj.weight.data.T)
-                experts.gate_up_proj_bias[expert_index, ..., 1::2].copy_(expert.up_proj.bias.data)
+                experts.gate_up_proj[expert_index, ..., 1::2].copy_(
+                    expert.up_proj.weight.data.T
+                )
+                experts.gate_up_proj_bias[expert_index, ..., 1::2].copy_(
+                    expert.up_proj.bias.data
+                )
 
                 experts.down_proj[expert_index].copy_(expert.down_proj.weight.data.T)
                 experts.down_proj_bias[expert_index].copy_(expert.down_proj.bias.data)
 
         print("converted, for some reason slows down over time")
         import time
+
         print(time.time())
 
         experts.eval()
         return experts
-    
 
-    def forward(self, hidden_states: torch.Tensor, router_indices=None, routing_weights=None) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, router_indices=None, routing_weights=None
+    ) -> torch.Tensor:
         """
         When training is is more efficient to just loop over the experts and compute the output for each expert
         as otherwise the memory would explode.
@@ -123,15 +183,22 @@ class GptOssExpertsLinear(torch.nn.Module):
             torch.Tensor
         """
         original_shape = hidden_states.shape
-        hidden_states = hidden_states.reshape(-1, self.hidden_size)  # (num_tokens, hidden_size)
+        hidden_states = hidden_states.reshape(
+            -1, self.hidden_size
+        )  # (num_tokens, hidden_size)
 
-        next_states = torch.zeros_like(hidden_states, dtype=hidden_states.dtype, device=hidden_states.device)
+        next_states = torch.zeros_like(
+            hidden_states, dtype=hidden_states.dtype, device=hidden_states.device
+        )
         for expert_index, expert in enumerate(self.experts):
-            next_states += expert(hidden_states) * routing_weights.T[expert_index].unsqueeze(-1)
+            next_states += expert(hidden_states) * routing_weights.T[
+                expert_index
+            ].unsqueeze(-1)
 
         next_states = next_states.reshape(original_shape)
         return next_states
-    
+
+
 def replace_gpt_oss(config: GptOssConfig, module: GptOssExpert):
     return GptOssExpertsLinear(module)
 
@@ -160,11 +227,16 @@ def test_correctness():
 
     with torch.no_grad():
         original = GptOssExperts(config)
-        for name in ["gate_up_proj", "gate_up_proj_bias", "down_proj", "down_proj_bias"]:
+        for name in [
+            "gate_up_proj",
+            "gate_up_proj_bias",
+            "down_proj",
+            "down_proj_bias",
+        ]:
             setattr(original, name, getattr(original, name).normal_())
 
         original.eval()
-        assert original.training == False
+        assert not original.training
         true_output = original(input, routing_weights=routing_weights)
 
         linear = GptOssExpertsLinear(original)

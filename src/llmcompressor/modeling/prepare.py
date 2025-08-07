@@ -1,16 +1,17 @@
 import contextlib
+
 import tqdm
-from compressed_tensors.utils import replace_module, delete_offload_module, register_offload_module, get_offloaded_device
+from accelerate.big_modeling import attach_align_device_hook_on_blocks
+from accelerate.hooks import AlignDevicesHook, named_module_tensors
+from compressed_tensors.utils import replace_module
 from compressed_tensors.utils.offload import offload_to_weights_map
 from transformers import PreTrainedModel
 
 from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
+from llmcompressor.modeling.gpt_oss import replace_gpt_oss
 from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
-from llmcompressor.modeling.gpt_oss import GptOssExpertsLinear, replace_gpt_oss
 from llmcompressor.utils.helpers import patch_attr
-from accelerate.hooks import add_hook_to_module, remove_hook_from_module, AlignDevicesHook, named_module_tensors, set_module_tensor_to_device, PrefixedDataset
-from accelerate.big_modeling import attach_align_device_hook_on_blocks
 
 __all__ = ["replace_modules_for_calibration"]
 
@@ -50,11 +51,12 @@ def update_qwen3_moe(model: PreTrainedModel, stack):
                 )
             )
 
+
 def update_gpt_oss(model: PreTrainedModel, stack):
     @contextlib.contextmanager
     def replace(mod_name, module, name, original):
         hook: AlignDevicesHook = original._hf_hook
-        
+
         replacement = replace_gpt_oss(model.config, original)
         replace_offload_module(module, name, hook, replacement)
         del original
@@ -64,17 +66,14 @@ def update_gpt_oss(model: PreTrainedModel, stack):
         restored = replacement.to_original()
         delattr(module, name)
         module.register_module(name, restored)
-        #replace_offload_module(module, name, hook, restored)
+        # replace_offload_module(module, name, hook, restored)
         del replacement
-
 
     modules = list(model.named_modules())
     for name, module in tqdm.tqdm(modules, desc="Converting modules"):
         for child_name, child in list(module.named_children()):
             if child.__class__.__name__ == "GptOssExperts":
                 stack.enter_context(replace(name, module, child_name, child))
-
-                
 
 
 moe_context = {
@@ -89,8 +88,6 @@ def moe_calibration_context(model: PreTrainedModel, stack):
     cls_name = model.__class__.__name__
     if cls_name in moe_context:
         moe_context.get(cls_name)(model, stack)
-
-
 
 
 def replace_offload_module(base, name: str, hook: AlignDevicesHook, module):
@@ -123,47 +120,3 @@ def replace_offload_module(base, name: str, hook: AlignDevicesHook, module):
     )
 
     base.register_module(name, module)
-
-
-    # # offloading kwargs for submodule
-    # place_submodules = False
-    # offload_buffers = True
-
-    # # copy device offloading arguments from parent
-    # current_device = next(base.parameters()).device  # assume base has parameters
-    # offload_device = get_offloaded_device(base)
-
-    # # offload parameters to weights map
-    # for param_name, param in named_module_tensors(
-    #     module, include_buffers=offload_buffers, recurse=place_submodules
-    # ):
-    #     offloaded = param.to(offload_device)
-    #     if hook.tied_params_map is not None:
-    #         hook.tied_params_map[offloaded.data_ptr()] = {}  # (1)
-    #     offload_to_weights_map(hook.weights_map, f"{name}.{param_name}", offloaded)
-
-    #     # if the parent places submodules, offload here
-    #     if hook.place_submodules:
-    #         set_module_tensor_to_device(module, param_name, current_device)
-
-    # if not hook.place_submodules:
-    #     weights_map = PrefixedDataset(
-    #         hook.weights_map.dataset, prefix=f"{hook.weights_map.prefix}{name}."
-    #     )
-
-    #     submodule_hook = AlignDevicesHook(
-    #         execution_device=hook.execution_device,
-    #         offload=hook.offload,
-    #         io_same_device=False,
-    #         weights_map=weights_map,
-    #         offload_buffers=offload_buffers,
-    #         place_submodules=place_submodules,
-    #         skip_keys=None,
-    #         tied_params_map=hook.tied_params_map,
-    #     )
-    #     add_hook_to_module(module, submodule_hook)
-
-    # base.register_module(name, module)
-    # for c_name, child in list(module.named_children()):
-    #     register_offload_module(module, c_name, child)
-    #     replace_offload_module(module, None, c_name, child, child)
