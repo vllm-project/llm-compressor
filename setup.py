@@ -111,17 +111,17 @@ setup(
     ),
     install_requires=[
         "loguru>=0.7.2",
-        "pyyaml>=5.0.0",
+        "pyyaml>=6.0.1",
         # librosa dependency numba is currently not compatible with numpy>=2.3
         # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
-        "numpy>=1.17.0,<2.3",
-        "requests>=2.0.0",
-        "tqdm>=4.0.0",
+        "numpy>=2.0.0,<2.3.0",
+        "requests>=2.32.2",
+        "tqdm>=4.66.3",
         # torch 1.10 and 1.11 do not support quantized onnx export
-        "torch>=1.7.0,!=1.10,!=1.11",
-        "transformers>4.0",
-        "datasets>=3.0.0",
-        "accelerate>=0.20.3,!=1.1.0",
+        "torch>=2.7.0",
+        "transformers>=4.52.1",
+        "datasets>=3.3.0",
+        "accelerate>=1.3.0",
         "pynvml>=11.5.3",
         "pillow>=10.4.0",
         (
