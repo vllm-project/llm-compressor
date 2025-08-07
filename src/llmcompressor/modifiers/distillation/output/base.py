@@ -123,7 +123,7 @@ class OutputDistillationModifier(Modifier):
             teacher_wrapper.kd_enabled = True
         self.wrapped_kd_model_.kd_enabled = True
 
-    def on_update(self, state: State, event: Event, **kwargs):
+    def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.LOSS_CALCULATED and event.should_update(
             self.start, self.end, self.update
         ):
