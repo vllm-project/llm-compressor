@@ -1,30 +1,15 @@
 """
-WARNING: This example requires the following minimum versions:
-    * compressed-tensors>=0.10.3.dev
-    * transformers>=4.56.dev
-Note that (you may need to install from source)
-
-Models produced by this example will not be runnable in vLLM without
+NOTE: Models produced by this example will not be runnable in vLLM without
 the following changes: https://github.com/vllm-project/vllm/pull/22219
 """
 
 from datasets import load_dataset
-from packaging import version
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers.utils.import_utils import _is_package_available
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import QuIPModifier
 from llmcompressor.utils import dispatch_for_generation
-
-# check correct versioning
-_, ct_version = _is_package_available("compressed_tensors", return_version=True)
-_, tfms_version = _is_package_available("transformers", return_version=True)
-if version.parse(ct_version) < version.parse("0.10.3.dev"):
-    raise ValueError("Please install compressed-tensors>=0.10.3 or from source")
-if version.parse(tfms_version) < version.parse("4.56.dev"):
-    raise ValueError("Please install transformers>=4.56 or from source")
 
 # Select model and load it.
 MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
