@@ -80,33 +80,33 @@ class SequentialPipeline(CalibrationPipeline):
             if dataset_args.calibrate_moe_context:
                 moe_calibration_context(model, stack)
 
-            # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(dataloader, model_device)
+            # # prepare intermediates cache
+            # activations = IntermediatesCache.from_dataloader(dataloader, model_device)
 
-            for subgraph_index, subgraph in enumerate(subgraphs):
-                # prepare tqdm description texts
-                calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
-                prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
+            # for subgraph_index, subgraph in enumerate(subgraphs):
+            #     # prepare tqdm description texts
+            #     calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
+            #     prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
-                # reduce memory movement by keeping modules onloaded
-                with disable_offloading():
-                    # do a preliminary pass to trigger modifier hooks
-                    for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
-                        inputs = activations.fetch(batch_idx, subgraph.input_names)
-                        subgraph.forward(model, **inputs)
+            #     # reduce memory movement by keeping modules onloaded
+            #     with disable_offloading():
+            #         # do a preliminary pass to trigger modifier hooks
+            #         for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
+            #             inputs = activations.fetch(batch_idx, subgraph.input_names)
+            #             subgraph.forward(model, **inputs)
 
-                    LifecycleCallbacks.sequential_epoch_end()
+            #         LifecycleCallbacks.sequential_epoch_end()
 
-                    # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs of newly compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
-                            inputs = activations.fetch(batch_idx, subgraph.input_names)
-                            output = subgraph.forward(model, **inputs)
+            #         # this pass does not trigger modifier hooks
+            #         # and is only used for capturing outputs of newly compressed modules
+            #         with HooksMixin.disable_hooks():
+            #             for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
+            #                 inputs = activations.fetch(batch_idx, subgraph.input_names)
+            #                 output = subgraph.forward(model, **inputs)
 
-                            if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+            #                 if subgraph_index < num_subgraphs - 1:
+            #                     activations.update(batch_idx, output)
+            #                     activations.delete(batch_idx, subgraph.consumed_names)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_epoch_end()
