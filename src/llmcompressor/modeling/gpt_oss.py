@@ -158,6 +158,8 @@ class GptOssExpertsLinear(torch.nn.Module):
                 experts.down_proj[expert_index].copy_(expert.down_proj.weight.data.T)
                 experts.down_proj_bias[expert_index].copy_(expert.down_proj.bias.data)
 
+                # TODO: convert qparams as well
+
         print("converted, for some reason slows down over time")
         import time
 
