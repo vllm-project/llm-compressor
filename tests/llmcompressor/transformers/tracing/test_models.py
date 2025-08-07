@@ -42,7 +42,14 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "text",
             [],
         ),
-        ("RedHatAI/DeepSeek-V3-BF16", AutoModelForCausalLM, None, "text", []),
+        (
+            "ibm-granite/granite-20b-code-instruct-8k",
+            AutoModelForCausalLM,
+            None,
+            "text",
+            [],
+        ),
+        ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
         # --- vision ---
         (
             "HuggingFaceM4/Idefics3-8B-Llama3",

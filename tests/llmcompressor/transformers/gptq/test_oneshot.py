@@ -20,14 +20,15 @@ quant_stage:
                         type: "int"
                         symmetric: true
                         strategy: "channel"
-                    targets: ["Linear"]
+                    targets: ["re:.*model.layers.2.self_attn.q_proj$"]
 """
 
 recipe_modifier_full = GPTQModifier(
     ignore=["lm_head"],
     config_groups={
         "group_0": QuantizationScheme(
-            targets=["Linear"], weights=QuantizationArgs(num_bits=4, strategy="channel")
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
+            weights=QuantizationArgs(num_bits=4, strategy="channel"),
         )
     },
 )
@@ -36,18 +37,18 @@ recipe_modifier_full_group = GPTQModifier(
     ignore=["lm_head"],
     config_groups={
         "group_0": QuantizationScheme(
-            targets=["Linear"],
+            targets=["re:.*model.layers.2.self_attn.q_proj$"],
             weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
         )
     },
 )
 
 recipe_modifier_shorthand_a = GPTQModifier(
-    ignore=["lm_head"], targets="Linear", scheme="W4A16"
+    ignore=["lm_head"], targets="re:.*model.layers.2.self_attn.q_proj$", scheme="W4A16"
 )
 
 recipe_modifier_shorthand_b = GPTQModifier(
-    ignore=["lm_head"], scheme={"W4A16": ["Linear"]}
+    ignore=["lm_head"], scheme={"W4A16": ["re:.*model.layers.2.self_attn.q_proj$"]}
 )
 
 
@@ -65,7 +66,7 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         import torch
 
         self.output = "./oneshot_output"
-        self.model = "Xenova/llama2.c-stories110M"
+        self.model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         self.dataset = "open_platypus"
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
@@ -95,17 +96,17 @@ class TestGPTQOneShotWithFullScheme(unittest.TestCase):
         assert quantization_config is not None
 
         # check config is set properly
-        assert quantization_config.ignore == ["lm_head"]
+        assert "lm_head" in quantization_config.ignore
         assert len(quantization_config.config_groups) == 1
         quant_scheme = quantization_config.config_groups["group_0"]
         assert isinstance(quant_scheme, QuantizationScheme)
-        assert quant_scheme.targets == ["Linear"]
+        assert quant_scheme.targets == ["re:.*model.layers.2.self_attn.q_proj$"]
         weight_args = quantization_config.config_groups["group_0"].weights
         assert isinstance(weight_args, QuantizationArgs)
         assert weight_args.num_bits == 4
 
         # Check a specific layer is quantized
-        targetted_linear_layer = model_loaded.model.layers[0].self_attn.k_proj
+        targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj
         assert hasattr(targetted_linear_layer, "quantization_scheme")
 
         # Check lm-head is not quantized

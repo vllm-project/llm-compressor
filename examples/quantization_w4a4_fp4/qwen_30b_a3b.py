@@ -1,29 +1,27 @@
-import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-# select a Mixture of Experts model for quantization
-MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, torch_dtype=torch.bfloat16, trust_remote_code=True
-)
+# Load model.
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Select calibration dataset.
+
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 512
+
+# Select number of samples
+NUM_CALIBRATION_SAMPLES = 200
 MAX_SEQUENCE_LENGTH = 2048
 
-
 # Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
-ds = ds.shuffle(seed=42).select(range(NUM_CALIBRATION_SAMPLES))
+ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+ds = ds.shuffle(seed=42)
 
 
 def preprocess(example):
@@ -51,34 +49,38 @@ def tokenize(sample):
 
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# define a llmcompressor recipe for W416 quantization with a group size of 128
-# since the MoE gate layers are sensitive to quantization, we add them to the ignore
-# list so they remain at full precision
-recipe = GPTQModifier(
-    targets="Linear",
-    scheme="W4A16",
-    ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
+# Configure the quantization algorithm and scheme.
+# In this case, we:
+#   * quantize the weights to fp4 with per group 16 via ptq
+#   * calibrate a global_scale for activations, which will be used to
+#       quantize activations to fp4 on the fly
+recipe = QuantizationModifier(
+    targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"]
 )
 
+# Apply quantization.
+# We see `calibrate_moe_context` to True to update all `Qwen3MoeSparseMoeBlock`
+# during calibration
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    save_compressed=True,
-    trust_remote_code_model=True,
+    calibrate_moe_context=True,
 )
 
-# Confirm generations of the quantized model look sane.
+
+print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
+output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
-print("==========================================")
+print("==========================================\n\n")
+
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-quantized.w4a16"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

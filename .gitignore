@@ -53,6 +53,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.cache/*
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -92,9 +93,6 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# Sphinx documentation
-docs/_build/
-
 # PyBuilder
 target/
 
@@ -128,6 +126,7 @@ venv.bak/
 
 # mkdocs documentation
 /site
+docs/.cache/
 
 # mypy
 .mypy_cache/
