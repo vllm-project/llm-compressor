@@ -63,12 +63,18 @@ class Observer(InternalModule, RegistryMixin):
         self,
         observed: Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
+        tensor_id: Optional[Any] = None,
+        global_scale: Optional[Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
             returned scale and zero point will be shaped (1,) along the
             reduced dimensions
+        :param tensor_id: optional id for tracking separate statistics when different
+            ranges of observed tensors are passed, useful for sharding tensors by
+            group_size or block quantization
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point derived from the observed tensor
         """
         raise NotImplementedError(f"{self.__class__} must implement calculate_qparams")
@@ -233,8 +239,12 @@ class Observer(InternalModule, RegistryMixin):
                         c0 = j * block_cols
                         c1 = min((j + 1) * block_cols, cols)
                         # reduce across both dims to get one scale and zp per block
+                        # Use unique tensor_id for each block to maintain separate stats
+                        block_tensor_id = f"block_{i}_{j}"
                         scale_bp, zp_bp = self.calculate_qparams(
-                            observed[r0:r1, c0:c1], reduce_dims=(0, 1)
+                            observed[r0:r1, c0:c1],
+                            reduce_dims=(0, 1),
+                            tensor_id=block_tensor_id,
                         )
                         self._scale[i, j] = scale_bp
                         self._zero_point[i, j] = zp_bp
