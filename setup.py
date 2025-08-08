@@ -119,9 +119,9 @@ setup(
         "tqdm>=4.66.3",
         # torch 1.10 and 1.11 do not support quantized onnx export
         "torch>=2.7.0",
-        "transformers>=4.52.1",
-        "datasets>=3.3.0",
-        "accelerate>=1.3.0",
+        "transformers>=4.53.0",
+        "datasets>=3.5.0",
+        "accelerate>=1.6.0",
         "pynvml>=11.5.3",
         "pillow>=10.4.0",
         (
