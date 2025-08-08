@@ -3,7 +3,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
-MODEL_ID = "Qwen/Qwen3-0.6B"
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
@@ -16,7 +16,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 #   * quantize the weights to fp8 with per channel via ptq
 #   * quantize the activations to fp8 with dynamic per token
 recipe = QuantizationModifier(
-    targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head"]
+    targets="Linear", scheme="FP8_BLOCK", ignore=["lm_head", "re:.*mlp.gate$"],
 )
 
 # Apply quantization.

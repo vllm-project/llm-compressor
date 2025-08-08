@@ -90,7 +90,7 @@ class TestLMEval:
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
 
-        self.num_calibration_samples = 512
+        self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
         self.max_seq_length = 2048
 
     def test_lm_eval(self, test_data_file: str):

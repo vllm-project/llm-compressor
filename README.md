@@ -38,7 +38,7 @@ Some of the exciting new features include:
 
 ### When to Use Which Optimization
 
-Please refer to [docs/schemes.md](./docs/schemes.md) for detailed information about available optimization schemes and their use cases.
+Please refer to [compression_schemes.md](./docs/guides/compression_schemes.md) for detailed information about available optimization schemes and their use cases.
 
 
 ## Installation
