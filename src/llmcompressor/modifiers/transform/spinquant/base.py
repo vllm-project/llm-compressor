@@ -142,7 +142,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
-        self._prenormalize_embeddings(state.model)
+        self._center_embeddings(state.model)
         self._fuse_norms(state.model)
         apply_transform_config(state.model, self.transform_config)
 
