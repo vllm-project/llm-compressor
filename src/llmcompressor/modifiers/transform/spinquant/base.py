@@ -14,7 +14,7 @@ from pydantic import Field, ValidationInfo, field_validator
 from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.modeling import fuse_norm_linears, normalize_embedding
+from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
@@ -167,11 +167,11 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         return True
 
-    def _prenormalize_embeddings(self, model: PreTrainedModel):
+    def _center_embeddings(self, model: PreTrainedModel):
         for _, embedding in match_named_modules(
             model, [self.mappings.embedding], warn_on_fail=True
         ):
-            normalize_embedding(embedding)
+            center_embeddings(embedding)
 
     def _fuse_norms(self, model: PreTrainedModel):
         for mapping in self.norm_mappings:
