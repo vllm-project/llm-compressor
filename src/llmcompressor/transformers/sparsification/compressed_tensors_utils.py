@@ -230,7 +230,7 @@ def get_model_compressor(
 
     quantization_format: Optional[CompressionFormat] = (
         infer_per_module_quantization_format(
-            modle=model,
+            model=model,
             quantization_format=quantization_format,
             save_compressed=save_compressed,
             sparsity_structure=None
