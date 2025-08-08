@@ -76,8 +76,8 @@ def infer_sparsity_structure_from_model(model: torch.nn.Module) -> Optional[str]
     # check for the common sparsity structures
     structures = {"2:4"}
     for sparsity_structure in structures:
-        linear_modules = match_named_modules(model, linear=True)
         offloaded_params = get_state_dict_offloaded_model(model)
+        linear_modules = match_named_modules(model, ["Linear"])
 
         linear_modules_with_sparsity_structure = [
             tensor_follows_mask_structure(offloaded_params[f"{name}.weight"])

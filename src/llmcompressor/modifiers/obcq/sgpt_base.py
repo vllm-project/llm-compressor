@@ -17,6 +17,9 @@ from llmcompressor.utils.pytorch.module import (
 )
 from compressed_tensors import match_named_modules
 
+def get_prunable_targets():
+    """Return the list of prunable layer types."""
+    return ["Linear", "Conv1d", "Conv2d", "Conv3d", "QATLinear", "QATConv2d", "QATConv3d", "Conv1D"]
 
 class SparsityModifierBase(Modifier):
     """
@@ -147,7 +150,7 @@ class SparsityModifierBase(Modifier):
                 layer_sparsity = self.sparsity[index]
             else:
                 layer_sparsity = self.sparsity
-            prunable_targets = ["Linear", "Conv1d", "Conv2d", "Conv3d", "QATLinear", "QATConv2d", "QATConv3d", "Conv1D"]
+            prunable_targets = get_prunable_targets()
             for name, module in match_named_modules(layer, prunable_targets).items():
                 name = f"{layer_name}.{name}"
 
@@ -208,7 +211,7 @@ class SparsityModifierBase(Modifier):
 
         groups = {}
         for name, layer in layers.items():
-            prunable_targets = ["Linear", "Conv1d", "Conv2d", "Conv3d", "QATLinear", "QATConv2d", "QATConv3d", "Conv1D"]
+            prunable_targets = get_prunable_targets()
             prunable_layers = match_named_modules(layer, prunable_targets)
             z = [
                 m.weight.abs() * activations[f"{name}.{n}"].unsqueeze(0)

@@ -324,7 +324,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 smooth_layer = smooth_layers[smooth_name]
 
                 smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
-                smooth_parent = attrgetter(smooth_parent_name)(model)
+                smooth_parent = attrgetter(smooth_parent_name)(model) if smooth_parent_name else model
 
                 balance_layers, balance_names = [], []
                 for balance_regex in mapping.balance_layers:

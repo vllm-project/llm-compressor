@@ -206,7 +206,7 @@ class SmoothQuantModifier(Modifier):
                     balance_layers = []
                     for balance_suffix in to_balance:
                         # find the submodule that matches the activation layer
-                        _, balance_layer =match_modules_set(
+                        _, balance_layer = match_modules_set(
                             balance_suffix, layer_name, model
                         )
                         if balance_layer:
