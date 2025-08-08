@@ -49,5 +49,4 @@ def test_apply_correctness(modifier, model_dtype, precision, exp_mse):
     with torch.no_grad():
         output = model(**input)
 
-    print(torch.nn.MSELoss()(output.logits, true_output.logits))
     assert torch.nn.MSELoss()(output.logits, true_output.logits) <= exp_mse
