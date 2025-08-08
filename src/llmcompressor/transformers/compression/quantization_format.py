@@ -62,7 +62,8 @@ def infer_per_module_quantization_format(
 ) -> List[str]:
     """
     Infers the quantization format for a model based on its state and provided
-    compression arguments.
+    compression arguments. Also updates thhe quantization_scheme.format value
+    based on the inferred format. Returns the unique list of formats in the model
 
     The following table outlines the possible quantization and sparsity formats
     along with their corresponding compressor formats:
