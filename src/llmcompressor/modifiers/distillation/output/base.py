@@ -11,7 +11,7 @@ from llmcompressor.modifiers.distillation.utils.pytorch import (
 )
 from llmcompressor.utils.fsdp.context import summon_full_params_context
 from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped, set_wrapped_model
-from compressed_tensors import match_named_modules 
+from compressed_tensors import match_named_modules
 
 __all__ = ["OutputDistillationModifier"]
 
