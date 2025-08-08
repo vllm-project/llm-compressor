@@ -1,6 +1,4 @@
-
 import json
-import shlex
 from pathlib import Path
 from typing import List
 
@@ -26,7 +24,7 @@ class TestQuantizationW4A4_FP4:
     """
 
     @pytest.mark.parametrize(
-        "script_filename",
+        ("script_filename"),
         [
             pytest.param("llama3_example.py"),
             pytest.param("llama4_example.py"),
@@ -43,15 +41,13 @@ class TestQuantizationW4A4_FP4:
 
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
 
-        # verify that the expected directory got generated
-        nvfp4_dirs: List[Path] = list(Path.cwd().glob("*-NVFP4"))
-        assert(len(nvfp4_dirs)) == 1, (
-            f"unexpectedly found more than one generated folder: {nvfp4_dirs}"
-        )
-        print("generated model directory:/n")
-        print(list(nvfp4_dirs[0].iterdir()))
+        # verify the expected directory was generated
+        nvfp4_dirs: List[Path] = list(tmp_path.rglob("*-NVFP4"))
+        assert (
+            len(nvfp4_dirs)
+        ) == 1, f"did not find exactly one generated folder: {nvfp4_dirs}"
 
-        # is the generated content in the expected format?
-        config_json = json.loads(Path(nvfp4_dirs[0] / "config.json").read_text())
+        # verify the format in the generated config
+        config_json = json.loads((nvfp4_dirs[0] / "config.json").read_text())
         config_format = config_json["quantization_config"]["format"]
-        assert(config_format == "nvfp4-pack-quantized")
+        assert config_format == "nvfp4-pack-quantized"
