@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Iterable, List, Literal, Optional
 
+import torch
 from compressed_tensors import match_modules_set, match_named_modules
 from compressed_tensors.transform import (
     TransformArgs,
@@ -8,6 +9,7 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
+from compressed_tensors.utils import TorchDtype
 from pydantic import Field, ValidationInfo, field_validator
 from transformers import PreTrainedModel
 
@@ -65,6 +67,8 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         `"random-matrix"` has the greatest performance cost, but supports any size
     :param randomize: if True, create distinct transforms for each application
     :param learnable: if True, attach gradients to transform weights for training
+    :param precision: Precision at which all transforms should be applied. This applies
+        to both weight fusing and online rotations
     :param mappings: Specifies layers within a model to target for transforms.
         A mapping will be inferred if None is provided
     :param norm_mappings: Specifies layers within a model to target for norm fusing.
@@ -72,14 +76,13 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     :param transform_config: Optional transform config for overriding provided arguments
     """
 
-    rotations: List[SpinquantRotation] = Field(
-        default_factory=lambda: ["R1", "R2"], exclude=True
-    )
+    rotations: List[SpinquantRotation] = Field(default_factory=lambda: ["R1", "R2"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
-        default="hadamard", exclude=True
+        default="hadamard"
     )
-    randomize: bool = Field(default=False, exclude=True)
-    learnable: bool = Field(default=False, exclude=True)
+    randomize: bool = Field(default=False)
+    learnable: bool = Field(default=False)
+    precision: TorchDtype = Field(default=torch.float64)
 
     # norm mappings separate from spinquant mappings to allow users to
     # override spinquant mappings with transform_config without overriding norms
@@ -100,7 +103,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
-        raise NotImplementedError(f"{info.field_name} is not supported right now")
+        if value:
+            raise NotImplementedError(f"{info.field_name} is not supported right now")
+        return value
 
     @field_validator("rotations", mode="before")
     def validate_rotations(cls, value):
@@ -180,6 +185,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             type=self.transform_type,
             randomize=self.randomize,
             requires_grad=self.learnable,
+            precision=self.precision,
             apply=[
                 TransformArgs(
                     targets=[
@@ -217,6 +223,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             type=self.transform_type,
             randomize=self.randomize,
             requires_grad=self.learnable,
+            precision=self.precision,
             head_dim=head_dim,
             apply=[
                 TransformArgs(targets=[self.mappings.attn_v], location="weight_output"),

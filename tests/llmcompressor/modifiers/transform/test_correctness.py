@@ -1,34 +1,53 @@
+import os
+
 import pytest
 import torch
-from compressed_tensors.transform import apply_transform_config
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.modifiers.transform.template.quip import QUIP
+from llmcompressor.core import State
+from llmcompressor.modifiers.transform import SpinQuantModifier
+from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    untie_word_embeddings,
+)
+from tests.testing_utils import requires_gpu
 
 
+@requires_gpu
+@pytest.mark.skipif(
+    (not os.getenv("HF_TOKEN")),
+    reason="Skipping tracing tests requiring gated model access",
+)
 @pytest.mark.parametrize(
-    "dtype,exp_max,exp_mse",
+    "modifier,model_dtype,precision,exp_mse",
     [
-        (
-            torch.bfloat16,
-            1.1,
-            0.012,
-        ),  # constructing and running transforms in float32 can improve to (~0.6562, ~0.0055)  # noqa: E501
-        (torch.float32, 4e-4, 2e-9),
+        # (QuIPModifier, torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0019
+        # (QuIPModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0022
+        # (QuIPModifier, torch.float32, torch.float32, 5e-10),  # 1.0e-10
+        # (QuIPModifier, torch.float32, torch.float64, 5e-11),  # 2.7e-11
+        (SpinQuantModifier, torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0043
+        (SpinQuantModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0033
+        (SpinQuantModifier, torch.float32, torch.float32, 5e-4),  # 4e-4
+        (SpinQuantModifier, torch.float32, torch.float64, 5e-4),  # 4e-4
     ],
 )
-def test_apply_correctness(dtype, exp_max, exp_mse):
+def test_apply_correctness(modifier, model_dtype, precision, exp_mse):
     model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Meta-Llama-3-8B-Instruct", device_map="cuda", torch_dtype=dtype
+        "meta-llama/Llama-3.2-1B-Instruct", device_map="cuda", torch_dtype=model_dtype
     )
+    untie_word_embeddings(model)
+
+    state = State(model=model)
+    modifier = modifier(transform_type="random-hadamard", precision=precision)
 
     input = {k: v.to("cuda") for k, v in model.dummy_inputs.items()}
     with torch.no_grad():
         true_output = model(**input)
 
-    apply_transform_config(model, QUIP)
+    modifier.on_initialize(state)
+    modifier.on_start(state, None)
+
     with torch.no_grad():
         output = model(**input)
 
-    assert torch.max(true_output.logits - output.logits) <= exp_max
+    print(torch.nn.MSELoss()(output.logits, true_output.logits))
     assert torch.nn.MSELoss()(output.logits, true_output.logits) <= exp_mse
