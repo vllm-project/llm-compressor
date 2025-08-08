@@ -42,7 +42,7 @@ class TestQuantizationW4A4_FP4:
         assert result.returncode == 0, gen_cmd_fail_message(command, result)
 
         # verify the expected directory was generated
-        nvfp4_dirs: List[Path] = list(tmp_path.rglob("*-NVFP4"))
+        nvfp4_dirs: List[Path] = [p for p in tmp_path.rglob("*-NVFP4") if p.is_dir()]
         assert (
             len(nvfp4_dirs)
         ) == 1, f"did not find exactly one generated folder: {nvfp4_dirs}"
