@@ -12,10 +12,10 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.layer_sequential.helpers import (
     capture_first_layer_intermediates,
-    match_modules,
     maybe_inject_pos_embeddings,
     to_next_layer_kwargs,
 )
+from compressed_tensors import match_named_modules
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
@@ -67,7 +67,7 @@ class LayerSequentialPipeline(CalibrationPipeline):
         # find layers
         modifiers = session.lifecycle.recipe.modifiers
         sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
-        layers = match_modules(model, sequential_targets)
+        layers = match_named_modules(model, sequential_targets)
 
         LifecycleCallbacks.calibration_epoch_start()
 
