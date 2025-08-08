@@ -24,11 +24,11 @@ class TestQuantizationW4A4_FP4:
     """
 
     @pytest.mark.parametrize(
-        ("script_filename"),
+        "script_filename",
         [
-            pytest.param("llama3_example.py"),
-            pytest.param("llama4_example.py"),
-            pytest.param("qwen_30b_a3b.py"),
+            "llama3_example.py",
+            "llama4_example.py",
+            "qwen_30b_a3b.py",
         ],
     )
     def test_quantization_w4a4_fp4_example_script(
