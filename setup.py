@@ -146,7 +146,7 @@ setup(
             "torchvision",
             "librosa",
             "soundfile",
-            "torchcodec",
+            "torchcodec==0.5",  # 0.6 is broken
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
