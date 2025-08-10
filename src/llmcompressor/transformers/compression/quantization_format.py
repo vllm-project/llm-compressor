@@ -59,11 +59,12 @@ def infer_per_module_quantization_format(
     quantization_format: Optional[str] = None,
     save_compressed: bool = False,
     sparsity_structure: Optional[str] = None,
-) -> List[str]:
+) -> Optional[List[str]]:
     """
     Infers the quantization format for a model based on its state and provided
     compression arguments. Also updates thhe quantization_scheme.format value
     based on the inferred format. Returns the unique list of formats in the model
+    or None if empty list
 
     The following table outlines the possible quantization and sparsity formats
     along with their corresponding compressor formats:
@@ -111,4 +112,6 @@ def infer_per_module_quantization_format(
             submodule.quantization_scheme.format = compression_format.value
             if compression_format not in unique_formats:
                 unique_formats.append(compression_format)
-    return unique_formats
+    if len(unique_formats) > 0:
+        return unique_formats
+    return None
