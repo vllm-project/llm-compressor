@@ -103,7 +103,7 @@ def migrate_examples():
                 root_path=readme_path.relative_to(project_root),
                 docs_path=Path(f"examples/{example_name}.md"),
                 title=None,
-                weight=None,
+                weight=-5,
             )
         )
     
