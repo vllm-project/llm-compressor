@@ -106,6 +106,8 @@ def infer_per_module_quantization_format(
         if is_module_quantized(submodule):
             weight_scheme = submodule.quantization_scheme.weights
             input_scheme = submodule.quantization_scheme.input_activations
+            if weight_scheme is None:
+                continue  # no weight quant - nothing to compress
             compression_format = _get_quant_method(
                 input_scheme, weight_scheme, sparsity_structure
             )
