@@ -17,8 +17,8 @@ import pytest
 from compressed_tensors.transform import TransformArgs, TransformConfig, TransformScheme
 
 
-@pytest.fixture
-def basic_transform_scheme():
+@pytest.fixture(scope="module")
+def scheme():
     targets = ["Embedding"]
     location = "input"
     basic_args = TransformArgs(targets=targets, location=location)
@@ -29,21 +29,20 @@ def basic_transform_scheme():
     )
 
 
-def test_basic(basic_transform_scheme):
-    config = TransformConfig(
+@pytest.fixture(scope="module")
+def config(scheme):
+    return TransformConfig(
         config_groups={
-            "transform_0": basic_transform_scheme,
+            "transform_0": scheme,
         }
     )
+
+
+def test_basic(config):
     assert isinstance(config.config_groups.get("transform_0"), TransformScheme)
 
 
-def test_to_dict(basic_transform_scheme):
-    config = TransformConfig(
-        config_groups={
-            "transform_0": basic_transform_scheme,
-        }
-    )
+def test_to_dict(config):
     config_dict = config.model_dump()
     assert "config_groups" in config_dict.keys()
 
@@ -69,3 +68,7 @@ def test_multiple_groups():
     config = TransformConfig(
         config_groups={"transform_0": scheme_1, "transform_1": scheme_2}
     )
+
+
+def test_reload(config):
+    assert config == TransformConfig.model_validate(config.model_dump())

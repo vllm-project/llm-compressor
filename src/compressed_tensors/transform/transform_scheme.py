@@ -14,7 +14,9 @@
 
 from typing import List, Optional
 
+import torch
 from compressed_tensors.transform import TransformArgs
+from compressed_tensors.utils import TorchDtype
 from pydantic import BaseModel, Field
 
 
@@ -34,6 +36,8 @@ class TransformScheme(BaseModel):
     :param randomize: True if uniquely randomized transform weights should be used,
         otherwise use identical transform weights where applicable
     :param requires_grad: True if weights include gradients for training
+    :param precision: Precision at which this transform should be applied during online
+        rotations. Fused (offline) rotations are always performed in float64
     """
 
     type: str
@@ -41,3 +45,4 @@ class TransformScheme(BaseModel):
     randomize: bool = Field(default=False)
     requires_grad: bool = Field(default=False)
     head_dim: Optional[int] = Field(default=None)
+    precision: TorchDtype = Field(default=torch.float32)

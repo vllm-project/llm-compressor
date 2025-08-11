@@ -21,3 +21,4 @@ from .permutations_24 import *
 from .permute import *
 from .safetensors_load import *
 from .semi_structured_conversions import *
+from .type import *

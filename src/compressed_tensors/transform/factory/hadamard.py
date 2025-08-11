@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-from typing import Optional, Union
+from typing import Optional
 
 import torch
 from compressed_tensors.transform import TransformArgs, TransformScheme
@@ -26,7 +25,7 @@ from compressed_tensors.transform.utils.matrix import (
 from compressed_tensors.utils import get_execution_device, get_offloaded_device
 from compressed_tensors.utils.helpers import ParameterizedDefaultDict
 from torch import Tensor, device, dtype
-from torch.nn import Linear, Module, Parameter
+from torch.nn import Module, Parameter
 
 
 @TransformFactory.register("hadamard")
@@ -54,14 +53,14 @@ class HadamardFactory(TransformFactory):
         """
         assert hasattr(module, "weight")
         size = get_transform_size(module, args.location, self.scheme.head_dim)
-        dtype = module.weight.dtype
+        dtype = self.scheme.precision
         device = get_offloaded_device(module)
         exec_device = get_execution_device(module)
 
         factory_kwargs = {"construct_device": exec_device}
         weight = self.weights.get(size, dtype, device, factory_kwargs=factory_kwargs)
         perm = self.perms[weight] if self.scheme.randomize else None
-        return HadamardTransform(weight, perm, args, type(module))
+        return HadamardTransform(weight, perm, self.scheme, args, type(module))
 
     def _create_weight(
         self,
@@ -85,15 +84,18 @@ class HadamardTransform(TransformBase):
         self,
         weight: Parameter,
         perm: Optional[Parameter],
+        scheme: TransformScheme,
         args: TransformArgs,
         module_type: type[torch.nn.Module],
     ):
         super().__init__()
         self.weight = weight
         self.perm = perm
+        self.scheme = scheme
         self.args = args
         self.module_type = module_type
-        self._scale = math.sqrt(weight.size(0))
+        self._scale = torch.tensor(weight.size(0), dtype=self.scheme.precision).sqrt()
+        self._precision = scheme.precision if args.is_online() else torch.float64
 
     def forward(self, value: Tensor) -> Tensor:
         weight = self.weight
@@ -105,6 +107,11 @@ class HadamardTransform(TransformBase):
             weight = weight.T
 
         return (
-            apply_transform_weight(weight, value, self.args.location, self.module_type)
+            apply_transform_weight(
+                weight.to(self._precision),
+                value.to(self._precision),
+                self.args.location,
+                self.module_type,
+            )
             / self._scale
-        )
+        ).to(value.dtype)

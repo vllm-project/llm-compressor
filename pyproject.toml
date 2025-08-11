@@ -5,3 +5,12 @@ build-backend = "setuptools.build_meta"
 [tool.black]
 line-length = 88
 target-version = ['py36']
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: tests to ensure code correctness and regression test functionality",
+    "smoke: quick tests to check basic functionality",
+    "sanity: tests to ensure that new changes do not break existing functionality",
+    "regression: detailed tests to ensure major functions work correctly",
+    "integration: tests which integrate with a third party service such as HF",
+]

@@ -24,7 +24,7 @@ from compressed_tensors.transform.utils.matrix import (
 from compressed_tensors.utils import get_offloaded_device
 from compressed_tensors.utils.helpers import ParameterizedDefaultDict
 from torch import Tensor, device, dtype
-from torch.nn import Linear, Module, Parameter
+from torch.nn import Module, Parameter
 
 
 @TransformFactory.register("random-matrix")
@@ -52,14 +52,14 @@ class RandomMatrixFactory(TransformFactory):
         """
         assert hasattr(module, "weight")
         size = get_transform_size(module, args.location, self.scheme.head_dim)
-        dtype = module.weight.dtype
+        dtype = self.scheme.precision
         device = get_offloaded_device(module)
 
         weight = self.weights[size, dtype, device]
         if args.inverse:
             weight = self.inverses[weight]
 
-        return RandomMatrixTransform(weight, args, type(module))
+        return RandomMatrixTransform(weight, self.scheme, args, type(module))
 
     def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
         # TODO: verify that weight is invertible (has non-zero determinant)
@@ -78,25 +78,34 @@ class RandomMatrixTransform(TransformBase):
     def __init__(
         self,
         weight: Tensor,
+        scheme: TransformScheme,
         args: TransformArgs,
         module_type: type[torch.nn.Module],
     ):
         super().__init__()
         self.weight = weight  # is an inverse if args.inverse
+        self.scheme = scheme
         self.args = args
         self.module_type = module_type
+        self._precision = scheme.precision if args.is_online() else torch.float64
 
     def forward(self, value: Tensor) -> Parameter:
         return apply_transform_weight(
-            self.weight, value, self.args.location, self.module_type
-        )
+            self.weight.to(self._precision),
+            value.to(self._precision),
+            self.args.location,
+            self.module_type,
+        ).to(value.dtype)
 
     def right_inverse(self, value: Tensor) -> Tensor:
         inverse = high_precision_invert(self.weight)
         return apply_transform_weight(
-            inverse, value, self.args.location, self.module_type
-        )
+            inverse.to(self._precision),
+            value.to(self._precision),
+            self.args.location,
+            self.module_type,
+        ).to(value.dtype)
 
 
 def high_precision_invert(weight: Tensor) -> Tensor:
-    return torch.linalg.inv(weight.to(torch.float32)).to(weight.dtype)
+    return torch.linalg.inv(weight.to(torch.float64)).to(weight.dtype)
