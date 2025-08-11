@@ -19,7 +19,7 @@ class FakeQuantizedModel(Module):
         self.relu = ReLU()
 
         self.fc1.quantization_scheme = QuantizationScheme(
-            targets=["Linear"],
+            targets=["model.fc1"],
             weights=QuantizationArgs(
                 num_bits=8,
                 type=QuantizationType.INT,
