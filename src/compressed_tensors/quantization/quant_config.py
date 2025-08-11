@@ -258,4 +258,5 @@ class QuantizationConfig(BaseModel):
 
         return False
 
-    model_config = ConfigDict(extra="forbid")
+    # TODO set `extra="forbid"` when upstream transformers is compatible
+    model_config = ConfigDict(extra="ignore")
