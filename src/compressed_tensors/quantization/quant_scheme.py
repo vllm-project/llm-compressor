@@ -14,7 +14,7 @@
 
 import warnings
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from compressed_tensors.quantization.quant_args import (
     DynamicType,
@@ -22,7 +22,7 @@ from compressed_tensors.quantization.quant_args import (
     QuantizationStrategy,
     QuantizationType,
 )
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 __all__ = [
@@ -80,6 +80,8 @@ class QuantizationScheme(BaseModel):
             )
 
         return model
+
+    model_config = ConfigDict(extra="forbid")
 
 
 """

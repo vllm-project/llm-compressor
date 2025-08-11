@@ -42,7 +42,7 @@ def test_memory_sharing(type, randomize, requires_grad, offload=False):
         config_groups={
             "": TransformScheme(
                 type=type,
-                randomzied=randomize,
+                randomize=randomize,
                 requires_grad=requires_grad,
                 apply=[
                     TransformArgs(targets="Linear", location="input"),

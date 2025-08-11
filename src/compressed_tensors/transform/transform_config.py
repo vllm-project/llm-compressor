@@ -15,7 +15,7 @@
 from typing import Dict
 
 from compressed_tensors.transform import TransformArgs, TransformScheme
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 __all__ = ["TransformConfig"]
@@ -32,42 +32,4 @@ class TransformConfig(BaseModel):
 
     config_groups: Dict[str, TransformScheme]
 
-
-# quip / quip sharp
-QUIP = TransformConfig(
-    config_groups={
-        "v": TransformScheme(
-            type="hadamard",
-            apply=[
-                TransformArgs(
-                    targets=["Linear"],
-                    location="input",  # non-mergable
-                ),
-                TransformArgs(
-                    targets=["Linear"],
-                    location="weight_input",
-                    inverse=True,
-                ),
-            ],
-            randomize=True,
-        ),
-        "u": TransformScheme(
-            type="hadamard",
-            apply=[
-                TransformArgs(
-                    targets=["Linear"],
-                    location="weight_output",
-                ),
-                TransformArgs(
-                    targets=["Linear"], location="output", inverse=True  # non-mergable
-                ),
-            ],
-            randomize=True,
-        ),
-    }
-)
-
-
-PRESET_CONFIGS = {
-    "QUIP": QUIP,
-}
+    model_config = ConfigDict(extra="forbid")

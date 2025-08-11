@@ -17,7 +17,7 @@ from typing import List, Optional
 import torch
 from compressed_tensors.transform import TransformArgs
 from compressed_tensors.utils import TorchDtype
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 __all__ = ["TransformScheme"]
@@ -46,3 +46,5 @@ class TransformScheme(BaseModel):
     requires_grad: bool = Field(default=False)
     head_dim: Optional[int] = Field(default=None)
     precision: TorchDtype = Field(default=torch.float32)
+
+    model_config = ConfigDict(extra="forbid")

@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Union
 import torch
 from compressed_tensors.utils import Aliasable
 from compressed_tensors.utils.helpers import deprecated
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 __all__ = [
@@ -357,6 +357,8 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
     @deprecated("QuantizationArgs.observer")
     def get_observer(self) -> str:
         return self.observer
+
+    model_config = ConfigDict(extra="forbid")
 
 
 def round_to_quantized_type(
