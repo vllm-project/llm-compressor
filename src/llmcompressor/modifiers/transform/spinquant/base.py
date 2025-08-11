@@ -236,7 +236,11 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         )
 
     def _create_r3_scheme(self) -> TransformScheme:
-        raise NotImplementedError()
+        raise NotImplementedError(
+            "SpinQuant R3 and R4 rotations will be added in a future release"
+        )
 
     def _create_r4_scheme(self) -> TransformScheme:
-        raise NotImplementedError()
+        raise NotImplementedError(
+            "SpinQuant R3 and R4 rotations will be added in a future release"
+        )
