@@ -1,6 +1,6 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme, QuantizationStrategy, QuantizationType
 from torch.nn import Linear, Module, ReLU
 
 from llmcompressor.pytorch.utils import ModuleSparsificationInfo
@@ -14,14 +14,16 @@ class FakeQuantizedModel(Module):
         self.relu = ReLU()
 
         self.fc1.quantization_scheme = QuantizationScheme(
-            targets=["model.fc1"],
-            weights=QuantizationArgs(
-                precision=8,
-                granularity="per_tensor",
-                algorithm="gptq",
-                blocksize=128,
-            ),
-        )
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    num_bits=4,
+                    type=QuantizationType.INT,
+                    group_size=128,
+                    strategy=QuantizationStrategy.GROUP,
+                    symmetric=True,
+                    dynamic=False,
+                )
+            )
 
 
 def test_module_quantization_info():
