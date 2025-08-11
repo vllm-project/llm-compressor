@@ -21,7 +21,7 @@ class FakeQuantizedModel(Module):
         self.fc1.quantization_scheme = QuantizationScheme(
             targets=["Linear"],
             weights=QuantizationArgs(
-                num_bits=4,
+                num_bits=8,
                 type=QuantizationType.INT,
                 group_size=128,
                 strategy=QuantizationStrategy.GROUP,
