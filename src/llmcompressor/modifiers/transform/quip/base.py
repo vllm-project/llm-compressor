@@ -47,6 +47,7 @@ class QuIPModifier(Modifier):
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="random-hadamard"
     )
+    targets: Union[List[str], str] = Field(default="str")
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
     precision: TorchDtype = Field(default=torch.float64)
@@ -102,12 +103,12 @@ class QuIPModifier(Modifier):
                     type=self.transform_type,
                     apply=[
                         TransformArgs(
-                            targets=["Linear"],
+                            targets=self.targets,
                             location="input",  # non-mergable
                             ignore=self.ignore,
                         ),
                         TransformArgs(
-                            targets=["Linear"],
+                            targets=self.targets,
                             location="weight_input",
                             inverse=True,
                             ignore=self.ignore,
@@ -121,12 +122,12 @@ class QuIPModifier(Modifier):
                     type=self.transform_type,
                     apply=[
                         TransformArgs(
-                            targets=["Linear"],
+                            targets=self.targets,
                             location="weight_output",
                             ignore=self.ignore,
                         ),
                         TransformArgs(
-                            targets=["Linear"],
+                            targets=self.targets,
                             location="output",  # non-mergable
                             inverse=True,
                             ignore=self.ignore,
