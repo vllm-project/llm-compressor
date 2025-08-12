@@ -86,6 +86,7 @@ __all__ = [
     "offloaded_dispatch",
     "disable_offloading",
     "remove_dispatch",
+    "cast_to_device",
 ]
 
 
@@ -169,6 +170,19 @@ def update_parameter_data(
 """ Candidates for Upstreaming """
 
 
+def cast_to_device(device_spec: Union[int, torch.device]) -> torch.device:
+    """
+    Convert an integer device index or torch.device into a torch.device object.
+
+    :param device_spec: Device index (int) or torch.device object.
+                        Negative integers map to CPU.
+    :return: torch.device corresponding to the given device specification.
+    """
+    if isinstance(device_spec, int):
+        return torch.device(f"cuda:{device_spec}" if device_spec >= 0 else "cpu")
+    return device_spec
+
+
 def get_execution_device(module: torch.nn.Module) -> torch.device:
     """
     Get the device which inputs should be moved to before module execution.
@@ -179,7 +193,7 @@ def get_execution_device(module: torch.nn.Module) -> torch.device:
     """
     for submodule in module.modules():
         if has_offloaded_params(submodule):
-            return submodule._hf_hook.execution_device
+            return cast_to_device(submodule._hf_hook.execution_device)
 
         param = next(submodule.parameters(recurse=False), None)
         if param is not None:
