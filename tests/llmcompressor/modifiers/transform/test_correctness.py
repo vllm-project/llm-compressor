@@ -15,7 +15,7 @@ from tests.testing_utils import requires_gpu
 @requires_gpu
 @pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
-    reason="Skipping tracing tests requiring gated model access",
+    reason="Skipping correctness tests requiring gated model access",
 )
 @pytest.mark.parametrize(
     "modifier,model_dtype,precision,exp_mse",
@@ -24,8 +24,8 @@ from tests.testing_utils import requires_gpu
         # (QuIPModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0022
         # (QuIPModifier, torch.float32, torch.float32, 5e-10),  # 1.0e-10
         # (QuIPModifier, torch.float32, torch.float64, 5e-11),  # 2.7e-11
-        (SpinQuantModifier, torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0043
-        (SpinQuantModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0033
+        (SpinQuantModifier, torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0030
+        (SpinQuantModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0029
         (SpinQuantModifier, torch.float32, torch.float32, 5e-4),  # 4e-4
         (SpinQuantModifier, torch.float32, torch.float64, 5e-4),  # 4e-4
     ],
