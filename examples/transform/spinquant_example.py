@@ -11,6 +11,9 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
+# NOTE: currently only fused rotations (R1 & R2) are available
+# Learned rotations and online rotations (R3 & R4) will be added
+# in a future release.
 # Configure the quantization algorithm to run.
 #   * apply spinquant transforms to model to reduce quantization loss
 #   * quantize the weights to 4 bit with group size 128
