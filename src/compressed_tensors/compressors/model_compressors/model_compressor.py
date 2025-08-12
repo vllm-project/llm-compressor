@@ -29,6 +29,7 @@ from compressed_tensors.base import (
     QUANTIZATION_CONFIG_NAME,
     QUANTIZATION_METHOD_NAME,
     SPARSITY_CONFIG_NAME,
+    TRANSFORM_CONFIG_NAME,
 )
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.compressors.sparse_compressors import DenseCompressor
@@ -43,6 +44,7 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle import expand_target_names
 from compressed_tensors.quantization.utils import is_module_quantized
+from compressed_tensors.transform import TransformConfig
 from compressed_tensors.utils import (
     align_module_device,
     delete_offload_parameter,
@@ -105,6 +107,7 @@ class ModelCompressor:
 
     sparsity_config: Optional[SparsityCompressionConfig] = None
     quantization_config: Optional[QuantizationConfig] = None
+    transform_config: Optional[TransformConfig] = None
 
     @classmethod
     def from_pretrained(
@@ -144,6 +147,8 @@ class ModelCompressor:
 
         sparsity_config = cls.parse_sparsity_config(compression_config)
         quantization_config = cls.parse_quantization_config(compression_config)
+        # TODO: transform config is not support by CompressedTensorsConfig yet
+
         if sparsity_config is None and quantization_config is None:
             return None
 
@@ -177,20 +182,27 @@ class ModelCompressor:
             algorithm
         :return: compressor for the configs, or None if model is not compressed
         """
+        # reconstruct config from schemes attached to modules
         quantization_config = QuantizationConfig.from_pretrained(
             model, format=quantization_format
         )
 
+        # use config passed as argument
         if isinstance(sparsity_config, str):  # we passed in a sparsity format
             sparsity_config = SparsityCompressionConfig.load_from_registry(
                 sparsity_config
             )
 
-        if sparsity_config is None and quantization_config is None:
+        # use config attached to model
+        transform_config = getattr(model, TRANSFORM_CONFIG_NAME, None)
+
+        if not any((quantization_config, sparsity_config, transform_config)):
             return None
 
         return cls(
-            sparsity_config=sparsity_config, quantization_config=quantization_config
+            sparsity_config=sparsity_config,
+            quantization_config=quantization_config,
+            transform_config=transform_config,
         )
 
     @staticmethod
@@ -254,13 +266,17 @@ class ModelCompressor:
         self,
         sparsity_config: Optional[SparsityCompressionConfig] = None,
         quantization_config: Optional[QuantizationConfig] = None,
+        transform_config: Optional[TransformConfig] = None,
     ):
         self.sparsity_config = sparsity_config
         self.quantization_config = quantization_config
+        self.transform_config = transform_config
+
         self.sparsity_compressor = None
         self.quantization_compressor: Optional[
             Union[BaseQuantizationCompressor, DenseCompressor]
         ] = None
+        # no transform compressor is required
 
         if sparsity_config is not None:
             self.sparsity_compressor = BaseCompressor.load_from_registry(
@@ -640,43 +656,49 @@ class ModelCompressor:
 
         :param save_directory: path to a folder containing a HF model config
         """
-        if self.quantization_config is None and self.sparsity_config is None:
+        # this check is also done in `from_pretrained_model`,
+        # but not in `from_pretrained`` or `from_compression_config``
+        if not any(
+            (self.quantization_config, self.sparsity_config, self.transform_config)
+        ):
             return
 
-        config_file_path = os.path.join(save_directory, CONFIG_NAME)
-        if not os.path.exists(config_file_path):
-            _LOGGER.warning(
-                f"Could not find a valid model config file in "
-                f"{save_directory}. Compression config will not be saved."
-            )
-            return
-
-        with open(config_file_path, "r") as config_file:
-            config_data = json.load(config_file)
-
-        # required metadata whenever a quantization or sparsity config is present
+        # write to config.json file, regardless of whether it exists already
         # overwrite previous config and version if already existing
-        config_data[QUANTIZATION_CONFIG_NAME] = {}
-        config_data[QUANTIZATION_CONFIG_NAME][
-            COMPRESSION_VERSION_NAME
-        ] = compressed_tensors.__version__
-        if self.quantization_config is not None:
-            self.quantization_config.quant_method = DEFAULT_QUANTIZATION_METHOD
+        config_file_path = os.path.join(save_directory, CONFIG_NAME)
+        if os.path.exists(config_file_path):
+            with open(config_file_path, "r") as file:
+                config_data = json.load(file)
         else:
-            config_data[QUANTIZATION_CONFIG_NAME][
-                QUANTIZATION_METHOD_NAME
-            ] = DEFAULT_QUANTIZATION_METHOD
+            config_data = {}
 
-        # quantization and sparsity configs
-        if self.quantization_config is not None:
-            quant_config_data = self.quantization_config.model_dump()
-            config_data[QUANTIZATION_CONFIG_NAME] = quant_config_data
-        if self.sparsity_config is not None:
-            sparsity_config_data = self.sparsity_config.model_dump()
-            config_data[QUANTIZATION_CONFIG_NAME][
-                SPARSITY_CONFIG_NAME
-            ] = sparsity_config_data
+        # serialize configs into json
+        qconfig_data = (
+            self.quantization_config.model_dump(exclude=["quant_method"])
+            if self.quantization_config is not None
+            else {}
+        )
+        sconfig_data = (
+            self.sparsity_config.model_dump()
+            if self.sparsity_config is not None
+            else {}
+        )
+        tconfig_data = (
+            self.transform_config.model_dump()
+            if self.transform_config is not None
+            else {}
+        )
 
+        # construct compression (quantization) config
+        config_data[QUANTIZATION_CONFIG_NAME] = {
+            COMPRESSION_VERSION_NAME: compressed_tensors.__version__,
+            QUANTIZATION_METHOD_NAME: DEFAULT_QUANTIZATION_METHOD,
+            SPARSITY_CONFIG_NAME: sconfig_data,
+            TRANSFORM_CONFIG_NAME: tconfig_data,
+            **qconfig_data,
+        }
+
+        # write results to config.json file
         with open(config_file_path, "w") as config_file:
             json.dump(config_data, config_file, indent=2, sort_keys=True)
 
