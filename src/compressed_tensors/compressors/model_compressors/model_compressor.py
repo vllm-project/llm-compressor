@@ -207,7 +207,7 @@ class ModelCompressor:
 
     @staticmethod
     def parse_sparsity_config(
-        compression_config: Union[Dict[str, Any], "CompressedTensorsConfig"]
+        compression_config: Union[Dict[str, Any], "CompressedTensorsConfig"],
     ) -> Union[Dict[str, Any], None]:
         """
         Parse sparsity config from quantization/compression config. Sparsity
@@ -227,7 +227,7 @@ class ModelCompressor:
 
     @staticmethod
     def parse_quantization_config(
-        compression_config: Union[Dict[str, Any], "CompressedTensorsConfig"]
+        compression_config: Union[Dict[str, Any], "CompressedTensorsConfig"],
     ) -> Union[Dict[str, Any], None]:
         """
         Parse quantization config from quantization/compression config. The
@@ -246,6 +246,7 @@ class ModelCompressor:
 
         quantization_config = deepcopy(compression_config)
         quantization_config.pop(SPARSITY_CONFIG_NAME, None)
+        quantization_config.pop(TRANSFORM_CONFIG_NAME, None)
 
         # some fields are required, even if a qconfig is not present
         # pop them off and if nothing remains, then there is no qconfig
