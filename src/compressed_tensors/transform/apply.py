@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import torch
-from compressed_tensors import TRANSFORM_CONFIG_NAME
 from compressed_tensors.transform import TransformConfig, TransformFactory
 
 
@@ -31,6 +30,3 @@ def apply_transform_config(model: torch.nn.Module, config: TransformConfig):
     for name, scheme in config.config_groups.items():
         factory = TransformFactory.from_scheme(scheme, name=name)
         factory.apply_to_model(model)
-
-    # attach config to model for compression/serialization
-    setattr(model, TRANSFORM_CONFIG_NAME, config)
