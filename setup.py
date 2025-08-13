@@ -119,7 +119,8 @@ setup(
         "tqdm>=4.0.0",
         # torch 1.10 and 1.11 do not support quantized onnx export
         "torch>=1.7.0,!=1.10,!=1.11",
-        "transformers>4.0",
+        # Pin to <4.54.0 for Qwen2.5-VL FP8 quantization (see issue #1727)
+        "transformers>4.0,<4.54.0",
         "datasets>=3.0.0",
         "accelerate>=0.20.3,!=1.1.0",
         "pynvml>=11.5.3",
