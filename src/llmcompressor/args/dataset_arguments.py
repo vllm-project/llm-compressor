@@ -211,8 +211,8 @@ class DatasetArguments(CustomDatasetArguments):
     disable_quantization: bool = field(
         default=True,
         metadata={
-            "help": "Whether to disable activation quantization during calibration in the sequential pipeline. "
-            "This can be useful for debugging or when quantized activations interfere with calibration. "
-            "Defaults to True."
+            "help": "Whether to disable activation quantization during calibration in "
+            "the sequential pipeline. This can be useful for debugging or when "
+            "quantized activations interfere with calibration. Defaults to True."
         },
     )

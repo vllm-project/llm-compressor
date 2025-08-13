@@ -294,13 +294,12 @@ def oneshot(
         preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
-    :param calibrate_moe_context: If during calibration, the MoE context should be enabled
-        for the given model. This usually involves updating all MoE modules
+    :param calibrate_moe_context: If during calibration, the MoE context should be
+        enabled for the given model. This usually involves updating all MoE modules
         in the model for the duration of calibration.
-    :param disable_quantization: Whether to disable activation quantization during calibration
-        in the sequential pipeline. This can be useful for debugging or when quantized
-        activations interfere with calibration. Defaults to False to maintain activation
-        quantization during calibration.
+    :param disable_quantization: Whether to disable activation quantization during
+        calibration in the sequential pipeline. This can be useful for debugging or
+        when quantized activations interfere with calibration. Defaults to True.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
