@@ -18,7 +18,7 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
-* **DeepSeekV3-style Block Quantization Support**:  This allows for more efficient compression of large language models, improving performance without needing a calibration dataset. Quantize a Llama4 model to [W8A8](examples/quantization_w8a8_fp8/fp8_block_example.py). 
+* **DeepSeekV3-style Block Quantization Support**:  This allows for more efficient compression of large language models, improving performance without needing a calibration dataset. Quantize a Qwen3 model to [W8A8](examples/quantization_w8a8_fp8/fp8_block_example.py). 
 
 * **Llama4 Quantization Support**: Quantize a Llama4 model to [W4A16](examples/multimodal_vision/llama4_example.py) or [NVFP4](examples/quantization_w4a4_fp4/llama4_example.py). The checkpoint produced can seamlessly run in vLLM.
 * **Large Model Support with Sequential Onloading**: As of llm-compressor>=0.6.0, you can now quantize very large language models on a single GPU. Models are broken into disjoint layers which are then onloaded to the GPU one layer at a time. For more information on sequential onloading, see [Big Modeling with Sequential Onloading](examples/big_models_with_sequential_onloading/README.md) as well as the [DeepSeek-R1 Example](examples/quantizing_moe/deepseek_r1_example.py).
