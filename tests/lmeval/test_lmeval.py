@@ -35,7 +35,7 @@ except ImportError:
     lm_eval_installed = False
     logger.warning("lm_eval is not installed. This test will be skipped")
 
-TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", "./tests/lmeval/configs/fp8_dynamic_per_token.yaml")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/lm-eval")
 
 
@@ -206,5 +206,5 @@ class TestLMEval:
             df = pd.DataFrame(measurements)
             df.to_csv(p / f"{self.save_dir}.csv", index=False)
 
-        if self.save_dir is not None and os.path.isdir(self.save_dir):
-            shutil.rmtree(self.save_dir)
+        #if self.save_dir is not None and os.path.isdir(self.save_dir):
+        #    shutil.rmtree(self.save_dir)
