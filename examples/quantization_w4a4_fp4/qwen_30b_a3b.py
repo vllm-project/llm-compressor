@@ -61,7 +61,7 @@ recipe = QuantizationModifier(
 # Apply quantization.
 # We see `calibrate_moe_context` to True to update all `Qwen3MoeSparseMoeBlock`
 # during calibration.
-# Feel free to play around with the definition under
+# Feel free to update the definition under
 # llm-compressor/src/llmcompressor/modeling/qwen3_moe.py` to play around with
 # this behaviour and evaluate its impact on quantization performance
 oneshot(
