@@ -45,7 +45,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 ### 2) Prepare Calibration Data
 
-Prepare the calibration data.`nvfp4` quantization generates per-tensor global scales and per-group (size 16) local quantization scales for the weights, as well as per-tensor global scales for the activations. Per-group local activation quantization scales are generated dynamically during inference time. We need some sample data to calibrate the global activation scales. Typically, a small number of samples is sufficient. In this example, we use a sample-size of 20.
+Prepare the calibration data. `nvfp4` quantization generates per-tensor global scales and per-group (size 16) local quantization scales for the weights, as well as per-tensor global scales for the activations. Per-group local activation quantization scales are generated dynamically during inference time. We need some sample data to calibrate the global activation scales. Typically, a small number of samples is sufficient. In this example, we use a sample size of 20.
 
 It is useful to use calibration data that closely matches the type of data used in deployment. If you have fine-tuned a model, using a sample of your training data is a good idea. In our case, we are quantizing an instruction-tuned generic model, so we will use the `ultrachat` dataset. 
 
