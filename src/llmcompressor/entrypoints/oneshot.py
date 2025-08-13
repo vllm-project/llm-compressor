@@ -232,6 +232,7 @@ def oneshot(
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
     calibrate_moe_context: bool = False,
+    disable_quantization: bool = True,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",
@@ -293,6 +294,13 @@ def oneshot(
         preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
+    :param calibrate_moe_context: If during calibration, the MoE context should be enabled
+        for the given model. This usually involves updating all MoE modules
+        in the model for the duration of calibration.
+    :param disable_quantization: Whether to disable activation quantization during calibration
+        in the sequential pipeline. This can be useful for debugging or when quantized
+        activations interfere with calibration. Defaults to False to maintain activation
+        quantization during calibration.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
