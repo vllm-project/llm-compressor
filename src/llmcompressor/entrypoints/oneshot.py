@@ -298,8 +298,7 @@ def oneshot(
         enabled for the given model. This usually involves updating all MoE modules
         in the model for the duration of calibration.
     :param disable_quantization: Whether to disable activation quantization during
-        calibration in the sequential pipeline. This can be useful for debugging or
-        when quantized activations interfere with calibration. Defaults to True.
+        calibration in the sequential pipeline. Defaults to True.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
