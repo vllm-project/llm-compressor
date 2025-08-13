@@ -6,8 +6,8 @@ from datasets import load_dataset
 from qwen_vl_utils import process_vision_info
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.utils import dispatch_for_generation
 
 # Load model.
