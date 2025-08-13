@@ -75,7 +75,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-            # Optionally disable activation quantization during calibration based on user configuration
+            # Optionally disable activation quantization
             if dataset_args.disable_quantization:
                 stack.enter_context(DisableQuantization(model))
 
