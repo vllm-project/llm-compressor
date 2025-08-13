@@ -47,8 +47,8 @@ def test_is_quantized_cache_singleton():
 
 
 def test_update():
-    nbits = 8
-    args = QuantizationArgs(nbits=nbits, symmetric=True)
+    num_bits = 8
+    args = QuantizationArgs(num_bits=num_bits, symmetric=True)
     cache = QuantizedKVParameterCache(args)
 
     max_key_states_val = 1.0
@@ -62,7 +62,7 @@ def test_update():
     layer_idx = 0
 
     cache.update(key_states, value_states, layer_idx)
-    denom = (2 ** (nbits) - 1) / 2
+    denom = (2 ** (num_bits) - 1) / 2
     expected_k_scale = torch.tensor([max_key_states_val / denom])
     expected_v_scale = torch.tensor([max_value_states_val / denom])
 
@@ -83,8 +83,8 @@ def test_update():
 
 
 def test_cache_reset():
-    nbits = 8
-    args = QuantizationArgs(nbits=nbits, symmetric=True)
+    num_bits = 8
+    args = QuantizationArgs(num_bits=num_bits, symmetric=True)
     cache = QuantizedKVParameterCache(args)
 
     max_key_states_val = 1.0
