@@ -88,6 +88,9 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
         )
         original.to("cpu")
 
+    def to_3d_experts(self,):
+        ...
+
     def forward(self, inputs, expert_size):
         """Modified from original forward()"""
         input_list = inputs.split(expert_size, dim=0)
