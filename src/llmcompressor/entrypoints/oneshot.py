@@ -297,8 +297,8 @@ def oneshot(
     :param calibrate_moe_context: If during calibration, the MoE context should be
         enabled for the given model. This usually involves updating all MoE modules
         in the model for the duration of calibration.
-    :param disable_calibration_quantization: Whether to disable activation quantization during
-        calibration in the sequential pipeline. Default is set to False.
+    :param disable_calibration_quantization: Whether to disable activation quantization
+        during calibration in the sequential pipeline. Default is set to False.
 
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
