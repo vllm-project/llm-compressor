@@ -181,7 +181,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.start_calibration(self, state.model)
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
-        state.model.apply(disable_quantization)
+        # state.model.apply(disable_quantization)
 
         # register gptq hooks
         added_hook = False
