@@ -82,7 +82,7 @@ Also, larger models, like DeepSeek R1 use a large amount of CPU memory, and mode
     
     In the case of text decoder layers, LLM Compressor dynamically loads one layer at a time into the GPU for computation. The rest of the model remains in CPU memory. 
 
-    However, vision tower layers are loaded onto GPU all at once. The layers are not split, so they are not offloaded to CPU. 		
+    However, vision tower layers are loaded onto GPU all at once. Unlike the text model, vision towers are not split up into individual layers before onloading to the GPU. This can create a GPU memory bottleneck for models whose vision towers are larger than their text layers.		
 
     At this time LLM Compressor does not quantise the vision tower as quantization is generally not worth the tradeoff between latency/throughput and accuracy loss.   
 
