@@ -92,7 +92,7 @@ Also, larger models, like DeepSeek R1 use a large amount of CPU memory, and mode
 
 The quantization modifier, RTN, does not require any additional memory beyond the storage needed for its quantization parameters (scales/zeros). 
 
-If we ignore these scales and zero points from our calculation, we estimate the following memory requirements:
+If we ignore these scales and zero points from our calculation, we can estimate the following memory requirements:
 
 
 | Model| CPU requirements | GPU requirements |
