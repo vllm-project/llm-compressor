@@ -30,6 +30,20 @@ class QuIPModifier(Modifier):
     QuIP and QuIP# apply transforms to every linear layer, two of which are fused into
     the model weights and two of which remain as online rotations computed at runtime.
 
+    Lifecycle:
+        - on_initialize
+            - infer SpinQuantMappings & NormMappings
+            - as needed, create transform schemes for R1, R2, R3, & R4
+        - on_start
+            - normalize embeddings
+            - fuse norm layers into subsequent Linear layers
+            - apply TransformConfig
+                - fuse transforms into weights for mergeable transforms
+                - add hooks for online transforms
+        - on sequential epoch end
+        - on_end
+        - on_finalize
+
     :param transform_type: The type of transform to apply to the model.
         `"hadamard"` has the least performance cost but only supports sizes which are
         powers of power of two.
