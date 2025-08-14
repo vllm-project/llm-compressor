@@ -208,10 +208,12 @@ class DatasetArguments(CustomDatasetArguments):
             "definition"
         },
     )
-    disable_calibration_quantization: bool = field(
-        default=False,
+    quantization_aware_calibration: bool = field(
+        default=True,
         metadata={
-            "help": "Whether to disable activation quantization during calibration in "
-            "the sequential pipeline. Default is set to False."
+            "help": "Whether to enable quantization-aware calibration in the pipeline. "
+            "When True, quantization is applied during forward pass in calibration. "
+            "When False, quantization is disabled during forward pass in calibration. "
+            "Default is set to True."
         },
     )
