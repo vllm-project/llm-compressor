@@ -65,27 +65,8 @@ def infer_per_module_quantization_format(
     compression arguments. Also updates thhe quantization_scheme.format value
     based on the inferred format. Returns the unique list of formats in the model
     or None if empty list
-
-    The following table outlines the possible quantization and sparsity formats
-    along with their corresponding compressor formats:
-
-        +---------------+----------+----------------------+---------------------+
-        | Quantization  | Sparsity | Quant Compressor     | Sparsity Compressor |
-        |               |          | Format               | Format              |
-        +---------------+----------+----------------------+---------------------+
-        | W8A8 - int    | None     | int_quantized        | Dense               |
-        | W8A8 - float  | None     | float_quantized      | Dense               |
-        | W4A16 - float | None     | nvfp4_pack_quantized | Dense               |
-        | W4A4 - float  | None     | nvfp4_pack_quantized | Dense               |
-        | W4A16 - int   | None     | pack_quantized       | Dense               |
-        | W8A16 - int   | None     | pack_quantized       | Dense               |
-        | W8A16 - float | None     | naive_quantized      | Dense               |
-        | W8A8 - int    | 2:4      | int_quantized        | Sparse24            |
-        | W8A8 - float  | 2:4      | float_quantized      | Sparse24            |
-        | W4A16 - int   | 2:4      | marlin_24            | Dense               |
-        | W8A16 - int   | 2:4      | marlin_24            | Dense               |
-        | W8A16 - float | 2:4      | naive_quantized      | Dense               |
-        +---------------+----------+----------------------+---------------------+
+    
+    For a summary of the formats, see `docs/guides/compression_formats.md`.
 
     :param model: model to check for quantization, if the model is not quantized no
         quantization format is returned

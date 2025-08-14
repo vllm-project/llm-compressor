@@ -5,6 +5,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.utils.dev import dispatch_for_generation
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -27,5 +28,9 @@ class DataFreePipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        # some ops are still performed on the model by modifiers
+        # we want those ops to occur on the GPU
+        dispatch_for_generation(model)
+
         LifecycleCallbacks.calibration_epoch_start()
         LifecycleCallbacks.calibration_epoch_end()
