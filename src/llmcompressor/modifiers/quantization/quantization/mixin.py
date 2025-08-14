@@ -116,7 +116,7 @@ class QuantizationMixin(HooksMixin):
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
-        Attach quantization schemes and observers to modules in the model according to
+        Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
@@ -127,25 +127,25 @@ class QuantizationMixin(HooksMixin):
         config = self.resolve_quantization_config()
         apply_quantization_config(model, config)
 
-        # apply observers, disable quantization until calibration
-        model.apply(self._initialize_observers)
+        # disable quantization until calibration
         model.apply(disable_quantization)
 
     def start_calibration(self, model: torch.nn.Module):
         """
-        Register activation calibration hooks (including kv_cache quantization) and
-        enable quantization as we calibrate
+        Attach observers, register activation calibration hooks (including
+        kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
         self._calibration_hooks = self._initialize_hooks(model)
+        model.apply(self._initialize_observers)
         model.apply(apply_calibration_status)
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def end_calibration(self, model: torch.nn.Module):
         """
-        Remove calibration hooks and set the model status to frozen. Keep quantization
-        enabled for future operations
+        Remove calibration hooks and observers, and set the model status to frozen.
+        Keep quantization enabled for future operations
 
         :param model: model to end calibration for
         """
