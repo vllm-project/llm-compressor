@@ -24,7 +24,7 @@ model_type = "hf"  #"vllm"  #
 limit = None  # 30  #  
 trust_remote_code = True
 cache_req = True
-batch_size = "auto"  # 1  # 
+batch_size = 1  # "auto"  # 
 model_dtype = "bfloat16"  # auto?
 # output_samples_to_json = True
 
@@ -38,10 +38,7 @@ match model_type:
     case _:
         raise RuntimeError("only hf and vllm are allowed for now.")
 
-# --- Step 1. Load/create HF model or use lm-eval's get_model() directly.
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto").cuda()
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
+# --- Option 1: use model_args string to create the model and lm_obj
 # lm_obj = lm_eval.api.registry.get_model(model_type).create_from_arg_string(
 #     # signature is (args, additional_args)
 #     model_args,
@@ -52,8 +49,14 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 #         "device": "cuda",  # "auto", #
 #     },
 # )
+
+
+# --- Option 2 manually create the model then pass to HFLM.
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto", device_map="auto")  #.cuda()
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
 lm_obj = HFLM(
-    model,
+    model,  #MODEL_ID,
     tokenizer=tokenizer,
     batch_size=batch_size,
     trust_remote_code=trust_remote_code,
@@ -69,7 +72,7 @@ else:
 print(model_shortcut)
 
 
-# --- Step 3.2: full eval, invoke lm-eval
+# --- Run full eval, invoke lm-eval
 eval_kwargs = {
     "model": lm_obj,
     "model_args": model_args,
@@ -84,9 +87,7 @@ eval_kwargs = {
 results = lm_eval.simple_evaluate(**eval_kwargs,)
 
 
-
-
-# --- step 4: print out results (borrowed from lm-eval cli)
+# --- Print out results (borrowed from lm-eval cli)
 print(
     f"{model_type} ({model_args}), limit: {limit}, num_fewshot: {"task default" if num_fewshot is None else num_fewshot}, "
     # f"batch_size: {args.batch_size}{f' ({batch_sizes})' if batch_sizes else ''}"
