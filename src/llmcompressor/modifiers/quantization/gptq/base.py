@@ -3,10 +3,7 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    QuantizationConfig,
-    QuantizationScheme,
-)
+from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
