@@ -234,6 +234,12 @@ class QuantizationConfig(BaseModel):
                 format = CompressionFormat.int_quantized.value
             else:
                 format = CompressionFormat.dense.value
+        elif isinstance(format, list):
+            format = (
+                CompressionFormat.mixed_precision.value
+                if len(format) > 1
+                else format[0]
+            )
 
         return QuantizationConfig(
             config_groups=config_groups,

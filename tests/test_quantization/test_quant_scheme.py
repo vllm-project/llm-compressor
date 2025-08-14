@@ -26,12 +26,13 @@ def test_basic_scheme():
     assert scheme.weights == weights
     assert scheme.input_activations is None
     assert scheme.output_activations is None
+    assert scheme.format is None
 
 
 def test_full_scheme():
     targets = ["Linear"]
     weights = QuantizationArgs()
-    input_activations = QuantizationArgs(num_bits=4)
+    input_activations = QuantizationArgs(num_bits=8)
     output_activations = QuantizationArgs(num_bits=8, type="float", symmetric=False)
 
     scheme = QuantizationScheme(
@@ -39,11 +40,13 @@ def test_full_scheme():
         weights=weights,
         input_activations=input_activations,
         output_activations=output_activations,
+        format="float-quantized",
     )
     assert scheme.targets == targets
     assert scheme.weights == weights
     assert scheme.input_activations == input_activations
     assert scheme.output_activations == output_activations
+    assert scheme.format is "float-quantized"
 
 
 def test_needs_targets():
@@ -57,3 +60,4 @@ def test_defaults():
     assert output.weights is None
     assert output.input_activations is None
     assert output.output_activations is None
+    assert output.format is None

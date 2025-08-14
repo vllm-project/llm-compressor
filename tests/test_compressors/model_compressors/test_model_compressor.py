@@ -20,8 +20,12 @@ import pytest
 import torch
 import torch.nn as nn
 from compressed_tensors.compressors import ModelCompressor
-from compressed_tensors.config import SparsityCompressionConfig
-from compressed_tensors.quantization import QuantizationConfig
+from compressed_tensors.config import CompressionFormat, SparsityCompressionConfig
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationConfig,
+    QuantizationScheme,
+)
 from safetensors.torch import save_file
 from tests.testing_utils import induce_sparsity, requires_hf_quantizer
 from transformers import AutoModelForCausalLM
@@ -395,7 +399,7 @@ def _get_combined_config(s_config, q_config):
 )
 def test_compress_model(model_stub, q_format, s_config, tmpdir):
     model = AutoModelForCausalLM.from_pretrained(model_stub, torch_dtype=torch.float32)
-    compressor = ModelCompressor.from_pretrained_model(model, s_config, q_format)
+    compressor = ModelCompressor.from_pretrained_model(model, s_config, [q_format])
 
     # compress model by eagerly compressing state dict
     true_compressed = dict(compressor.compress(model))
@@ -443,7 +447,7 @@ def test_compress_model_meta(model_stub, q_format, s_config):
         model_stub, torch_dtype=torch.float32
     )
     reference_compressor = ModelCompressor.from_pretrained_model(
-        cpu_model, s_config, q_format
+        cpu_model, s_config, [q_format]
     )
     # Only stores dtype because meta model does not store values
     expected = {k: v.dtype for k, v in reference_compressor.compress(cpu_model).items()}
@@ -459,7 +463,7 @@ def test_compress_model_meta(model_stub, q_format, s_config):
             module.to_empty(device="meta")
 
     # Compress in-place on meta model
-    compressor = ModelCompressor.from_pretrained_model(meta_model, s_config, q_format)
+    compressor = ModelCompressor.from_pretrained_model(meta_model, s_config, [q_format])
     compressor.compress_model(meta_model)
 
     # Compare keys and dtypes
@@ -467,6 +471,43 @@ def test_compress_model_meta(model_stub, q_format, s_config):
     assert set(compressed.keys()) == set(expected.keys())
     for key, dtype in expected.items():
         assert compressed[key].dtype == dtype, f"{key} has incorrect dtype"
+
+
+def test_multiple_quant_compressors():
+    model = torch.nn.Sequential(torch.nn.Linear(1, 2), torch.nn.Linear(2, 3))
+    input_activations = QuantizationArgs(num_bits=8, type="float")
+    weights = QuantizationArgs(num_bits=8, type="float")
+
+    scheme_fp8 = QuantizationScheme(
+        targets=["Linear"],
+        weights=weights,
+        input_activations=input_activations,
+        format=CompressionFormat.float_quantized.value,
+    )
+
+    input_activations = QuantizationArgs(num_bits=4, type="float")
+    weights = QuantizationArgs(num_bits=4, type="float")
+
+    scheme_nvfp4 = QuantizationScheme(
+        targets=["Linear"],
+        weights=weights,
+        input_activations=input_activations,
+        format=CompressionFormat.nvfp4_pack_quantized.value,
+    )
+
+    model[0].quantization_scheme = scheme_fp8
+    model[0].quantization_status = "frozen"
+    model[1].quantization_scheme = scheme_nvfp4
+    model[1].quantization_status = "frozen"
+
+    formats = [scheme_fp8.format, scheme_nvfp4.format]
+
+    compressor = ModelCompressor.from_pretrained_model(model, None, formats)
+    assert isinstance(compressor.quantization_compressor, dict)
+    assert (
+        compressor.quantization_config.format == CompressionFormat.mixed_precision.value
+    )
+    assert all(format in compressor.quantization_compressor for format in formats)
 
 
 @pytest.mark.parametrize(

@@ -169,7 +169,7 @@ class ModelCompressor:
         cls,
         model: Module,
         sparsity_config: Union[SparsityCompressionConfig, str, None] = None,
-        quantization_format: Optional[str] = None,
+        quantization_format: Optional[Union[str, List[str]]] = None,
     ) -> Optional["ModelCompressor"]:
         """
         Given a pytorch model and optional sparsity and/or quantization configs,
@@ -182,7 +182,6 @@ class ModelCompressor:
             algorithm
         :return: compressor for the configs, or None if model is not compressed
         """
-        # reconstruct config from schemes attached to modules
         quantization_config = QuantizationConfig.from_pretrained(
             model, format=quantization_format
         )
@@ -203,6 +202,9 @@ class ModelCompressor:
             sparsity_config=sparsity_config,
             quantization_config=quantization_config,
             transform_config=transform_config,
+            compression_formats=[quantization_format]
+            if isinstance(quantization_format, str)
+            else quantization_format,
         )
 
     @staticmethod
@@ -263,19 +265,39 @@ class ModelCompressor:
 
         return quantization_config
 
+    def _fetch_unique_quantization_formats(self) -> List[str]:
+        """
+        Get all unique compression formats present in a model.
+        :return: list of quantization formats
+        """
+        quantization_formats = []
+        for _, scheme in self.quantization_config.config_groups.items():
+            if scheme.format is not None and scheme.format not in quantization_formats:
+                quantization_formats.append(scheme.format)
+
+        if (
+            len(quantization_formats) == 0
+            and self.quantization_config.format
+            != CompressionFormat.mixed_precision.value
+        ):
+            quantization_formats.append(self.quantization_config.format)
+        return quantization_formats
+
     def __init__(
         self,
         sparsity_config: Optional[SparsityCompressionConfig] = None,
         quantization_config: Optional[QuantizationConfig] = None,
         transform_config: Optional[TransformConfig] = None,
+        compression_formats: Optional[List[str]] = None,
     ):
         self.sparsity_config = sparsity_config
         self.quantization_config = quantization_config
         self.transform_config = transform_config
+        self.compression_formats = compression_formats
 
         self.sparsity_compressor = None
         self.quantization_compressor: Optional[
-            Union[BaseQuantizationCompressor, DenseCompressor]
+            Dict[str, Union[BaseQuantizationCompressor, DenseCompressor]]
         ] = None
         # no transform compressor is required
 
@@ -283,10 +305,21 @@ class ModelCompressor:
             self.sparsity_compressor = BaseCompressor.load_from_registry(
                 sparsity_config.format, config=sparsity_config
             )
+
         if quantization_config is not None:
-            self.quantization_compressor = BaseCompressor.load_from_registry(
-                quantization_config.format, config=quantization_config
-            )
+            # If a list of compression_format is not provided, we resolve the
+            # relevant quantization formats using the config groups from the config
+            # and if those are not defined, we fall-back to the global quantization format
+            if not self.compression_formats:
+                self.compression_formats = self._fetch_unique_quantization_formats()
+
+            self.quantization_compressor = {}
+            for format in self.compression_formats:
+                self.quantization_compressor[
+                    format
+                ] = BaseCompressor.load_from_registry(
+                    format, config=quantization_config
+                )
 
     # ----- used by hf quantizer ----- #
 
@@ -381,12 +414,13 @@ class ModelCompressor:
                     targets=scheme.targets,
                     ignore=self.quantization_config.ignore,
                 )
-                unexpected_keys.update(
-                    merge_names(target, param)
-                    for target in quant_targets
-                    for param in self.quantization_compressor.compression_param_names
-                    if param != "weight"
-                )
+                for quant_compressor in self.quantization_compressor.values():
+                    unexpected_keys.update(
+                        merge_names(target, param)
+                        for target in quant_targets
+                        for param in quant_compressor.compression_param_names
+                        if param != "weight"
+                    )
 
         return list(unexpected_keys)
 
@@ -424,7 +458,21 @@ class ModelCompressor:
 
                 # quantization first
                 if prefix in module_to_scheme:
-                    state_dict = self.quantization_compressor.compress(
+                    if (
+                        not hasattr(module.quantization_scheme, "format")
+                        or module.quantization_scheme.format is None
+                    ):
+                        if len(self.compression_formats) > 1:
+                            raise ValueError(
+                                "Applying multiple compressors without defining "
+                                "per module formats is not supported "
+                            )
+                        format = self.compression_formats[0]
+                    else:
+                        format = module.quantization_scheme.format
+
+                    quant_compressor = self.quantization_compressor.get(format)
+                    state_dict = quant_compressor.compress(
                         state_dict,
                         names_to_scheme=module_to_scheme,
                         show_progress=False,
@@ -495,12 +543,24 @@ class ModelCompressor:
 
                 # quantization second
                 if prefix in module_to_scheme:
-                    state_dict = (
-                        self.quantization_compressor.decompress_module_from_state_dict(
-                            prefix,
-                            state_dict,
-                            scheme=module_to_scheme[prefix],
-                        )
+
+                    if (
+                        not hasattr(module.quantization_scheme, "format")
+                        or module.quantization_scheme.format is None
+                    ):
+                        if len(self.compression_formats) > 1:
+                            raise ValueError(
+                                "Applying multiple compressors without defining "
+                                "per module formats is not supported "
+                            )
+                        format = self.compression_formats[0]
+                    else:
+                        format = module.quantization_scheme.format
+                    quant_compressor = self.quantization_compressor.get(format)
+                    state_dict = quant_compressor.decompress_module_from_state_dict(
+                        prefix,
+                        state_dict,
+                        scheme=module_to_scheme[prefix],
                     )
 
                 # remove any existing parameters
@@ -539,7 +599,9 @@ class ModelCompressor:
 
         if self.quantization_compressor is not None:
             module_to_scheme = map_module_to_scheme(model)
-            state_dict = self.quantization_compressor.compress(
+            # Note - compress only supports one compression format atm
+            quant_compressor = next(iter(self.quantization_compressor.values()))
+            state_dict = quant_compressor.compress(
                 state_dict,
                 names_to_scheme=module_to_scheme,
                 show_progress=show_progress,
@@ -588,14 +650,20 @@ class ModelCompressor:
         """
         model_path = get_safetensors_folder(model_path)
         sparse_decompressed = False
+        quant_compressor = (
+            next(iter(self.quantization_compressor.values()))
+            if self.quantization_compressor is not None
+            else None
+        )
 
         if (
             self.sparsity_compressor is not None
             and self.sparsity_config.format != CompressionFormat.dense.value
         ):
+            # note - decompress only supports one compressor atm
             params_to_ignore = None
-            if self.quantization_compressor is not None:
-                params_to_ignore = self.quantization_compressor.compression_param_names
+            if quant_compressor is not None:
+                params_to_ignore = quant_compressor.compression_param_names
             # Sparse decompression is applied on the model_path
             # The compressor will try and load any quantization parameters as well
             # params_to_skip_load will skip over quantization params from being loaded
@@ -606,7 +674,7 @@ class ModelCompressor:
             setattr(model, SPARSITY_CONFIG_NAME, self.sparsity_compressor.config)
             sparse_decompressed = True
 
-        if self.quantization_compressor is not None:
+        if quant_compressor is not None:
             # Temporarily set quantization status to FROZEN to prevent
             # quantization during apply_quantization_config. This ensures
             # that the dtypes of the weights are not unintentionally updated.
@@ -629,7 +697,7 @@ class ModelCompressor:
                     # including initialization
                     load_weight_quantization=(
                         sparse_decompressed
-                        or isinstance(self.quantization_compressor, DenseCompressor)
+                        or isinstance(quant_compressor, DenseCompressor)
                     ),
                 )
 
@@ -637,7 +705,7 @@ class ModelCompressor:
                 model.state_dict() if sparse_decompressed else model_path
             )
 
-            dense_gen = self.quantization_compressor.decompress(
+            dense_gen = quant_compressor.decompress(
                 model_path_or_state_dict, names_to_scheme=names_to_scheme
             )
             # TODO: all weight quantization params will be moved to the compressor
