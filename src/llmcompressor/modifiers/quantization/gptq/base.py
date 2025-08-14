@@ -6,7 +6,6 @@ import torch
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
-    disable_quantization,
 )
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
@@ -181,7 +180,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.start_calibration(self, state.model)
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
-        # state.model.apply(disable_quantization)
 
         # register gptq hooks
         added_hook = False
