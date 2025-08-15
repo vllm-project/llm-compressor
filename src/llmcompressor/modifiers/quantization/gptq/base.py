@@ -183,7 +183,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
         logger.info(
-            "quantization aware calibration is currently not supported for AWQ, "
+            "quantization aware calibration is currently not supported for GPTQ, "
             "disabling quantization during calibration"
         )
 
