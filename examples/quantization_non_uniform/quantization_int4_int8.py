@@ -5,7 +5,6 @@ from llmcompressor import oneshot
 from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -15,7 +14,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
-NUM_CALIBRATION_SAMPLES = 1
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
