@@ -6,7 +6,6 @@ import torch
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
-    disable_quantization,
 )
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
@@ -179,14 +178,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
-        # Unlike qmod, do not quantize as we calibrate
-        # This choice does not seem to have a meaningful impact on accuracy
-        # TODO: remove this to enable quantization aware calibration
-        state.model.apply(disable_quantization)
-        logger.info(
-            "quantization aware calibration is currently not supported for GPTQ, "
-            "disabling quantization during calibration"
-        )
 
         # register gptq hooks
         added_hook = False
