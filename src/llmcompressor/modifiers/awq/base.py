@@ -2,9 +2,7 @@ import inspect
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    find_name_or_class_matches,
-)
+from compressed_tensors.quantization import find_name_or_class_matches
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
