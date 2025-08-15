@@ -1,4 +1,6 @@
+import sys
 import warnings
+from collections import defaultdict
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Dict, Generator, List, Optional, Union
 
@@ -132,9 +134,50 @@ class IntermediatesCache:
             del intermediates[name]
 
     def append(self, values: Dict[str, Any]):
+        """
+        Append new values to the cache. The new values will be assigned the next
+        available batch index
+
+        :param values: dictionary mapping keys to values used for update
+        """
         batch_index = len(self.batch_intermediates)
         self.batch_intermediates.append({})
         self.update(batch_index, values)
+
+    def size(self) -> Dict[torch.device, int]:
+        """
+        Returns the memory used by cached values, keyed by device, in bytes
+
+        :return: dictionary mapping torch device to number of bytes in cache
+        """
+        sizes = defaultdict(lambda: 0)
+
+        def _size_helper(intermediate: IntermediateValue) -> int:
+            value = intermediate.value
+
+            if isinstance(value, torch.Tensor):
+                sizes[value.device] += value.nbytes
+
+            elif is_dataclass(value):
+                for field in fields(value):
+                    _size_helper(getattr(value, field.name))
+
+            elif isinstance(value, (tuple, list)):
+                for v in value:
+                    _size_helper(v)
+
+            elif isinstance(value, dict):
+                for v in value.values():
+                    _size_helper(v)
+
+            else:
+                sizes[torch.device("cpu")] += sys.getsizeof(value, 0)
+
+        for intermediates in self.batch_intermediates:
+            for value in intermediates.values():
+                _size_helper(value)
+
+        return dict(sizes)
 
     def iter(
         self, input_names: Optional[List[str]] = None
@@ -162,6 +205,9 @@ class IntermediatesCache:
 
             return value
 
+        if isinstance(value, list):
+            return list(self._onload_value(v) for v in value)
+
         if isinstance(value, tuple):
             return tuple(self._onload_value(v) for v in value)
 
@@ -187,6 +233,11 @@ class IntermediatesCache:
                 setattr(value, field.name, self._offload_value(v))
 
             return IntermediateValue(value=value, device=None)
+
+        if isinstance(value, list):
+            return IntermediateValue(
+                value=list(self._offload_value(v) for v in value), device=None
+            )
 
         if isinstance(value, tuple):
             return IntermediateValue(
