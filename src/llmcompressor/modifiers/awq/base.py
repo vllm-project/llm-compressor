@@ -236,6 +236,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.start_calibration(self, state.model)
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
+        # TODO: remove this to enable quantization aware calibration
         state.model.apply(disable_quantization)
         logger.info(
             "quantization aware calibration is currently not supported for AWQ, "
