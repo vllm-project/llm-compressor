@@ -238,12 +238,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
         logger.info(
-            f"quantization aware calibration is currently not supported for AWQ, "
+            "quantization aware calibration is currently not supported for AWQ, "
             "disabling quantization during calibration"
         )
 
         self._setup_activation_cache_hooks()
-    
+
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
@@ -599,7 +599,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales = (x_mean.pow(ratio) / w_mean_safe).clamp(min=1e-4, max=1e4)
             else:
                 scales = x_mean.pow(ratio).clamp(min=1e-4, max=1e4).view(-1)
-            
+
             # More robust normalization
             scale_max = scales.max()
             scale_min = scales.min()
@@ -607,7 +607,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 scales = scales / (scale_max * scale_min).sqrt()
             else:
                 scales = scales / (scales.abs().max() + 1e-8)
-            
+
             _scalesview = scales.view(1, -1).to(device)
 
             # avoid scaling values that overflow
@@ -643,7 +643,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 best_ratio = ratio
                 best_scales = scales.clone()
             parent_module.load_state_dict(org_sd)
-        
+
         if best_ratio == -1:
             logger.debug(history)
             raise Exception

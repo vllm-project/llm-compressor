@@ -23,6 +23,7 @@ from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.utils.helpers import disable_quantization
 from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
@@ -177,6 +178,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.start_calibration(self, state.model)
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
+        state.model.apply(disable_quantization)
+        logger.info(
+            "quantization aware calibration is currently not supported for AWQ, "
+            "disabling quantization during calibration"
+        )
 
         # register gptq hooks
         added_hook = False
@@ -278,23 +284,35 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 try:
                     from llmcompressor.pytorch.utils.helpers import tensor_sparsity
                     sparsity = tensor_sparsity(quantized_weight)
-                    logger.info(f"o_proj sparsity after quantization: {sparsity.item()*100:.2f}%")
-                    
+                    logger.info(
+                        f"o_proj sparsity after quantization: "
+                        f"{sparsity.item()*100:.2f}%"
+                    )
+
                     # Check which layer this is
                     if "model.layers." in name:
                         layer_num = name.split("model.layers.")[1].split(".")[0]
-                        logger.info(f"  Layer {layer_num} o_proj: {sparsity.item()*100:.2f}% sparsity")
-                        
+                        logger.info(
+                            f"  Layer {layer_num} o_proj: "
+                            f"{sparsity.item()*100:.2f}% sparsity"
+                        )
+
                         # Check weight statistics
                         zeros = (quantized_weight == 0).sum().item()
                         total = quantized_weight.numel()
-                        logger.info(f"  Layer {layer_num} o_proj: {zeros}/{total} = {zeros/total:.3f} zeros")
-                        
+                        logger.info(
+                            f"  Layer {layer_num} o_proj: {zeros}/{total} = "
+                            f"{zeros/total:.3f} zeros"
+                        )
+
                         # Check first few channels
                         for i in range(min(3, quantized_weight.shape[1])):
                             channel = quantized_weight[:, i]
                             channel_zeros = (channel == 0).sum().item()
-                            logger.info(f"    Channel {i}: {channel_zeros}/{len(channel)} = {channel_zeros/len(channel):.3f}")
+                            logger.info(
+                                f"    Channel {i}: {channel_zeros}/{len(channel)} = "
+                                f"{channel_zeros/len(channel):.3f}"
+                            )
                 except Exception as e:
                     logger.warning(f"Could not check o_proj sparsity: {e}")
 
