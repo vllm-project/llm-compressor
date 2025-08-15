@@ -15,7 +15,7 @@ Sparsification reduces model complexity by pruning selected weight values to zer
 -  [2:4-Sparsity with FP4 Weight](../../../examples/quantization_2of4_sparse_w4a16/README.md)
 -  [2:4-Sparsity with FP8 Weight, FP8 Input Activation](../../../examples/sparse_2of4_quantization_fp8/README.md)
 
-## Code
+### Code
 
 Example scripts for all the above formats are located in the [examples](../../../examples/) folder. The [W8A8-FP8](../../../examples/quantization_w8a8_fp8/llama3_example.py) example is shown below: 
 
@@ -94,9 +94,9 @@ Compressed models can be trained to improve accuracy. Training is carried out us
 ### Finetuning a Compressed Model
 LLM-Compressor supports fine-tuning of quantized, sparsified, and sparse-quantized models. It offers both standard fine-tuning, knowledge distillation and SFT Trainer.
 
-## Code
+### Code
 
-### Finetuning
+#### Finetuning
 
 A compressed model generated using `oneshot` is saved to disk in a compressed format. To load it, the model must be decompressed using `CompressedTensorsConfig` with `AutoModelForCausalLM`. If the above `oneshot` example script was executed and the compressed model was saved to `./oneshot_model`, the following code is used to perform fine-tuning:
 
