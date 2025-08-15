@@ -5,6 +5,7 @@ from llmcompressor import oneshot
 from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -14,9 +15,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 20
+NUM_CALIBRATION_SAMPLES = 1
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -52,47 +51,32 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize all weights excluding down_proj layers
-#       to fp4 with per group 16 via ptq
-#   * calibrate a global_scale for activations, which will be used to
-#       quantize activations to fp4 on the fly
-#   * quantize all down_proj layer weights to fp8
-#   * dynamically quantize all down_proj activations to fp8 dynamic
-#       per token
+#       to int4 with per group 128 via ptq
+#   * quantize all down_proj layer weights to int8
+#       with per group 128 via ptq
 recipe = """
 quant_stage:
     quant_modifiers:
-        QuantizationModifier:
+        GPTQModifier:
             ignore: ["lm_head"]
             config_groups:
                 group_0:
                     weights:
                         num_bits: 8
-                        type: float
-                        strategy: channel
+                        type: int
+                        strategy: group
                         dynamic: false
                         symmetric: true
-                    input_activations:
-                        num_bits: 8
-                        type: float
-                        strategy: token
-                        dynamic: true
-                        symmetric: true
+                        group_size: 128
                     targets: ["re:.*down_proj.*"]
                 group_1:
                     weights:
                         num_bits: 4
-                        type: float
-                        strategy: tensor_group
+                        type: int
+                        strategy: group
                         dynamic: false
-                        symmetric: true
-                        group_size: 16
-                    input_activations:
-                        num_bits: 4
-                        type: float
-                        strategy: tensor_group
-                        dynamic: local
-                        symmetric: true
-                        group_size: 16
+                        symmetric: false
+                        group_size: 128
                     targets: ["re:.*self_attn.k_proj.*", "re:.*self_attn.o_proj.*", "re:.*self_attn.q_proj.*", "re:.*self_attn.v_proj.*", "re:.*gate_proj.*", "re:.*up_proj.*"]
 """
 # Apply quantization.
@@ -114,11 +98,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-
-# The model produced is compressed using two different compressors
-# with two different formats: nvfp4-pack-quantized and float-quantized.
-# The presence of multiple compressors is indicated by the
-# `mixed-precision` format in the model's config.json.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-Dynamic"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-W8A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
