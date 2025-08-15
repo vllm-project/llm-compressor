@@ -2,7 +2,7 @@ import pytest
 from compressed_tensors.quantization import preset_name_to_scheme
 
 from llmcompressor.transformers.compression.quantization_format import (
-    infer_quantization_format,
+    infer_and_set_per_module_quantization_format,
 )
 from tests.llmcompressor.pytorch.helpers import LinearNet
 
@@ -25,7 +25,7 @@ def test_infer_quant_format(preset, sparsity_structure, expected_format):
     for _, module in dummy_model.named_modules():
         module.quantization_scheme = quant_scheme
 
-    inferred_format = infer_quantization_format(
+    inferred_format = infer_and_set_per_module_quantization_format(
         dummy_model, save_compressed=True, sparsity_structure=sparsity_structure
     )
-    assert inferred_format.value == expected_format
+    assert inferred_format[0] == expected_format
