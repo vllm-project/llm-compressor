@@ -15,7 +15,7 @@
 import logging
 import re
 from collections.abc import Generator
-from typing import Iterable, Mapping, Optional, Tuple
+from typing import Iterable, List, Mapping, Optional, Tuple
 
 import torch
 from compressed_tensors.utils.internal import InternalModule
@@ -57,10 +57,10 @@ def match_named_modules(
     unmatched_targets = set(targets)
     for name, module in model.named_modules():
         for target in targets:
-            if is_match(name, module, target, fused):
+            if is_match(name, module, target, fused=fused):
                 unmatched_targets -= {target}
 
-                if not any(is_match(name, module, ign, fused) for ign in ignore):
+                if not is_match(name, module, ignore, fused=fused):
                     yield name, module
 
     if warn_on_fail:
@@ -155,9 +155,7 @@ def match_modules_set(
     for name, module in model.named_modules():
         # match until we get a full set
         for target in targets:
-            if is_match(name, module, target) and not any(
-                is_match(name, module, ign) for ign in ignore
-            ):
+            if is_match(name, module, target, ignore):
                 if matches[target] is not None:
                     raise ValueError(f"Matched a {target} twice before completing set")
                 matches[target] = module
@@ -176,7 +174,8 @@ def match_modules_set(
 def is_match(
     name: str,
     module: torch.nn.Module,
-    target: str,
+    targets: str | Iterable[str],
+    ignore: str | Iterable[str] = tuple(),
     fused: Optional[FusedMappping] = None,
 ) -> bool:
     """
@@ -198,8 +197,17 @@ def is_match(
     :fused: optional mapping from suffixes of fused modules to the suffixes of their
         corresponding shards
     """
+    targets = [targets] if isinstance(targets, str) else targets
+    ignore = [ignore] if isinstance(ignore, str) else ignore
+
     return not isinstance(module, InternalModule) and (
-        _match_name(name, target, fused) or _match_class(module, target)
+        any(
+            _match_name(name, target, fused) or _match_class(module, target)
+            for target in targets
+        )
+        and not any(
+            _match_name(name, ign, fused) or _match_class(module, ign) for ign in ignore
+        )
     )
 
 

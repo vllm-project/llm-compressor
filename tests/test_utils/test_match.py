@@ -201,14 +201,20 @@ class TestIsMatch:
             "gate_up_proj": ["gate_proj", "up_proj"],
         }
 
-        assert is_match("dummy.qkv_proj", linear, "re:.*q_proj", mapping) == True
-        assert is_match("dummy.qkv_proj", linear, "re:.*k_proj", mapping) == True
-        assert is_match("dummy.qkv_proj", linear, "re:.*v_proj", mapping) == True
-        assert is_match("dummy.qkv_proj", linear, "Linear", mapping) == True
+        assert is_match("dummy.qkv_proj", linear, "re:.*q_proj", fused=mapping) == True
+        assert is_match("dummy.qkv_proj", linear, "re:.*k_proj", fused=mapping) == True
+        assert is_match("dummy.qkv_proj", linear, "re:.*v_proj", fused=mapping) == True
+        assert is_match("dummy.qkv_proj", linear, "Linear", fused=mapping) == True
 
-        assert is_match("dummy.gate_up_proj", linear, "re:.*gate_proj", mapping) == True
-        assert is_match("dummy.gate_up_proj", linear, "re:.*up_proj", mapping) == True
-        assert is_match("dummy.gate_up_proj", linear, "Linear", mapping) == True
+        assert (
+            is_match("dummy.gate_up_proj", linear, "re:.*gate_proj", fused=mapping)
+            == True
+        )
+        assert (
+            is_match("dummy.gate_up_proj", linear, "re:.*up_proj", fused=mapping)
+            == True
+        )
+        assert is_match("dummy.gate_up_proj", linear, "Linear", fused=mapping) == True
 
 
 class TestMatchNamedModules:
