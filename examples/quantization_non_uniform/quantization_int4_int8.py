@@ -76,7 +76,9 @@ quant_stage:
                         dynamic: false
                         symmetric: false
                         group_size: 128
-                    targets: ["re:.*self_attn.k_proj.*", "re:.*self_attn.o_proj.*", "re:.*self_attn.q_proj.*", "re:.*self_attn.v_proj.*", "re:.*gate_proj.*", "re:.*up_proj.*"]
+                    targets: ["re:.*self_attn.k_proj.*", "re:.*self_attn.o_proj.*",
+                        "re:.*self_attn.q_proj.*", "re:.*self_attn.v_proj.*",
+                        "re:.*gate_proj.*", "re:.*up_proj.*"]
 """
 # Apply quantization.
 oneshot(
