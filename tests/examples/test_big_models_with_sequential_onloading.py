@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from tests.examples.utils import copy_and_run_script, gen_cmd_fail_message
+from tests.examples.utils import (
+    copy_and_run_script,
+    gen_cmd_fail_message,
+    requires_gpu_count,
+)
 
 
 @pytest.fixture
@@ -11,6 +15,7 @@ def example_dir() -> str:
 
 
 @pytest.mark.example
+@requires_gpu_count(1)
 class TestCompressedInference:
     """
     Tests for examples in the "big_models_with_sequential_onloading" example folder.
