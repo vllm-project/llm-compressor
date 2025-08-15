@@ -237,9 +237,13 @@ class AWQModifier(Modifier, QuantizationMixin):
         # Unlike qmod, do not quantize as we calibrate
         # This choice does not seem to have a meaningful impact on accuracy
         state.model.apply(disable_quantization)
+        logger.info(
+            f"quantization aware calibration is currently not supported for AWQ, "
+            "disabling quantization during calibration"
+        )
 
         self._setup_activation_cache_hooks()
-
+    
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
@@ -590,12 +594,20 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             # NOTE: s^-1 * x is fused here, according to paper
             if self.duo_scaling:
-                scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
-                    min=1e-4
-                )
+                # Add more robust numerical stability
+                w_mean_safe = w_mean.pow(1 - ratio) + 1e-8
+                scales = (x_mean.pow(ratio) / w_mean_safe).clamp(min=1e-4, max=1e4)
             else:
-                scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
-            scales = scales / (scales.max() * scales.min()).sqrt()
+                scales = x_mean.pow(ratio).clamp(min=1e-4, max=1e4).view(-1)
+            
+            # More robust normalization
+            scale_max = scales.max()
+            scale_min = scales.min()
+            if scale_max > 0 and scale_min > 0:
+                scales = scales / (scale_max * scale_min).sqrt()
+            else:
+                scales = scales / (scales.abs().max() + 1e-8)
+            
             _scalesview = scales.view(1, -1).to(device)
 
             # avoid scaling values that overflow
@@ -631,7 +643,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 best_ratio = ratio
                 best_scales = scales.clone()
             parent_module.load_state_dict(org_sd)
-
+        
         if best_ratio == -1:
             logger.debug(history)
             raise Exception
