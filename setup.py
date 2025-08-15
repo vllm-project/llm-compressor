@@ -138,9 +138,9 @@ setup(
             else "tqdm>=4.66.3"
         ),
         (
-            "torch>=2.6.0,<=2.8.0"
+            "torch>=2.7.0,<=2.8.0"
             if BUILD_TYPE == "release"
-            else "torch>=2.6.0"
+            else "torch>=2.7.0"
         ),
         (
             "transformers>=4.53.0,<=4.55.2"
