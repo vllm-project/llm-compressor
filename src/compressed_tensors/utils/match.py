@@ -15,7 +15,7 @@
 import logging
 import re
 from collections.abc import Generator
-from typing import Iterable, List, Mapping, Optional, Tuple
+from typing import Iterable, List, Mapping, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.utils.internal import InternalModule
@@ -174,8 +174,8 @@ def match_modules_set(
 def is_match(
     name: str,
     module: torch.nn.Module,
-    targets: str | Iterable[str],
-    ignore: str | Iterable[str] = tuple(),
+    targets: Union[str, Iterable[str]],
+    ignore: Union[str, Iterable[str]] = tuple(),
     fused: Optional[FusedMappping] = None,
 ) -> bool:
     """
