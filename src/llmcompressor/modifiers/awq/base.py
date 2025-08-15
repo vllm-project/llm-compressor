@@ -600,7 +600,6 @@ class AWQModifier(Modifier, QuantizationMixin):
             else:
                 scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
             scales = scales / (scales.max() * scales.min()).sqrt()
-
             _scalesview = scales.view(1, -1).to(device)
 
             # avoid scaling values that overflow
