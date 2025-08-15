@@ -65,7 +65,7 @@ def infer_per_module_quantization_format(
     compression arguments. Also updates thhe quantization_scheme.format value
     based on the inferred format. Returns the unique list of formats in the model
     or None if empty list
-    
+
     For a summary of the formats, see `docs/guides/compression_formats.md`.
 
     :param model: model to check for quantization, if the model is not quantized no
@@ -93,8 +93,8 @@ def infer_per_module_quantization_format(
                 input_scheme, weight_scheme, sparsity_structure
             )
             submodule.quantization_scheme.format = compression_format.value
-            if compression_format not in unique_formats:
-                unique_formats.append(compression_format)
+            if compression_format.value not in unique_formats:
+                unique_formats.append(compression_format.value)
     if len(unique_formats) > 0:
         return unique_formats
     return None
