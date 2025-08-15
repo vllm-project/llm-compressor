@@ -1,12 +1,11 @@
 import os
 import weakref
 from functools import wraps
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
-    CompressionFormat,
     ModelCompressor,
     SparsityCompressionConfig,
     delete_offload_parameter,
@@ -228,15 +227,13 @@ def get_model_compressor(
                 SparsityConfigMetadata.infer_sparsity_structure(model)
             )
 
-    quantization_format: Optional[CompressionFormat] = (
-        infer_per_module_quantization_format(
-            model=model,
-            quantization_format=quantization_format,
-            save_compressed=save_compressed,
-            sparsity_structure=None
-            if sparsity_config is None
-            else sparsity_config.sparsity_structure,
-        )
+    quantization_format: Optional[List[str]] = infer_per_module_quantization_format(
+        model=model,
+        quantization_format=quantization_format,
+        save_compressed=save_compressed,
+        sparsity_structure=None
+        if sparsity_config is None
+        else sparsity_config.sparsity_structure,
     )
 
     return ModelCompressor.from_pretrained_model(

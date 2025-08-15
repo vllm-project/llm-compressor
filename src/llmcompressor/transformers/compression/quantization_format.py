@@ -8,11 +8,12 @@ from compressed_tensors.quantization import (
     QuantizationType,
 )
 from compressed_tensors.quantization.utils import is_module_quantized
+from loguru import logger
 
-__all__ = ["infer_per_module_quantization_format"]
+__all__ = ["infer_and_set_per_module_quantization_format"]
 
 
-def _get_quant_method(
+def _get_quant_compression_format(
     input_args: QuantizationArgs,
     weight_args: QuantizationArgs,
     sparsity_structure: Optional[str] = None,
@@ -54,7 +55,7 @@ def _get_quant_method(
         return CompressionFormat.naive_quantized
 
 
-def infer_per_module_quantization_format(
+def infer_and_set_per_module_quantization_format(
     model,
     quantization_format: Optional[str] = None,
     save_compressed: bool = False,
@@ -89,12 +90,25 @@ def infer_per_module_quantization_format(
             input_scheme = submodule.quantization_scheme.input_activations
             if weight_scheme is None:
                 continue  # no weight quant - nothing to compress
-            compression_format = _get_quant_method(
+            compression_format = _get_quant_compression_format(
                 input_scheme, weight_scheme, sparsity_structure
             )
-            submodule.quantization_scheme.format = compression_format.value
-            if compression_format.value not in unique_formats:
-                unique_formats.append(compression_format.value)
+
+            # If set, we check if it matches our inferred one
+            if submodule.quantization_scheme.format is not None:
+                # If it does not, warn the user
+                if submodule.quantization_scheme.format != compression_format.value:
+                    logger.warning(
+                        "The provided format for the module does not match the "
+                        "inferred format. Compression may fail "
+                    )
+            else:
+                # If not set, we set ours
+                submodule.quantization_scheme.format = compression_format.value
+
+            if submodule.quantization_scheme.format not in unique_formats:
+                unique_formats.append(submodule.quantization_scheme.format)
+
     if len(unique_formats) > 0:
         return unique_formats
     return None
