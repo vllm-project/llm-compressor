@@ -162,7 +162,7 @@ class IntermediatesCache:
                 for field in fields(value):
                     _size_helper(getattr(value, field.name))
 
-            elif isinstance(value, tuple):
+            elif isinstance(value, (tuple, list)):
                 for v in value:
                     _size_helper(v)
 
@@ -205,6 +205,9 @@ class IntermediatesCache:
 
             return value
 
+        if isinstance(value, list):
+            return list(self._onload_value(v) for v in value)
+
         if isinstance(value, tuple):
             return tuple(self._onload_value(v) for v in value)
 
@@ -230,6 +233,11 @@ class IntermediatesCache:
                 setattr(value, field.name, self._offload_value(v))
 
             return IntermediateValue(value=value, device=None)
+
+        if isinstance(value, list):
+            return IntermediateValue(
+                value=list(self._offload_value(v) for v in value), device=None
+            )
 
         if isinstance(value, tuple):
             return IntermediateValue(
