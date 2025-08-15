@@ -118,7 +118,7 @@ print("==========================================\n\n")
 
 # The model produced is compressed using two different compressors
 # with two different formats: nvfp4-pack-quantized and float-quantized.
-# The presence of multiple compressors is indicated by the 
+# The presence of multiple compressors is indicated by the
 # `mixed-precision` format in the model's config.json.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-Dynamic"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
