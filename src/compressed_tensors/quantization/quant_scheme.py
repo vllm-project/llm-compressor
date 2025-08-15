@@ -57,6 +57,7 @@ class QuantizationScheme(BaseModel):
         inputs = model.input_activations
         outputs = model.output_activations
         weights = model.weights
+        format = model.format
 
         if inputs is not None:
             if inputs.actorder is not None:
@@ -65,6 +66,11 @@ class QuantizationScheme(BaseModel):
         if outputs is not None:
             if outputs.actorder is not None:
                 raise ValueError("Cannot apply actorder to output activations")
+
+        if format == CompressionFormat.mixed_precision.value:
+            raise ValueError(
+                "mixed-precision cannot be set as a format for a QuantizationScheme"
+            )
 
         if (
             inputs
