@@ -231,6 +231,11 @@ class AWQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
+        # AWQ performs forward passes during _apply_smoothing
+        # before any scales or zero points or updated
+        # Quantization must be disabled, otherwise NaNs will
+        # appear in quantized forward method
+        state.model.apply(disable_quantization)
 
         self._setup_activation_cache_hooks()
 
@@ -628,7 +633,12 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         if best_ratio == -1:
             logger.debug(history)
-            raise Exception
+            raise Exception(
+                "No finite loss was found in grid search. This typically means "
+                "NaN values are appearing in the forward pass of the parent module. "
+                "Raise an issue with your script if you encounter this error. "
+                "https://github.com/vllm-project/llm-compressor/issues"
+            )
 
         assert (
             torch.isnan(best_scales).sum() == 0
