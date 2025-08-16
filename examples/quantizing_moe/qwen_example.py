@@ -2,8 +2,8 @@ import torch
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.transformers import oneshot
 from llmcompressor.utils import dispatch_for_generation
 
 # select a Mixture of Experts model for quantization
@@ -56,7 +56,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # list so they remain at full precision
 recipe = GPTQModifier(
     targets="Linear",
-    scheme="W4A16",
+    scheme="FP8",
     ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
 )
 
@@ -73,12 +73,13 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
-output = model.generate(input_ids, max_new_tokens=20)
+sample = tokenizer("Hello my name is", return_tensors="pt")
+sample = {key: value.to("cuda") for key, value in sample.items()}
+output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================")
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-quantized.w4a16"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-FP8"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

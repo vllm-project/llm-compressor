@@ -63,12 +63,18 @@ class Observer(InternalModule, RegistryMixin):
         self,
         observed: Tensor,
         reduce_dims: Optional[Tuple[int]] = None,
+        tensor_id: Optional[Any] = None,
+        global_scale: Optional[Tensor] = None,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
             returned scale and zero point will be shaped (1,) along the
             reduced dimensions
+        :param tensor_id: optional id for tracking separate statistics when different
+            ranges of observed tensors are passed, useful for sharding tensors by
+            group_size or block quantization
+        :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point derived from the observed tensor
         """
         raise NotImplementedError(f"{self.__class__} must implement calculate_qparams")
@@ -200,12 +206,55 @@ class Observer(InternalModule, RegistryMixin):
                 )
 
             elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
-                # TODO (#1475) add support for block-wise quantization
-                raise NotImplementedError(
-                    "Block-wise quantization is not yet supported, "
-                    "consider group-wise quantization instead. More info at "
-                    "https://github.com/vllm-project/llm-compressor/issues/1475"
+                # Block-wise quantization: one scale/zero_point per block of shape
+                # [block_rows, block_cols]
+                rows, cols = observed.shape[:2]
+                bs = self.quantization_args.block_structure
+                if not (
+                    isinstance(bs, (list, tuple))
+                    and len(bs) == 2
+                    and all(isinstance(x, int) for x in bs)
+                ):
+                    raise ValueError(
+                        f"Invalid block_structure '{bs}'. "
+                        f"Must be a list of two ints [rows, cols]."
+                    )
+                block_rows, block_cols = bs
+                num_br = int(ceil(rows / block_rows))
+                num_bc = int(ceil(cols / block_cols))
+
+                # allocate per-block scale and zero_point
+                self._scale = torch.empty(
+                    (num_br, num_bc), dtype=observed.dtype, device=observed.device
                 )
+
+                # Use same dtype logic as GROUP strategy for zero_point
+                if is_fp4(quantization_args=self.quantization_args):
+                    zp_dtype = FP8_E4M3_DATA.dtype
+                else:
+                    zp_dtype = self.quantization_args.pytorch_dtype()
+
+                self._zero_point = torch.empty(
+                    (num_br, num_bc), dtype=zp_dtype, device=observed.device
+                )
+
+                # compute qparams for each block
+                for i in range(num_br):
+                    r0 = i * block_rows
+                    r1 = min((i + 1) * block_rows, rows)
+                    for j in range(num_bc):
+                        c0 = j * block_cols
+                        c1 = min((j + 1) * block_cols, cols)
+                        # reduce across both dims to get one scale and zp per block
+                        # Use unique tensor_id for each block to maintain separate stats
+                        block_tensor_id = f"block_{i}_{j}"
+                        scale_bp, zp_bp = self.calculate_qparams(
+                            observed[r0:r1, c0:c1],
+                            reduce_dims=(0, 1),
+                            tensor_id=block_tensor_id,
+                        )
+                        self._scale[i, j] = scale_bp
+                        self._zero_point[i, j] = zp_bp
 
         return self._scale, self._zero_point
 

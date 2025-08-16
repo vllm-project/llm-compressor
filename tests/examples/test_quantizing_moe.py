@@ -44,14 +44,11 @@ class TestQuantizingMOE:
         "script_filename",
         [
             pytest.param(
-                "deepseek_moe_w4a16.py",
-                marks=[
-                    pytest.mark.multi_gpu,
-                    pytest.mark.skip(reason="exceptionally long run time"),
-                ],
+                "deepseek_r1_example.py",
+                marks=pytest.mark.skip(reason="exceptionally long run time"),
             ),
-            pytest.param("deepseek_moe_w8a8_fp8.py"),
-            pytest.param("deepseek_moe_w8a8_int8.py", marks=pytest.mark.multi_gpu),
+            pytest.param("mixtral_example.py"),
+            pytest.param("qwen_example.py"),
         ],
     )
     def test_deepseek_example_script(

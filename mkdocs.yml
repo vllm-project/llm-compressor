@@ -1,6 +1,6 @@
 site_name: LLM Compressor Docs
 site_description: Documentation for LLM Compressor, an easy-to-use library for compressing large language models for deployment with vLLM.
-site_url: https://docs.vllm.ai/projects/llm-compressor
+site_url: !ENV READTHEDOCS_CANONICAL_URL
 repo_url: https://github.com/vllm-project/llm-compressor
 edit_uri: https://github.com/vllm-project/llm-compressor/tree/main/docs
 

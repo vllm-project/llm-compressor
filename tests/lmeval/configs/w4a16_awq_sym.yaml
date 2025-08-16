@@ -1,0 +1,10 @@
+cadence: "weekly"
+model: meta-llama/Meta-Llama-3-8B-Instruct
+scheme: W4A16
+recipe: tests/e2e/vLLM/recipes/WNA16/recipe_w4a16_awq_sym.yaml
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: train_sft
+lmeval:
+  metrics:
+    exact_match,flexible-extract: 0.70
+    exact_match,strict-match: 0.70

@@ -1,16 +1,15 @@
 import os
 import weakref
 from functools import wraps
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
-    CompressionFormat,
     ModelCompressor,
     SparsityCompressionConfig,
     delete_offload_parameter,
-    is_module_offloaded,
+    has_offloaded_params,
     register_offload_parameter,
 )
 from loguru import logger
@@ -19,7 +18,7 @@ from transformers import PreTrainedModel
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.compression.quantization_format import (
-    infer_quantization_format,
+    infer_and_set_per_module_quantization_format,
 )
 from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
@@ -138,7 +137,7 @@ def untie_word_embeddings(model: PreTrainedModel):
             continue
 
         # this could be replaced by a `get_offloaded_parameter` util
-        if not is_module_offloaded(module):
+        if not has_offloaded_params(module):
             untied_data = module.weight.data.clone()
         else:
             untied_data = module._hf_hook.weights_map["weight"].clone()
@@ -228,13 +227,15 @@ def get_model_compressor(
                 SparsityConfigMetadata.infer_sparsity_structure(model)
             )
 
-    quantization_format: Optional[CompressionFormat] = infer_quantization_format(
-        model=model,
-        quantization_format=quantization_format,
-        save_compressed=save_compressed,
-        sparsity_structure=None
-        if sparsity_config is None
-        else sparsity_config.sparsity_structure,
+    quantization_format: Optional[List[str]] = (
+        infer_and_set_per_module_quantization_format(
+            model=model,
+            quantization_format=quantization_format,
+            save_compressed=save_compressed,
+            sparsity_structure=None
+            if sparsity_config is None
+            else sparsity_config.sparsity_structure,
+        )
     )
 
     return ModelCompressor.from_pretrained_model(

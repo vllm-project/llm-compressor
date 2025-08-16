@@ -18,6 +18,7 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
+* **DeepSeekV3-style Block Quantization Support**:  This allows for more efficient compression of large language models without needing a calibration dataset. Quantize a Qwen3 model to [W8A8](examples/quantization_w8a8_fp8/fp8_block_example.py). 
 * **Llama4 Quantization Support**: Quantize a Llama4 model to [W4A16](examples/multimodal_vision/llama4_example.py) or [NVFP4](examples/quantization_w4a4_fp4/llama4_example.py). The checkpoint produced can seamlessly run in vLLM.
 * **Large Model Support with Sequential Onloading**: As of llm-compressor>=0.6.0, you can now quantize very large language models on a single GPU. Models are broken into disjoint layers which are then onloaded to the GPU one layer at a time. For more information on sequential onloading, see [Big Modeling with Sequential Onloading](examples/big_models_with_sequential_onloading/README.md) as well as the [DeepSeek-R1 Example](examples/quantizing_moe/deepseek_r1_example.py).
 * **Preliminary FP4 Quantization Support:** Quantize weights and activations to FP4 and seamlessly run the compressed model in vLLM. Model weights and activations are quantized following the NVFP4 [configuration](https://github.com/neuralmagic/compressed-tensors/blob/f5dbfc336b9c9c361b9fe7ae085d5cb0673e56eb/src/compressed_tensors/quantization/quant_scheme.py#L104). See examples of [weight-only quantization](examples/quantization_w4a16_fp4/llama3_example.py) and [fp4 activation support](examples/quantization_w4a4_fp4/llama3_example.py). Support is currently preliminary and additional support will be added for MoEs.
@@ -38,7 +39,7 @@ Some of the exciting new features include:
 
 ### When to Use Which Optimization
 
-Please refer to [docs/schemes.md](./docs/schemes.md) for detailed information about available optimization schemes and their use cases.
+Please refer to [compression_schemes.md](./docs/guides/compression_schemes.md) for detailed information about available optimization schemes and their use cases.
 
 
 ## Installation
