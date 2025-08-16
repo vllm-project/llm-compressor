@@ -19,6 +19,7 @@ from llmcompressor.utils.fsdp.context import (
     fix_fsdp_module_name,
     summon_full_params_context,
 )
+from compressed_tensors import match_named_modules
 
 try:
     quant_err = None
@@ -46,42 +47,14 @@ except Exception as _err:
 
 
 __all__ = [
-    "match_targets",
-    "get_default_params",
-    "match_layers_params",
-    "get_layers",
-    "get_layer",
-    "set_layer",
-    "get_params",
-    "get_param",
-    "get_terminal_layers",
-    "get_prunable_layers",
-    "get_quantizable_layers",
     "qat_active",
-    "get_layers_params",
     "get_matching_layer",
     "get_no_split_params",
-    "get_layer_by_name",
 ]
 
 ALL_TARGET = "__ALL__"
 ALL_PRUNABLE_TARGET = "__ALL_PRUNABLE__"
 ALL_QUANTIZABLE_TARGET = "__ALL_QUANTIZABLE__"
-
-
-def match_targets(name: str, targets: Union[str, List[str]]) -> Tuple[bool, int]:
-    if isinstance(targets, str):
-        targets = [targets]
-
-    for index, target in enumerate(targets):
-        if target[:3] == "re:":
-            pattern = target[3:]
-            if re.match(pattern, name):
-                return True, index
-        elif name == target:
-            return True, index
-
-    return False, -1
 
 
 def match_class(layer: Module, targets: Union[str, List[str]]) -> Tuple[bool, int]:
@@ -93,186 +66,6 @@ def match_class(layer: Module, targets: Union[str, List[str]]) -> Tuple[bool, in
             return True, index
 
     return False, -1
-
-
-def get_default_params(layers: Dict[str, Module]) -> Dict[str, Parameter]:
-    params = {}
-    for name, layer in layers.items():
-        for param_name, param in layer.named_parameters():
-            if param_name == "weight":
-                params[name] = param
-                break
-    return params
-
-
-def match_layers_params(
-    targets: Union[str, List[str]], module: Module, params: bool = False
-) -> Dict[str, Union[Module, Parameter]]:
-    if targets == ALL_TARGET:
-        values = get_terminal_layers(module)
-
-        return values if not params else get_default_params(values)
-
-    if targets == ALL_PRUNABLE_TARGET:
-        values = get_prunable_layers(module)
-
-        return values if not params else get_default_params(values)
-
-    if targets == ALL_QUANTIZABLE_TARGET:
-        values = get_quantizable_layers(module)
-
-        return values if not params else get_default_params(values)
-
-    if isinstance(targets, str):
-        targets = [targets]
-
-    resolved = {}
-    targets_found = [False for _ in range(len(targets))]
-
-    for name, layer in module.named_modules():
-        # due to nesting, FSDP may not be the top layer
-        name = fix_fsdp_module_name(name)
-        match, match_index = match_targets(name, targets)
-        if match and not params:
-            targets_found[match_index] = True
-            resolved[name] = layer
-        else:
-            match, match_index = match_class(layer, targets)
-            if match:
-                targets_found[match_index] = True
-                resolved[name] = layer
-
-        for param_name, param in layer.named_parameters():
-            if "." in param_name:  # skip parameters of nested layers
-                continue
-
-            param_match, param_match_index = match_targets(
-                f"{name}.{param_name}", targets
-            )
-            if param_match:
-                targets_found[param_match_index] = True
-                resolved[f"{name}"] = layer if not params else param
-
-    missed = [target for found, target in zip(targets_found, targets) if not found]
-    if len(missed) > 0:
-        raise ValueError(f"Could not find targets {missed} in module {module}")
-
-    return resolved
-
-
-def get_layers(
-    targets: Union[str, List[str]],
-    module: Module,
-    exclude_internal_modules: bool = False,
-) -> Dict[str, Module]:
-    """
-    Get layers (also known as submodules) of module based on targets
-
-    :param targets: names or regexes to search for
-        Can be regex, e.g. "re:.*input_layernorm$" to find all layers
-        in module whose names end in string "input_layernorm"
-    :param module: Parent module in which to search for targets
-    :param exclude_internal_modules: If True, don't include internal
-        modules added by llm-compressor, e.g. Observers and Transforms.
-        Defaults to False to maintain backward compatibility
-
-    :return: dict of {layer name -> module} of all layers in module
-        that match targets
-    """
-    layer_dict = match_layers_params(targets, module)
-    if exclude_internal_modules:
-        layer_dict = {
-            name: layer
-            for name, layer in layer_dict.items()
-            if not isinstance(layer, InternalModule)
-        }
-
-    return layer_dict
-
-
-def get_layer(target: str, module: Module) -> Tuple[str, Module]:
-    layers = get_layers(target, module)
-    if len(layers) != 1:
-        raise ValueError(f"Expected 1 layer for target {target}, found {len(layers)}")
-    name, layer = next(iter(layers.items()))
-
-    return name, layer
-
-
-def set_layer(target: str, layer: Module, module: Module) -> Module:
-    with summon_full_params_context(module):
-        # importing here to avoid circular import
-        from llmcompressor.utils.fsdp.helpers import maybe_get_wrapped
-
-        parent_target = ".".join(target.split(".")[:-1])
-        if parent_target != "":
-            parent_layer = get_layer(parent_target, module)[1]
-        else:
-            parent_layer = maybe_get_wrapped(module)
-        old_layer = getattr(parent_layer, target.split(".")[-1])
-        setattr(parent_layer, target.split(".")[-1], layer)
-
-    return old_layer
-
-
-def get_params(targets: Union[str, List[str]], module: Module) -> Dict[str, Parameter]:
-    return match_layers_params(targets, module, params=True)
-
-
-def get_param(target: str, module: Module) -> Tuple[str, Parameter]:
-    params = get_params(target, module)
-    if len(params) != 1:
-        raise ValueError(
-            f"Expected 1 parameter for target {target}, found {len(params)}"
-        )
-    name, param = next(iter(params.items()))
-
-    return name, param
-
-
-def get_terminal_layers(module: Module) -> Dict[str, Module]:
-    terminal = {}
-
-    for name, layer in module.named_modules():
-        if len(list(layer.named_modules())) > 1:
-            continue
-
-        terminal[name] = layer
-
-    return terminal
-
-
-def get_prunable_layers(module: Module) -> Dict[str, Module]:
-    prunable = {}
-
-    for name, layer in module.named_modules():
-        if (
-            isinstance(layer, Linear)
-            or isinstance(layer, _ConvNd)
-            or (QATLinear and isinstance(layer, QATLinear))
-            or (QATConv2d and isinstance(layer, QATConv2d))
-            or (QATConv3d and isinstance(layer, QATConv3d))
-            or (TransformerConv1D and isinstance(layer, TransformerConv1D))
-        ):
-            prunable[name] = layer
-
-    return prunable
-
-
-def get_quantizable_layers(module: Module) -> Dict[str, Module]:
-    if QATLinear is None:
-        raise ImportError(
-            "PyTorch version is not setup for Quantization. "
-            "Please install a QAT compatible version of PyTorch"
-        )
-
-    quantizable = {}
-
-    for name, layer in module.named_modules():
-        if isinstance(layer, Linear) or isinstance(layer, _ConvNd):
-            quantizable[name] = layer
-
-    return quantizable
 
 
 def qat_active(module: Module) -> bool:
@@ -292,22 +85,6 @@ def qat_active(module: Module) -> bool:
     return False
 
 
-def get_layers_params(
-    targets: Union[str, List[str]], module: Module
-) -> Dict[str, ModelParameterizedLayer]:
-    params = get_params(targets, module)
-    layers = get_layers(targets, module)
-
-    parameterized_layers = {}
-    for name, param in params.items():
-        param_layer = ModelParameterizedLayer(
-            layer_name=name, layer=layers[name], param_name=name, param=param
-        )
-        parameterized_layers[name] = param_layer
-
-    return parameterized_layers
-
-
 def get_matching_layer(
     target: str, name_to_match: str, module: Module
 ) -> Optional[Tuple[str, Module]]:
@@ -323,7 +100,7 @@ def get_matching_layer(
     :return: Tuple containing the layer name and module that fits the target regex and
     best matches name_to_match, or None if no match can be found
     """
-    potential_matches = get_layers(target, module)
+    potential_matches = match_named_modules(target, module)
     largest_substring = 0
     match = None
     for name, module in potential_matches.items():

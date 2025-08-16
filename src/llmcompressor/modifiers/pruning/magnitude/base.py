@@ -16,8 +16,7 @@ from llmcompressor.modifiers.pruning.utils.pytorch import (
     PruningMaskCreatorArgs,
     PruningMaskFactory,
 )
-from llmcompressor.utils.pytorch.module import get_layers_params
-
+from compressed_tensors import match_named_parameters
 __all__ = ["MagnitudePruningModifier"]
 
 
@@ -73,7 +72,7 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             self.mask_structure
         )
 
-        self.parameterized_layers_ = get_layers_params(state.model)
+        self.parameterized_layers_ = match_named_parameters(state.model)
 
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
             self.add_mask(
