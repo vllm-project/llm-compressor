@@ -2,10 +2,9 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "Qwen/Qwen3-30B-A3B"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -15,8 +14,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
-# Select number of samples
-NUM_CALIBRATION_SAMPLES = 200
+NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -51,28 +49,45 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
-#   * quantize the weights to fp4 with per group 16 via ptq
-#   * calibrate a global_scale for activations, which will be used to
-#       quantize activations to fp4 on the fly
-recipe = QuantizationModifier(
-    targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"]
-)
-
+#   * quantize all weights excluding down_proj layers
+#       to int4 with per group 128 via ptq
+#   * quantize all down_proj layer weights to int8
+#       with per group 128 via ptq
+recipe = """
+quant_stage:
+    quant_modifiers:
+        GPTQModifier:
+            ignore: ["lm_head"]
+            config_groups:
+                group_0:
+                    weights:
+                        num_bits: 8
+                        type: int
+                        strategy: group
+                        dynamic: false
+                        symmetric: true
+                        group_size: 128
+                    targets: ["re:.*down_proj.*"]
+                group_1:
+                    weights:
+                        num_bits: 4
+                        type: int
+                        strategy: group
+                        dynamic: false
+                        symmetric: false
+                        group_size: 128
+                    targets: ["re:.*self_attn.k_proj.*", "re:.*self_attn.o_proj.*",
+                        "re:.*self_attn.q_proj.*", "re:.*self_attn.v_proj.*",
+                        "re:.*gate_proj.*", "re:.*up_proj.*"]
+"""
 # Apply quantization.
-# We see `calibrate_moe_context` to True to update all `Qwen3MoeSparseMoeBlock`
-# during calibration.
-# Feel free to update the definition under
-# llm-compressor/src/llmcompressor/modeling/qwen3_moe.py` to play around with
-# this behaviour and evaluate its impact on quantization performance
 oneshot(
     model=model,
     dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    calibrate_moe_context=True,
 )
-
 
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
@@ -84,6 +99,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-W4A16-W8A16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

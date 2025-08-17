@@ -2,10 +2,7 @@ import inspect
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    disable_quantization,
-    find_name_or_class_matches,
-)
+from compressed_tensors.quantization import find_name_or_class_matches
 from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
@@ -234,9 +231,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
-        # Unlike qmod, do not quantize as we calibrate
-        # This choice does not seem to have a meaningful impact on accuracy
-        state.model.apply(disable_quantization)
 
         self._setup_activation_cache_hooks()
 
