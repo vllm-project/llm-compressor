@@ -108,7 +108,7 @@ class TestQuantizationMatches(unittest.TestCase):
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
             assert torch.equal(o_scale, n_scale.to(o_scale.device))
             assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp.to(o_scale.device))
+            assert torch.equal(o_zp, n_zp.to(o_zp.device))
 
             # we don't expect an exact match here because o_weight still has the
             # original weight and n_weight has been fake_quantized
