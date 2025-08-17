@@ -154,6 +154,7 @@ class TestQuantizationMatches(unittest.TestCase):
         for idx, sample in enumerate(dataloader):
             if idx >= self.num_eval:
                 break
+            # This still fails - inputs on different device
             output = self.model(
                 input_ids=sample["input_ids"].to("cuda"),
                 labels=sample["labels"].to("cuda"),
