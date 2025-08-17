@@ -30,7 +30,7 @@ class TestQuantizationMatches(unittest.TestCase):
     output = "tiny_llama_out"
     max_seq_length = 512
     weight_dtype = torch.float16
-    num_eval = 1
+    num_eval = 64
 
     @classmethod
     def setUpClass(cls):
@@ -56,7 +56,7 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @staticmethod
     def _run_oneshot(model, recipe, dataset, output_dir):
-        num_calibration_samples = 1
+        num_calibration_samples = 64
         max_seq_length = 512
         pad_to_max_length = False
 
