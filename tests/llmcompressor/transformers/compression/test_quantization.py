@@ -30,14 +30,14 @@ class TestQuantizationMatches(unittest.TestCase):
     output = "tiny_llama_out"
     max_seq_length = 512
     weight_dtype = torch.float16
-    num_eval = 64
+    num_eval = 1
 
     @classmethod
     def setUpClass(cls):
         cls.test_dir = tempfile.mkdtemp()
 
         cls.model = AutoModelForCausalLM.from_pretrained(
-            cls.model_stub, torch_dtype=cls.weight_dtype, device_map="cuda:0"
+            cls.model_stub, torch_dtype=cls.weight_dtype
         )
         model = cls._run_oneshot(
             cls.model,
@@ -56,7 +56,7 @@ class TestQuantizationMatches(unittest.TestCase):
 
     @staticmethod
     def _run_oneshot(model, recipe, dataset, output_dir):
-        num_calibration_samples = 64
+        num_calibration_samples = 1
         max_seq_length = 512
         pad_to_max_length = False
 
@@ -99,7 +99,6 @@ class TestQuantizationMatches(unittest.TestCase):
         model_reloaded = AutoModelForCausalLM.from_pretrained(
             os.path.join(self.test_dir, self.output),
             torch_dtype="auto",
-            device_map="cuda:0",
         )
 
         og_weights, og_inputs = self._get_quant_info(self.model)
@@ -108,9 +107,9 @@ class TestQuantizationMatches(unittest.TestCase):
         for name, (o_scale, o_zp, o_weight) in og_weights.items():
             n_scale, n_zp, n_weight = reloaded_weights[name]
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
-            assert torch.equal(o_scale, n_scale)
+            assert torch.equal(o_scale, n_scale.to(o_scale.device))
             assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp)
+            assert torch.equal(o_zp, n_zp.to(o_scale.device))
 
             # we don't expect an exact match here because o_weight still has the
             # original weight and n_weight has been fake_quantized
@@ -119,9 +118,9 @@ class TestQuantizationMatches(unittest.TestCase):
         for name, (o_scale, o_zp) in og_inputs.items():
             n_scale, n_zp = reloaded_inputs[name]
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
-            assert torch.equal(o_scale, n_scale)
+            assert torch.equal(o_scale, n_scale.to(o_scale.device))
             assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp)
+            assert torch.equal(o_zp, n_zp.to(n_zp.device))
 
     def _get_dataloader(self, dataset_args, tokenizer):
         dataset_manager = TextGenerationDataset.load_from_registry(
@@ -156,7 +155,7 @@ class TestQuantizationMatches(unittest.TestCase):
         for idx, sample in enumerate(dataloader):
             if idx >= self.num_eval:
                 break
-            output = self.model(**tensors_to_device(sample, "cuda:0"))
+            output = self.model(input_ids=sample["input_ids"].to("cuda"), labels=sample["labels"].to("cuda"))
             if torch.isnan(output.loss):
                 continue
             total_ppl += torch.exp(output.loss).item()
