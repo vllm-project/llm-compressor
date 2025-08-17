@@ -15,11 +15,19 @@ replacements = {
 }
 
 
-def replace_modules_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
+def replace_modules_for_calibration(
+    model: PreTrainedModel,
+    calibrate_all_experts: bool = False,
+) -> PreTrainedModel:
+
     for name, module in model.named_modules():
         cls_name = module.__class__.__name__
         if cls_name in replacements:
-            new_module = replacements[cls_name](config=model.config, module=module)
+            new_module = replacements[cls_name](
+                config=model.config,
+                module=module,
+                calibrate_all_experts=calibrate_all_experts,
+            )
             replace_module(model, name, new_module)
 
     return model
@@ -28,7 +36,7 @@ def replace_modules_for_calibration(model: PreTrainedModel) -> PreTrainedModel:
 # ------------------- module replacements; during calibration --------------------
 
 
-def update_qwen3_moe(model, stack):
+def update_qwen3_moe(model, stack, calibrate_all_experts):
     for module in model.modules():
         cls_name = module.__class__.__name__
         if cls_name == "Qwen3MoeDecoderLayer":
@@ -37,7 +45,11 @@ def update_qwen3_moe(model, stack):
                 patch_attr(
                     module,
                     "mlp",
-                    replace_Qwen3MoE(config=model.config, module=module.mlp),
+                    replace_Qwen3MoE(
+                        config=model.config,
+                        module=module.mlp,
+                        calibrate_all_experts=calibrate_all_experts,
+                    ),
                 )
             )
 
@@ -47,9 +59,13 @@ moe_context = {
 }
 
 
-def moe_calibration_context(model: PreTrainedModel, stack):
+def moe_calibration_context(
+    model: PreTrainedModel,
+    stack,
+    calibrate_all_experts: bool = False,
+):
     # Temporarily updates the MoE modules within the context
     # Once the context exists, parameter updates persist
     cls_name = model.__class__.__name__
     if cls_name in moe_context:
-        moe_context.get(cls_name)(model, stack)
+        moe_context.get(cls_name)(model, stack, calibrate_all_experts)
