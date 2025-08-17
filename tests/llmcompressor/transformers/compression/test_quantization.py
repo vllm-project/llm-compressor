@@ -120,7 +120,7 @@ class TestQuantizationMatches(unittest.TestCase):
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
             assert torch.equal(o_scale, n_scale.to(o_scale.device))
             assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp.to(n_zp.device))
+            assert torch.equal(o_zp, n_zp.to(o_zp.device))
 
     def _get_dataloader(self, dataset_args, tokenizer):
         dataset_manager = TextGenerationDataset.load_from_registry(
