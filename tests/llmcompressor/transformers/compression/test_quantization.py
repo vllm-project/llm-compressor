@@ -12,7 +12,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollato
 
 from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
-from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from tests.testing_utils import parse_params, requires_gpu
 
@@ -155,7 +154,10 @@ class TestQuantizationMatches(unittest.TestCase):
         for idx, sample in enumerate(dataloader):
             if idx >= self.num_eval:
                 break
-            output = self.model(input_ids=sample["input_ids"].to("cuda"), labels=sample["labels"].to("cuda"))
+            output = self.model(
+                input_ids=sample["input_ids"].to("cuda"),
+                labels=sample["labels"].to("cuda"),
+            )
             if torch.isnan(output.loss):
                 continue
             total_ppl += torch.exp(output.loss).item()
