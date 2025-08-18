@@ -2,9 +2,12 @@ import inspect
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import find_name_or_class_matches
+from compressed_tensors.quantization import (
+    disable_quantization,
+    find_name_or_class_matches,
+)
 from compressed_tensors.utils import (
-    align_module_device,
+    align_modules,
     get_execution_device,
     update_offload_parameter,
 )
@@ -455,24 +458,26 @@ class AWQModifier(Modifier, QuantizationMixin):
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
 
-            # [STEP 1]: Compute per-channel mean of normalised weights
-            # All layer weights are concatted together
-            weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
-            org_shape = weight.shape
-            # The weights are reshaped to be organised by quantization group
-            weight = weight.view(-1, self._group_size)
-            # Calculates the relative magnitude of the weights within
-            # each of the quantization groups, and rescales each group
-            # individually so that each group has weights on a 0-1 scale.
-            weight.abs_()
-            weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-            # Resizes the rescaled weight matrix back up to its original dimensions
-            weight = weight.view(org_shape)
-            # Gets the average rescaled magnitude for each output channel
-            w_mean = weight.mean(0)
-            del weight
+            with align_modules(
+                [parent_module, smooth_layer, *balance_layers]
+            ), calibration_forward_context(model), HooksMixin.disable_hooks():
+                # [STEP 1]: Compute per-channel mean of normalised weights
+                # All layer weights are concatted together
+                weight = torch.cat([bl.weight for bl in balance_layers], dim=0)
+                org_shape = weight.shape
+                # The weights are reshaped to be organised by quantization group
+                weight = weight.view(-1, self._group_size)
+                # Calculates the relative magnitude of the weights within
+                # each of the quantization groups, and rescales each group
+                # individually so that each group has weights on a 0-1 scale.
+                weight.abs_()
+                weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+                # Resizes the rescaled weight matrix back up to its original dimensions
+                weight = weight.view(org_shape)
+                # Gets the average rescaled magnitude for each output channel
+                w_mean = weight.mean(0)
+                del weight
 
-            with calibration_forward_context(model), HooksMixin.disable_hooks():
                 # [STEP 3]: Compute output of module
                 # could cache from hook, rather than recomputing here
                 fp16_outputs = self._run_samples(parent_module)
@@ -492,9 +497,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                     x_mean, w_mean, parent_module, balance_layers, fp16_outputs
                 )
 
-            @torch.no_grad()
-            def smooth(module):
-                with align_module_device(module):
+                @torch.no_grad()
+                def _smooth(module):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
                         update_offload_parameter(
@@ -526,33 +530,31 @@ class AWQModifier(Modifier, QuantizationMixin):
                                 module.bias.div_(scales),
                             )
 
-            parent = get_fsdp_parent(mapping.smooth_name, model)
-            if parent is not None:
-                parent.apply(smooth)
-            else:
-                # if we're not running with FSDP we can apply smoothing directly
-                for layer in balance_layers:
-                    smooth(layer)
-                smooth(smooth_layer)
+                parent = get_fsdp_parent(mapping.smooth_name, model)
+                if parent is not None:
+                    parent.apply(_smooth)
+                else:
+                    # if we're not running with FSDP we can apply smoothing directly
+                    for layer in balance_layers:
+                        _smooth(layer)
+                    _smooth(smooth_layer)
 
-            # remove caches needed to smooth this mapping
-            del self._smooth_activation_means[mapping.smooth_name]
+                # remove caches needed to smooth this mapping
+                del self._smooth_activation_means[mapping.smooth_name]
 
         for v in self._parent_args_cache.values():
             v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
     def _run_samples(self, module: Module) -> List[torch.Tensor]:
-        with align_module_device(module):
-            outputs = [
-                module(**batch_kwargs)
-                for batch_kwargs in self._parent_args_cache[module]
-            ]
-            return [
-                # If Tuple, assume that first argument is the input
-                output[0] if isinstance(output, Tuple) else output
-                for output in outputs
-            ]
+        outputs = [
+            module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
+        ]
+        return [
+            # If Tuple, assume that first argument is the input
+            output[0] if isinstance(output, Tuple) else output
+            for output in outputs
+        ]
 
     def _compute_best_scale(
         self,
@@ -576,8 +578,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
-
-        org_sd = {k: v.cpu() for k, v in parent_module.state_dict().items()}
 
         device = get_execution_device(parent_module)
         x_mean = x_mean.view(-1).to(device)
@@ -603,23 +603,21 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             # Q(W * s)
             for linear in linears2scale:
-                with align_module_device(linear):
-                    linear.weight.mul_(_scalesview)
-                    update_offload_parameter(
-                        linear,
-                        "weight",
-                        _pseudo_quantize_tensor(
-                            w=linear.weight.data,
-                            symmetric=self._symmetric,
-                            bit_width=self._num_bits,
-                            group_size=self._group_size,
-                        )[0]
-                        / _scalesview,
-                    )
+                linear.weight.mul_(_scalesview)
+                update_offload_parameter(
+                    linear,
+                    "weight",
+                    _pseudo_quantize_tensor(
+                        w=linear.weight.data,
+                        symmetric=self._symmetric,
+                        bit_width=self._num_bits,
+                        group_size=self._group_size,
+                    )[0]
+                    / _scalesview,
+                )
 
             # W * X
-            with HooksMixin.disable_hooks():
-                int_w_outputs = self._run_samples(parent_module)
+            int_w_outputs = self._run_samples(parent_module)
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_outputs, int_w_outputs, device)
@@ -629,14 +627,13 @@ class AWQModifier(Modifier, QuantizationMixin):
                 best_error = loss
                 best_ratio = ratio
                 best_scales = scales.clone()
-            parent_module.load_state_dict(org_sd)
 
         if best_ratio == -1:
             logger.debug(history)
             raise Exception(
-                "No finite loss was found in grid search. This typically means "
-                "NaN values are appearing in the forward pass of the parent module. "
-                "Raise an issue with your script if you encounter this error. "
+                "No finite loss was found in best scalesgrid search. This typically "
+                "means NaN values are appearing in the forward pass of the parent "
+                "module. If you encounter this error, raise an issue at "
                 "https://github.com/vllm-project/llm-compressor/issues"
             )
 
