@@ -155,7 +155,7 @@ setup(
         (
             "accelerate>=1.6.0,<=1.10.0"
             if BUILD_TYPE == "release"
-            else "datasets>=1.6.0"
+            else "accelerate>=1.6.0"
         ),
         (
             "pynvml>=11.5.3,<=12.0.0"
