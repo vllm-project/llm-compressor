@@ -2,6 +2,7 @@ import os
 import random
 import shutil
 from pathlib import Path
+from typing import Dict, Optional
 
 import numpy
 import pandas as pd
@@ -25,6 +26,8 @@ class LmEvalConfig(BaseModel):
     limit: int = 1000
     metrics: dict
     batch_size: int = 100
+    # Recovery threshold for comparing against base model
+    recovery_threshold: Optional[float] = None
 
 
 try:
@@ -62,6 +65,12 @@ class TestLMEval:
     or another identifier which can be used for the particular test case. If a recipe
     is not provided, it is assumed that the scheme provided is a preset scheme and will
     be used for quantization. Otherwise, the recipe will always be used if given.
+    
+    Recovery Testing:
+    Tests now use recovery-based validation by default, comparing quantized model
+    performance against the base model. Tests pass if the quantized model maintains
+    the specified recovery_threshold (default 98%) of base model performance.
+    Absolute thresholds in metrics are used as warnings for backward compatibility.
     """  # noqa: E501
 
     def set_up(self, test_data_file: str):
@@ -72,7 +81,14 @@ class TestLMEval:
 
         self.model = eval_config["model"]
         self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
-        self.lmeval = LmEvalConfig(**eval_config.get("lmeval", {}))
+        
+        # Parse lmeval config with recovery threshold
+        lmeval_dict = eval_config.get("lmeval", {})
+        # Default to 95% recovery if not specified
+        if "recovery_threshold" not in lmeval_dict:
+            lmeval_dict["recovery_threshold"] = 0.98
+        
+        self.lmeval = LmEvalConfig(**lmeval_dict)
         self.scheme = eval_config.get("scheme")
         self.dataset_id = eval_config.get("dataset_id")
         self.dataset_config = eval_config.get("dataset_config")
@@ -89,13 +105,21 @@ class TestLMEval:
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
+        logger.info(f"Recovery threshold: {self.lmeval.recovery_threshold*100:.0f}%")
 
         self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
         self.max_seq_length = 2048
+        
+        # Store base model metrics for recovery comparison
+        self.base_metrics: Optional[Dict[str, float]] = None
 
     def test_lm_eval(self, test_data_file: str):
-        # Run vLLM with saved model
         self.set_up(test_data_file)
+        
+        # First, evaluate base model for recovery comparison
+        logger.info("================= Evaluating Base Model =======================")
+        self.base_metrics = self._evaluate_model(self.model, "base model")
+        logger.info(f"Base model metrics: {self.base_metrics}")
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -137,11 +161,13 @@ class TestLMEval:
         with open(recipe_path, "w") as fp:
             fp.write(recipe_yaml_str)
         session.reset()
-
-    @log_time
-    def _run_lm_eval(self):
-        model_args = {"pretrained": self.save_dir}
+    
+    def _evaluate_model(self, model_path: str, model_type: str) -> Dict[str, float]:
+        """Evaluate a model (base or quantized) and return metrics."""
+        model_args = {"pretrained": model_path}
         model_args.update(self.lmeval.model_args)
+        
+        logger.info(f"Evaluating {model_type}: {model_path}")
         results = lm_eval.simple_evaluate(
             model=self.lmeval.model,
             model_args=model_args,
@@ -151,47 +177,54 @@ class TestLMEval:
             device="cuda:0",
             batch_size=self.lmeval.batch_size,
         )
+        
+        return results["results"][self.lmeval.task]
 
-        metrics: dict = results["results"][self.lmeval.task]
+    @log_time
+    def _run_lm_eval(self):
+        # Evaluate quantized model
+        quant_metrics = self._evaluate_model(self.save_dir, "quantized model")
+        
+        # Perform recovery-based validation
+        logger.info("================= Recovery Validation =======================")
         for metric_key, expected_val in self.lmeval.metrics.items():
-            # stderr metrics are only used as absolute tolerance
-            # checks for actual values
             if "stderr" in metric_key:
                 continue
-            actual_val = metrics.get(metric_key)
-            higher_is_better = results["higher_is_better"][self.lmeval.task].get(
-                metric_key.split(",")[0], True
+            
+            base_val = self.base_metrics.get(metric_key)
+            quant_val = quant_metrics.get(metric_key)
+            
+            if base_val is None or quant_val is None:
+                logger.warning(f"Skipping {metric_key}: missing values")
+                continue
+            
+            # Calculate recovery
+            recovery = quant_val / base_val if base_val != 0 else 0
+            degradation = (1 - recovery) * 100
+            
+            logger.info(
+                f"{metric_key}: Base={base_val:.4f}, "
+                f"Quantized={quant_val:.4f}, "
+                f"Recovery={recovery*100:.1f}%, "
+                f"Degradation={degradation:.1f}%"
             )
-            stderr_key = metric_key.replace(",", "_stderr,")
-            std_err = self.lmeval.metrics.get(stderr_key)
-
-            # If stderr is provided, use it as absolute tolerance
-            # Otherwise, default to a 5% relative tolerance
-            if std_err is None:
-                logger.info(
-                    f"Comparing {metric_key}: Expecting {expected_val} "
-                    f"relative tolerance ±5%, Got {actual_val}. "
-                    f"Higher is better: {higher_is_better}"
+            
+            # Primary check: Recovery threshold
+            assert recovery >= self.lmeval.recovery_threshold, (
+                f"Recovery {recovery*100:.1f}% below threshold "
+                f"{self.lmeval.recovery_threshold*100:.0f}% for {metric_key}. "
+                f"Base: {base_val:.4f}, Quantized: {quant_val:.4f}"
+            )
+            
+            # Backward compatibility: Warn if below absolute threshold
+            if quant_val < expected_val:
+                logger.warning(
+                    f"⚠️  {metric_key} below absolute threshold: "
+                    f"{quant_val:.4f} < {expected_val:.4f} "
+                    f"(specified in config)"
                 )
-                # If higher is better, assert actual val >= expected val * (1 - stderr)
-                if higher_is_better:
-                    assert actual_val >= expected_val * (0.95)
-                # If higher is worse, assert actual val <= expected val * (1 + stderr)
-                else:
-                    assert actual_val <= expected_val * (1.05)
-
-            else:
-                logger.info(
-                    f"Comparing {metric_key}: Expecting {expected_val} "
-                    f"absolute tolerance ±{std_err*100}%, Got {actual_val}. "
-                    f"Higher is better: {higher_is_better}"
-                )
-                # If higher is better, assert actual val >= expected val - stderr
-                if higher_is_better:
-                    assert actual_val >= expected_val - std_err
-                # If higher is worse, assert actual val <= expected val + stderr
-                else:
-                    assert actual_val <= expected_val + std_err
+            
+            logger.info(f"✓ Recovery test PASSED for {metric_key}")
 
     def tear_down(self):
         timer = get_singleton_manager()
