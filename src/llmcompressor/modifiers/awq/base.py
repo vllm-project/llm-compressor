@@ -235,7 +235,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
         # AWQ performs forward passes during _apply_smoothing
-        # before any scales or zero points or updated
+        # before any scales or zero points are updated
         # Quantization must be disabled, otherwise NaNs will
         # appear in quantized forward method
         state.model.apply(disable_quantization)
