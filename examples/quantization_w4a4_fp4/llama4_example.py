@@ -8,6 +8,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 # Select model and load it.
 model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
+model_id = "/proving-grounds/engine/hub_cache/models--meta-llama--Llama-4-Scout-17B-16E-Instruct/snapshots/92f3b1597a195b523d8d9e5700e57e4fbb8f20d3"
 model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = Llama4Processor.from_pretrained(model_id)
 # We update `Llama4TextMoe` modules with custom `SequentialLlama4TextMoe`.
@@ -88,6 +89,6 @@ oneshot(
 
 
 # Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4"
+SAVE_DIR = "llama4_model" + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
