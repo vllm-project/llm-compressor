@@ -12,7 +12,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollato
 
 from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
+from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.utils.dev import dispatch_for_generation
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/compression/configs"
@@ -102,6 +104,8 @@ class TestQuantizationMatches(unittest.TestCase):
 
         og_weights, og_inputs = self._get_quant_info(self.model)
         reloaded_weights, reloaded_inputs = self._get_quant_info(model_reloaded)
+        # TODO: can remove `to` calls after
+        # https://github.com/neuralmagic/compressed-tensors/pull/427
 
         for name, (o_scale, o_zp, o_weight) in og_weights.items():
             n_scale, n_zp, n_weight = reloaded_weights[name]
@@ -148,17 +152,14 @@ class TestQuantizationMatches(unittest.TestCase):
             max_seq_length=self.max_seq_length,
         )
         dataloader = self._get_dataloader(dataset_args, tokenizer)
+        dispatch_for_generation(self.model)
 
         total_ppl = 0.0
         total_non_nan = 0
         for idx, sample in enumerate(dataloader):
             if idx >= self.num_eval:
                 break
-            # This still fails - inputs on different device
-            output = self.model(
-                input_ids=sample["input_ids"].to("cuda"),
-                labels=sample["labels"].to("cuda"),
-            )
+            output = self.model(**tensors_to_device(sample, "cuda:0"))
             if torch.isnan(output.loss):
                 continue
             total_ppl += torch.exp(output.loss).item()
