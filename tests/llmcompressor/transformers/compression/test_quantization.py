@@ -14,6 +14,7 @@ from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
 from llmcompressor.pytorch.utils import tensors_to_device
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
+from llmcompressor.utils.dev import dispatch_for_generation
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/compression/configs"
@@ -37,7 +38,7 @@ class TestQuantizationMatches(unittest.TestCase):
         cls.test_dir = tempfile.mkdtemp()
 
         cls.model = AutoModelForCausalLM.from_pretrained(
-            cls.model_stub, torch_dtype=cls.weight_dtype, device_map="cuda:0"
+            cls.model_stub, torch_dtype=cls.weight_dtype
         )
         model = cls._run_oneshot(
             cls.model,
@@ -99,18 +100,19 @@ class TestQuantizationMatches(unittest.TestCase):
         model_reloaded = AutoModelForCausalLM.from_pretrained(
             os.path.join(self.test_dir, self.output),
             torch_dtype="auto",
-            device_map="cuda:0",
         )
 
         og_weights, og_inputs = self._get_quant_info(self.model)
         reloaded_weights, reloaded_inputs = self._get_quant_info(model_reloaded)
+        # TODO: can remove `to` calls after
+        # https://github.com/neuralmagic/compressed-tensors/pull/427
 
         for name, (o_scale, o_zp, o_weight) in og_weights.items():
             n_scale, n_zp, n_weight = reloaded_weights[name]
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
-            assert torch.equal(o_scale, n_scale)
+            assert torch.equal(o_scale, n_scale.to(o_scale.device))
             assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp)
+            assert torch.equal(o_zp, n_zp.to(o_zp.device))
 
             # we don't expect an exact match here because o_weight still has the
             # original weight and n_weight has been fake_quantized
@@ -119,9 +121,9 @@ class TestQuantizationMatches(unittest.TestCase):
         for name, (o_scale, o_zp) in og_inputs.items():
             n_scale, n_zp = reloaded_inputs[name]
             assert o_scale.dtype == n_scale.dtype == self.weight_dtype
-            assert torch.equal(o_scale, n_scale)
+            assert torch.equal(o_scale, n_scale.to(o_scale.device))
             assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp)
+            assert torch.equal(o_zp, n_zp.to(o_zp.device))
 
     def _get_dataloader(self, dataset_args, tokenizer):
         dataset_manager = TextGenerationDataset.load_from_registry(
@@ -150,6 +152,7 @@ class TestQuantizationMatches(unittest.TestCase):
             max_seq_length=self.max_seq_length,
         )
         dataloader = self._get_dataloader(dataset_args, tokenizer)
+        dispatch_for_generation(self.model)
 
         total_ppl = 0.0
         total_non_nan = 0
