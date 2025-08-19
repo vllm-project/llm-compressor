@@ -2,13 +2,12 @@ import inspect
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    disable_quantization,
-    find_name_or_class_matches,
-)
+from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
+    align_module_device,
     align_modules,
     get_execution_device,
+    match_named_modules,
     update_offload_parameter,
 )
 from loguru import logger
@@ -29,7 +28,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.fsdp.helpers import get_fsdp_parent
 from llmcompressor.utils.helpers import calibration_forward_context
-from llmcompressor.utils.pytorch.module import get_layer_by_name, get_layers
+from llmcompressor.utils.pytorch.module import get_layer_by_name
 
 __all__ = ["AWQModifier"]
 
@@ -306,23 +305,17 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         resolved_mappings: list[ResolvedMapping] = []
         for mapping_idx, mapping in enumerate(self.mappings):
-            smooth_layers = get_layers(
-                mapping.smooth_layer, model, exclude_internal_modules=True
-            )
-            smooth_names = [
-                smooth_name
-                for smooth_name in smooth_layers
-                if not find_name_or_class_matches(smooth_name, model, self.ignore)
-            ]
-
             num_skipped_mappings = 0
-            pbar = tqdm(smooth_names)
-            for smooth_name in pbar:
+
+            for smooth_name, smooth_layer in (
+                pbar := tqdm(
+                    match_named_modules(model, [mapping.smooth_layer], self.ignore)
+                )
+            ):
                 pbar.set_description(
                     f"Resolving mapping {mapping_idx+1}/{len(self.mappings)}"
                     f" ({num_skipped_mappings} skipped)"
                 )
-                smooth_layer = smooth_layers[smooth_name]
 
                 smooth_parent_name = ".".join(smooth_name.split(".")[:-1])
                 smooth_parent = get_layer_by_name(smooth_parent_name, model)
@@ -330,11 +323,9 @@ class AWQModifier(Modifier, QuantizationMixin):
                 balance_layers, balance_names = [], []
                 for balance_regex in mapping.balance_layers:
                     # find the submodules that match the activation layer
-                    for balance_suffix, balance_layer in get_layers(
-                        balance_regex,
-                        smooth_parent,
-                        exclude_internal_modules=True,
-                    ).items():
+                    for balance_suffix, balance_layer in match_named_modules(
+                        smooth_parent, [balance_regex], self.ignore
+                    ):
                         balance_name = f"{smooth_parent_name}.{balance_suffix}"
 
                         # exclude v_proj->o_proj mappings whose shapes are incompatible
@@ -579,6 +570,12 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_scales = None
         best_error = float("inf")
 
+        org_sd = {
+            k: v.cpu()
+            for k, v in parent_module.state_dict().items()
+            if v.device != torch.device("meta")
+        }
+
         device = get_execution_device(parent_module)
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
@@ -627,6 +624,8 @@ class AWQModifier(Modifier, QuantizationMixin):
                 best_error = loss
                 best_ratio = ratio
                 best_scales = scales.clone()
+
+            parent_module.load_state_dict(org_sd, strict=False)
 
         if best_ratio == -1:
             logger.debug(history)
