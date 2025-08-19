@@ -4,7 +4,6 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
-    align_module_device,
     align_modules,
     get_execution_device,
     match_named_modules,
