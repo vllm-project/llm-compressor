@@ -579,6 +579,7 @@ def remove_dispatch(module: torch.nn.Module) -> torch.nn.Module:
     remove_hook_from_module(module, recurse=True)
     if hasattr(module, "hf_device_map"):
         delattr(module, "hf_device_map")
+    module.to("cpu")
 
     return module
 
