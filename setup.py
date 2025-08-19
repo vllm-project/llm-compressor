@@ -128,7 +128,7 @@ setup(
             else "numpy>=2.0.0"
         ),
         (
-            "requests>=2.32.2,<=2.32.4"
+            "requests>=2.32.2,<=2.32.5"
             if BUILD_TYPE == "release"
             else "requests>=2.32.2"
         ),
