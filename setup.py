@@ -187,7 +187,7 @@ setup(
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
-            "librosa>=0.11.0",
+            "librosa==0.11.0",
             "soundfile",
             "torchcodec",
             # linting, formatting, and type checking
