@@ -1,6 +1,8 @@
 from typing import Tuple
 
 import torch
+import transformers
+from packaging import version
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
     Llama4TextConfig,
@@ -27,6 +29,9 @@ class SequentialLlama4TextMoe(torch.nn.Module):
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
         router_logits = self.router(hidden_states)
+        # support transformers 4.53 and greater
+        if isinstance(router_logits, tuple):
+            router_logits = router_logits[-1]
 
         router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=1)
 
@@ -41,7 +46,10 @@ class SequentialLlama4TextMoe(torch.nn.Module):
         for i in range(self.num_experts):
             out += self.experts[i](hidden_states) * router_scores[i].reshape(-1, 1)
 
-        return out, router_scores
+        if version.parse(transformers.__version__) >= version.parse("4.54.0"):
+            return out, router_logits
+        else:
+            return out, router_scores
 
 
 class SequentialLlama4TextExperts(torch.nn.ModuleList):

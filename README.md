@@ -62,6 +62,7 @@ Applying quantization with `llmcompressor`:
 * [Quantizing MoE LLMs](examples/quantizing_moe/README.md)
 * [Quantizing Vision-Language Models](examples/multimodal_vision/README.md)
 * [Quantizing Audio-Language Models](examples/multimodal_audio/README.md)
+* [Quantizing Models Non-uniformly](examples/quantization_non_uniform/README.md)
 
 ### User Guides
 Deep dives into advanced usage of `llmcompressor`:
