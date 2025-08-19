@@ -66,32 +66,28 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
             selected_experts, num_classes=self.num_experts
         ).permute(2, 1, 0)
 
+        expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
         for expert_idx in range(len(self.experts)):
             expert_layer = self.experts[expert_idx]
-            cached_output = None
+            idx, top_x = torch.where(expert_mask[expert_idx].squeeze(0))
 
             if self.calibrate_all_experts:
-                cached_output = expert_layer(hidden_states)
+                current_hidden_states = expert_layer(hidden_states)[top_x]
+            else:
+                # Index the correct hidden states and compute the expert hidden state for
+                # the current expert. We need to make sure to multiply the output hidden
+                # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
+                current_hidden_states = expert_layer(hidden_states[top_x])
 
-            idx, top_x = torch.where(expert_mask[expert_idx].squeeze(0))
-            if top_x.numel() > 0:
-                if cached_output is not None:
-                    expert_output = cached_output[top_x]
-                else:
-                    # Index the correct hidden states and compute the expert hidden state for
-                    # the current expert. We need to make sure to multiply the output hidden
-                    # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
-                    current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
-                    expert_output = expert_layer(current_state)
-                current_hidden_states = (
-                    expert_output * routing_weights[top_x, idx, None]
-                )
+            # @kylesayrs: this doesn't seem to be correct
+            if expert_idx in expert_hit:
                 # However `index_add_` only support torch tensors for indexing so we'll use
                 # the `top_x` tensor here.
+                current_weights = routing_weights[top_x, idx, None]
+                expert_out = current_hidden_states * current_weights
                 final_hidden_states.index_add_(
-                    0, top_x, current_hidden_states.to(hidden_states.dtype)
+                    0, top_x, expert_out.to(hidden_states.dtype)
                 )
-
         final_hidden_states = final_hidden_states.reshape(
             batch_size, sequence_length, hidden_dim
         )

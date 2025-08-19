@@ -32,36 +32,24 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
-        router_logits = self.router(hidden_states)
-
-        router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=1)
-
-        router_scores = (
-            torch.full_like(router_logits, float("-inf"))
-            .scatter_(1, router_indices, router_top_value)
-            .transpose(0, 1)
-        )
-        router_scores = torch.sigmoid(router_scores.float()).to(hidden_states.dtype)
+        router_scores, router_logits = self.router(hidden_states)
 
         out = self.shared_expert(hidden_states)
-        for i in range(self.num_experts):
-            expert_output = None
+        for expert_index in range(self.num_experts):
+            top_token_mask = router_scores[:, expert_index] > 0
             if self.calibrate_all_experts:
                 # Run all tokens for calibration
-                expert_output = self.experts[i](hidden_states)
+                expert_out = self.experts[expert_index](hidden_states)[top_token_mask]
+            else:
+                expert_out = self.experts[expert_index](hidden_states[top_token_mask])
 
             # Only top-k tokens contribute to final output
-            top_token_mask = router_scores[i] > 0
             if top_token_mask.any():
-                if expert_output is None:
-                    expert_output = self.experts[i](hidden_states[top_token_mask])
-                else:
-                    expert_output = expert_output[top_token_mask]
-                out[top_token_mask] += expert_output * router_scores[
-                    i, top_token_mask
-                ].unsqueeze(-1)
+                # out[top_token_mask] += expert_out * router_scores[top_token_mask, expert_index]
+                expert_score = router_scores[top_token_mask, expert_index].unsqueeze(-1)
+                out[top_token_mask] += expert_out * expert_score
 
-        return out, router_scores
+        return out, router_logits
 
 
 class SequentialLlama4TextExperts(torch.nn.ModuleList):

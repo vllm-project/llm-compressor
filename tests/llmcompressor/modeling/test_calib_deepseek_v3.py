@@ -4,7 +4,11 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.modeling.deepseek_v3 import DeepseekV3MoECalibrate
+from llmcompressor.modeling.deepseek_v3 import (
+    DeepseekV3Config,
+    DeepseekV3MoECalibrate,
+    OriginalDeepseekV3MoE,
+)
 from llmcompressor.modeling.prepare import replace_modules_for_calibration
 from llmcompressor.utils.dev import skip_weights_download
 
@@ -47,3 +51,23 @@ def test_calib_replace_deepseekv3moe_all_experts(model_stub):
 
     # Assert all experts are used
     assert all(expert_triggered), f"Not all experts were triggered: {expert_triggered}"
+
+
+def test_calib_deepseekv3_module():
+    config = DeepseekV3Config()
+    original = OriginalDeepseekV3MoE(config).eval()
+    module = DeepseekV3MoECalibrate(config, original, calibrate_all_experts=True).eval()
+
+    # Create dummy input tensor that simulates hidden_states
+    hidden_dim = config.hidden_size
+    batch, seq_len = 4, 32
+    sample = torch.randn(batch, seq_len, hidden_dim)
+
+    true_output = original(sample)[0]
+    output = module(sample)[0]
+    assert torch.allclose(true_output, output)
+
+    module = DeepseekV3MoECalibrate(config, original, calibrate_all_experts=False).eval()
+    true_output = original(sample)[0]
+    output = module(sample)[0]
+    assert torch.allclose(true_output, output)
