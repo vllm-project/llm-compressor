@@ -8,6 +8,7 @@ from llmcompressor.modeling.granite4 import GraniteMoeHybridParallelExpertsLinea
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
+
 MODEL_ID = "/net/storage149/autofs/css22/nmg/models/cos/f05940d/lake-models/models/base_training/shared/granite-4.0-small-base-prerelease-greylock-128k/r250709a"
 # MODEL_ID = "ibm-granite/granite-4.0-tiny-preview"
 # MODEL_ID = "/net/storage149/autofs/css22/cliu22/ssm_state_compression/gr4small_fp8_skipRouter_dequant"
@@ -29,13 +30,14 @@ if skip_router_only:
             )
             new_mod.from_3d_expert(m)
             replace_module(model, n, new_mod)
+            print(f"Replaced {n}")
     ignore_lay = ['re:.*lm_head', 're:.*block_sparse_moe.router']
-    SAVE_DIR = "gr4small_fp8_skipRouter_lin"
+    SAVE_DIR = "storage/gr4small_fp8_skipRouter_lin_exp3d_DEBUG"
 
 # If skipping all .input_linear, .output-linear, and router layers, no need to swap.
 else:
     ignore_lay = ['re:.*lm_head', 're:.*block_sparse_moe']
-    SAVE_DIR = "gr4small_fp8_skipMoe_lin"
+    SAVE_DIR = "storage/gr4small_fp8_skipMoe_lin_DEBUG"
 
 recipe = QuantizationModifier(
     targets=["Linear", "GraniteMoeHybridParallelExpertsLinear"],
@@ -52,15 +54,21 @@ print("After module swapping")
 print(model)
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-# input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
 input_ids = tokenizer("What is your favorite TV show?", return_tensors="pt").input_ids.to('cuda')
 output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
 
+# Revert weights to 3D format (num_experts, output_size, input_size) before saving
+for n, m in model.named_modules():
+    if isinstance(m, GraniteMoeHybridParallelExpertsLinear):
+        assert  m.weight.device.type == "cuda", (
+            "Found some offloaded weights. This is not compatible with reshaping "
+            "experts to 3D prior model save. Ensure the model is fully on cuda."
+        )
+        m.to_3d_expert()
+        print(f"Updated experts of {n}")
+
 # NOTE During forward, weights in CompressedLinear will be decompressed -> compress again before .
-ls model.save_pretrained(SAVE_DIR)
+model.save_pretrained(SAVE_DIR)
 tokenizer.save_pretrained(SAVE_DIR)
-
-
-
