@@ -1,7 +1,6 @@
 import tqdm
-from compressed_tensors.utils import (
-    match_named_modules,
-)
+from compressed_tensors.utils import match_named_modules
+
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
@@ -77,10 +76,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         # TODO: this step can be combined with update_weight_zp_scale
         # once update_fused_layer_weight_global_scales is removed
         # and not required by vLLM
-        for name, module in tqdm.tqdm(named_modules):
+        for _, module in tqdm.tqdm(named_modules):
             update_weight_global_scale(module)
 
-        for name, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
+        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
             update_fused_layer_weight_global_scales(module)
             update_weight_zp_scale(module)
 

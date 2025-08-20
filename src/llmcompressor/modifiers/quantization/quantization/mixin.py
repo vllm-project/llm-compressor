@@ -14,6 +14,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.utils import match_named_modules
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
@@ -121,12 +122,15 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to attach schemes and observers to
         """
-        reset_quantization_status(model)  # reset any previously applied qconfigs
-
         # apply scheme and status to model
         config = self.resolve_quantization_config()
+
+        for _, module in match_named_modules(model, self.targets, self.ignore):
+            reset_quantization_status(module)  # reset any previously applied qconfigs
+
         apply_quantization_config(model, config)
 
+        # TODO should we disable for entire model or just matching modules?
         # disable quantization until calibration
         model.apply(disable_quantization)
 
@@ -138,8 +142,11 @@ class QuantizationMixin(HooksMixin):
         :param model: model to prepare for calibration
         """
         self._calibration_hooks = self._initialize_hooks(model)
-        model.apply(self._initialize_observers)
-        model.apply(apply_calibration_status)
+        for _, module in match_named_modules(model, self.targets, self.ignore):
+            self._initialize_observers(module)
+            apply_calibration_status(module)
+
+        # TODO should we disable for entire model or just matching modules?
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def end_calibration(self, model: torch.nn.Module):
@@ -150,7 +157,9 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        model.apply(freeze_module_quantization)  # remove observers
+        for _, module in match_named_modules(model, self.targets, self.ignore):
+            freeze_module_quantization(module)  # remove observers
+
         model.apply(enable_quantization)  # keep quantization enabled
 
     def has_config(self) -> bool:
@@ -240,7 +249,7 @@ class QuantizationMixin(HooksMixin):
 
     def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
-        for module in model.modules():
+        for _, module in match_named_modules(model, self.targets, self.ignore):
             if not hasattr(module, "quantization_scheme"):
                 continue
 
