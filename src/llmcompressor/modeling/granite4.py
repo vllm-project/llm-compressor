@@ -81,16 +81,22 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
         self.num_experts = num_experts
         self.input_size = input_size
         self.output_size = output_size
-        self.is_2d = None
+        self.is_2d: bool = True
 
-    def from_3d_expert(self, original: GraniteMoeHybridParallelExperts):
+    def from_3d_expert(self, original: GraniteMoeHybridParallelExperts) -> None:
+        """Extract weights of a GraniteMoeHybridParallelExperts module (transformers)
+        into 2D shape and store them into this module.
+        """
+
         self.weight = torch.nn.Parameter(
             original.weight.view(-1, self.input_size).clone(), requires_grad=False,
         )
         original.to("cpu")
         self.is_2d = True
 
-    def to_3d_expert(self):
+    def to_3d_expert(self) -> None:
+        """Convert weights and quantization parameters from 2D to 3D shape."""
+
         assert self.weight.shape == torch.Size((self.num_experts * self.output_size, self.input_size))
         assert hasattr(self, "weight_scale")
         assert self.weight_scale.shape == torch.Size((self.num_experts * self.output_size, 1))
@@ -115,6 +121,7 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
 
     def forward(self, inputs, expert_size):
         """Modified from original forward()"""
+
         input_list = inputs.split(expert_size, dim=0)
         # [CL] consider the case of CompressedLinear
         if getattr(self, "quantization_status", None) == QuantizationStatus.COMPRESSED:

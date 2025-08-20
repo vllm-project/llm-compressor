@@ -59,9 +59,10 @@ output = model.generate(input_ids, max_new_tokens=20)
 print(tokenizer.decode(output[0]))
 print("==========================================")
 
-# Revert weights to 3D format (num_experts, output_size, input_size) before saving
+# Revert weights of MoE experts to 3D format (num_experts, output_size, input_size)
 for n, m in model.named_modules():
     if isinstance(m, GraniteMoeHybridParallelExpertsLinear):
+        # NOTE: can assert type != "meta" instead, which is sign of offloading
         assert  m.weight.device.type == "cuda", (
             "Found some offloaded weights. This is not compatible with reshaping "
             "experts to 3D prior model save. Ensure the model is fully on cuda."
