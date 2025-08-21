@@ -165,7 +165,7 @@ def match_modules_set(
     Yields modules grouped with the same order and size as `targets`.
     Values are returned in order of `model.named_modules()`
 
-    For example, the following targets would yield module belonging to the following layers:
+    E.g. the following targets would yield module belonging to the following layers:
     ```python3
     match_modules_set(model, ["q_proj", "k_proj", "v_proj"]) == (
         (

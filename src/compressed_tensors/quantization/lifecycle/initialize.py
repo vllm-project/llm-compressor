@@ -17,7 +17,7 @@ import logging
 import math
 import warnings
 from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from compressed_tensors.quantization.lifecycle.forward import (
@@ -87,7 +87,6 @@ def initialize_module_for_quantization(
         _initialize_attn_scales(module)
 
     else:
-
         if scheme.input_activations is not None:
             _initialize_scale_zero_point(
                 module,
@@ -183,7 +182,8 @@ def _initialize_scale_zero_point(
             num_groups = math.ceil(weight_shape[1] / quantization_args.group_size)
             expected_shape = (weight_shape[0], max(num_groups, 1))
         elif quantization_args.strategy == QuantizationStrategy.BLOCK:
-            # For block quantization, scale shape should match number of blocks - only for weights
+            # For block quantization, scale shape should match number of blocks - only
+            # for weights
             if quantization_args.block_structure is None:
                 raise ValueError(
                     "Block quantization requires block_structure to be specified"
@@ -196,9 +196,10 @@ def _initialize_scale_zero_point(
             # Warn if dimensions don't divide evenly
             if rows % block_height != 0 or cols % block_width != 0:
                 warnings.warn(
-                    f"Block quantization: tensor shape {weight_shape} does not divide evenly "
-                    f"by block structure {quantization_args.block_structure}. "
-                    f"Some blocks will be incomplete which may affect quantization quality.",
+                    f"Block quantization: tensor shape {weight_shape} does not divide"
+                    f"evenly by block structure {quantization_args.block_structure}. "
+                    f"Some blocks will be incomplete which may affect quantization"
+                    "quality.",
                     UserWarning,
                 )
 

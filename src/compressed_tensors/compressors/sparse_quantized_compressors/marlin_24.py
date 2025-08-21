@@ -48,7 +48,7 @@ class Marlin24Compressor(BaseCompressor):
 
     @staticmethod
     def validate_quant_compatability(
-        names_to_scheme: Dict[str, QuantizationScheme]
+        names_to_scheme: Dict[str, QuantizationScheme],
     ) -> bool:
         """
         Checks if every quantized module in the model is compatible with Marlin24

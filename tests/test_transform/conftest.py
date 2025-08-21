@@ -14,7 +14,7 @@
 
 import pytest
 import torch
-from compressed_tensors.transform import TransformArgs, TransformFactory
+from compressed_tensors.transform import TransformArgs
 from transformers import PretrainedConfig, PreTrainedModel
 
 

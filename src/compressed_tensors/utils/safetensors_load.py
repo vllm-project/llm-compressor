@@ -18,7 +18,6 @@ import re
 import struct
 from typing import Dict, Iterable, Optional, Tuple, Union
 
-from safetensors import safe_open
 from torch import Tensor
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, cached_file
 

@@ -205,7 +205,8 @@ def _process_quantization(
     q_min, q_max = calculate_range(args, x.device)
     group_size = args.group_size
 
-    # blockwise FP8: quantize per 2D block, supports block_structure for static block quant
+    # blockwise FP8: quantize per 2D block, supports block_structure for static block
+    # quantization
     if args.strategy == QuantizationStrategy.BLOCK:
         original_shape = x.shape
         rows, cols = x.shape[-2], x.shape[-1]
@@ -214,8 +215,8 @@ def _process_quantization(
         # Ensure exact division (tensor dimensions must be divisible by block size)
         if rows % block_height != 0:
             raise ValueError(
-                f"Tensor height {rows} is not divisible by block_height {block_height}. "
-                f"Block quantization requires exact division."
+                f"Tensor height {rows} is not divisible by block_height {block_height}."
+                f" Block quantization requires exact division."
             )
         if cols % block_width != 0:
             raise ValueError(
@@ -295,7 +296,7 @@ def _process_quantization(
             perm = torch.argsort(g_idx)
             x = safe_permute(x, perm, dim=1)
 
-        # Maintain all dimensions apart from the last dim, which is divided by the group_size
+        # Maintain all dimensions except the last dim, which is divided by group_size
         reshaped_dims = (
             ceil(x.shape[-1] / group_size),
             group_size,

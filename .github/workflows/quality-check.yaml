@@ -1,5 +1,4 @@
-name: Run Tests
-
+name: Quality Checks
 on:
   push:
     branches:
@@ -11,7 +10,7 @@ on:
       - 'release/*'
 
 jobs:
-  python-tests:
+  quality-check:
     runs-on: ubuntu-24.04
     steps:
         - uses: actions/setup-python@v5
@@ -25,7 +24,6 @@ jobs:
           run: |
             pip3 install --upgrade pip && pip3 install --upgrade setuptools
         - name: "⚙️ Install dependencies"
-          run: pip3 install .[dev,accelerate]
-        - name: "🔬 Running tests"
-          run: make test
-
+          run: pip3 install .[dev]
+        - name: "🧹 Running quality checks"
+          run: make quality

@@ -217,16 +217,18 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                 return [int(x) for x in value.split("x")]
             except Exception:
                 raise ValueError(
-                    f"Invalid block_structure '{value}'. Must be a list of two ints [rows, cols]."
+                    f"Invalid block_structure '{value}'. Must be a list of ints "
+                    "[rows, cols]."
                 )
         if isinstance(value, (list, tuple)):
             if len(value) != 2 or not all(isinstance(v, int) for v in value):
                 raise ValueError(
-                    f"Invalid block_structure '{value}'. Must be a list of two ints [rows, cols]."
+                    f"Invalid block_structure '{value}'. Must be a list of ints "
+                    "[rows, cols]."
                 )
             return list(value)
         raise ValueError(
-            f"Invalid block_structure '{value}'. Must be a list of two ints [rows, cols]."
+            f"Invalid block_structure '{value}'. Must be a list of ints [rows, cols]."
         )
 
     @field_validator("strategy", mode="before")
@@ -307,7 +309,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             )
             if strategy not in supported_strategies:
                 raise ValueError(
-                    f"One of {supported_strategies} must be used for dynamic quantization"
+                    f"One of {supported_strategies} must be used for dynamic quant."
                 )
 
             if (
@@ -322,7 +324,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                         observer != "memoryless"
                     ):  # avoid annoying users with old configs
                         warnings.warn(
-                            "No observer is used for dynamic quantization, setting to None"
+                            "No observer is used for dynamic quant., setting to None"
                         )
                     observer = None
             else:

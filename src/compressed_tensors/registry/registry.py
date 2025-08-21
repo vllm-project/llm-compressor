@@ -55,7 +55,7 @@ def standardize_lookup_name(name: str) -> str:
 
 
 def standardize_alias_name(
-    name: Union[None, str, List[str]]
+    name: Union[None, str, List[str]],
 ) -> Union[None, str, List[str]]:
     if name is None:
         return None

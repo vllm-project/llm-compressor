@@ -14,7 +14,7 @@
 
 from typing import Dict
 
-from compressed_tensors.transform import TransformArgs, TransformScheme
+from compressed_tensors.transform import TransformScheme
 from pydantic import BaseModel, ConfigDict
 
 

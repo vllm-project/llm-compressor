@@ -142,6 +142,9 @@ def _get_files(patterns: List[str]) -> List[str]:
 
 
 def _dont_copyright(file_path: str) -> bool:
+    if file_path.endswith("compressed_tensors/version.py"):
+        return True
+
     with open(file_path, "r") as file:
         content = file.read()
 

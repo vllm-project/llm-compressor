@@ -65,7 +65,7 @@ def test_multiple_groups():
         type="hadamard",
         apply=[linear_args_2],
     )
-    config = TransformConfig(
+    _ = TransformConfig(
         config_groups={"transform_0": scheme_1, "transform_1": scheme_2}
     )
 

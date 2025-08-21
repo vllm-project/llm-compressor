@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Dict, Generator, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import torch
 from compressed_tensors.compressors.base import BaseCompressor

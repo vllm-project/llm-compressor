@@ -16,7 +16,7 @@ import pytest
 
 
 nbformat = pytest.importorskip("nbformat")
-from nbconvert.preprocessors import ExecutePreprocessor
+from nbconvert.preprocessors import ExecutePreprocessor  # noqa: E402
 
 
 @pytest.mark.skip(

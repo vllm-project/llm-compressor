@@ -24,7 +24,6 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
     QuantizationStrategy,
-    QuantizationType,
 )
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,

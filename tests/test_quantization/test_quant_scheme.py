@@ -46,7 +46,7 @@ def test_full_scheme():
     assert scheme.weights == weights
     assert scheme.input_activations == input_activations
     assert scheme.output_activations == output_activations
-    assert scheme.format is "float-quantized"
+    assert scheme.format == "float-quantized"
 
 
 def test_needs_targets():

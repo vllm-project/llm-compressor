@@ -441,8 +441,8 @@ def test_delete_offload_module(exec_device):
     register_offload_module(model.linear, "child", child)
     delete_offload_module(model, "child")
     delete_offload_module(model.linear, "child")
-    assert not child in model.children()
-    assert not child in model.linear.children()
+    assert child not in model.children()
+    assert child not in model.linear.children()
 
     # with offloading
     model = ExampleModel()
@@ -452,8 +452,8 @@ def test_delete_offload_module(exec_device):
     register_offload_module(model.linear, "child", child)
     delete_offload_module(model, "child")
     delete_offload_module(model.linear, "child")
-    assert not child in model.children()
-    assert not child in model.linear.children()
+    assert child not in model.children()
+    assert child not in model.linear.children()
 
 
 @requires_gpu

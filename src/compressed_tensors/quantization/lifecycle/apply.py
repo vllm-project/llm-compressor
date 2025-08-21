@@ -71,14 +71,14 @@ def load_pretrained_quantization_parameters(
     Loads the quantization parameters (scale and zero point) from model_name_or_path to
     a model that has already been initialized with a quantization config.
 
-    NOTE: Will always load inputs/output parameters.
-    Will conditioanlly load weight parameters, if load_weight_quantization is set to True.
+    NOTE: Will always load inputs/output parameters. Will conditioanlly load weight
+    parameters, if load_weight_quantization is set to True.
 
     :param model: model to load pretrained quantization parameters to
     :param model_name_or_path: Hugging Face stub or local folder containing a quantized
         model, which is used to load quantization parameters
-    :param load_weight_quantization: whether or not the weight quantization parameters shoud
-        be laoded
+    :param load_weight_quantization: whether or not the weight quantization parameters
+        should be loaded
     """
     model_path = get_safetensors_folder(model_name_or_path)
     mapping = get_quantization_parameter_to_path_mapping(model_path)
@@ -261,7 +261,8 @@ def find_name_or_class_matches(
     """
     if check_contains:
         raise NotImplementedError(
-            "This function is deprecated, and the check_contains=True option has been removed."
+            "This function is deprecated, and the check_contains=True option has been"
+            " removed."
         )
 
     return match_targets(name, module, targets)

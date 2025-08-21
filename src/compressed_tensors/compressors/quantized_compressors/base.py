@@ -24,7 +24,6 @@ from compressed_tensors.utils import (
     get_nested_weight_mappings,
     merge_names,
 )
-from compressed_tensors.utils.safetensors_load import match_param_name
 from safetensors import safe_open
 from torch import Tensor
 from tqdm import tqdm
@@ -107,7 +106,8 @@ class BaseQuantizationCompressor(BaseCompressor):
                     compressed_dict[name] = value.to(compression_device)
                     continue
 
-                # compress values on meta if loading from meta otherwise on cpu (memory movement too expensive)
+                # compress values on meta if loading from meta otherwise on cpu (memory
+                # movement too expensive)
                 module_path = prefix[:-1] if prefix.endswith(".") else prefix
                 quant_args = names_to_scheme[module_path].weights
                 compressed_values = self.compress_weight(

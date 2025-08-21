@@ -43,7 +43,7 @@ def test_validation():
     DummyModel(dtype="float16")
 
     with pytest.raises(ValidationError):
-        model = DummyModel(dtype="notatype")
+        _ = DummyModel(dtype="notatype")
 
 
 @pytest.mark.unit
