@@ -2,8 +2,8 @@ import inspect
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import disable_quantization
 import torch.nn.functional as F
+from compressed_tensors.quantization import disable_quantization
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
