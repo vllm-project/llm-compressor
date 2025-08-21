@@ -551,15 +551,17 @@ class AWQModifier(Modifier, QuantizationMixin):
             v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
-    def _run_samples(self, module: Module) -> List[torch.Tensor]:
+    def _get_flattened_output(self, module: Module) -> torch.Tensor:
         outputs = [
             module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
         ]
-        return [
-            # If Tuple, assume that first argument is the input
-            output[0] if isinstance(output, Tuple) else output
-            for output in outputs
-        ]
+        return torch.cat(
+            [
+                # If Tuple, assume that first argument is the input
+                (output[0] if isinstance(output, Tuple) else output).flatten()
+                for output in outputs
+            ]
+        )
 
     def _compute_best_scale(
         self,
@@ -628,7 +630,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 )
 
             # W * X
-            int_w_outputs = self._run_samples(parent_module)
+            int_w_output = self._get_flattened_output(parent_module)
 
             # compute mean squared error (L2 norm)
             loss = F.mse_loss(int_w_output, fp16_output).item()
