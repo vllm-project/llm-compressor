@@ -479,6 +479,18 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
+                if any([fp16_output.isnan().any() for fp16_output in fp16_outputs]):
+                    logger.warning(
+                        f"Skipping smooth_layer {mapping.smooth_name}, NaN outputs "
+                        "found during forward pass of the parent module "
+                        f"{mapping.parent_name}. The model is either generating NaN "
+                        "output with provided calibration data set, or the mappings "
+                        "are incorrectly set and modifying the model in undesired "
+                        "ways. If you encounter this consistently, raise an issue at "
+                        "https://github.com/vllm-project/llm-compressor/issues"
+                    )
+                    del self._smooth_activation_means[mapping.smooth_name]
+                    continue
 
                 x_mean = self._smooth_activation_means[mapping.smooth_name][0]
 
