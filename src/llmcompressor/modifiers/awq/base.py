@@ -480,9 +480,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                     )
                     del self._smooth_activation_means[mapping.smooth_name]
                     continue
-                if not all(
-                    [fp16_output.isfinite().all() for fp16_output in fp16_outputs]
-                ):
+                if not fp16_output.isfinite().all():
                     logger.warning(
                         f"Skipping smooth_layer {mapping.smooth_name}, NaN or inf "
                         "outputs found during forward pass of the parent module "
