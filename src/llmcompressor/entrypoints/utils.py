@@ -64,6 +64,11 @@ def pre_process(model_args: "ModelArguments"):
     if not model_args.tie_word_embeddings:
         untie_word_embeddings(model_args.model)
 
+    # optionally override no_split_modules to fix broken offloading in hf models
+    assert isinstance(model_args.model, PreTrainedModel)
+    if model_args.no_split_modules is not None:
+        model_args.model._no_split_modules = model_args.no_split_modules
+
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
 

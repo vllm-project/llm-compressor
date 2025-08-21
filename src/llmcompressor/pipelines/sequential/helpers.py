@@ -526,7 +526,11 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
     remove_dispatch(model)
 
     if torch.cuda.is_available():
-        offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
+        offloaded_dispatch(
+            model,
+            execution_device=torch.device("cuda:0"),
+            no_split_modules=model._get_no_split_modules("auto"),
+        )
     else:
         logger.warning("CUDA is not available! Compressing model on CPU instead")
 

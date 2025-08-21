@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import List, Optional
 
 
 @dataclass
@@ -86,4 +86,7 @@ class ModelArguments:
             "help": "The specific model version to use "
             "(can be a branch name, tag name or commit id)"
         },
+    )
+    no_split_modules: Optional[List[str]] = field(
+        default=None,
     )

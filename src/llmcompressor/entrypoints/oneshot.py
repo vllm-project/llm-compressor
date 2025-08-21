@@ -233,6 +233,7 @@ def oneshot(
     min_tokens_per_module: Optional[float] = None,
     calibrate_moe_context: bool = False,
     quantization_aware_calibration: bool = True,
+    no_split_modules: Optional[List[str]] = None,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",

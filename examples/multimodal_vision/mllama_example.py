@@ -30,7 +30,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
+        ignore=["re:.*lm_head", "re:.*multi_modal_projector.*", "re:.*vision_model.*"],
     ),
 ]
 
@@ -46,6 +46,12 @@ oneshot(
     trust_remote_code_model=True,
     data_collator=data_collator,
     sequential_targets=["MllamaSelfAttentionDecoderLayer"],
+    no_split_modules=[
+        "MllamaVisionModel",  # patch model definition to support offloading
+        "MllamaVisionEncoderLayer",
+        "MllamaCrossAttentionDecoderLayer",
+        "MllamaSelfAttentionDecoderLayer",
+    ],
 )
 
 # Confirm generations of the quantized model look sane.
