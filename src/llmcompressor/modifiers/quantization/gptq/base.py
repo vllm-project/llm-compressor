@@ -9,8 +9,8 @@ from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
     getattr_chain,
-    update_offload_parameter,
     match_named_modules,
+    update_offload_parameter,
 )
 from loguru import logger
 from pydantic import PrivateAttr, field_validator
