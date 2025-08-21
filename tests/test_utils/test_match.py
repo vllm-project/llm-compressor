@@ -26,6 +26,15 @@ from compressed_tensors.utils import (
     match_named_parameters,
 )
 from compressed_tensors.utils.match import _match_class, _match_name
+from transformers import AutoModelForCausalLM
+
+
+@pytest.fixture
+def llama_stories_model():
+    return AutoModelForCausalLM.from_pretrained(
+        "Xenova/llama2.c-stories15M",
+        torch_dtype="auto",
+    )
 
 
 class DummyModel(nn.Module):
@@ -290,6 +299,58 @@ class TestMatchNamedModules:
         linear = InternalLinear(10, 20)
         matches = list(match_named_modules(linear, ["re:.*"]))
         assert len(matches) == 0
+
+    @pytest.mark.parametrize(
+        "targets, ignore, expected_targets",
+        [
+            (
+                ["re:model.layers.[01].self_attn.q_proj"],
+                ["re:model.layers.1.self_attn.q_proj"],
+                set(["model.layers.0.self_attn.q_proj"]),
+            ),
+            (
+                ["re:model.layers.[01].self_attn.q_proj"],
+                [],
+                set(
+                    [
+                        "model.layers.0.self_attn.q_proj",
+                        "model.layers.1.self_attn.q_proj",
+                    ]
+                ),
+            ),
+            (
+                ["re:model.layers.[0-2].self_attn.q_proj"],
+                ["re:model.layers.1.self_attn.q_proj"],
+                set(
+                    [
+                        "model.layers.0.self_attn.q_proj",
+                        "model.layers.2.self_attn.q_proj",
+                    ]
+                ),
+            ),
+            (
+                ["model.layers.0.self_attn.q_proj"],
+                ["model.layers.0.self_attn.q_proj"],
+                set(),
+            ),
+            (
+                ["re:model.layers.*.self_attn.q_proj"],
+                ["re:model.layers.[01].self_attn.q_proj"],
+                set(
+                    f"model.layers.{layer_idx}.self_attn.q_proj"
+                    for layer_idx in range(2, 6)
+                ),
+            ),
+        ],
+    )
+    def test_expand_targets_with_llama_stories(
+        self, llama_stories_model, targets, ignore, expected_targets
+    ):
+        expanded_targets = {
+            name
+            for name, _ in match_named_modules(llama_stories_model, targets, ignore)
+        }
+        assert expanded_targets == expected_targets
 
 
 class TestMatchNamedParameters:
