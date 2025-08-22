@@ -147,8 +147,10 @@ setup(
             if BUILD_TYPE == "release"
             else "transformers>=4.53.0"
         ),
+        # `datasets==4.0.0` is latest release, so
+        # pin directly. NOTE: add range after new release
         (
-            "datasets>=4.0.0,<=4.0.0"
+            "datasets==4.0.0"
             if BUILD_TYPE == "release"
             else "datasets>=4.0.0"
         ),
@@ -163,7 +165,7 @@ setup(
             else "pynvml>=11.5.3"
         ),
         (
-            "pillow>=10.4.0,<=10.4.0"
+            "pillow>=10.4.0,<11.0.0"
             if BUILD_TYPE == "release"
             else "pillow>=10.4.0"
         ),
