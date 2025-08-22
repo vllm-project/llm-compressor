@@ -61,7 +61,7 @@ class QuIPModifier(Modifier):
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="random-hadamard"
     )
-    targets: Union[List[str], str] = Field(default="str")
+    targets: Union[List[str], str] = Field(default="Linear")
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
     precision: TorchDtype = Field(default=torch.float64)
