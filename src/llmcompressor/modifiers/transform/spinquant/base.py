@@ -128,7 +128,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             config_groups["R2"] = self._create_r2_scheme(state.model)
 
         if SpinquantRotation.R3 in self.rotations:
-            config_groups["R3"] = self._create_r3_scheme()
+            config_groups["R3"] = self._create_r3_scheme(state.model)
 
         if SpinquantRotation.R4 in self.rotations:
             config_groups["R4"] = self._create_r4_scheme()
@@ -235,12 +235,49 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             ],
         )
 
-    def _create_r3_scheme(self) -> TransformScheme:
-        raise NotImplementedError(
-            "SpinQuant R3 and R4 rotations will be added in a future release"
+    def _create_r3_scheme(self, model: PreTrainedModel) -> TransformScheme:
+        config = model.config
+
+        if hasattr(config, "head_dim"):
+            head_dim = config.head_dim
+        elif hasattr(config, "hidden_size") and hasattr(config, "num_attention_heads"):
+            head_dim = config.hidden_size // config.num_attention_heads
+        else:
+            raise NotImplementedError()
+
+        return TransformScheme(
+            type=self.transform_type,
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
+            head_dim=head_dim,
+            apply=[
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="q_attn",
+                ),
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="k_cache",
+                ),
+            ],
         )
 
     def _create_r4_scheme(self) -> TransformScheme:
-        raise NotImplementedError(
-            "SpinQuant R3 and R4 rotations will be added in a future release"
+        return TransformScheme(
+            type=self.transform_type,
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
+            apply=[
+                TransformArgs(
+                    targets=[*self.mappings.mlp_out],
+                    location="input",
+                ),
+                TransformArgs(
+                    targets=[*self.mappings.mlp_out],
+                    location="weight_input",
+                    inverse=True,
+                ),
+            ],
         )

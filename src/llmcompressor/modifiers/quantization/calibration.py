@@ -4,6 +4,7 @@ import torch
 from compressed_tensors.quantization import (
     DynamicType,
     KVCacheScaleType,
+    QuantizationArgs,
     QuantizationScheme,
     QuantizationStatus,
     QuantizationStrategy,
@@ -39,10 +40,7 @@ __all__ = [
 ]
 
 
-def initialize_observer(
-    module: Module,
-    base_name: str,
-):
+def initialize_observer(module: Module, base_name: str):
     """
     Initialize observer module and attach as submodule.
     The name of the observer is fetched from the quantization_args.
@@ -53,33 +51,34 @@ def initialize_observer(
     :param base_name: str used to name the observer attribute
 
     """
+    if base_name == "weight":
+        arg_name = "weights"
+    elif base_name == "output":
+        arg_name = "output_activations"
+    else:
+        # (input, q, k, v)
+        arg_name = "input_activations"
 
-    arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    if not quantization_scheme:
-        # no quantization scheme nothing to do
+    quantization_args: Optional[QuantizationArgs] = getattr_chain(
+        module, f"quantization_scheme.{arg_name}", None
+    )
+    if quantization_args is None or quantization_args.is_online():
         return
 
-    quantization_args = getattr(quantization_scheme, arg_name, None)
-    # dont need observers for dynamic
-    if quantization_args is not None and quantization_args.dynamic in (
-        False,
-        DynamicType.LOCAL,
-    ):
-        observer_kwargs = quantization_args.observer_kwargs or {}
-        observer = Observer.load_from_registry(
-            quantization_args.observer,
-            quantization_args=quantization_args,
-            averaging_constant=observer_kwargs.get(
-                "averaging_constant", DEFAULT_AVERAGING_CONSTANT
-            ),
-            # used by mse observer only, will be ignored by minmax observer
-            maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
-            patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
-            grid=observer_kwargs.get("grid", DEFAULT_GRID),
-            norm=observer_kwargs.get("norm", DEFAULT_NORM),
-        )
-        module.register_module(f"{base_name}_observer", observer)
+    observer_kwargs = quantization_args.observer_kwargs or {}
+    observer = Observer.load_from_registry(
+        quantization_args.observer,
+        quantization_args=quantization_args,
+        averaging_constant=observer_kwargs.get(
+            "averaging_constant", DEFAULT_AVERAGING_CONSTANT
+        ),
+        # used by mse observer only, will be ignored by minmax observer
+        maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
+        patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
+        grid=observer_kwargs.get("grid", DEFAULT_GRID),
+        norm=observer_kwargs.get("norm", DEFAULT_NORM),
+    )
+    module.register_module(f"{base_name}_observer", observer)
 
 
 def call_observer(
@@ -216,6 +215,21 @@ def calibrate_input_hook(module: Module, args: Any):
     """
     args = args[0] if isinstance(args, tuple) else args
     calibrate_activations(module, value=args, base_name="input")
+
+
+def calibrate_query_hook(module: Module, query_states: torch.Tensor):
+    query_states = query_states.flatten(0, -2)
+    calibrate_activations(module, query_states, base_name="q")
+
+
+def calibrate_key_hook(module: Module, key_states: torch.Tensor):
+    key_states = key_states.flatten(0, -2)
+    calibrate_activations(module, key_states, base_name="k")
+
+
+def calibrate_value_hook(module: Module, value_states: torch.Tensor):
+    value_states = value_states.flatten(0, -2)
+    calibrate_activations(module, value_states, base_name="v")
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
