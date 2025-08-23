@@ -104,7 +104,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
         if value:
-            raise NotImplementedError(f"{info.field_name} is not supported right now")
+            raise NotImplementedError(f"{info.field_name} is not supported as of now")
         return value
 
     @field_validator("rotations", mode="before")
@@ -237,10 +237,24 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     def _create_r3_scheme(self) -> TransformScheme:
         raise NotImplementedError(
-            "SpinQuant R3 and R4 rotations will be added in a future release"
+            "SpinQuant R3 rotations will be added in a future release"
         )
 
     def _create_r4_scheme(self) -> TransformScheme:
-        raise NotImplementedError(
-            "SpinQuant R3 and R4 rotations will be added in a future release"
+        return TransformScheme(
+            type=self.transform_type,
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
+            apply=[
+                TransformArgs(
+                    targets=[*self.mappings.mlp_out],
+                    location="input",
+                ),
+                TransformArgs(
+                    targets=[*self.mappings.mlp_out],
+                    location="weight_input",
+                    inverse=True,
+                ),
+            ],
         )
