@@ -73,9 +73,17 @@ class SequentialPipeline(CalibrationPipeline):
 
         LifecycleCallbacks.calibration_epoch_start()
 
+        # TODO: remove this to enable quantization aware calibration for GPTQ and AWQ
+        disable_qac = any(
+            type(mod).__name__ in ["GPTQModifier", "AWQModifier"]
+            for mod in session.lifecycle.recipe.modifiers
+        )
+
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-            stack.enter_context(DisableQuantization(model))
+            # Optionally disable quantization
+            if not dataset_args.quantization_aware_calibration or disable_qac:
+                stack.enter_context(DisableQuantization(model))
 
             if dataset_args.calibrate_moe_context:
                 moe_calibration_context(model, stack)
