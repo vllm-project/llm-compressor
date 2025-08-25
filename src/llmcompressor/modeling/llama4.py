@@ -17,7 +17,12 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 
 class SequentialLlama4TextMoe(torch.nn.Module):
-    def __init__(self, config: Llama4TextConfig, original: Llama4TextMoe):
+    def __init__(
+        self,
+        config: Llama4TextConfig,
+        original: Llama4TextMoe,
+        calibrate_all_experts: bool,
+    ):
         super().__init__()
         self.top_k = config.num_experts_per_tok
         self.hidden_dim = config.hidden_size
@@ -25,6 +30,7 @@ class SequentialLlama4TextMoe(torch.nn.Module):
         self.experts = SequentialLlama4TextExperts(config, original.experts)
         self.router = original.router
         self.shared_expert = original.shared_expert
+        self.calibrate_all_experts = calibrate_all_experts
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
@@ -44,7 +50,21 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
         out = self.shared_expert(hidden_states)
         for i in range(self.num_experts):
-            out += self.experts[i](hidden_states) * router_scores[i].reshape(-1, 1)
+            expert_output = None
+            if self.calibrate_all_experts:
+                # Run all tokens for calibration
+                expert_output = self.experts[i](hidden_states)
+
+            # Only top-k tokens contribute to final output
+            top_token_mask = router_scores[i] > 0
+            if top_token_mask.any():
+                if expert_output is None:
+                    expert_output = self.experts[i](hidden_states[top_token_mask])
+                else:
+                    expert_output = expert_output[top_token_mask]
+                out[top_token_mask] += expert_output * router_scores[
+                    i, top_token_mask
+                ].unsqueeze(-1)
 
         if version.parse(transformers.__version__) >= version.parse("4.54.0"):
             return out, router_logits
@@ -72,5 +92,9 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
             self[i].down_proj.weight.data = down.t().clone().contiguous()
 
 
-def replace(config: Llama4Config, module: Llama4TextMoe):
-    return SequentialLlama4TextMoe(config=config.get_text_config(), original=module)
+def replace(config: Llama4Config, module: Llama4TextMoe, calibrate_all_experts: bool):
+    return SequentialLlama4TextMoe(
+        config=config.get_text_config(),
+        original=module,
+        calibrate_all_experts=calibrate_all_experts,
+    )
