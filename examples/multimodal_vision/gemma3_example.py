@@ -68,7 +68,7 @@ image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
 raw_image = Image.open(requests.get(image_url, stream=True).raw)
 
 # Note: compile is disabled: https://github.com/huggingface/transformers/issues/38333
-inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda")
+inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to(model.device)
 output = model.generate(**inputs, max_new_tokens=100, disable_compile=True)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")

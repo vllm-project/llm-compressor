@@ -22,7 +22,7 @@ SAMPLE_INPUT = [
 compressed_model = AutoModelForCausalLM.from_pretrained(
     MODEL_STUB,
     torch_dtype="auto",
-    device_map="cuda:0",
+    device_map="auto",
 )
 
 # tokenize the sample data
