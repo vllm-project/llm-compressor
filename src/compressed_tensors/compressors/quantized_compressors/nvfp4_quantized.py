@@ -123,6 +123,7 @@ class NVFP4PackedCompressor(BaseQuantizationCompressor):
         return decompressed_weight
 
 
+@torch.compile(fullgraph=True, dynamic=True)
 def pack_fp4_to_uint8(x: torch.Tensor) -> torch.Tensor:
     """
     Packs a tensor with values in the fp4 range into uint8.
@@ -145,12 +146,11 @@ def pack_fp4_to_uint8(x: torch.Tensor) -> torch.Tensor:
 
     # Find closest valid FP4 value index for each element
     abs_x = torch.abs(x)
-    abs_indices = torch.zeros_like(abs_x, dtype=torch.long)
-    for i, val in enumerate(kE2M1):
-        abs_indices = torch.where(torch.isclose(abs_x, val), i, abs_indices)
+    abs_diff_x = torch.abs(abs_x.unsqueeze(-1) - kE2M1)  # [m, n, 8]
+    abs_indices = torch.argmin(abs_diff_x, dim=-1)  # [m, n]
 
     # Apply sign bit (bit 3) to get final 4-bit representation
-    indices = abs_indices + (torch.signbit(x) << 3).to(torch.long)
+    indices = abs_indices + (torch.signbit(x).to(torch.long) << 3)
 
     # Reshape to prepare for packing pairs of values
     indices = indices.reshape(-1)
@@ -174,6 +174,7 @@ kE2M1ToFloat = torch.tensor(
 
 
 # reference: : https://github.com/vllm-project/vllm/pull/16362
+@torch.compile(fullgraph=True, dynamic=True)
 def unpack_fp4_from_uint8(
     a: torch.Tensor, m: int, n: int, dtype: Optional[torch.dtype] = torch.bfloat16
 ) -> torch.Tensor:
