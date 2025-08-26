@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
@@ -26,6 +27,7 @@ oneshot(model=model, recipe=recipe)
 
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
 input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
     model.device
 )
