@@ -153,17 +153,6 @@ class TestvLLM:
             )
 
         if VLLM_IN_SAME_ENV.lower() == "yes":
-            try:
-                from vllm import LLM, SamplingParams
-
-                vllm_installed = True
-            except ImportError:
-                vllm_installed = False
-
-            if vllm_installed is False:
-                logger.error("ERROR: Expecting vLLM in the same env but it is not installed.")
-                pytest.fail("FAILED: Expecting vLLM in the same env but it is not installed, failing test")
-
             logger.info("================= RUNNING vLLM in the same python env =========================")
 
             outputs = self._run_vllm()
@@ -211,6 +200,7 @@ class TestvLLM:
     @log_time
     def _run_vllm(self):
         import torch
+        from vllm import LLM, SamplingParams
 
         sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         llm_kwargs = {"model": self.save_dir}
