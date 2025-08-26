@@ -517,8 +517,8 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
     """
     Dispatch a model for sequential calibration using a sequential pipeline.
-    The model will be offloaded to the CPU and dispatched to CUDA/XPU device if available.
-    Removes any existing hooks.
+    The model will be offloaded to the CPU and dispatched to CUDA/XPU device
+    if available. Removes any existing hooks.
 
     :param model: model to dispatch
     :return: dispatched model
