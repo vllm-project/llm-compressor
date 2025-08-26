@@ -29,6 +29,7 @@ class SpinQuantMapping(BaseModel):
 
     embedding: str
 
+    attn: str
     attn_q: str
     attn_k: str
     attn_v: str
@@ -50,6 +51,7 @@ class SpinQuantMapping(BaseModel):
 
 _default_mappings = SpinQuantMapping(
     embedding="re:.*embed_tokens$",
+    attn="re:.*self_attn$",
     attn_q="re:.*q_proj$",
     attn_k="re:.*k_proj$",
     attn_v="re:.*v_proj$",

@@ -6,7 +6,7 @@ from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+model_id = "meta-llama/Llama-3.1-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
@@ -51,7 +51,10 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights to 4 bit with GPTQ with a group size 128
-recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+recipe = [
+    GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+    GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+]
 
 # Apply algorithms.
 oneshot(

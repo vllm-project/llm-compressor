@@ -189,7 +189,7 @@ setup(
             "torchvision",
             "librosa==0.11.0",
             "soundfile",
-            "torchcodec",
+            #"torchcodec",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
