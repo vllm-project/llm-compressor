@@ -703,9 +703,12 @@ class ModelCompressor:
             with override_quantization_status(
                 self.quantization_config, QuantizationStatus.FROZEN
             ):
-                names_to_scheme = apply_quantization_config(
-                    model, self.quantization_config
-                )
+                apply_quantization_config(model, self.quantization_config)
+                names_to_scheme: Set[QuantizationScheme] = {
+                    name: getattr(module, "quantization_scheme")
+                    for name, module in model.named_modules()
+                    if getattr(module, "quantization_scheme", None) is not None
+                }
                 # Load activation scales/zp or any other quantization parameters
                 # Conditionally load the weight quantization parameters if we have a
                 # dense compressor or if a sparsity compressor has already been applied
