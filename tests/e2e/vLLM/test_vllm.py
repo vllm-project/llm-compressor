@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import sys
 import yaml
 from huggingface_hub import HfApi
 from loguru import logger
@@ -14,14 +15,6 @@ from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
 
-try:
-    from vllm import LLM, SamplingParams
-
-    vllm_installed = True
-except ImportError:
-    vllm_installed = False
-    logger.warning("vllm is not installed. This test will be skipped")
-
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
@@ -29,6 +22,9 @@ TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
+# if vllm is installed in the same python environment or not; if not,
+# pass the path of the virtual env where vllm is installed separately
+VLLM_IN_SAME_ENV = os.environ.get("VLLM_IN_SAME_ENV","yes")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
@@ -45,7 +41,6 @@ EXPECTED_SAVED_FILES = [
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
-@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
     The following test quantizes a model using a preset scheme or recipe,
@@ -83,6 +78,11 @@ class TestvLLM:
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
+        # vllm separate env
+        if VLLM_IN_SAME_ENV.lower() != "yes":
+            self.vllm_env = os.path.join(VLLM_IN_SAME_ENV, "bin/python")
+        else:
+            self.vllm_env = sys.executable
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -152,20 +152,36 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-        logger.info("================= RUNNING vLLM =========================")
+        if VLLM_IN_SAME_ENV.lower() == "yes":
+            try:
+                from vllm import LLM, SamplingParams
 
-        outputs = self._run_vllm()
+                vllm_installed = True
+            except ImportError:
+                vllm_installed = False
 
-        logger.info("================= vLLM GENERATION ======================")
-        for output in outputs:
-            assert output
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
+            if vllm_installed is False:
+                logger.error("ERROR: Expecting vLLM in the same env but it is not installed.")
+                pytest.fail("FAILED: Expecting vLLM in the same env but it is not installed, failing test")
 
-            logger.info("PROMPT")
-            logger.info(prompt)
-            logger.info("GENERATED TEXT")
-            logger.info(generated_text)
+            logger.info("================= RUNNING vLLM in the same python env =========================")
+
+            outputs = self._run_vllm()
+
+            logger.info("================= vLLM GENERATION ======================")
+            for output in outputs:
+                assert output
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
+
+                logger.info("PROMPT")
+                logger.info(prompt)
+                logger.info("GENERATED TEXT")
+                logger.info(generated_text)
+        else:
+            logger.info("================= RUNNING vLLM in a separate python env =========================")
+
+            self._run_vllm_separate(logger=logger)
 
         self.tear_down()
 
@@ -209,6 +225,20 @@ class TestvLLM:
         llm = LLM(**llm_kwargs)
         outputs = llm.generate(self.prompts, sampling_params)
         return outputs
+
+    def _run_vllm_separate(self, logger):
+        import json
+        import subprocess
+
+        json_opt_model = json.dumps(self)
+        json_logger = json.dumps(logger)
+
+        result = subprocess.run(
+            [self.vllm_env, "run_vllm.py", json_opt_model, json_logger],
+            capture_output=True,
+            text=True,
+            check=True
+        )
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
