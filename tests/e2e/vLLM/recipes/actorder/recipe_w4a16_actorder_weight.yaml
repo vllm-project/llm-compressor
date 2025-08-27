@@ -2,6 +2,7 @@ quant_stage:
   quant_modifiers:
     GPTQModifier:
       ignore: ["lm_head", "re:vision_tower.*", "re:multi_modal_projector.*", "re:visual.*", "re:vision_model.*", "re:model.visual.*"]
+      actorder: "weight"
       config_groups:
         group_0:
           weights:
@@ -10,5 +11,4 @@ quant_stage:
             symmetric: true
             strategy: "group"
             group_size: 128
-            actorder: "weight"
           targets: ["Linear"]

@@ -3,6 +3,7 @@ quant_stage:
     GPTQModifier:
       sequential_update: false
       ignore: ["lm_head"]
+      actorder: null
       config_groups:
           group_0:
               weights:

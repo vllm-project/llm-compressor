@@ -2,6 +2,7 @@ quant_stage:
   quant_modifiers:
     GPTQModifier:
       ignore: [lm_head]
+      actorder: null
       config_groups:
         group_0:
           weights: {num_bits: 8, type: int, symmetric: true, strategy: channel, dynamic: false}
