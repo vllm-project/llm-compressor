@@ -58,6 +58,7 @@ class QuIPModifier(Modifier):
     :param transform_config: Optional transform config for overriding provided arguments
     """  # noqa: E501
 
+    rotations: List[Literal["v", "u"]] = Field(default_factory=lambda: ["v", "u"])
     transform_type: Literal["hadamard", "random-hadamard", "random-matrix"] = Field(
         default="random-hadamard"
     )
@@ -75,6 +76,12 @@ class QuIPModifier(Modifier):
     def validate_not_implemented(cls, value, info: ValidationInfo):
         if value:
             raise NotImplementedError(f"{info.field_name} is not supported right now")
+        return value
+
+    @field_validator("rotations", mode="before")
+    def validate_lowercase_list(cls, value):
+        if isinstance(value, list):
+            value = [v.lower() if isinstance(v, str) else v for v in value]
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -111,45 +118,52 @@ class QuIPModifier(Modifier):
         return True
 
     def _create_config(self) -> TransformConfig:
-        return TransformConfig(
-            config_groups={
-                "v": TransformScheme(
-                    type=self.transform_type,
-                    apply=[
-                        TransformArgs(
-                            targets=self.targets,
-                            location="input",  # non-mergable
-                            ignore=self.ignore,
-                        ),
-                        TransformArgs(
-                            targets=self.targets,
-                            location="weight_input",
-                            inverse=True,
-                            ignore=self.ignore,
-                        ),
-                    ],
-                    randomize=self.randomize,
-                    requires_grad=self.learnable,
-                    precision=self.precision,
+        config_groups = dict()
+        if "v" in self.rotations:
+            config_groups["v"] = self._create_v_scheme()
+        if "u" in self.rotations:
+            config_groups["u"] = self._create_u_scheme()
+
+        return TransformConfig(config_groups=config_groups)
+
+    def _create_v_scheme(self) -> TransformScheme:
+        return TransformScheme(
+            type=self.transform_type,
+            apply=[
+                TransformArgs(
+                    targets=self.targets,
+                    location="input",  # non-mergable
+                    ignore=self.ignore,
                 ),
-                "u": TransformScheme(
-                    type=self.transform_type,
-                    apply=[
-                        TransformArgs(
-                            targets=self.targets,
-                            location="weight_output",
-                            ignore=self.ignore,
-                        ),
-                        TransformArgs(
-                            targets=self.targets,
-                            location="output",  # non-mergable
-                            inverse=True,
-                            ignore=self.ignore,
-                        ),
-                    ],
-                    randomize=self.randomize,
-                    requires_grad=self.learnable,
-                    precision=self.precision,
+                TransformArgs(
+                    targets=self.targets,
+                    location="weight_input",
+                    inverse=True,
+                    ignore=self.ignore,
                 ),
-            }
+            ],
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
+        )
+
+    def _create_u_scheme(self) -> TransformScheme:
+        return TransformScheme(
+            type=self.transform_type,
+            apply=[
+                TransformArgs(
+                    targets=self.targets,
+                    location="weight_output",
+                    ignore=self.ignore,
+                ),
+                TransformArgs(
+                    targets=self.targets,
+                    location="output",  # non-mergable
+                    inverse=True,
+                    ignore=self.ignore,
+                ),
+            ],
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
         )
