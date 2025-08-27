@@ -397,7 +397,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             ):
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
                     # Assume that first argument is the input
-                    args[0].cpu().detach().squeeze(),
+                    args[0].cpu().abs().detach().squeeze(),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
 
@@ -592,6 +592,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         device = get_execution_device(parent_module)
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
+        x_mean.abs_()
 
         for ratio in range(n_grid):
             # create new scales
