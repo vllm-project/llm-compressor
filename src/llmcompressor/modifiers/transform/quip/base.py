@@ -32,11 +32,8 @@ class QuIPModifier(Modifier):
 
     Lifecycle:
         - on_initialize
-            - infer SpinQuantMappings & NormMappings
-            - as needed, create transform schemes for R1, R2, R3, & R4
+            - as needed, create transform schemes for V (input) and U (output)
         - on_start
-            - normalize embeddings
-            - fuse norm layers into subsequent Linear layers
             - apply TransformConfig
                 - fuse transforms into weights for mergeable transforms
                 - add hooks for online transforms
@@ -44,6 +41,9 @@ class QuIPModifier(Modifier):
         - on_end
         - on_finalize
 
+    :param rotations: which rotation schemes to apply to the model. Including `"v"` will
+        rotate the input side of weights, and including `"u"` will rotate the output
+        side of weights (note that v does not require u and vice-versa)
     :param transform_type: The type of transform to apply to the model.
         `"hadamard"` has the least performance cost but only supports sizes which are
         powers of power of two.
