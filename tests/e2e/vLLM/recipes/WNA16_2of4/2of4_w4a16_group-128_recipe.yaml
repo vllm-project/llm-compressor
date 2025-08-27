@@ -11,6 +11,7 @@ quantization_stage:
   quantization_modifiers:
     GPTQModifier:
       ignore: ["lm_head"]
+      actorder: null
       config_groups:
         group_0:
           weights:
