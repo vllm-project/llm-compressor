@@ -89,6 +89,10 @@ jobs:
               with:
                   python-version: ${{ inputs.python }}
 
+            - name: install system dependencies
+              run: sudo apt update && sudo apt install -y g++ gcc git-all
+              shell: bash
+
             - name: checkout code
               id: checkout
               uses: actions/checkout@v4
