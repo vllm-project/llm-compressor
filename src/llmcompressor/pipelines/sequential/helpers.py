@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
+from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.quantization import find_name_or_class_matches
 from compressed_tensors.utils import (
     has_offloaded_params,
@@ -73,9 +74,7 @@ class Subgraph:
         except Exception as exception:
             raise RuntimeError(
                 "Raised an exception during execution of the following code:\n"
-                f"```\n{add_line_numbers(self._code.src)}\n```\n"
-                "This is likely due to a violation of shape assumptions made when "
-                "tracing"
+                f"```\n{add_line_numbers(self._code.src)}\n```"
             ) from exception
 
         return outputs
@@ -177,13 +176,12 @@ class SequentialTracer(HFTracer):
 
         # check unlikely case that ancestors have direct params which are offloaded
         offloaded_ancestors = offloaded & ancestors
-        if offloaded_ancestors:
-            names = set(module.__class__.__name__ for module in offloaded_ancestors)
+        for ancestor in offloaded_ancestors:
+            remove_hook_from_module(ancestor, recurse=False)
+            self.offloaded.remove(ancestor)
             logger.warning(
-                "The following modules are call graph ancestors of sequential targets,"
-                f"but also contain offloaded modules: {names}.\n"
-                "These modules will not be traced, and any sequential target children "
-                "will be executed jointly, which may lead to OOM errors"
+                f"Direct parameters attached to {ancestor.__class__.__name__} have "
+                "been onloaded in order to ensure safe graph capture and execution"
             )
 
     def create_arg(self, a: Any) -> Argument:
@@ -519,8 +517,8 @@ def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]
 def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
     """
     Dispatch a model for sequential calibration using a sequential pipeline.
-    The model will be offloaded to the CPU and dispatched to CUDA device if available.
-    Removes any existing hooks.
+    The model will be offloaded to the CPU and dispatched to CUDA/XPU device
+    if available. Removes any existing hooks.
 
     :param model: model to dispatch
     :return: dispatched model
@@ -529,8 +527,10 @@ def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
 
     if torch.cuda.is_available():
         offloaded_dispatch(model, execution_device=torch.device("cuda:0"))
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        offloaded_dispatch(model, execution_device=torch.device("xpu:0"))
     else:
-        logger.warning("CUDA is not available! Compressing model on CPU instead")
+        logger.warning("CUDA/XPU is not available! Compressing model on CPU instead")
 
     return model
 
