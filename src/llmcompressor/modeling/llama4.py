@@ -33,6 +33,8 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
+
+        # NOTE: `self.router` only returns `router_logits` after `transformers>=4.54`
         router_scores, router_logits = self.router(hidden_states)
 
         out = self.shared_expert(hidden_states)
