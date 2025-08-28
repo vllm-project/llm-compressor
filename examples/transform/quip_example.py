@@ -21,7 +21,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 #   * apply spinquant transforms to model in order to make quantization easier
 #   * quantize the weights to 4 bit with a group size 128
 recipe = [
-    QuIPModifier(transform_type="random-hadamard"),
+    QuIPModifier(targets="Linear", transform_type="random-hadamard"),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
@@ -32,7 +32,9 @@ oneshot(model=model, recipe=recipe, pipeline="datafree")
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")

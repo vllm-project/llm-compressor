@@ -77,7 +77,7 @@ prompt = processor.apply_chat_template(messages, add_generation_prompt=True)
 image_url = "http://images.cocodataset.org/train2017/000000231895.jpg"
 raw_image = Image.open(requests.get(image_url, stream=True).raw)
 
-inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to("cuda")
+inputs = processor(images=raw_image, text=prompt, return_tensors="pt").to(model.device)
 inputs["pixel_values"] = inputs["pixel_values"].to(model.dtype)  # fix dtype
 output = model.generate(**inputs, max_new_tokens=100)
 print(processor.decode(output[0], skip_special_tokens=True))

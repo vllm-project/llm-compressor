@@ -1,6 +1,8 @@
 from typing import Tuple
 
 import torch
+import transformers
+from packaging import version
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
     Llama4TextConfig,
@@ -33,9 +35,22 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
+        router_outputs = self.router(hidden_states)
 
-        # NOTE: `self.router` only returns `router_logits` after `transformers>=4.54`
-        router_scores, router_logits = self.router(hidden_states)
+        # support transformers 4.53 and greater
+        if isinstance(router_outputs, tuple):
+            router_scores, router_logits = router_outputs
+        else:
+            router_top_value, router_indices = torch.topk(
+                router_logits, self.top_k, dim=1
+            )
+            router_logits = router_outputs
+            router_scores = (
+                torch.full_like(router_logits, float("-inf"))
+                .scatter_(1, router_indices, router_top_value)
+                .transpose(0, 1)
+            )
+            router_scores = torch.sigmoid(router_scores.float()).to(hidden_states.dtype)
 
         out = self.shared_expert(hidden_states)
         for expert_index in range(self.num_experts):
@@ -52,7 +67,7 @@ class SequentialLlama4TextMoe(torch.nn.Module):
                 expert_score = router_scores[top_token_mask, expert_index].unsqueeze(-1)
                 out[top_token_mask] += expert_out * expert_score
 
-        return out, router_logits
+        return out, router_scores
 
 
 class SequentialLlama4TextExperts(torch.nn.ModuleList):
