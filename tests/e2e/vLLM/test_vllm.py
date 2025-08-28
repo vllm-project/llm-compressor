@@ -231,14 +231,24 @@ class TestvLLM:
 
         json_llm_kwargs = json.dumps(llm_kwargs)
         json_prompts = json.dumps(self.prompts)
-        json_logger = json.dumps(logger)
 
         result = subprocess.run(
-            [self.vllm_env, "run_vllm.py", json_llm_kwargs, json_prompts, json_logger],
+            [self.vllm_env, "run_vllm.py", json_llm_kwargs, json_prompts],
             capture_output=True,
             text=True,
             check=True
         )
+        outputs = json.loads(result)
+        logger.info("================= vLLM GENERATION ======================")
+        for output in outputs:
+            assert output
+            prompt = output.prompt
+            generated_text = output.outputs[0].text
+
+            logger.info("PROMPT")
+            logger.info(prompt)
+            logger.info("GENERATED TEXT")
+            logger.info(generated_text)
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
