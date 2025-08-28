@@ -222,11 +222,19 @@ class TestvLLM:
         import json
         import subprocess
 
-        json_opt_model = json.dumps(self)
+        llm_kwargs = {"model": self.save_dir}
+        if "W4A16_2of4" in self.scheme:
+            # required by the kernel
+            llm_kwargs["dtype"] = torch.float16
+        if self.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+
+        json_llm_kwargs = json.dumps(llm_kwargs)
+        json_prompts = json.dumps(self.prompts)
         json_logger = json.dumps(logger)
 
         result = subprocess.run(
-            [self.vllm_env, "run_vllm.py", json_opt_model, json_logger],
+            [self.vllm_env, "run_vllm.py", json_llm_kwargs, json_prompts, json_logger],
             capture_output=True,
             text=True,
             check=True
