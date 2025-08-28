@@ -1,8 +1,6 @@
 from typing import Tuple
 
 import torch
-import transformers
-from packaging import version
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
     Llama4TextConfig,
