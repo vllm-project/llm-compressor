@@ -12,8 +12,11 @@ from llmcompressor.modeling.llama4 import (
 )
 from llmcompressor.modeling.prepare import replace_modules_for_calibration
 from llmcompressor.utils.dev import skip_weights_download
+from llmcompressor.utils.helpers import calibration_forward_context
+from tests.testing_utils import requires_cadence, requires_gpu
 
 
+@requires_cadence("weekly")
 @pytest.mark.skipif(
     (not os.getenv("HF_TOKEN")),
     reason="Skipping tracing tests requiring gated model access",
@@ -60,21 +63,26 @@ def test_calib_replace_llama4_moe_all_experts(model_stub):
     assert all(expert_triggered), f"Not all experts were triggered: {expert_triggered}"
 
 
-def test_calib_llama_module():
+@requires_gpu
+def test_calib_llama4_module():
     config = Llama4TextConfig()
-    original = Llama4TextMoe(config).eval()
-    module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=True).eval()
+    with torch.device("cuda"):
+        original = Llama4TextMoe(config)
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
     batch, seq_len = 4, 32
-    sample = torch.randn(batch, seq_len, hidden_dim)
+    sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 
-    true_output = original(sample)[0]
-    output = module(sample)[0]
-    assert torch.allclose(true_output, output)
+    with calibration_forward_context(original):
+        true_output = original(sample)[0]
 
-    module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=False).eval()
-    true_output = original(sample)[0]
-    output = module(sample)[0]
-    assert torch.allclose(true_output, output)
+    module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=True)
+    with calibration_forward_context(module):
+        output = module(sample)[0]
+        assert torch.allclose(true_output, output, atol=1e-6)
+
+    module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=False)
+    with calibration_forward_context(module):
+        output = module(sample)[0]
+        assert torch.allclose(true_output, output, atol=1e-6)

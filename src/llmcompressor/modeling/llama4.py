@@ -25,6 +25,7 @@ class SequentialLlama4TextMoe(torch.nn.Module):
         self.top_k = config.num_experts_per_tok
         self.hidden_dim = config.hidden_size
         self.num_experts = config.num_local_experts
+
         self.experts = SequentialLlama4TextExperts(config, original.experts)
         self.router = original.router
         self.shared_expert = original.shared_expert
@@ -37,6 +38,7 @@ class SequentialLlama4TextMoe(torch.nn.Module):
         out = self.shared_expert(hidden_states)
         for expert_index in range(self.num_experts):
             top_token_mask = router_scores[:, expert_index] > 0
+
             if self.calibrate_all_experts:
                 # Run all tokens for calibration
                 expert_out = self.experts[expert_index](hidden_states)[top_token_mask]
@@ -45,7 +47,6 @@ class SequentialLlama4TextMoe(torch.nn.Module):
 
             # Only top-k tokens contribute to final output
             if top_token_mask.any():
-                # out[top_token_mask] += expert_out * router_scores[top_token_mask, expert_index]
                 expert_score = router_scores[top_token_mask, expert_index].unsqueeze(-1)
                 out[top_token_mask] += expert_out * expert_score
 

@@ -13,8 +13,10 @@ from llmcompressor.modeling.qwen3_moe import (
 )
 from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
+from tests.testing_utils import requires_cadence, requires_gpu
 
 
+@requires_cadence("weekly")
 @pytest.mark.parametrize("model_stub", ["Qwen/Qwen3-30B-A3B"])
 def test_calib_replace_qwen3moe_all_experts(model_stub):
     with skip_weights_download():
@@ -62,21 +64,26 @@ def test_calib_replace_qwen3moe_all_experts(model_stub):
         ), f"Not all experts were triggered: {expert_triggered}"
 
 
+@requires_gpu
 def test_calib_qwen3_moe_module():
     config = Qwen3MoeConfig()
-    original = OriginalQwen3MoeSparseMoeBlock(config).eval()
-    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=True).eval()
+    with torch.device("cuda"):
+        original = OriginalQwen3MoeSparseMoeBlock(config).eval()
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
     batch, seq_len = 4, 32
-    sample = torch.randn(batch, seq_len, hidden_dim)
+    sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 
-    # true_output = original(sample)[0]
-    # output = module(sample)[0]
-    # assert torch.allclose(true_output, output)
+    with calibration_forward_context(original):
+        true_output = original(sample)[0]
 
-    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=False).eval()
-    true_output = original(sample)[0]
-    output = module(sample)[0]
-    assert torch.allclose(true_output, output)
+    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=True)
+    with calibration_forward_context(module):
+        output = module(sample)[0]
+        assert torch.allclose(true_output, output, atol=1e-6)
+
+    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=False)
+    with calibration_forward_context(module):
+        output = module(sample)[0]
+        assert torch.allclose(true_output, output, atol=1e-6)

@@ -9,8 +9,9 @@ class CalibrationConfig(BaseModel):
     def validate_config(self):
         if not self.moe_calibrate_gated_acts and not self.moe_calibrate_all_experts:
             raise NotImplementedError(
-                "Using all experts for activations without calibrating all experts is not supported. "
-                "Please set moe_calibrate_gated_acts=True or moe_calibrate_all_experts=True."
+                "Using all experts for activations without calibrating all experts is "
+                "not supported. Please set moe_calibrate_gated_acts=True or "
+                "moe_calibrate_all_experts=True."
             )
 
         return self
