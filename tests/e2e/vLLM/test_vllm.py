@@ -155,18 +155,20 @@ class TestvLLM:
         if VLLM_IN_SAME_ENV.lower() == "yes":
             logger.info("================= RUNNING vLLM in the same python env =========================")
 
-            outputs = self._run_vllm()
+            self._run_vllm_separate(logger=logger)
 
-            logger.info("================= vLLM GENERATION ======================")
-            for output in outputs:
-                assert output
-                prompt = output.prompt
-                generated_text = output.outputs[0].text
+            #outputs = self._run_vllm()
 
-                logger.info("PROMPT")
-                logger.info(prompt)
-                logger.info("GENERATED TEXT")
-                logger.info(generated_text)
+            #logger.info("================= vLLM GENERATION ======================")
+            #for output in outputs:
+            #    assert output
+            #    prompt = output.prompt
+            #    generated_text = output.outputs[0].text
+
+            #    logger.info("PROMPT")
+            #    logger.info(prompt)
+            #    logger.info("GENERATED TEXT")
+            #    logger.info(generated_text)
         else:
             logger.info("================= RUNNING vLLM in a separate python env =========================")
 
