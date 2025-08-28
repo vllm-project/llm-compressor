@@ -18,7 +18,7 @@ replacements = {
 
 def replace_modules_for_calibration(
     model: PreTrainedModel,
-    calibrate_all_experts: bool = False,
+    calibrate_all_experts: bool = True,
 ) -> PreTrainedModel:
     for name, module in tqdm.tqdm(list(model.named_modules())):
         cls_name = module.__class__.__name__
