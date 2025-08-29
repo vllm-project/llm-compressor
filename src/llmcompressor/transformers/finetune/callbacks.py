@@ -1,3 +1,12 @@
+"""
+Training callbacks for compression-aware fine-tuning workflows.
+
+This module provides custom trainer callbacks that integrate compression
+session management with HuggingFace training loops. Handles precision
+control, training loop monitoring, and compression lifecycle events
+during model fine-tuning.
+"""
+
 import math
 
 from transformers import TrainerCallback, TrainerControl, TrainingArguments

@@ -1,3 +1,12 @@
+"""
+Utility functions for entrypoint pre and post-processing operations.
+
+Provides common utility functions used by training and one-shot
+compression entrypoints. Includes model loading, configuration setup,
+preprocessing steps, and post-processing operations for compression
+workflows.
+"""
+
 import inspect
 import os
 from pathlib import PosixPath
