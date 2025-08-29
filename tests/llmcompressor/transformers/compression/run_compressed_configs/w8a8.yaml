@@ -1,0 +1,4 @@
+cadence: "nightly"
+test_type: "regression"
+compressed_model_stub: nm-testing/TinyLlama-1.1B-Chat-v1.0-W8A8-Dynamic-Per-Token-compressed
+uncompressed_model_stub: nm-testing/TinyLlama-1.1B-Chat-v1.0-W8A8-Dynamic-Per-Token-uncompressed
