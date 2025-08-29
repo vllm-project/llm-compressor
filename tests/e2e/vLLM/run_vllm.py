@@ -1,3 +1,4 @@
+import gc
 import json
 import sys
 import torch
@@ -11,6 +12,15 @@ sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
 
 llm = LLM(**llm_kwargs)
 outputs = llm.generate(prompts, sampling_params)
-json_outputs = json.dumps(outputs)
 
-return json_outputs
+json_outputs = {}
+for output in outputs:
+    assert output
+    prompt = output.prompt
+    generated_text = output.outputs[0].text
+    json_outputs[prompt] = generated_text
+
+del llm
+gc.collect()
+
+print("VLLMOUTPUT"+str(json_outputs)+"VLLMOUTPUT")
