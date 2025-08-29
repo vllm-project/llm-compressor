@@ -85,6 +85,9 @@ markdown_extensions:
 plugins:
   - api-autonav:
       modules: ['src/llmcompressor']
+      exclude:
+        - "llmcompressor.version"
+        - "llmcompressor.typing"
   - gen-files:
       scripts:
         - docs/scripts/gen_files.py
@@ -96,7 +99,18 @@ plugins:
       handlers:
         python:
           options:
-            docstring_style: sphinx
+            docstring_section_style: list
+            docstring_style: "sphinx"
+            filters: ["!^_"]
+            heading_level: 1
+            merge_init_into_class: true
+            parameter_headings: true
+            separate_signature: true
+            show_root_heading: true
+            show_signature_annotations: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            summary: true
   - search
   - section-index
   - social
