@@ -12,14 +12,15 @@ from compressed_tensors import (
     has_offloaded_params,
     register_offload_parameter,
 )
+from compressed_tensors.config import (
+    CompressionFormat,
+    infer_and_set_per_module_quantization_format,
+)
 from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from compressed_tensors.config.format import (
-    infer_and_set_per_module_quantization_format,
-)
 from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
 )
@@ -227,21 +228,21 @@ def get_model_compressor(
                 SparsityConfigMetadata.infer_sparsity_structure(model)
             )
 
-    quantization_format: Optional[List[str]] = (
-        infer_and_set_per_module_quantization_format(
-            model=model,
-            quantization_format=quantization_format,
-            save_compressed=save_compressed,
-            sparsity_structure=None
-            if sparsity_config is None
-            else sparsity_config.sparsity_structure,
+    if not save_compressed:
+        quantization_format = CompressionFormat.dense
+
+    if quantization_format is None and save_compressed:
+        quantization_format: Optional[List[str]] = (
+            infer_and_set_per_module_quantization_format(
+                model=model,
+                sparsity_structure=None
+                if sparsity_config is None
+                else sparsity_config.sparsity_structure,
+            )
         )
-    )
 
     return ModelCompressor.from_pretrained_model(
-        model,
-        sparsity_config=sparsity_config,
-        quantization_format=quantization_format,
+        model, sparsity_config=sparsity_config, quantization_format=quantization_format
     )
 
 
