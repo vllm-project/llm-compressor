@@ -1,3 +1,12 @@
+"""
+Dataset preprocessing functions for text generation tasks.
+
+This module provides a registry of preprocessing functions for various
+datasets used in fine-tuning workflows. Includes chat templates,
+instruction formatting, and dataset-specific transformations for
+popular training datasets.
+"""
+
 from typing import TYPE_CHECKING, Dict
 
 from compressed_tensors.registry import RegistryMixin

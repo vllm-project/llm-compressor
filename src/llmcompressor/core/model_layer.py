@@ -1,3 +1,11 @@
+"""
+Model layer utility classes for LLM compression workflows.
+
+Provides dataclass containers for managing model layers and their associated
+parameters during compression operations. Facilitates tracking and manipulation
+of specific model components and their parameters.
+"""
+
 from dataclasses import dataclass
 from typing import Any
 

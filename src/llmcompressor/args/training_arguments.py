@@ -1,3 +1,12 @@
+"""
+Training argument classes for LLM compression workflows.
+
+This module defines dataclass-based argument containers for configuring
+training and one-shot calibration workflows. Extends HuggingFace's
+TrainingArguments with additional parameters specific to compression and
+stage-based execution.
+"""
+
 from dataclasses import dataclass, field
 from typing import Optional
 

@@ -1,3 +1,12 @@
+"""
+Framework for monitoring and analyzing model behavior during compression.
+
+Provides observers for tracking tensor statistics, activation
+ranges, and model behavior during compression workflows. Includes
+min-max observers, MSE observers, and helper utilities for quantization
+and other compression techniques.
+"""
+
 # flake8: noqa
 # isort: skip_file
 
