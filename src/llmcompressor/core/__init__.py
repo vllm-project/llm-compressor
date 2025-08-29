@@ -1,3 +1,9 @@
+"""
+Provides the core compression framework for LLM Compressor.
+
+The core API manages compression sessions, tracks state changes, handles events during compression, and provides lifecycle hooks for the compression process.
+"""
+
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.core.model_layer import ModelParameterizedLayer
