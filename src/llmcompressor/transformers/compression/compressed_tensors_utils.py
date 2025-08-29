@@ -17,7 +17,7 @@ from transformers import PreTrainedModel
 
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
-from llmcompressor.transformers.compression.quantization_format import (
+from compressed_tensors.config.format import (
     infer_and_set_per_module_quantization_format,
 )
 from llmcompressor.transformers.compression.sparsity_metadata_config import (
