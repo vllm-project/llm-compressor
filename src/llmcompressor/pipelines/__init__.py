@@ -1,3 +1,12 @@
+"""
+Compression pipelines for orchestrating different compression strategies.
+
+Provides various compression pipelines including basic, sequential,
+independent, layer-sequential, and data-free approaches. Each pipeline
+coordinates different compression techniques and workflows for optimal
+model optimization based on specific requirements and constraints.
+"""
+
 # flake8: noqa
 # populate registry
 from .basic import *
