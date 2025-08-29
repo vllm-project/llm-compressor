@@ -155,24 +155,29 @@ class TestvLLM:
         if VLLM_IN_SAME_ENV.lower() == "yes":
             logger.info("================= RUNNING vLLM in the same python env =========================")
 
-            self._run_vllm_separate(logger=logger)
+            outputs = self._run_vllm()
 
-            #outputs = self._run_vllm()
+            logger.info("================= vLLM GENERATION ======================")
+            for output in outputs:
+                assert output
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
 
-            #logger.info("================= vLLM GENERATION ======================")
-            #for output in outputs:
-            #    assert output
-            #    prompt = output.prompt
-            #    generated_text = output.outputs[0].text
-
-            #    logger.info("PROMPT")
-            #    logger.info(prompt)
-            #    logger.info("GENERATED TEXT")
-            #    logger.info(generated_text)
+                logger.info("PROMPT")
+                logger.info(prompt)
+                logger.info("GENERATED TEXT")
+                logger.info(generated_text)
         else:
             logger.info("================= RUNNING vLLM in a separate python env =========================")
 
-            self._run_vllm_separate(logger=logger)
+            outputs = self._run_vllm_separate()
+
+            logger.info("================= vLLM GENERATION ======================")
+            for prompt, generated_text in outputs.items():
+                logger.info("PROMPT")
+                logger.info(prompt)
+                logger.info("GENERATED TEXT")
+                logger.info(generated_text)
 
         self.tear_down()
 
@@ -218,8 +223,9 @@ class TestvLLM:
         outputs = llm.generate(self.prompts, sampling_params)
         return outputs
 
-    def _run_vllm_separate(self, logger):
+    def _run_vllm_separate(self):
         import json
+        import re
         import subprocess
 
         llm_kwargs = {"model": self.save_dir}
@@ -238,17 +244,11 @@ class TestvLLM:
             text=True,
             check=True
         )
-        outputs = json.loads(result)
-        logger.info("================= vLLM GENERATION ======================")
-        for output in outputs:
-            assert output
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
+        match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", result.stdout)
+        if match:
+            output_str = match.group(1)  # the vllm output
 
-            logger.info("PROMPT")
-            logger.info(prompt)
-            logger.info("GENERATED TEXT")
-            logger.info(generated_text)
+        return output_str
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
