@@ -229,7 +229,7 @@ def get_model_compressor(
             )
 
     if not save_compressed:
-        quantization_format = CompressionFormat.dense
+        quantization_format = CompressionFormat.dense.value
 
     if quantization_format is None and save_compressed:
         quantization_format: Optional[List[str]] = (
