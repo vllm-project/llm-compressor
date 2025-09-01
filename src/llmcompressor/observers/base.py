@@ -249,6 +249,14 @@ class Observer(InternalModule, RegistryMixin):
                         self._scale[i, j] = scale_bp
                         self._zero_point[i, j] = zp_bp
 
+            elif self.quantization_args.strategy == QuantizationStrategy.ATTN_HEAD:
+                # observed.shape = [batch, num_kv_heads, tokens, head_dim]
+                # tested only for GQA models, add support for others as needed
+                self._scale, self._zero_point = self.get_qparams_along_dim(
+                    observed,
+                    dim=1,
+                )
+
         return self._scale, self._zero_point
 
     def get_qparams_along_dim(
