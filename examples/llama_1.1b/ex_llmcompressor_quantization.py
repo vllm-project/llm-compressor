@@ -24,7 +24,7 @@
 from pathlib import Path
 
 import torch
-from llmcompressor.transformers import oneshot
+from llmcompressor import oneshot
 
 
 recipe = str(Path(__file__).parent / "example_quant_recipe.yaml")
