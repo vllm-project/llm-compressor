@@ -80,7 +80,7 @@ class TestvLLM:
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
         # vllm separate env
         if VLLM_IN_SAME_ENV.lower() != "yes":
-            self.vllm_env = os.path.join(VLLM_IN_SAME_ENV, "bin/python")
+            self.vllm_env = VLLM_IN_SAME_ENV
         else:
             self.vllm_env = sys.executable
 
