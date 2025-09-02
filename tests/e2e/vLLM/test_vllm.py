@@ -254,12 +254,13 @@ class TestvLLM:
             stderr=subprocess.PIPE,
             text=True
         )
+        output, error = result.communicate()
         logger.info("VLLM log:")
-        logger.info(result.stdout)
+        logger.info(output)
 
         if result.returncode != 0:
             logger.error("ERROR: failed to run in vllm")
-            logger.error(result.stderr)
+            logger.error(error)
         else:
             match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", result.stdout)
             if match:
