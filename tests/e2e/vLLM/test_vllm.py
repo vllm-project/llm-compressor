@@ -170,14 +170,14 @@ class TestvLLM:
         else:
             logger.info("================= RUNNING vLLM in a separate python env =========================")
 
-            outputs = self._run_vllm_separate()
+            outputs = self._run_vllm_separate(logger)
 
-            logger.info("================= vLLM GENERATION ======================")
-            for prompt, generated_text in outputs.items():
-                logger.info("PROMPT")
-                logger.info(prompt)
-                logger.info("GENERATED TEXT")
-                logger.info(generated_text)
+            #logger.info("================= vLLM GENERATION ======================")
+            #for prompt, generated_text in outputs.items():
+            #    logger.info("PROMPT")
+            #    logger.info(prompt)
+            #    logger.info("GENERATED TEXT")
+            #    logger.info(generated_text)
 
         self.tear_down()
 
@@ -223,7 +223,7 @@ class TestvLLM:
         outputs = llm.generate(self.prompts, sampling_params)
         return outputs
 
-    def _run_vllm_separate(self):
+    def _run_vllm_separate(self, logger):
         import json
         import re
         import subprocess
@@ -247,11 +247,23 @@ class TestvLLM:
             text=True,
             check=True
         )
-        match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", result.stdout)
-        if match:
-            output_str = match.group(1)  # the vllm output
+        logger.info("VLLM log")
+        logger.info(result.stdout)
 
-        return output_str
+        if result.returncode != 0:
+            logger.error("ERROR: failed to run in vllm")
+            logger.error(result.stderr)
+        else:
+            match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", result.stdout)
+            if match:
+                output_str = match.group(1)  # the vllm output
+
+            logger.info("================= vLLM GENERATION ======================")
+            for prompt, generated_text in output_str.items():
+                logger.info("PROMPT")
+                logger.info(prompt)
+                logger.info("GENERATED TEXT")
+                logger.info(generated_text)
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
