@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+from transformers import PretrainedConfig, PreTrainedModel
 
 from llmcompressor.utils import (
     ALL_TOKEN,
@@ -140,8 +141,10 @@ def test_DisableQuantization():
 
 @pytest.mark.unit
 def test_calibration_forward_context():
-    model = torch.nn.Linear(1, 1)
-    model.config = SimpleNamespace()
+    class DummyModel(PreTrainedModel):
+        config_class = PretrainedConfig
+
+    model = DummyModel(PretrainedConfig())
     model.config.use_cache = True
     model.train()
 
