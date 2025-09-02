@@ -592,7 +592,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         device = get_execution_device(parent_module)
         x_mean = x_mean.view(-1).to(device)
         w_mean = w_mean.view(-1).to(device)
-        x_mean.abs_()
 
         for ratio in range(n_grid):
             # create new scales
