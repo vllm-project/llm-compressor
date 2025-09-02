@@ -24,7 +24,7 @@ TEST_DATA_FILE = os.environ.get(
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 # if vllm is installed in the same python environment or not; if not,
 # pass the path of the virtual env where vllm is installed separately
-VLLM_IN_SAME_ENV = os.environ.get("VLLM_IN_SAME_ENV","yes")
+VLLM_IN_SAME_ENV = os.environ.get("VLLM_IN_SAME_ENV", "yes")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
