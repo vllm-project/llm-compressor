@@ -241,13 +241,20 @@ class TestvLLM:
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
         run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
-        result = subprocess.run(
+        #result = subprocess.run(
+        #    [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
+        #    capture_output=True,
+        #    text=True,
+        #    check=True
+        #)
+
+        result = subprocess.Popen(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-            capture_output=True,
-            text=True,
-            check=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
-        logger.info("VLLM log")
+        logger.info("VLLM log:")
         logger.info(result.stdout)
 
         if result.returncode != 0:
