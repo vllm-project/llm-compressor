@@ -238,8 +238,11 @@ class TestvLLM:
         json_llm_kwargs = json.dumps(llm_kwargs)
         json_prompts = json.dumps(self.prompts)
 
+        test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+
         result = subprocess.run(
-            [self.vllm_env, "run_vllm.py", json_llm_kwargs, json_prompts],
+            [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
             capture_output=True,
             text=True,
             check=True
