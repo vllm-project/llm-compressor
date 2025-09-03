@@ -19,9 +19,8 @@ import pytest
 import torch
 from compressed_tensors.quantization.lifecycle.forward import (
     _process_quantization,
-    dequantize,
+    fake_quantize,
     forward_quantize,
-    quantize,
     wrap_module_forward_quantized,
 )
 from compressed_tensors.quantization.lifecycle.initialize import (
@@ -96,7 +95,7 @@ def test_forward_quantize(
 
 
 @pytest.mark.parametrize(
-    "num_bits,type,strategy,group_size,scale,zero_point,g_idx",
+    "num_bits,type,strategy,group_size,scale,zero_point,g_idx,global_scale",
     [
         (
             4,
@@ -106,6 +105,7 @@ def test_forward_quantize(
             torch.rand((1,)) * 0.01,
             torch.zeros((1,)),
             None,
+            None,
         ),
         (
             4,
@@ -114,6 +114,7 @@ def test_forward_quantize(
             128,
             torch.rand((512, 8)) * 0.01,
             torch.zeros((512, 8)),
+            None,
             None,
         ),
         (
@@ -124,6 +125,7 @@ def test_forward_quantize(
             torch.rand((512, 8)) * 0.01,
             torch.zeros((512, 8)),
             make_dummy_g_idx(1024, 128),
+            None,
         ),
         (
             8,
@@ -133,6 +135,7 @@ def test_forward_quantize(
             torch.rand((1,)) * 0.01,
             torch.zeros((1,)),
             None,
+            None,
         ),
         (
             8,
@@ -141,6 +144,7 @@ def test_forward_quantize(
             128,
             torch.rand((512, 8)) * 0.01,
             torch.zeros((512, 8)),
+            None,
             None,
         ),
         (
@@ -151,62 +155,46 @@ def test_forward_quantize(
             torch.rand((512, 8)) * 0.01,
             torch.zeros((512, 8)),
             make_dummy_g_idx(1024, 128),
+            None,
+        ),
+        (
+            8,
+            "int",
+            QuantizationStrategy.GROUP,
+            128,
+            torch.rand((512, 8)) * 0.01,
+            torch.zeros((512, 8)),
+            None,
+            None,
+        ),
+        (
+            8,
+            "int",
+            QuantizationStrategy.GROUP,
+            128,
+            torch.rand((512, 8)) * 0.01,
+            torch.zeros((512, 8)),
+            make_dummy_g_idx(1024, 128),
+            None,
         ),
     ],
 )
-def test_quantize(num_bits, type, strategy, group_size, scale, zero_point, g_idx):
+def test_fake_quantize_2d(
+    num_bits, type, strategy, group_size, scale, zero_point, g_idx, global_scale
+):
     args = QuantizationArgs(
         num_bits=num_bits, type=type, strategy=strategy, group_size=group_size
     )
 
     x = torch.rand((512, 1024))
-    quantize(
+    fake_quantize(
         x=x,
         scale=scale,
         zero_point=zero_point,
         args=args,
-        dtype=args.pytorch_dtype(),
         g_idx=g_idx,
-    )
-
-
-@pytest.mark.parametrize(
-    "num_bits,type,strategy,group_size,scale,zero_point,g_idx",
-    [
-        (
-            8,
-            "int",
-            QuantizationStrategy.GROUP,
-            128,
-            torch.rand((512, 8)) * 0.01,
-            torch.zeros((512, 8)),
-            None,
-        ),
-        (
-            8,
-            "int",
-            QuantizationStrategy.GROUP,
-            128,
-            torch.rand((512, 8)) * 0.01,
-            torch.zeros((512, 8)),
-            make_dummy_g_idx(1024, 128),
-        ),
-    ],
-)
-def test_dequantize(num_bits, type, strategy, group_size, scale, zero_point, g_idx):
-    args = QuantizationArgs(
-        num_bits=num_bits, type=type, strategy=strategy, group_size=group_size
-    )
-
-    x_q = torch.rand((512, 1024)).to(dtype=args.pytorch_dtype())
-    dequantize(
-        x_q=x_q,
-        scale=scale,
-        zero_point=zero_point,
-        args=args,
-        dtype=None,
-        g_idx=g_idx,
-    )
+        global_scale=global_scale,
+    )  # note that reconstruction loss is bad for uncalibrated scales
 
 
 def test_process_quantization_block_static():
