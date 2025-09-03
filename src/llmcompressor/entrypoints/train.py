@@ -63,7 +63,7 @@ def train(**kwargs) -> PreTrainedModel:
         include_training_args=True, **kwargs
     )
 
-    pre_process(model_args)
+    pre_process(model_args, dataset_args)
     dispatch_for_generation(model_args.model)  # train is dispatched same as generation
 
     processed_dataset = get_processed_dataset(
