@@ -81,8 +81,6 @@ class TestvLLM:
         # vllm separate env
         if VLLM_IN_SAME_ENV.lower() != "yes":
             self.vllm_env = VLLM_IN_SAME_ENV
-        else:
-            self.vllm_env = sys.executable
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -155,19 +153,18 @@ class TestvLLM:
         if VLLM_IN_SAME_ENV.lower() == "yes":
             logger.info("================= RUNNING vLLM in the same python env =========================")
 
-            #outputs = self._run_vllm()
-            self._run_vllm_separate(logger)
+            outputs = self._run_vllm()
 
-            #logger.info("================= vLLM GENERATION ======================")
-            #for output in outputs:
-            #    assert output
-            #    prompt = output.prompt
-            #    generated_text = output.outputs[0].text
+            logger.info("================= vLLM GENERATION ======================")
+            for output in outputs:
+                assert output
+                prompt = output.prompt
+                generated_text = output.outputs[0].text
 
-            #    logger.info("PROMPT")
-            #    logger.info(prompt)
-            #    logger.info("GENERATED TEXT")
-            #    logger.info(generated_text)
+                logger.info("PROMPT")
+                logger.info(prompt)
+                logger.info("GENERATED TEXT")
+                logger.info(generated_text)
         else:
             logger.info("================= RUNNING vLLM in a separate python env =========================")
 
@@ -227,64 +224,88 @@ class TestvLLM:
     def _run_vllm_separate(self, logger):
         import json
         import re
+        import requests
         import subprocess
 
-        llm_kwargs = {"model": self.save_dir}
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm_kwargs["dtype"] = torch.float16
-        if self.gpu_memory_utilization is not None:
-            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
-
-        json_llm_kwargs = json.dumps(llm_kwargs)
-        json_prompts = json.dumps(self.prompts)
-
-        test_file_dir = os.path.dirname(os.path.abspath(__file__))
-        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
-
-        logger.info("TRY subprocess.run():")
-        result1 = subprocess.run(
-            [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-            capture_output=True,
+        proc = subprocess.Popen(
+            [
+                self.vllm_env, "serve", self.save_dir,
+                "--port", "8000"
+            ],
+            #stdout=subprocess.PIPE,
+            #stderr=subprocess.PIPE,
             text=True
         )
-        logger.info("VLLM1 log:")
-        logger.info(result1.stdout)
-        logger.info("VLLM1 returncode:")
-        logger.info(result1.returncode)
-        logger.info("VLLM1 error:")
-        logger.info(result1.stderr)
 
-        logger.info("TRY subprocess.Popen():")
-        result = subprocess.Popen(
-            [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        output, error = result.communicate()
-        logger.info("VLLM log:")
-        logger.info(output)
+        url = "http://localhost:8000/v1/completions"
 
-        logger.info("VLLM returned code:")
-        logger.info(str(result.returncode))
-        logger.info("VLLM error:")
-        logger.info(error)
+        payload = {
+            "model": self.save_dir,
+            "prompt": "The capital of France is",
+            "max_tokens": 50
+        }
+
+        response = requests.post(url, json=payload)
+
+        logger.info("VLLM OUTPUT:")
+        logger.info(response.json())
+
+        #llm_kwargs = {"model": self.save_dir}
+        #if "W4A16_2of4" in self.scheme:
+        #    # required by the kernel
+        #    llm_kwargs["dtype"] = torch.float16
+        #if self.gpu_memory_utilization is not None:
+        #    llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+
+        #json_llm_kwargs = json.dumps(llm_kwargs)
+        #json_prompts = json.dumps(self.prompts)
+
+        #test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        #run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+
+        #logger.info("TRY subprocess.run():")
+        #result1 = subprocess.run(
+        #    [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
+        #    capture_output=True,
+        #    text=True
+        #)
+        #logger.info("VLLM1 log:")
+        #logger.info(result1.stdout)
+        #logger.info("VLLM1 returncode:")
+        #logger.info(result1.returncode)
+        #logger.info("VLLM1 error:")
+        #logger.info(result1.stderr)
+
+        #logger.info("TRY subprocess.Popen():")
+        #result = subprocess.Popen(
+        #    [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
+        #    stdout=subprocess.PIPE,
+        #    stderr=subprocess.PIPE,
+        #    text=True
+        #)
+        #output, error = result.communicate()
+        #logger.info("VLLM log:")
+        #logger.info(output)
+
+        #logger.info("VLLM returned code:")
+        #logger.info(str(result.returncode))
+        #logger.info("VLLM error:")
+        #logger.info(error)
 
         #if result.returncode != 0:
         #    logger.error("ERROR: failed to run in vllm")
         #    logger.error(error)
         #else:
-        match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", output)
-        if match:
-            output_str = match.group(1)  # the vllm output
+        #match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", output)
+        #if match:
+        #    output_str = match.group(1)  # the vllm output
 
-            logger.info("================= vLLM GENERATION ======================")
-            for prompt, generated_text in output_str.items():
-                logger.info("PROMPT")
-                logger.info(prompt)
-                logger.info("GENERATED TEXT")
-                logger.info(generated_text)
+        #    logger.info("================= vLLM GENERATION ======================")
+        #    for prompt, generated_text in output_str.items():
+        #        logger.info("PROMPT")
+        #        logger.info(prompt)
+        #        logger.info("GENERATED TEXT")
+        #        logger.info(generated_text)
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
