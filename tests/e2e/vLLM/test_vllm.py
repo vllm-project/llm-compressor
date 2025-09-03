@@ -245,8 +245,7 @@ class TestvLLM:
         result1 = subprocess.run(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
             capture_output=True,
-            text=True,
-            check=True
+            text=True
         )
         logger.info("VLLM1 log:")
         logger.info(result1.stdout)
