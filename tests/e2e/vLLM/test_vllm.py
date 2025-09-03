@@ -275,8 +275,8 @@ class TestvLLM:
         logger.info("TRY subprocess.Popen():")
         result = subprocess.Popen(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            #stdout=subprocess.PIPE,
+            #stderr=subprocess.PIPE,
             text=True
         )
         stdout, stderr = result.communicate()
