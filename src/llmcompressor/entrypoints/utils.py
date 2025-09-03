@@ -15,7 +15,12 @@ from transformers import (
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.args import ModelArguments, RecipeArguments, TrainingArguments
+from llmcompressor.args import (
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+    DatasetArguments,
+)
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
@@ -30,7 +35,7 @@ from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
-def pre_process(model_args: "ModelArguments"):
+def pre_process(model_args: ModelArguments, dataset_args: DatasetArguments):
     """
     Prepares the model and tokenizer/processor for calibration.
     - Initializes the model if it's specified as a path or string.
@@ -54,8 +59,11 @@ def pre_process(model_args: "ModelArguments"):
         model_args.model = model
         model_args.distill_teacher = distill_teacher
 
-    # Initialize processor
-    if isinstance(model_args.processor, (str, type(None))):
+    # Initialize processor if dataset provided
+    if (
+        isinstance(model_args.processor, (str, type(None)))
+        and dataset_args.dataset is not None
+    ):
         model_args.processor = initialize_processor_from_path(
             model_args, model_args.model
         )
