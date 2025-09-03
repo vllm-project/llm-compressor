@@ -224,44 +224,40 @@ class TestvLLM:
     def _run_vllm_separate(self, logger):
         import json
         import re
-        import requests
+        #import requests
         import subprocess
 
-        proc = subprocess.Popen(
-            [
-                self.vllm_env, "serve", self.save_dir,
-                "--port", "8000"
-            ],
-            #stdout=subprocess.PIPE,
-            #stderr=subprocess.PIPE,
-            text=True
-        )
+        #proc = subprocess.Popen(
+        #    [
+        #        self.vllm_env, "serve", self.save_dir,
+        #        "--port", "8000"
+        #    ],
+        #    #stdout=subprocess.PIPE,
+        #    #stderr=subprocess.PIPE,
+        #    text=True
+        #)
+        #url = "http://localhost:8000/v1/completions"
+        #payload = {
+        #    "model": self.save_dir,
+        #    "prompt": "The capital of France is",
+        #    "max_tokens": 50
+        #}
+        #response = requests.post(url, json=payload)
+        #logger.info("VLLM OUTPUT:")
+        #logger.info(response.json())
 
-        url = "http://localhost:8000/v1/completions"
+        llm_kwargs = {"model": self.save_dir}
+        if "W4A16_2of4" in self.scheme:
+            # required by the kernel
+            llm_kwargs["dtype"] = torch.float16
+        if self.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
 
-        payload = {
-            "model": self.save_dir,
-            "prompt": "The capital of France is",
-            "max_tokens": 50
-        }
+        json_llm_kwargs = json.dumps(llm_kwargs)
+        json_prompts = json.dumps(self.prompts)
 
-        response = requests.post(url, json=payload)
-
-        logger.info("VLLM OUTPUT:")
-        logger.info(response.json())
-
-        #llm_kwargs = {"model": self.save_dir}
-        #if "W4A16_2of4" in self.scheme:
-        #    # required by the kernel
-        #    llm_kwargs["dtype"] = torch.float16
-        #if self.gpu_memory_utilization is not None:
-        #    llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
-
-        #json_llm_kwargs = json.dumps(llm_kwargs)
-        #json_prompts = json.dumps(self.prompts)
-
-        #test_file_dir = os.path.dirname(os.path.abspath(__file__))
-        #run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+        test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
         #logger.info("TRY subprocess.run():")
         #result1 = subprocess.run(
@@ -276,21 +272,20 @@ class TestvLLM:
         #logger.info("VLLM1 error:")
         #logger.info(result1.stderr)
 
-        #logger.info("TRY subprocess.Popen():")
-        #result = subprocess.Popen(
-        #    [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-        #    stdout=subprocess.PIPE,
-        #    stderr=subprocess.PIPE,
-        #    text=True
-        #)
-        #output, error = result.communicate()
-        #logger.info("VLLM log:")
-        #logger.info(output)
-
-        #logger.info("VLLM returned code:")
-        #logger.info(str(result.returncode))
-        #logger.info("VLLM error:")
-        #logger.info(error)
+        logger.info("TRY subprocess.Popen():")
+        result = subprocess.Popen(
+            [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        stdout, stderr = result.communicate()
+        logger.info("VLLM log:")
+        logger.info(stdout)
+        logger.info("VLLM returned code:")
+        logger.info(str(result.returncode))
+        logger.info("VLLM error:")
+        logger.info(stderr)
 
         #if result.returncode != 0:
         #    logger.error("ERROR: failed to run in vllm")
