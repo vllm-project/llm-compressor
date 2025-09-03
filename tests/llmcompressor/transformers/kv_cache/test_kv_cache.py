@@ -231,7 +231,6 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
 
     output_dir, _ = next(kv_cache_fixture(recipe, tmp_path))
 
-
     model = AutoModelForCausalLM.from_pretrained(
         output_dir,
         quantization_config=CompressedTensorsConfig(run_compressed=False),
