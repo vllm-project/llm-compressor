@@ -258,20 +258,25 @@ class TestvLLM:
         logger.info("VLLM log:")
         logger.info(output)
 
-        if result.returncode != 0:
-            logger.error("ERROR: failed to run in vllm")
-            logger.error(error)
-        else:
-            match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", result.stdout)
-            if match:
-                output_str = match.group(1)  # the vllm output
+        logger.info("VLLM returned code:")
+        logger.info(str(result.returncode))
+        logger.info("VLLM error:")
+        logger.info(error)
 
-            logger.info("================= vLLM GENERATION ======================")
-            for prompt, generated_text in output_str.items():
-                logger.info("PROMPT")
-                logger.info(prompt)
-                logger.info("GENERATED TEXT")
-                logger.info(generated_text)
+        #if result.returncode != 0:
+        #    logger.error("ERROR: failed to run in vllm")
+        #    logger.error(error)
+        #else:
+        match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", output)
+        if match:
+            output_str = match.group(1)  # the vllm output
+
+        logger.info("================= vLLM GENERATION ======================")
+        for prompt, generated_text in output_str.items():
+            logger.info("PROMPT")
+            logger.info(prompt)
+            logger.info("GENERATED TEXT")
+            logger.info(generated_text)
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
