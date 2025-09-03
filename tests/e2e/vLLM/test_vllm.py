@@ -241,13 +241,21 @@ class TestvLLM:
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
         run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
-        #result = subprocess.run(
-        #    [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-        #    capture_output=True,
-        #    text=True,
-        #    check=True
-        #)
+        logger.info("TRY subprocess.run():")
+        result1 = subprocess.run(
+            [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.info("VLLM1 log:")
+        logger.info(result1.stdout)
+        logger.info("VLLM1 returncode:")
+        logger.info(result1.returncode)
+        logger.info("VLLM1 error:")
+        logger.info(result1.stderr)
 
+        logger.info("TRY subprocess.Popen():")
         result = subprocess.Popen(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
             stdout=subprocess.PIPE,
@@ -271,12 +279,12 @@ class TestvLLM:
         if match:
             output_str = match.group(1)  # the vllm output
 
-        logger.info("================= vLLM GENERATION ======================")
-        for prompt, generated_text in output_str.items():
-            logger.info("PROMPT")
-            logger.info(prompt)
-            logger.info("GENERATED TEXT")
-            logger.info(generated_text)
+            logger.info("================= vLLM GENERATION ======================")
+            for prompt, generated_text in output_str.items():
+                logger.info("PROMPT")
+                logger.info(prompt)
+                logger.info("GENERATED TEXT")
+                logger.info(generated_text)
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
