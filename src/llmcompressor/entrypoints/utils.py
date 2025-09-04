@@ -70,7 +70,7 @@ def pre_process(
                 model_args, model_args.model
             )
         except Exception as e:
-            if dataset_args.is_dataset_required():
+            if dataset_args.is_dataset_provided():
                 raise RuntimeError(
                     "An error occurred when attempting to initialize "
                     "model processor, which is required when a dataset "
