@@ -131,7 +131,11 @@ class BaseQuantizationCompressor(BaseCompressor):
 
                 # omit saving for g_idx if uninitialized
                 # TODO: does this case actually occur?
-                elif name.endswith("g_idx") and torch.any(value <= -1):
+                elif (
+                    name.endswith("g_idx")
+                    and value.device.type != "meta"
+                    and torch.any(value <= -1)
+                ):
                     continue
                 compressed_dict[name] = value.to(compression_device)
 
