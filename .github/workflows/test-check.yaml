@@ -1,9 +1,9 @@
 name: Test Checks (Base/PyTorch)
 on:
   pull_request:
-    branches:
-      - main
+    branches: [ main, 'release/*' ]
   push:
+    branches: [ main, 'release/*' ]
   workflow_dispatch:
     inputs:
       code_coverage:
