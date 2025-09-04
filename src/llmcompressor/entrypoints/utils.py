@@ -82,7 +82,7 @@ def pre_process(
                     "Model processor could not be auto-initialized and "
                     "will not be saved along with the model. To resolve, "
                     "create and pass in a processor directly to "
-                    "`oneshot`/`train`.\nInitialization Error: {e}"
+                    f"`oneshot`/`train`.\nInitialization Error: {e}"
                 )
 
     # untie tie_word_embeddings weights
