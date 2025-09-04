@@ -1,18 +1,9 @@
-import re
-import shlex
-import shutil
-import sys
+import json
 from pathlib import Path
-from subprocess import CompletedProcess
-from typing import List, Optional, Tuple, TypeVar, Union
+from typing import List, Union
 
 import pytest
-from bs4 import BeautifulSoup, ResultSet, Tag
-from cmarkgfm import github_flavored_markdown_to_html as gfm_to_html
-
-from tests.testing_utils import run_cli_command
-
-_T = TypeVar("_T")
+from transformers import AutoConfig
 
 
 def requires_gpu_count(num_required_gpus: int) -> pytest.MarkDecorator:
@@ -51,101 +42,60 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
     return pytest.mark.skipif(required_amount > actual_vram, reason=reason)
 
 
-def copy_and_run_command(
-    tmp_path: Path, example_dir: str, command: List[str]
-) -> CompletedProcess[str]:
-    """
-    Copies the contents of example_dir (relative to the current working directory) to
-    the given `tmp_path` and runs the command, returning the `CompletedProcess`.
-
-    :param tmp_path: Path of temporary directory to where file should be copied
-    :param example_dir: Name of examples folder to be copied
-    :param command: command to be executed
-    :return: subprocess.CompletedProcess object
-    """
-    shutil.copytree(Path.cwd() / example_dir, tmp_path / example_dir)
-    return run_cli_command(command, cwd=tmp_path / example_dir)
+def replace_2of4_w4a16_recipe(content: str) -> str:
+    return content.replace("2of4_w4a16_recipe.yaml", "2of4_w4a16_group-128_recipe.yaml")
 
 
-def copy_and_run_script(
-    tmp_path: Path,
-    example_dir: str,
-    script_filename: str,
-    flags: Optional[list[str]] = None,
-) -> Tuple[List[str], CompletedProcess[str]]:
-    """
-    Copies the contents of example_dir (relative to the current working directory) to
-    the given `tmp_path` and runs the specified script file, returning the
-    `CompletedProcess`.
+def verify_2of4_w4a16_output(tmp_path: Path, example_dir: str):
+    output_dir = Path("output_llama7b_2of4_w4a16_channel")
 
-    :param tmp_path: Path of temporary directory to where file should be copied
-    :param example_dir: Name of examples folder to be copied
-    :param command: command to be executed
-    :return: subprocess.CompletedProcess object
-    """
-    command = [sys.executable, script_filename]
-    if flags:
-        command.extend(flags)
-    return command, copy_and_run_command(tmp_path, example_dir, command)
+    stages = {
+        "quantization": {
+            "path": Path("quantization_stage"),
+            "format": "marlin-24",
+        },
+        "sparsity": {
+            "path": Path("sparsity_stage"),
+            "format": "sparse-24-bitmask",
+        },
+        "finetuning": {
+            "path": Path("finetuning_stage"),
+            "format": "sparse-24-bitmask",
+        },
+    }
+
+    for stage, stage_info in stages.items():
+        stage_path = tmp_path / example_dir / output_dir / stage_info["path"]
+        recipe_path = stage_path / "recipe.yaml"
+        config_path = stage_path / "config.json"
+
+        assert recipe_path.exists(), f"Missing recipe file in {stage}: {recipe_path}"
+        assert config_path.exists(), f"Missing config file in {stage}: {config_path}"
+
+        config = AutoConfig.from_pretrained(stage_path)
+        assert config is not None, f"Failed to load config in {stage}"
+
+        quant_config = getattr(config, "quantization_config", {})
+        if stage == "quantization":
+            actual_format = quant_config.get("format")
+        else:
+            actual_format = quant_config.get("sparsity_config", {}).get("format")
+
+        assert actual_format, f"Missing expected format field in {stage} config"
+        assert actual_format == stage_info["format"], (
+            f"Unexpected format in {stage}: got '{actual_format}', "
+            f"expected '{stage_info['format']}'"
+        )
 
 
-def gen_cmd_fail_message(command: List[str], result: CompletedProcess[str]) -> str:
-    """
-    Generate an failure message including the command and its output.
+def verify_w4a4_fp4_output(tmp_path: Path, example_dir: str):
+    # verify the expected directory was generated
+    nvfp4_dirs: List[Path] = [p for p in tmp_path.rglob("*-NVFP4") if p.is_dir()]
+    assert (
+        len(nvfp4_dirs)
+    ) == 1, f"did not find exactly one generated folder: {nvfp4_dirs}"
 
-    :param result: a `CompletedProcess` object
-    :return: a formatted failure message
-    """
-    return (
-        f"command failed with exit code {result.returncode}:\n"
-        f"Command:\n{shlex.join(command)}\nOutput:\n{result.stdout}"
-    )
-
-
-class ReadMe:
-    """
-    Class representing a README (Markdown) file with methods to expedite common usage.
-    """
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.content = self.path.expanduser().read_text(encoding="utf-8")
-        self.__normalize_code_fence_lang()
-        self.html = gfm_to_html(self.content)
-        self.soup = BeautifulSoup(self.html, "html.parser")
-
-    def __normalize_code_fence_lang(self):
-        """
-        Perform limited normalization on the code language of code blocks to maintain
-        consistency and simplicity with locating them.
-        """
-        self.content = re.sub(r"```(shell|bash|sh)\b", "```shell", self.content)
-
-    def get_code_blocks(self, *, lang: Optional[str] = None) -> ResultSet[Tag]:
-        """
-        Get all code blocks with language `lang`, or all code blocks if `lang` is None
-        (default).
-
-        :param lang: language of code block to filter by
-        :return: code block `Tag`s found in README
-        """
-        lang = "shell" if lang == "bash" else lang
-        selector = f'pre[lang="{lang}"] > code' if lang else "pre > code"
-        tags = self.soup.select(selector)
-        return tags
-
-    def get_code_block_content(
-        self, *, position: int, lang: Optional[str] = None
-    ) -> str:
-        """
-        Get contents of code block at specified position (starting with 1). Optionally
-        pass a language specifier, `lang`, to only look at code blocks highlighted for
-        that language (happens prior to indexing).
-
-        :param position: position of code block to get (starting at 1)
-        :param lang: language of code block to filter by
-        :return: content of the code block
-        """
-        code_blocks = self.get_code_blocks(lang=lang)
-        code = code_blocks[position - 1].text.strip()
-        return code
+    # verify the format in the generated config
+    config_json = json.loads((nvfp4_dirs[0] / "config.json").read_text())
+    config_format = config_json["quantization_config"]["format"]
+    assert config_format == "nvfp4-pack-quantized"
