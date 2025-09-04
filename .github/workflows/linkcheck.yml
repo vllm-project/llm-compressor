@@ -2,11 +2,9 @@ name: Check Markdown links
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main, 'release/*' ]
   pull_request:
-    branches:
-      - main
+    branches: [ main, 'release/*' ]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:

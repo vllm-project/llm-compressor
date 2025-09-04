@@ -1,13 +1,9 @@
 name: Quality Checks
 on:
   push:
-    branches:
-      - main
-      - 'release/*'
+    branches: [ main , 'release/*' ]
   pull_request:
-    branches:
-      - main
-      - 'release/*'
+    branches: [ main, 'release/*' ]
 jobs:
   quality-check:
     runs-on: ubuntu-22.04
