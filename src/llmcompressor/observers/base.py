@@ -151,7 +151,10 @@ class Observer(InternalModule, RegistryMixin):
                     (rows, num_groups), dtype=observed.dtype, device=observed.device
                 )
                 if is_fp4(quantization_args=self.quantization_args):
-                    zp_dtype = FP8_E4M3_DATA.dtype
+                    if self.quantization_args.group_size == 16:
+                        zp_dtype = FP8_E4M3_DATA.dtype
+                    else:
+                        zp_dtype = torch.uint8
                 else:
                     zp_dtype = self.quantization_args.pytorch_dtype()
 
