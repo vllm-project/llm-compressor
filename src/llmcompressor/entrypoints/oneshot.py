@@ -125,7 +125,7 @@ class Oneshot:
         self.output_dir = output_dir
 
         # initialize the model and processor
-        pre_process(model_args)
+        pre_process(model_args, dataset_args, output_dir)
 
         # Set instance attributes
         self.model = self.model_args.model
