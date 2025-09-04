@@ -241,7 +241,7 @@ class TestvLLM:
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
             text=True
         )
-
+        result.communicate()
         if result.returncode != 0:
             logger.error("ERROR: model failed to run in vllm")
         else:
