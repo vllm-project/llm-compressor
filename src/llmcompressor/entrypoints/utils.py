@@ -75,7 +75,7 @@ def pre_process(
                     "An error occurred when attempting to initialize "
                     "model processor, which is required when a dataset "
                     "is provided. To resolve, create and pass in a "
-                    f"processor directly to `oneshot`/`train`."
+                    "processor directly to `oneshot`/`train`."
                 ) from e
             elif output_dir:
                 logger.warning(
