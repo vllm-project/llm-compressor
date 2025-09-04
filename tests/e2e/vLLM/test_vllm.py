@@ -219,7 +219,6 @@ class TestvLLM:
 #    @log_time
     def _run_vllm(self, logger):
         import json
-        import re
         import subprocess
 
         llm_kwargs = {"model": self.save_dir}
@@ -248,17 +247,6 @@ class TestvLLM:
         if result.returncode != 0:
             logger.error("ERROR: model failed to run in vllm")
             logger.error(stderr)
-        else:
-            match = re.search(r"VLLM OUTPUT:(.*?)", stdout)
-            if match:
-                output = match.group(1)  # the vllm output
-
-            logger.info("================= vLLM GENERATION ======================")
-            for prompt, generated_text in output.items():
-                logger.info("PROMPT")
-                logger.info(prompt)
-                logger.info("GENERATED TEXT")
-                logger.info(generated_text)
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()

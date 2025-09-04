@@ -11,17 +11,16 @@ def main():
     llm = LLM(**llm_kwargs)
     outputs = llm.generate(prompts, sampling_params)
 
-    json_outputs = {}
+    print("================= vLLM GENERATION ======================")
     for output in outputs:
         assert output
-        prompt = output.prompt
-        generated_text = output.outputs[0].text
-        json_outputs[prompt] = generated_text
+        print("PROMPT")
+        print(output.prompt)
+        print("GENERATED TEXT")
+        print(output.outputs[0].text)
 
     del llm
     gc.collect()
-
-    print("VLLM OUTPUT:"+str(json_outputs))
 
 if __name__ == "__main__":
     llm_kwargs = json.loads(sys.argv[1])
