@@ -23,6 +23,7 @@ def main():
     gc.collect()
 
 if __name__ == "__main__":
+
     llm_kwargs = json.loads(sys.argv[1])
     prompts = json.loads(sys.argv[2])
 

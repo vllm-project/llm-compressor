@@ -78,7 +78,7 @@ class TestvLLM:
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
-        # vllm separate env
+        # vllm python env
         if VLLM_PYTHON_ENV.lower() != "same":
             self.vllm_env = VLLM_PYTHON_ENV
         else:
@@ -154,19 +154,6 @@ class TestvLLM:
 
         if VLLM_PYTHON_ENV.lower() == "same":
             logger.info("================= RUNNING vLLM in the same python env =========================")
-
-            #outputs = self._run_vllm()
-
-            #logger.info("================= vLLM GENERATION ======================")
-            #for output in outputs:
-            #    assert output
-            #    prompt = output.prompt
-            #    generated_text = output.outputs[0].text
-
-            #    logger.info("PROMPT")
-            #    logger.info(prompt)
-            #    logger.info("GENERATED TEXT")
-            #    logger.info(generated_text)
         else:
             logger.info("================= RUNNING vLLM in a separate python env =========================")
 
@@ -197,34 +184,17 @@ class TestvLLM:
         )
         tokenizer.save_pretrained(self.save_dir)
 
-#    @log_time
-#    def _run_vllm(self):
-#        import torch
-#        from vllm import LLM, SamplingParams
-#
-#        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-#        llm_kwargs = {"model": self.save_dir}
-#
-#        if "W4A16_2of4" in self.scheme:
-#            # required by the kernel
-#            llm_kwargs["dtype"] = torch.float16
-#
-#        if self.gpu_memory_utilization is not None:
-#            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
-#
-#        llm = LLM(**llm_kwargs)
-#        outputs = llm.generate(self.prompts, sampling_params)
-#        return outputs
-
-#    @log_time
+    @log_time
     def _run_vllm(self, logger):
         import json
         import subprocess
 
         llm_kwargs = {"model": self.save_dir}
+
         if "W4A16_2of4" in self.scheme:
             # required by the kernel
             llm_kwargs["dtype"] = torch.float16
+
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
 
@@ -236,6 +206,7 @@ class TestvLLM:
 
         logger.info("Run vllm in subprocess.Popen() using python env:")
         logger.info(self.vllm_env)
+
         result = subprocess.Popen(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
             stdout=subprocess.PIPE,
