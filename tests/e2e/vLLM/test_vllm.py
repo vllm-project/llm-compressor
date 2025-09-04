@@ -235,7 +235,8 @@ class TestvLLM:
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
         run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
-        logger.info("TRY subprocess.Popen():")
+        logger.info("Run vllm in subprocess.Popen() using python env:")
+        logger.info(self.vllm_env)
         result = subprocess.Popen(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
             text=True
