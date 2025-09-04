@@ -239,13 +239,17 @@ class TestvLLM:
         logger.info(self.vllm_env)
         result = subprocess.Popen(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True
         )
-        result.communicate()
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
         if result.returncode != 0:
             logger.error("ERROR: model failed to run in vllm")
+            logger.error(stderr)
         else:
-            match = re.search(r"VLLM OUTPUT:(.*?)", result)
+            match = re.search(r"VLLM OUTPUT:(.*?)", stdout)
             if match:
                 output = match.group(1)  # the vllm output
 
