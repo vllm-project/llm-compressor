@@ -218,5 +218,5 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
 
-    def is_dataset_required(self) -> bool:
+    def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None
