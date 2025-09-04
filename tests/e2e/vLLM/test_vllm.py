@@ -24,7 +24,7 @@ TEST_DATA_FILE = os.environ.get(
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
 # if vllm is installed in the same python environment or not; if not,
 # pass the path of the virtual env where vllm is installed separately
-VLLM_IN_SAME_ENV = os.environ.get("VLLM_IN_SAME_ENV", "yes")
+VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
@@ -79,8 +79,10 @@ class TestvLLM:
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
         # vllm separate env
-        if VLLM_IN_SAME_ENV.lower() != "yes":
-            self.vllm_env = VLLM_IN_SAME_ENV
+        if VLLM_PYTHON_ENV.lower() != "same":
+            self.vllm_env = VLLM_PYTHON_ENV
+        else:
+            self.vllm_env = sys.executable
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -150,32 +152,25 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-        if VLLM_IN_SAME_ENV.lower() == "yes":
+        if VLLM_PYTHON_ENV.lower() == "same":
             logger.info("================= RUNNING vLLM in the same python env =========================")
 
-            outputs = self._run_vllm()
-
-            logger.info("================= vLLM GENERATION ======================")
-            for output in outputs:
-                assert output
-                prompt = output.prompt
-                generated_text = output.outputs[0].text
-
-                logger.info("PROMPT")
-                logger.info(prompt)
-                logger.info("GENERATED TEXT")
-                logger.info(generated_text)
-        else:
-            logger.info("================= RUNNING vLLM in a separate python env =========================")
-
-            self._run_vllm_separate(logger)
+            #outputs = self._run_vllm()
 
             #logger.info("================= vLLM GENERATION ======================")
-            #for prompt, generated_text in outputs.items():
+            #for output in outputs:
+            #    assert output
+            #    prompt = output.prompt
+            #    generated_text = output.outputs[0].text
+
             #    logger.info("PROMPT")
             #    logger.info(prompt)
             #    logger.info("GENERATED TEXT")
             #    logger.info(generated_text)
+        else:
+            logger.info("================= RUNNING vLLM in a separate python env =========================")
+
+        self._run_vllm(logger)
 
         self.tear_down()
 
@@ -202,49 +197,30 @@ class TestvLLM:
         )
         tokenizer.save_pretrained(self.save_dir)
 
-    @log_time
-    def _run_vllm(self):
-        import torch
-        from vllm import LLM, SamplingParams
+#    @log_time
+#    def _run_vllm(self):
+#        import torch
+#        from vllm import LLM, SamplingParams
+#
+#        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
+#        llm_kwargs = {"model": self.save_dir}
+#
+#        if "W4A16_2of4" in self.scheme:
+#            # required by the kernel
+#            llm_kwargs["dtype"] = torch.float16
+#
+#        if self.gpu_memory_utilization is not None:
+#            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+#
+#        llm = LLM(**llm_kwargs)
+#        outputs = llm.generate(self.prompts, sampling_params)
+#        return outputs
 
-        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
-        llm_kwargs = {"model": self.save_dir}
-
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm_kwargs["dtype"] = torch.float16
-
-        if self.gpu_memory_utilization is not None:
-            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
-
-        llm = LLM(**llm_kwargs)
-        outputs = llm.generate(self.prompts, sampling_params)
-        return outputs
-
-    def _run_vllm_separate(self, logger):
+#    @log_time
+    def _run_vllm(self, logger):
         import json
         import re
-        #import requests
         import subprocess
-
-        #proc = subprocess.Popen(
-        #    [
-        #        self.vllm_env, "serve", self.save_dir,
-        #        "--port", "8000"
-        #    ],
-        #    #stdout=subprocess.PIPE,
-        #    #stderr=subprocess.PIPE,
-        #    text=True
-        #)
-        #url = "http://localhost:8000/v1/completions"
-        #payload = {
-        #    "model": self.save_dir,
-        #    "prompt": "The capital of France is",
-        #    "max_tokens": 50
-        #}
-        #response = requests.post(url, json=payload)
-        #logger.info("VLLM OUTPUT:")
-        #logger.info(response.json())
 
         llm_kwargs = {"model": self.save_dir}
         if "W4A16_2of4" in self.scheme:
@@ -259,48 +235,25 @@ class TestvLLM:
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
         run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
-        #logger.info("TRY subprocess.run():")
-        #result1 = subprocess.run(
-        #    [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-        #    capture_output=True,
-        #    text=True
-        #)
-        #logger.info("VLLM1 log:")
-        #logger.info(result1.stdout)
-        #logger.info("VLLM1 returncode:")
-        #logger.info(result1.returncode)
-        #logger.info("VLLM1 error:")
-        #logger.info(result1.stderr)
-
         logger.info("TRY subprocess.Popen():")
         result = subprocess.Popen(
             [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
-            #stdout=subprocess.PIPE,
-            #stderr=subprocess.PIPE,
             text=True
         )
-        stdout, stderr = result.communicate()
-        logger.info("VLLM log:")
-        logger.info(stdout)
-        logger.info("VLLM returned code:")
-        logger.info(str(result.returncode))
-        logger.info("VLLM error:")
-        logger.info(stderr)
 
-        #if result.returncode != 0:
-        #    logger.error("ERROR: failed to run in vllm")
-        #    logger.error(error)
-        #else:
-        #match = re.search(r"VLLMOUTPUT(.*?)VLLMOUTPUT", output)
-        #if match:
-        #    output_str = match.group(1)  # the vllm output
+        if result.returncode != 0:
+            logger.error("ERROR: model failed to run in vllm")
+        else:
+            match = re.search(r"VLLM OUTPUT:(.*?)", result)
+            if match:
+                output = match.group(1)  # the vllm output
 
-        #    logger.info("================= vLLM GENERATION ======================")
-        #    for prompt, generated_text in output_str.items():
-        #        logger.info("PROMPT")
-        #        logger.info(prompt)
-        #        logger.info("GENERATED TEXT")
-        #        logger.info(generated_text)
+            logger.info("================= vLLM GENERATION ======================")
+            for prompt, generated_text in output.items():
+                logger.info("PROMPT")
+                logger.info(prompt)
+                logger.info("GENERATED TEXT")
+                logger.info(generated_text)
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()

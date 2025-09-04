@@ -21,7 +21,7 @@ def main():
     del llm
     gc.collect()
 
-    print("VLLMOUTPUT"+str(json_outputs)+"VLLMOUTPUT")
+    print("VLLM OUTPUT:"+str(json_outputs))
 
 if __name__ == "__main__":
     llm_kwargs = json.loads(sys.argv[1])
