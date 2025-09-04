@@ -35,7 +35,11 @@ from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
-def pre_process(model_args: ModelArguments, dataset_args: DatasetArguments):
+def pre_process(
+    model_args: ModelArguments,
+    dataset_args: DatasetArguments,
+    output_dir: Optional[str],
+):
     """
     Prepares the model and tokenizer/processor for calibration.
     - Initializes the model if it's specified as a path or string.
@@ -60,13 +64,26 @@ def pre_process(model_args: ModelArguments, dataset_args: DatasetArguments):
         model_args.distill_teacher = distill_teacher
 
     # Initialize processor if dataset provided
-    if (
-        isinstance(model_args.processor, (str, type(None)))
-        and dataset_args.dataset is not None
-    ):
-        model_args.processor = initialize_processor_from_path(
-            model_args, model_args.model
-        )
+    if isinstance(model_args.processor, (str, type(None))):
+        try:
+            model_args.processor = initialize_processor_from_path(
+                model_args, model_args.model
+            )
+        except Exception as e:
+            if dataset_args.is_dataset_required():
+                raise RuntimeError(
+                    "An error occurred when attempting to initialize "
+                    "model processor, which is required when a dataset "
+                    "is provided. To resolve, create and pass in a "
+                    f"processor directly to `oneshot`/`train`."
+                ) from e
+            elif output_dir:
+                logger.warning(
+                    "Model processor could not be auto-initialized and "
+                    "will not be saved along with the model. To resolve, "
+                    "create and pass in a processor directly to "
+                    "`oneshot`/`train`.\nInitialization Error: {e}"
+                )
 
     # untie tie_word_embeddings weights
     if not model_args.tie_word_embeddings:
