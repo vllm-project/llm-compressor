@@ -1,3 +1,10 @@
+"""
+Session management functions for LLM compression workflows.
+
+Provides global session management functionality including session
+creation, activation, reset operations, and lifecycle callback management.
+"""
+
 import threading
 from contextlib import contextmanager
 from typing import Any, Generator, Optional

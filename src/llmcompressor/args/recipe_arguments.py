@@ -1,3 +1,11 @@
+"""
+Recipe argument classes for LLM compression workflows.
+
+Defines dataclass-based argument containers for configuring sparsification
+recipes, compression sessions, and stage-based execution parameters used in
+model compression and optimization workflows.
+"""
+
 from dataclasses import dataclass, field
 from typing import List, Optional
 

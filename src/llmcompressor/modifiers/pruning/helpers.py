@@ -1,3 +1,11 @@
+"""
+Helper functions and utilities for pruning modifiers.
+
+Provides scheduling functions, factory classes, and configuration
+utilities for pruning operations. Includes linear and cubic schedulers,
+custom scheduler creation, and settings management for structured and
+"""
+
 import math
 import re
 from dataclasses import dataclass

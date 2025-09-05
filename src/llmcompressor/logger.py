@@ -1,21 +1,24 @@
 """
-Logger configuration for LLM Compressor.
+Provides a flexible logging configuration for LLM Compressor.
 
-This module provides a flexible logging configuration using the loguru library.
-It supports console and file logging with options to configure via environment
-variables or direct function calls.
+Using the loguru library, Logger supports console and file logging with options
+to configure via environment variables or direct function calls.
 
-Environment Variables:
-    - LLM_COMPRESSOR_LOG_DISABLED: Disable logging (default: false).
-    - LLM_COMPRESSOR_CLEAR_LOGGERS: Clear existing loggers from loguru (default: true).
-    - LLM_COMPRESSOR_LOG_LEVEL: Log level for console logging
-        (default: none, options: DEBUG, INFO, WARNING, ERROR, CRITICAL).
-    - LLM_COMPRESSOR_LOG_FILE: Path to the log file for file logging
-        (default: llm-compressor.log if log file level set else none)
-    - LLM_COMPRESSOR_LOG_FILE_LEVEL: Log level for file logging
-        (default: INFO if log file set else none).
+**Environment Variables**
 
-Usage:
+- `LLM_COMPRESSOR_LOG_DISABLED`: Disable logging.
+    Default: `False`.
+- `LLM_COMPRESSOR_CLEAR_LOGGERS`: Clear existing loggers from loguru.
+    Default: `True`.
+- `LLM_COMPRESSOR_LOG_LEVEL`: Log level for console logging.
+    Default: `None`. Options: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+- `LLM_COMPRESSOR_LOG_FILE`: Path to the log file for file logging.
+    Default: `llm-compressor.log` if log file level set, otherwise `None`.
+- `LLM_COMPRESSOR_LOG_FILE_LEVEL`: Log level for file logging.
+    Default: `INFO` if log file is set, otherwise `None`.
+
+**Usage**
+
     from llmcompressor import logger, configure_logger, LoggerConfig
 
     # Configure metrics with default settings
@@ -60,10 +63,11 @@ class LoggerConfig:
 def configure_logger(config: Optional[LoggerConfig] = None) -> None:
     """
     Configure the logger for LLM Compressor.
+
     This function sets up the console and file logging
     as per the specified or default parameters.
 
-    Note: Environment variables take precedence over the function parameters.
+    **Note**: Environment variables take precedence over function parameters.
 
     :param config: The configuration for the logger to use.
     :type config: LoggerConfig
