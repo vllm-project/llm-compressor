@@ -119,16 +119,17 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self.mappings = infer_mapping_from_model(state.model)
         self.norm_mappings = infer_norm_mapping_from_model(state.model)
+        head_dim = self._infer_head_dim(state.model)
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:
-            config_groups["R2"] = self._create_r2_scheme(state.model)
+            config_groups["R2"] = self._create_r2_scheme(head_dim)
 
         if SpinquantRotation.R3 in self.rotations:
-            config_groups["R3"] = self._create_r3_scheme()
+            config_groups["R3"] = self._create_r3_scheme(head_dim)
 
         if SpinquantRotation.R4 in self.rotations:
             config_groups["R4"] = self._create_r4_scheme()
@@ -209,16 +210,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             ],
         )
 
-    def _create_r2_scheme(self, model: PreTrainedModel) -> TransformScheme:
-        config = model.config
-
-        if hasattr(config, "head_dim"):
-            head_dim = config.head_dim
-        elif hasattr(config, "hidden_size") and hasattr(config, "num_attention_heads"):
-            head_dim = config.hidden_size // config.num_attention_heads
-        else:
-            raise NotImplementedError()
-
+    def _create_r2_scheme(self, head_dim: int) -> TransformScheme:
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,
@@ -235,9 +227,23 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             ],
         )
 
-    def _create_r3_scheme(self) -> TransformScheme:
-        raise NotImplementedError(
-            "SpinQuant R3 rotations will be added in a future release"
+    def _create_r3_scheme(self, head_dim: int) -> TransformScheme:
+        return TransformScheme(
+            type=self.transform_type,
+            randomize=self.randomize,
+            requires_grad=self.learnable,
+            precision=self.precision,
+            head_dim=head_dim,
+            apply=[
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="q_attn",
+                ),
+                TransformArgs(
+                    targets=[self.mappings.attn],
+                    location="k_cache",
+                ),
+            ],
         )
 
     def _create_r4_scheme(self) -> TransformScheme:
@@ -258,3 +264,13 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                 ),
             ],
         )
+
+    def _infer_head_dim(self, model: PreTrainedModel) -> int:
+        config = model.config
+
+        if hasattr(config, "head_dim"):
+            return config.head_dim
+        elif hasattr(config, "hidden_size") and hasattr(config, "num_attention_heads"):
+            return config.hidden_size // config.num_attention_heads
+        else:
+            raise NotImplementedError()
