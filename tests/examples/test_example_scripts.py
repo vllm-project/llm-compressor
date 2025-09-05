@@ -8,9 +8,9 @@ import pytest
 
 from tests.examples.utils import (
     replace_2of4_w4a16_recipe,
+    requires_gpu_count,
     verify_2of4_w4a16_output,
     verify_w4a4_fp4_output,
-    requires_gpu_count,
 )
 from tests.testing_utils import run_cli_command
 
@@ -53,7 +53,7 @@ class TestCase(NamedTuple):
         "quantization_w8a8_fp8/llama3_example.py",
         "quantization_w8a8_int8/llama3_example.py",
         "quantization_w8a8_int8/gemma2_example.py",
-        "quantizing_moe/mixtral_example.py",  # multi gpu ??
+        "quantizing_moe/mixtral_example.py",
         "quantizing_moe/qwen_example.py",
         # sparse_2of4
         "sparse_2of4_quantization_fp8/llama3_8b_2of4.py",
