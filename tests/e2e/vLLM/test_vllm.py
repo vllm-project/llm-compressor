@@ -22,8 +22,7 @@ TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
-# if vllm is installed in the same python environment or not; if not,
-# pass the path of the virtual env where vllm is installed separately
+# vllm python environment
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -78,7 +77,8 @@ class TestvLLM:
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
-        # vllm python env
+        # vllm python env - if same, use the current python env, otherwise use
+        # the python passed in VLLM_PYTHON_ENV
         if VLLM_PYTHON_ENV.lower() != "same":
             self.vllm_env = VLLM_PYTHON_ENV
         else:
@@ -153,9 +153,9 @@ class TestvLLM:
             )
 
         if VLLM_PYTHON_ENV.lower() == "same":
-            logger.info("================= RUNNING vLLM in the same python env =========================")
+            logger.info("================= RUNNING vLLM in the same python env =================")
         else:
-            logger.info("================= RUNNING vLLM in a separate python env =========================")
+            logger.info("================= RUNNING vLLM in a separate python env =================")
 
         self._run_vllm(logger)
 
@@ -215,6 +215,7 @@ class TestvLLM:
         )
         stdout, stderr = result.communicate()
         logger.info(stdout)
+
         if result.returncode != 0:
             logger.error("ERROR: model failed to run in vllm")
             logger.error(stderr)
