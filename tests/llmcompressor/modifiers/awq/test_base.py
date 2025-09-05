@@ -118,9 +118,6 @@ def test_set_resolved_mappings():
 @pytest.mark.unit
 def test_validate():
     with pytest.raises(ValidationError):
-        AWQModifier(scheme="W8A8")
-
-    with pytest.raises(ValidationError):
         AWQModifier(
             config_groups={
                 "group_0": QuantizationScheme(
