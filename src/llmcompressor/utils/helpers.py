@@ -61,7 +61,7 @@ __all__ = [
     "is_package_available",
     "import_from_path",
     "getattr_chain",
-    "DisableKVCache",
+    "disable_cache",
     "DisableQuantization",
     "eval_context",
     "calibration_forward_context",
@@ -974,7 +974,8 @@ def getattr_chain(obj: Any, chain_str: str, *args, **kwargs) -> Any:
     return res
 
 
-class DisableKVCache:
+@contextlib.contextmanager
+def disable_cache(module: torch.nn.Module):
     """
     Temporarily disable the key-value cache for transformer models. Used to prevent
     excess memory use in one-shot cases where the model only performs the prefill
@@ -983,32 +984,18 @@ class DisableKVCache:
     Example:
     >>> model = AutoModel.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
     >>> input = torch.randint(0, 32, size=(1, 32))
-    >>> with DisableKVCache(model):
+    >>> with disable_cache(model):
     ...     output = model(input)
     """
 
-    def __init__(self, model: PreTrainedModel):
-        if hasattr(model.config, "use_cache"):
-            self.config = model.config
+    if isinstance(module, PreTrainedModel):
+        config = module.config
+        config = getattr(config, "text_config", config)
+        with patch_attr(config, "use_cache", False):
+            yield
 
-        # MllamaConfig
-        elif hasattr(model.config, "text_config") and hasattr(
-            model.config.text_config, "use_cache"
-        ):
-            self.config = model.config.text_config
-
-        # unknown config structure
-        else:
-            raise NotImplementedError(f"Cannot find `use_cache` for {model.config}")
-
-        self.restore_value = self.config.use_cache
-
-    def __enter__(self):
-        self.restore_value = self.config.use_cache
-        self.config.use_cache = False
-
-    def __exit__(self, _exc_type, _exc_val, _exc_tb):
-        self.config.use_cache = self.restore_value
+    else:
+        yield
 
 
 @contextlib.contextmanager
@@ -1038,14 +1025,14 @@ def eval_context(module: torch.nn.Module):
 
 
 @contextlib.contextmanager
-def disable_hf_kernels(model: PreTrainedModel):
+def disable_hf_kernels(module: torch.nn.Module):
     """
     In transformers>=4.50.0, some module forward methods may be
     replaced by calls to hf hub kernels. This has the potential
     to bypass hooks added by LLM Compressor
     """
-    if hasattr(model, "config"):
-        with patch_attr(model.config, "disable_custom_kernels", True):
+    if isinstance(module, PreTrainedModel):
+        with patch_attr(module.config, "disable_custom_kernels", True):
             yield
 
     else:
@@ -1053,7 +1040,7 @@ def disable_hf_kernels(model: PreTrainedModel):
 
 
 @contextlib.contextmanager
-def calibration_forward_context(model: PreTrainedModel):
+def calibration_forward_context(model: torch.nn.Module):
     """
     Context in which all calibration forward passes should occur.
 
@@ -1062,9 +1049,9 @@ def calibration_forward_context(model: PreTrainedModel):
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
     """
-    with torch.no_grad(), DisableKVCache(model), eval_context(
+    with torch.no_grad(), disable_cache(model), eval_context(model), disable_hf_kernels(
         model
-    ), disable_hf_kernels(model):
+    ):
         yield
 
 
