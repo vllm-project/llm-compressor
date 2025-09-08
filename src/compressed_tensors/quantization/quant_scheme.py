@@ -60,6 +60,16 @@ class QuantizationScheme(BaseModel):
         format = model.format
 
         if inputs is not None:
+            if inputs.strategy not in (
+                QuantizationStrategy.TOKEN,
+                QuantizationStrategy.TENSOR,
+                QuantizationStrategy.TENSOR_GROUP,
+            ):
+                raise ValueError(
+                    f"Using {inputs.strategy} strategy is not supported for "
+                    "activation quantization"
+                )
+
             if inputs.actorder is not None:
                 raise ValueError("Cannot apply actorder to input activations")
 
