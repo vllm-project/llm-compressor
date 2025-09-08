@@ -188,6 +188,7 @@ class TestvLLM:
     def _run_vllm(self, logger):
         import json
         import subprocess
+        import torch
 
         llm_kwargs = {"model": self.save_dir}
 
@@ -217,8 +218,9 @@ class TestvLLM:
         logger.info(stdout)
 
         if result.returncode != 0:
-            logger.error("ERROR: model failed to run in vllm")
+            logger.error(f"ERROR: vLLM subprocess failed with exit code {result.returncode}")
             logger.error(stderr)
+            assert result.returncode == 0
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
