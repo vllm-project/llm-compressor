@@ -1,11 +1,11 @@
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
-import sys
 import yaml
 from huggingface_hub import HfApi
 from loguru import logger
@@ -14,7 +14,6 @@ from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
-
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
@@ -188,6 +187,7 @@ class TestvLLM:
     def _run_vllm(self, logger):
         import json
         import subprocess
+
         import torch
 
         llm_kwargs = {"model": self.save_dir}
