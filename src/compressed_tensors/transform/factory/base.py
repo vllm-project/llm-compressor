@@ -18,6 +18,7 @@ from typing import List, Optional, Set, Tuple
 
 import torch
 import torch.nn.utils.parametrize as P
+import tqdm
 from compressed_tensors.registry.registry import RegistryMixin, T
 from compressed_tensors.transform import (
     TransformArgs,
@@ -84,15 +85,21 @@ class TransformFactory(RegistryMixin, ABC):
         """
         raise NotImplementedError()
 
-    def apply_to_model(self, model: Module):
+    def apply_to_model(self, model: Module, use_tqdm=True):
         """
         Create transforms and apply them to the model
 
         :param model: module to apply transforms to
         """
-        for arg in self.scheme.apply:
-            for _, module in match_named_modules(model, arg.targets, arg.ignore):
-                self._apply_to_module(module, arg)
+        modules_args = [
+            (module, arg)
+            for arg in self.scheme.apply
+            for _, module in match_named_modules(model, arg.targets, arg.ignore)
+        ]
+
+        desc = f"Applying {self.name} transforms"
+        for module, arg in tqdm.tqdm(modules_args, desc=desc, disable=(not use_tqdm)):
+            self._apply_to_module(module, arg)
 
         self._update_tied_weights()
 

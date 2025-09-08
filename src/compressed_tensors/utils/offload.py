@@ -131,7 +131,10 @@ def get_offloaded_device(module: torch.nn.Module) -> torch.device:
         first_key = list(module._hf_hook.weights_map.keys())[0]
         prefix_dataset = module._hf_hook.weights_map.dataset
         return prefix_dataset[first_key].device
-    return next(module.parameters()).device
+    else:
+        # if the module is not offloaded, then any addded weights
+        # should be placed the module's execution device
+        return get_execution_device(module)
 
 
 @check_accelerate(fallback=None)

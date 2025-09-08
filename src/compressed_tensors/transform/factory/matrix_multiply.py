@@ -21,8 +21,8 @@ from compressed_tensors.transform.utils.matrix import (
     apply_transform_weight,
     get_transform_size,
 )
-from compressed_tensors.utils import get_offloaded_device
 from compressed_tensors.utils.helpers import ParameterizedDefaultDict
+from compressed_tensors.utils.offload import get_offloaded_device
 from torch import Tensor, device, dtype
 from torch.nn import Module, Parameter
 
@@ -52,19 +52,23 @@ class RandomMatrixFactory(TransformFactory):
         """
         assert hasattr(module, "weight")
         size = get_transform_size(module, args.location, self.scheme.head_dim)
-        dtype = self.scheme.precision
         device = get_offloaded_device(module)
+        precision = self.scheme.precision if args.is_online() else torch.float64
 
-        weight = self.weights[size, dtype, device]
+        factory_kwargs = {"device": device, "precision": precision}
+        weight = self.weights.get(size, factory_kwargs=factory_kwargs)
         if args.inverse:
             weight = self.inverses[weight]
 
         return RandomMatrixTransform(weight, self.scheme, args, type(module))
 
-    def _create_weight(self, size: int, dtype: dtype, device: device) -> Parameter:
-        # TODO: verify that weight is invertible (has non-zero determinant)
+    def _create_weight(self, size: int, device: device, precision: dtype) -> Parameter:
+        # TODO: construct such that weight is invertible (has non-zero determinant)
         data = torch.rand(
-            (size, size), generator=self.generator, dtype=dtype, device=device
+            (size, size),
+            generator=self.generator,
+            dtype=precision,
+            device=device,
         )
         return Parameter(data, requires_grad=self.scheme.requires_grad)
 
@@ -87,12 +91,11 @@ class RandomMatrixTransform(TransformBase):
         self.scheme = scheme
         self.args = args
         self.module_type = module_type
-        self._precision = scheme.precision if args.is_online() else torch.float64
 
     def forward(self, value: Tensor) -> Parameter:
         return apply_transform_weight(
-            self.weight.to(self._precision),
-            value.to(self._precision),
+            self.weight.to(device=value.device),
+            value.to(dtype=self.weight.dtype),
             self.args.location,
             self.module_type,
         ).to(value.dtype)
@@ -100,8 +103,8 @@ class RandomMatrixTransform(TransformBase):
     def right_inverse(self, value: Tensor) -> Tensor:
         inverse = high_precision_invert(self.weight)
         return apply_transform_weight(
-            inverse.to(self._precision),
-            value.to(self._precision),
+            inverse.to(device=value.device),
+            value.to(dtype=inverse.dtype),
             self.args.location,
             self.module_type,
         ).to(value.dtype)
