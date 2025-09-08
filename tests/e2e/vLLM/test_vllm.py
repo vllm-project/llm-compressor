@@ -153,9 +153,9 @@ class TestvLLM:
             )
 
         if VLLM_PYTHON_ENV.lower() == "same":
-            logger.info("================= RUNNING vLLM in the same python env =================")
+            logger.info("========== RUNNING vLLM in the same python env ==========")
         else:
-            logger.info("================= RUNNING vLLM in a separate python env =================")
+            logger.info("========== RUNNING vLLM in a separate python env ==========")
 
         self._run_vllm(logger)
 
@@ -218,7 +218,7 @@ class TestvLLM:
         logger.info(stdout)
 
         if result.returncode != 0:
-            logger.error(f"ERROR: vLLM subprocess failed with exit code {result.returncode}")
+            logger.error(f"ERROR: vLLM failed with exit code {result.returncode}")
             logger.error(stderr)
             assert result.returncode == 0
 
