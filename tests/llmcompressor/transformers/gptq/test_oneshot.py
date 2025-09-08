@@ -1,11 +1,9 @@
-import os
-import shutil
-import unittest
-
+import pytest
+import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
-from parameterized import parameterized_class
 from transformers import AutoModelForCausalLM
 
+from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 
 recipe_str = """
@@ -52,67 +50,54 @@ recipe_modifier_shorthand_b = GPTQModifier(
 )
 
 
-@parameterized_class(
+@pytest.mark.parametrize(
+    "recipe",
     [
-        {"recipe": recipe_str},
-        {"recipe": recipe_modifier_full},
-        {"recipe": recipe_modifier_full_group},
-        {"recipe": recipe_modifier_shorthand_a},
-        {"recipe": recipe_modifier_shorthand_b},
-    ]
+        recipe_str,
+        recipe_modifier_full,
+        recipe_modifier_full_group,
+        recipe_modifier_shorthand_a,
+        recipe_modifier_shorthand_b,
+    ],
 )
-class TestGPTQOneShotWithFullScheme(unittest.TestCase):
-    def setUp(self):
-        import torch
+def test_oneshot_application(recipe, tmp_path):
+    output = tmp_path / "oneshot_output"
+    model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    dataset = "open_platypus"
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-        self.output = "./oneshot_output"
-        self.model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-        self.dataset = "open_platypus"
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    oneshot(
+        model=model,
+        dataset=dataset,
+        output_dir=output,
+        recipe=recipe,
+        num_calibration_samples=9,
+    )
+    model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
 
-    def test_oneshot_application(self):
-        from llmcompressor import oneshot
+    # Check that the model is quantized
+    # for compression_config - decompress() will attach a quantization_config
+    # to the model as we decompress right away
+    # for quantization_config - we have CompressedLinear which will only
+    # decompress on the forward pass and does not call decompress(). Results
+    # in a slightly different parameter tree to access the quant config
+    quantization_config = model_loaded.config.quantization_config.quantization_config
+    assert quantization_config is not None
 
-        oneshot(
-            model=self.model,
-            dataset=self.dataset,
-            output_dir=self.output,
-            recipe=self.recipe,
-            num_calibration_samples=9,
-        )
-        model_loaded = AutoModelForCausalLM.from_pretrained(
-            self.output, device_map=self.device
-        )
+    # check config is set properly
+    assert "lm_head" in quantization_config.ignore
+    assert len(quantization_config.config_groups) == 1
+    quant_scheme = quantization_config.config_groups["group_0"]
+    assert isinstance(quant_scheme, QuantizationScheme)
+    assert quant_scheme.targets == ["re:.*model.layers.2.self_attn.q_proj$"]
+    weight_args = quantization_config.config_groups["group_0"].weights
+    assert isinstance(weight_args, QuantizationArgs)
+    assert weight_args.num_bits == 4
 
-        # Check that the model is quantized
-        # for compression_config - decompress() will attach a quantization_config
-        # to the model as we decompress right away
-        # for quantization_config - we have CompressedLinear which will only
-        # decompress on the forward pass and does not call decompress(). Results
-        # in a slightly different parameter tree to access the quant config
-        quantization_config = (
-            model_loaded.config.quantization_config.quantization_config
-        )
-        assert quantization_config is not None
+    # Check a specific layer is quantized
+    targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj
+    assert hasattr(targetted_linear_layer, "quantization_scheme")
 
-        # check config is set properly
-        assert "lm_head" in quantization_config.ignore
-        assert len(quantization_config.config_groups) == 1
-        quant_scheme = quantization_config.config_groups["group_0"]
-        assert isinstance(quant_scheme, QuantizationScheme)
-        assert quant_scheme.targets == ["re:.*model.layers.2.self_attn.q_proj$"]
-        weight_args = quantization_config.config_groups["group_0"].weights
-        assert isinstance(weight_args, QuantizationArgs)
-        assert weight_args.num_bits == 4
-
-        # Check a specific layer is quantized
-        targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj
-        assert hasattr(targetted_linear_layer, "quantization_scheme")
-
-        # Check lm-head is not quantized
-        not_targetted = model_loaded.lm_head
-        assert not hasattr(not_targetted, "quantization_scheme")
-
-    def tearDown(self):
-        if os.path.isdir(self.output):
-            shutil.rmtree(self.output)
+    # Check lm-head is not quantized
+    not_targetted = model_loaded.lm_head
+    assert not hasattr(not_targetted, "quantization_scheme")
