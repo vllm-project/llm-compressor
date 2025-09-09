@@ -1,4 +1,14 @@
-# <img width="40" alt="tool icon" src="https://github.com/user-attachments/assets/f9b86465-aefa-4625-a09b-54e158efcf96" />  LLM Compressor
+<div align="center">
+
+<h1>
+  <img width="40" alt="tool icon" src="https://github.com/user-attachments/assets/f9b86465-aefa-4625-a09b-54e158efcf96" />
+  <span style="font-size:80px;">LLM Compressor</span>
+</h1>
+
+[![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/)
+
+</div>
+
 `llmcompressor` is an easy-to-use library for optimizing models for deployment with `vllm`, including:
 
 * Comprehensive set of quantization algorithms for weight-only and activation quantization
