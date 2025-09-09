@@ -115,7 +115,7 @@ inputs = processor(
     max_length=MAX_SEQUENCE_LENGTH,
     truncation=True,
     return_tensors="pt",
-).to("cuda")
+).to(model.device)
 output = model.generate(**inputs, max_new_tokens=100)
 print(processor.decode(output[0], skip_special_tokens=True))
 print("==========================================")

@@ -170,7 +170,10 @@ class SessionManagerMixIn:
                 "pass a yaml file or string to the `recipe` argument."
             )
 
-        torch.cuda.empty_cache()
+        if hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.empty_cache()
+        else:
+            torch.cuda.empty_cache()
 
     def finalize_session(self):
         """
@@ -186,7 +189,10 @@ class SessionManagerMixIn:
         logger.info("Finalized LLM Compressor session")
         model = get_session_model()
         self.model = model
-        torch.cuda.empty_cache()
+        if hasattr(torch, "xpu") and torch.xpu.is_available():
+            torch.xpu.empty_cache()
+        else:
+            torch.cuda.empty_cache()
 
     def create_optimizer(self):
         """

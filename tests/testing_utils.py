@@ -13,6 +13,8 @@ from transformers import ProcessorMixin
 
 from tests.data import CustomTestConfig, TestConfig
 
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+
 
 # TODO: probably makes sense to move this type of function to a more central place,
 # which can be used by __init__.py as well
@@ -78,6 +80,10 @@ def parse_params(
 
         for file in os.listdir(current_config_dir):
             config_path = os.path.join(current_config_dir, file)
+            if TEST_DATA_FILE is not None:
+                if not config_path.endswith(TEST_DATA_FILE):
+                    continue
+
             config = _load_yaml(config_path)
             if not config:
                 continue

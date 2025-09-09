@@ -93,7 +93,9 @@ oneshot(
 # Confirm generations of the quantized model look sane.
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
+input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))
 print("==========================================")

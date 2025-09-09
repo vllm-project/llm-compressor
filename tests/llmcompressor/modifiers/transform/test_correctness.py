@@ -5,7 +5,7 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import State
-from llmcompressor.modifiers.transform import SpinQuantModifier
+from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
 from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
     untie_word_embeddings,
 )
@@ -20,10 +20,10 @@ from tests.testing_utils import requires_gpu
 @pytest.mark.parametrize(
     "modifier,model_dtype,precision,exp_mse",
     [
-        # (QuIPModifier, torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0019
-        # (QuIPModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0022
-        # (QuIPModifier, torch.float32, torch.float32, 5e-10),  # 1.0e-10
-        # (QuIPModifier, torch.float32, torch.float64, 5e-11),  # 2.7e-11
+        (QuIPModifier, torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0019
+        (QuIPModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0022
+        (QuIPModifier, torch.float32, torch.float32, 5e-10),  # 1.0e-10
+        (QuIPModifier, torch.float32, torch.float64, 5e-11),  # 2.7e-11
         (SpinQuantModifier, torch.bfloat16, torch.bfloat16, 5e-3),  # 0.0030
         (SpinQuantModifier, torch.bfloat16, torch.float32, 5e-3),  # 0.0029
         (SpinQuantModifier, torch.float32, torch.float32, 5e-4),  # 4e-4

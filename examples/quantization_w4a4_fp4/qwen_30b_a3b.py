@@ -60,7 +60,10 @@ recipe = QuantizationModifier(
 
 # Apply quantization.
 # We see `calibrate_moe_context` to True to update all `Qwen3MoeSparseMoeBlock`
-# during calibration
+# during calibration.
+# Feel free to update the definition under
+# llm-compressor/src/llmcompressor/modeling/qwen3_moe.py` to play around with
+# this behaviour and evaluate its impact on quantization performance
 oneshot(
     model=model,
     dataset=ds,
@@ -74,7 +77,9 @@ oneshot(
 print("\n\n")
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
+    model.device
+)
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")

@@ -1,24 +1,27 @@
+"""
+NOTE: Models produced by this example will not be runnable in vLLM without
+the following changes: https://github.com/vllm-project/vllm/pull/22486
+"""
+
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.modifiers.transform import SpinQuantModifier
+from llmcompressor.modifiers.transform import QuIPModifier
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
-
+# NOTE: because the datafree pipeline is being used in this
+# example, you can use additional GPUs to support larger models
+MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# NOTE: currently only fused rotations (R1 & R2) are available
-# Learned rotations and online rotations (R3 & R4) will be added
-# in a future release.
 # Configure the quantization algorithm to run.
-#   * apply spinquant transforms to model to reduce quantization loss
-#   * quantize the weights to 4 bit with group size 128
+#   * apply spinquant transforms to model in order to make quantization easier
+#   * quantize the weights to 4 bit with a group size 128
 recipe = [
-    SpinQuantModifier(rotations=["R1", "R2"], transform_type="hadamard"),
+    QuIPModifier(targets="Linear", transform_type="random-hadamard"),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
@@ -37,6 +40,6 @@ print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.split("/")[1] + "-spinquantR1R2-w4a16"
+SAVE_DIR = MODEL_ID.split("/")[1] + "-quip-w4a16"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

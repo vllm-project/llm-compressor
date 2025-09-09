@@ -231,14 +231,10 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
 
     output_dir, _ = next(kv_cache_fixture(recipe, tmp_path))
 
-    with init_empty_weights():
-        # TODO: There is a bug in `apply_quantization_config` which means that, if using
-        # CompressedLinears, the compression status is inferred to `compressed` and
-        # therefore the attention kvcache parameters never undergo initializations
-        model = AutoModelForCausalLM.from_pretrained(
-            output_dir,
-            quantization_config=CompressedTensorsConfig(run_compressed=False),
-        )
+    model = AutoModelForCausalLM.from_pretrained(
+        output_dir,
+        quantization_config=CompressedTensorsConfig(run_compressed=False),
+    )
 
     counts = 0
     for name, submodule in model.named_modules():
