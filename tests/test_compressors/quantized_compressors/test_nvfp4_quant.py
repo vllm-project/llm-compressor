@@ -54,4 +54,4 @@ def test_pack_unpack_odd_dims():
     )
 
     with pytest.raises((ValueError, torch._dynamo.exc.Unsupported)):
-        _packed = pack_fp4_to_uint8(x)
+        _ = pack_fp4_to_uint8(x)
