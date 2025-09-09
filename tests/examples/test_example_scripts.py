@@ -178,11 +178,10 @@ def test_example_scripts(test_case: str | TestCase, tmp_path: Path):
 
     result = run_cli_command(command, cwd=script_working_dir)
 
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"command failed with exit code {result.returncode}:\n"
-            f"Command:\n{shlex.join(command)}\nOutput:\n{result.stdout}"
-        )
+    assert result.returncode == 0, (
+        f"command failed with exit code {result.returncode}:\n"
+        f"Command:\n{shlex.join(command)}\nOutput:\n{result.stdout}"
+    )
 
     if test_case.verify_fn:
         test_case.verify_fn(tmp_path, example_dir)
