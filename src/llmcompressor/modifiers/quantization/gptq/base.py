@@ -135,15 +135,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 return ActivationOrdering.STATIC if existing is None else existing
 
             # user-provided value always attempts to override
-            if self.actorder is not None:
-                if existing is None or self.actorder == existing:
-                    return self.actorder
-                raise ValueError(
-                    "Cannot resolve activation ordering when both "
-                    "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
-                    "are provided and differ. Either set `GPTQModifier.actorder = "
-                    "None` or remove `actorder` from config groups."
-                )
+            if existing is None or self.actorder == existing:
+                return self.actorder
+            raise ValueError(
+                "Cannot resolve activation ordering when both "
+                "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
+                f"are provided and differ ({self.actorder}, {existing}). "
+                "Either unset `GPTQModifier.actorder` or "
+                "remove `actorder` from config groups."
+            )
 
             # setting `GPTQModifier.actorder = None` does nothing
             return existing

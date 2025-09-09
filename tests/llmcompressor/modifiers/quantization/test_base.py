@@ -69,7 +69,9 @@ def test_block_strategy_parsing(block_q_config_kwargs):
         # defaults to "static" if nothing provided
         (False, "N/A", None, None, "static", "static"),
         # modifier overrides config if no config provided
+        (True, "static", None, None, "static", "static"),
         (True, "group", None, None, "group", "group"),
+        (True, None, None, None, None, None),
         # modifier overrides if config partially matches anyways
         (True, "group", None, "group", "group", "group"),
         (True, "group", "group", None, "group", "group"),
@@ -78,6 +80,7 @@ def test_block_strategy_parsing(block_q_config_kwargs):
         (True, "static", "group", None, "error", "error"),
         (True, "group", None, "static", "error", "error"),
         (True, "group", "static", None, "error", "error"),
+        (True, None, "static", None, "error", "error"),
         # modifier overrides to static if nothing is provided
         (False, "N/A", None, "static", "static", "static"),
         (False, "N/A", "static", None, "static", "static"),
