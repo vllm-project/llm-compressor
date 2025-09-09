@@ -3,6 +3,7 @@ import os
 import pytest
 from transformers import (
     AutoModelForCausalLM,
+    Cohere2VisionForConditionalGeneration,
     Gemma3ForConditionalGeneration,
     Idefics3ForConditionalGeneration,
     Llama4ForConditionalGeneration,
@@ -12,7 +13,6 @@ from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     Qwen2VLForConditionalGeneration,
     WhisperForConditionalGeneration,
-    Cohere2VisionForConditionalGeneration,
 )
 
 from llmcompressor.pipelines.sequential.helpers import match_modules
@@ -94,8 +94,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             ["Cohere2DecoderLayer"],
             "vision",
             [],
-        )
-        (
+        )(
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,
             ["Qwen2VLDecoderLayer"],
