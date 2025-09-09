@@ -12,6 +12,7 @@ from transformers import (
     Qwen2_5_VLForConditionalGeneration,
     Qwen2VLForConditionalGeneration,
     WhisperForConditionalGeneration,
+    Cohere2VisionForConditionalGeneration,
 )
 
 from llmcompressor.pipelines.sequential.helpers import match_modules
@@ -87,6 +88,13 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "vision",
             ["torchvision"],
         ),
+        (
+            "CohereLabs/command-a-vision-07-2025",
+            Cohere2VisionForConditionalGeneration,
+            ["Cohere2DecoderLayer"],
+            "vision",
+            [],
+        )
         (
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,
