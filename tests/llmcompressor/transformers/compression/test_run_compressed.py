@@ -15,6 +15,13 @@ COMPRESSED_LINEAR_CONFIG_DIR = (
     "tests/llmcompressor/transformers/compression/run_compressed_configs"
 )
 
+# Memory management functions
+
+def cleanup_global_memory():
+    """Force cleanup of all GPU memory between test classes."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
@@ -34,6 +41,8 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Clean up any leftover memory from previous tests
+        cleanup_global_memory()
         cls.test_dir = tempfile.mkdtemp()
 
         quantization_config = CompressedTensorsConfig(run_compressed=False)
@@ -86,7 +95,10 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
             shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.uncompressed_model
+        del cls.tokenizer
+
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
 
 @requires_gpu
@@ -107,6 +119,8 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Clean up any leftover memory from previous tests
+        cleanup_global_memory()
         cls.test_dir = tempfile.mkdtemp()
 
         # Should have CompressedLinear modules
@@ -170,4 +184,4 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
             shutil.rmtree(cls.test_dir)
         del cls.decompressed_model
         del cls.compressed_model
-        torch.cuda.empty_cache()
+        del cls.tokenizer
