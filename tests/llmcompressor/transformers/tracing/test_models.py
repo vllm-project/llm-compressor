@@ -50,7 +50,7 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "text",
             [],
         ),
-        ("google/gemma-3n-E2B-it", AutoModelForCausalLM, None, "text", []),
+        ("google/gemma-3n-E2B-it", AutoModelForCausalLM, None, "text", ["timm"]),
         ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
         # --- vision ---
         (
