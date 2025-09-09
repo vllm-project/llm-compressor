@@ -11,5 +11,4 @@ quant_stage:
             symmetric: true
             strategy: "group"
             group_size: 128
-            actorder: "group"
           targets: ["Linear"]
