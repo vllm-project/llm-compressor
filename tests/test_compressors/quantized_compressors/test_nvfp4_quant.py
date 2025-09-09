@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
 import torch
 from compressed_tensors.compressors.quantized_compressors.nvfp4_quantized import (
     pack_fp4_to_uint8,
@@ -41,3 +42,16 @@ def test_pack_unpack():
     sign_bitx = torch.signbit(x)
     sign_bitout = torch.signbit(unpacked)
     assert torch.equal(sign_bitout, sign_bitx)
+
+
+def test_pack_unpack_odd_dims():
+    x = torch.Tensor(
+        [
+            [-0.5000, -6.0000, -0.5000, -1.5000, -1.0000, 6.0000, 0.0000],
+            [-1.0000, -6.0000, -0.5000, -0.0000, 0.5000, 0.5000, -0.0000],
+            [1.5000, 6.0000, -0.0000, -0.5000, 1.0000, 1.0000, -0.0000],
+        ]
+    )
+
+    with pytest.raises((ValueError, torch._dynamo.exc.Unsupported)):
+        _packed = pack_fp4_to_uint8(x)

@@ -140,6 +140,11 @@ def pack_fp4_to_uint8(x: torch.Tensor) -> torch.Tensor:
     m, n = x.shape
     device = x.device
 
+    if n % 2 != 0:
+        raise ValueError(
+            "tensor must have an even number of columns for nvfp4 compression"
+        )
+
     # Create lookup table for FP4 values to indices
     # Map the absolute values to 0-7 indices
     kE2M1 = torch.tensor(FLOAT_TO_E2M1, device=device, dtype=x.dtype)
@@ -154,10 +159,6 @@ def pack_fp4_to_uint8(x: torch.Tensor) -> torch.Tensor:
 
     # Reshape to prepare for packing pairs of values
     indices = indices.reshape(-1)
-
-    # Handle odd length by padding if necessary
-    if indices.numel() % 2 != 0:
-        indices = torch.cat([indices, torch.zeros(1, dtype=torch.long, device=device)])
 
     # Reshape to pair consecutive elements
     indices = indices.reshape(-1, 2)
