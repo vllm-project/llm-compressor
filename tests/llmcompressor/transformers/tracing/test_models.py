@@ -124,7 +124,13 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             "vision",
             [],
         ),
-        ("google/gemma-3n-E2B-it", Gemma3nForConditionalGeneration, None, "vision", []),
+        (
+            "google/gemma-3n-E2B-it",
+            Gemma3nForConditionalGeneration,
+            None,
+            "vision",
+            ["timm"],
+        ),
         # --- audio ---
         (
             "openai/whisper-large-v3",
