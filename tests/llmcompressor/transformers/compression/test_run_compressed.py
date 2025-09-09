@@ -17,11 +17,13 @@ COMPRESSED_LINEAR_CONFIG_DIR = (
 
 # Memory management functions
 
+
 def cleanup_global_memory():
     """Force cleanup of all GPU memory between test classes."""
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
+
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
