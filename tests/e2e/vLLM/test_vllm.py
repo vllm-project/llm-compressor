@@ -217,10 +217,7 @@ class TestvLLM:
         stdout, stderr = result.communicate()
         logger.info(stdout)
 
-        if result.returncode != 0:
-            logger.error(f"ERROR: vLLM failed with exit code {result.returncode}")
-            logger.error(stderr)
-            assert result.returncode == 0
+        assert result.returncode == 0, f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
