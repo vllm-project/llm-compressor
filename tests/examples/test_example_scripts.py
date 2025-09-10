@@ -112,6 +112,10 @@ class TestCase(NamedTuple):
         "quantization_w8a8_int8/llama3_example.py",
         "quantization_w8a8_int8/gemma2_example.py",
         "quantizing_moe/mixtral_example.py",
+        pytest.param(
+            "quantizing_moe/mixtral_example.py",
+            marks=(requires_gpu_count(2), pytest.mark.multi_gpu),
+        ),
         "quantizing_moe/qwen_example.py",
         # sparse_2of4
         "sparse_2of4_quantization_fp8/llama3_8b_2of4.py",
