@@ -6,7 +6,7 @@ The library is designed to be flexible and easy to use on top of
 PyTorch and HuggingFace Transformers, allowing for quick experimentation.
 """
 
-# flake8: noqa
+# ruff: noqa
 
 from .logger import LoggerConfig, configure_logger, logger
 from .version import __version__, version
