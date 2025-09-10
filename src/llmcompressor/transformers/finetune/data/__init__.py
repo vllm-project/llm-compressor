@@ -1,4 +1,4 @@
-# flake8: noqa
+# ruff: noqa
 
 from .base import TextGenerationDataset
 from .c4 import C4Dataset

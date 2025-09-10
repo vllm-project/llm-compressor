@@ -1,5 +1,4 @@
-# flake8: noqa
-# isort: skip_file
+# ruff: noqa
 
 from .helpers import *
 from .base import *

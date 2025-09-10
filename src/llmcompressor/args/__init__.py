@@ -1,4 +1,4 @@
-# flake8: noqa
+# ruff: noqa
 
 from .dataset_arguments import DatasetArguments
 from .model_arguments import ModelArguments
