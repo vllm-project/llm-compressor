@@ -1,8 +1,8 @@
-from tests.examples.utils import ReadMe
-
 from pathlib import Path
 
 import pytest
+
+from tests.examples.utils import ReadMe
 
 
 @pytest.mark.example
