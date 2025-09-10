@@ -69,10 +69,10 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     :param learnable: if True, attach gradients to transform weights for training
     :param precision: Precision at which all transforms should be applied. This applies
         to both weight fusing and online rotations
-    :param hadamard_size: Size of hadamard rotation matrix to use. The model's hidden
-        size and head dim must be evenly divisible by hadamard_size. Layers will be
-        transformed by a block-diagonal matrix where each block is a hadamard matrix
-        of this size.
+    :param transform_block_size: Block size to use for rotation matrices. The model's
+        hidden_size and head_dim must be evenly divisible by transform_block_size.
+        Layers will be transformed by a block-diagonal matrix where each block is a
+        matrix of this size.
         If None is provided, model's hidden_size will be used for R1, R3, and R4
         and model's head_dim will be used for R2
     :param mappings: Specifies layers within a model to target for transforms.
@@ -89,7 +89,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
     precision: TorchDtype = Field(default=torch.float64)
-    hadamard_size: Optional[int] = Field(default=None)
+    transform_block_size: Optional[int] = Field(default=None)
 
     # norm mappings separate from spinquant mappings to allow users to
     # override spinquant mappings with transform_config without overriding norms
@@ -193,7 +193,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
-            head_dim=self.hadamard_size,
+            head_dim=self.transform_block_size,
             apply=[
                 TransformArgs(
                     targets=[
@@ -227,12 +227,13 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         else:
             raise NotImplementedError()
 
-        if self.hadamard_size:
-            assert (
-                head_dim % self.hadamard_size == 0
-            ), f"hadamard_size {self.hadamard_size} must be set such that model's "
-            f"head_dim {head_dim} is evenly divisible by it"
-            head_dim = self.hadamard_size
+        if self.transform_block_size:
+            if head_dim % self.transform_block_size == 0:
+                raise ValueError(
+                    f"transform_block_size {self.transform_block_size} must be set "
+                    f"such that model's head_dim {head_dim} is evenly divisible by it"
+                )
+            head_dim = self.transform_block_size
 
         return TransformScheme(
             type=self.transform_type,
@@ -261,7 +262,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
-            head_dim=self.hadamard_size,
+            head_dim=self.transform_block_size,
             apply=[
                 TransformArgs(
                     targets=[*self.mappings.mlp_out],
