@@ -65,19 +65,19 @@ _LOGGER = logging.getLogger(__name__)
 def load_pretrained_quantization_parameters(
     model: Module,
     model_name_or_path: Optional[str] = None,
-    load_weight_quantization: Optional[bool] = False,
+    load_weight_qparams: Optional[bool] = False,
 ):
     """
     Loads the quantization parameters (scale and zero point) from model_name_or_path to
     a model that has already been initialized with a quantization config.
 
     NOTE: Will always load inputs/output parameters. Will conditioanlly load weight
-    parameters, if load_weight_quantization is set to True.
+    parameters, if load_weight_qparams is set to True.
 
     :param model: model to load pretrained quantization parameters to
     :param model_name_or_path: Hugging Face stub or local folder containing a quantized
         model, which is used to load quantization parameters
-    :param load_weight_quantization: whether or not the weight quantization parameters
+    :param load_weight_qparams: whether or not the weight quantization parameters
         should be loaded
     """
     model_path = get_safetensors_folder(model_name_or_path)
@@ -103,7 +103,7 @@ def load_pretrained_quantization_parameters(
                 mapping=mapping,
             )
 
-        if load_weight_quantization and submodule.quantization_scheme.weights:
+        if load_weight_qparams and submodule.quantization_scheme.weights:
             base_name = "weight"
             _load_quant_args_from_mapping(
                 base_name=base_name,
@@ -219,18 +219,9 @@ def apply_quantization_status(model: Module, status: QuantizationStatus):
     if status >= QuantizationStatus.INITIALIZED > current_status:
         force_zero_point_init = status != QuantizationStatus.COMPRESSED
 
-        # When decompressing, we set the scale_dtype as the model's dtype
-        # This is because the normal workflow of using the weight's dtype
-        # will be incorrect as the model weight will be compressed
-        # Therfore, use the dtype set by the user using the PretrainedModel
-        scale_dtype = None
-        if status == QuantizationStatus.FROZEN:
-            if hasattr(model, "dtype"):
-                scale_dtype = model.dtype
-
         model.apply(
             lambda module: initialize_module_for_quantization(
-                module, force_zero_point=force_zero_point_init, scale_dtype=scale_dtype
+                module, force_zero_point=force_zero_point_init
             )
         )
 

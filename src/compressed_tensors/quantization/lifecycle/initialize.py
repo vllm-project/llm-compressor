@@ -59,7 +59,6 @@ def initialize_module_for_quantization(
     module: Module,
     scheme: Optional[QuantizationScheme] = None,
     force_zero_point: bool = True,
-    scale_dtype: Optional[torch.dtype] = None,
 ):
     """
     attaches appropriate scales, zero points, and observers to a layer
@@ -73,8 +72,6 @@ def initialize_module_for_quantization(
         if not provided, the layer will be skipped
     :param force_zero_point: whether to force initialization of a zero point for
         symmetric quantization
-    :param scale_dtype: dtype to used for the scales, if overriding the
-        weight dtype as the scale dtype
     """
     # TODO: don't initialize parameters when running decompression
     scheme = scheme or getattr(module, "quantization_scheme", None)
@@ -93,7 +90,6 @@ def initialize_module_for_quantization(
                 "input",
                 scheme.input_activations,
                 force_zero_point=force_zero_point,
-                scale_dtype=scale_dtype,
             )
 
         if scheme.weights is not None:
@@ -107,7 +103,6 @@ def initialize_module_for_quantization(
                     scheme.weights,
                     weight_shape=weight_shape,
                     force_zero_point=force_zero_point,
-                    scale_dtype=scale_dtype,
                 )
             else:
                 _LOGGER.warning(
@@ -119,7 +114,7 @@ def initialize_module_for_quantization(
         if scheme.output_activations is not None:
             if not is_kv_cache_quant_scheme(scheme):
                 _initialize_scale_zero_point(
-                    module, "output", scheme.output_activations, scale_dtype=scale_dtype
+                    module, "output", scheme.output_activations
                 )
 
         module.quantization_scheme = scheme
@@ -145,7 +140,6 @@ def _initialize_scale_zero_point(
     quantization_args: QuantizationArgs,
     weight_shape: Optional[torch.Size] = None,
     force_zero_point: bool = True,
-    scale_dtype: Optional[torch.dtype] = None,
 ):
     if quantization_args.dynamic is True:
         return
@@ -213,7 +207,7 @@ def _initialize_scale_zero_point(
         expected_shape = 1
 
     # 3. Identify quantization scale and zp dtype
-    scale_dtype = scale_dtype if scale_dtype is not None else module.weight.dtype
+    scale_dtype = module.weight.dtype
 
     if is_fp4(quantization_args=quantization_args):
         scale_dtype = zp_dtype = FP8_E4M3_DATA.dtype
@@ -226,7 +220,7 @@ def _initialize_scale_zero_point(
             torch.float32,
             torch.float64,
         ]:
-            scale_dtype = torch.float16
+            scale_dtype = torch.bfloat16
         zp_dtype = quantization_args.pytorch_dtype()
 
     # 4. Initializes empty scale, zero point, and g_idx parameters for the module
