@@ -1,6 +1,6 @@
 import re
-from typing import Union, Optional
 from pathlib import Path
+from typing import Optional, Union
 
 import pytest
 from bs4 import BeautifulSoup, ResultSet, Tag
