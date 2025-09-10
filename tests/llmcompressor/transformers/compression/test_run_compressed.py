@@ -15,15 +15,6 @@ COMPRESSED_LINEAR_CONFIG_DIR = (
     "tests/llmcompressor/transformers/compression/run_compressed_configs"
 )
 
-# Memory management functions
-
-
-def cleanup_global_memory():
-    """Force cleanup of all GPU memory between test classes."""
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
 
 @requires_gpu
 @parameterized_class(parse_params(COMPRESSED_LINEAR_CONFIG_DIR))
@@ -44,29 +35,30 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Clean up any leftover memory from previous tests
-        cleanup_global_memory()
+        # cleanup_global_memory()
         cls.test_dir = tempfile.mkdtemp()
 
         quantization_config = CompressedTensorsConfig(run_compressed=False)
 
-        # Decompressed using HFQuantizer
-        # Linear foward
-        cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
-            cls.compressed_model_stub,
-            torch_dtype="auto",
-            device_map="auto",
-            quantization_config=quantization_config,
-        )
+        with torch.no_grad():
+            # Decompressed using HFQuantizer
+            # Linear foward
+            cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
+                cls.compressed_model_stub,
+                torch_dtype="auto",
+                device_map="auto",
+                quantization_config=quantization_config,
+            )
 
-        # Load model as is at the uncompressed state
-        # Linear forward
-        cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
-            cls.uncompressed_model_stub,
-            torch_dtype=cls.decompressed_model.dtype,
-            device_map=cls.decompressed_model.device,
-        )
+            # Load model as is at the uncompressed state
+            # Linear forward
+            cls.uncompressed_model = AutoModelForCausalLM.from_pretrained(
+                cls.uncompressed_model_stub,
+                torch_dtype=cls.decompressed_model.dtype,
+                device_map=cls.decompressed_model.device,
+            )
 
-        cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
+            cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
 
     def test_compressed_matches_decompressed(self):
         SAMPLE_INPUT = [
@@ -95,6 +87,11 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
     def tearDownClass(cls):
         if os.path.isdir(cls.test_dir):
             shutil.rmtree(cls.test_dir)
+
+        if hasattr(cls, "decompressed_model") and cls.decompressed_model is not None:
+            cls.decompressed_model.cpu()
+        if hasattr(cls, "uncompressed_model") and cls.uncompressed_model is not None:
+            cls.uncompressed_model.cpu()
         del cls.decompressed_model
         del cls.uncompressed_model
         del cls.tokenizer
@@ -121,20 +118,12 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # Clean up any leftover memory from previous tests
-        cleanup_global_memory()
         cls.test_dir = tempfile.mkdtemp()
-
-        # Should have CompressedLinear modules
-        # Compressed Linear forward
         cls.compressed_model = AutoModelForCausalLM.from_pretrained(
             cls.compressed_model_stub,
             torch_dtype="auto",
             device_map="auto",
         )
-
-        # Should just be linear modules
-        # Linear forward
         quantization_config = CompressedTensorsConfig(run_compressed=False)
         cls.decompressed_model = AutoModelForCausalLM.from_pretrained(
             cls.compressed_model_stub,
@@ -142,7 +131,6 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
             device_map=cls.compressed_model.device,
             quantization_config=quantization_config,
         )
-
         cls.tokenizer = AutoTokenizer.from_pretrained(cls.compressed_model_stub)
 
     def test_compressed_linear_modules_exist(self):
@@ -173,17 +161,25 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         )
 
         inputs = inputs.to(compressed_device)
-
         compressed_model_out = self.compressed_model.generate(**inputs, max_length=50)
 
         # Compare outputs for each input
         for idx in range(len(SAMPLE_INPUT)):
-            torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
+            equal = torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
+            assert equal
 
     @classmethod
     def tearDownClass(cls):
         if os.path.isdir(cls.test_dir):
             shutil.rmtree(cls.test_dir)
+
+        if hasattr(cls, "decompressed_model") and cls.decompressed_model is not None:
+            cls.decompressed_model.cpu()
+        if hasattr(cls, "compressed_model") and cls.compressed_model is not None:
+            cls.compressed_model.cpu()
         del cls.decompressed_model
         del cls.compressed_model
         del cls.tokenizer
+
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
