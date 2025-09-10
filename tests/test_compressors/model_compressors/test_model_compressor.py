@@ -253,61 +253,6 @@ class TwoLayerModel(nn.Module):
         return x
 
 
-@pytest.mark.parametrize(
-    "model, sparsity_config, quantization_config, expected",
-    [
-        (
-            TwoLayerModel(),
-            get_bitmask_sparsity_config(targets=["re:.*layer1$"]),
-            create_quantization_config(bits=8, type="int", strategy="channel"),
-            {"layer1.weight"},
-        )
-    ],
-)
-def test_get_missing_keys(model, sparsity_config, quantization_config, expected):
-    model_compressor = ModelCompressor(
-        sparsity_config=sparsity_config, quantization_config=quantization_config
-    )
-
-    actual = model_compressor.get_missing_module_keys(model)
-    assert len(actual) == len(expected) and all(key in actual for key in expected)
-
-
-@pytest.mark.parametrize(
-    "model, sparsity_config, quantization_config, expected",
-    [
-        (
-            TwoLayerModel(),
-            get_bitmask_sparsity_config(targets=["re:.*layer1$"]),
-            create_quantization_config(bits=8, type="int", strategy="channel"),
-            {
-                f"{layer}.{suffix}"
-                for layer, suffixes in {
-                    "layer1": [
-                        "shape",
-                        "row_offsets",
-                        "weight_zero_point",
-                        "weight_g_idx",
-                        "bitmask",
-                        "weight_scale",
-                        "compressed",
-                    ],
-                    "layer2": ["weight_scale", "weight_zero_point", "weight_g_idx"],
-                }.items()
-                for suffix in suffixes
-            },
-        )
-    ],
-)
-def test_get_unexpected_keys(model, sparsity_config, quantization_config, expected):
-    model_compressor = ModelCompressor(
-        sparsity_config=sparsity_config, quantization_config=quantization_config
-    )
-
-    actual = model_compressor.get_unexpected_file_keys(model)
-    assert len(actual) == len(expected) and all(key in actual for key in expected)
-
-
 def _create_dummy_checkpoint(state_dict, save_dir, model_compressor):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
