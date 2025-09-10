@@ -1,9 +1,9 @@
 name: Test Checks (Base/PyTorch)
 on:
   pull_request:
-    branches:
-      - main
+    branches: [ main, 'release/*' ]
   push:
+    branches: [ main, 'release/*' ]
   workflow_dispatch:
     inputs:
       code_coverage:
@@ -115,59 +115,9 @@ jobs:
         run: |
           coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
 
-  compat-pytorch-1_9-pytorch-tests:
-    runs-on: ubuntu-22.04
-    env:
-      COVERAGE_FILE: ".coverage.compat-pytorch-1.9"
-    steps:
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: "⚙️ Install dependencies"
-        run: pip3 install -U pip setuptools && pip3 install .[dev]
-      - uses: actions/checkout@v4
-        with:
-          repository: "neuralmagic/compressed-tensors"
-          path: "compressed-tensors"
-          fetch-depth: 0
-          fetch-tags: true
-      - name: "⚙️ Install compressed-tensors dependencies"
-        run: |
-          pip3 uninstall -y compressed-tensors
-          export GIT_CEILING_DIRECTORIES="$(pwd)"
-          cd compressed-tensors
-          BUILD_TYPE=nightly pip3 install .
-      - name: "Clean compressed-tensors directory"
-        run: rm -r compressed-tensors/
-      - name: "⚙️ Prepare code coverage"
-        if: inputs.code_coverage
-        uses: ./.github/actions/prepare-code-coverage
-      - name: "🔬 Running pytorch tests"
-        run: |
-          pytest -v tests/llmcompressor/pytorch
-      - name: "Upload coverage report"
-        if: (success() || failure()) && inputs.code_coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: compat-pytorch-tests-coverage-results
-          path: |
-            .coverage*
-            coverage-html
-            coverage.json
-          include-hidden-files: true
-          retention-days: 5
-      - name: "Report coverage"
-        if: (success() || failure()) && inputs.code_coverage
-        run: |
-          coverage report --data-file="$COVERAGE_FILE" --skip-empty --format="markdown" > "$GITHUB_STEP_SUMMARY"
-
   combine-coverage:
     runs-on: ubuntu-22.04
-    needs: [base-tests, pytorch-tests, compat-pytorch-1_9-pytorch-tests]
+    needs: [base-tests, pytorch-tests]
     if: (success() || failure()) && inputs.code_coverage
     steps:
       - name: "Checkout llm-compressor"
