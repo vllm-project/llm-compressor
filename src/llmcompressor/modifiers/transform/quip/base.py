@@ -54,6 +54,11 @@ class QuIPModifier(Modifier):
     :param learnable: If true, attach gradients to transform weights for training
     :param precision: Precision at which all transforms should be applied. This applies
         to both weight fusing and online rotations
+    :param transform_block_size: Block size to use for rotation matrices. The model's
+        hidden_size must be evenly divisible by transform_block_size.
+        Layers will be transformed by a block-diagonal matrix where each block is a
+        matrix of this size.
+        If None is provided, model's hidden_size will be used
     :param ignore: Modules to ignore when attaching transforms
     :param transform_config: Optional transform config for overriding provided arguments
     """  # noqa: E501
@@ -65,6 +70,7 @@ class QuIPModifier(Modifier):
     randomize: bool = Field(default=False)
     learnable: bool = Field(default=False)
     precision: TorchDtype = Field(default=torch.float64)
+    transform_block_size: Optional[int] = Field(default=None)
     ignore: Union[str, List[str]] = Field(default="lm_head")
 
     # optional override for more fine-grained control
@@ -115,6 +121,7 @@ class QuIPModifier(Modifier):
             config_groups={
                 "v": TransformScheme(
                     type=self.transform_type,
+                    head_dim=self.transform_block_size,
                     apply=[
                         TransformArgs(
                             targets=self.targets,
@@ -134,6 +141,7 @@ class QuIPModifier(Modifier):
                 ),
                 "u": TransformScheme(
                     type=self.transform_type,
+                    head_dim=self.transform_block_size,
                     apply=[
                         TransformArgs(
                             targets=self.targets,
