@@ -137,6 +137,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
             # user-provided value always attempts to override
             if existing is None or self.actorder == existing:
                 return self.actorder
+            
+            # if existing provided and conflicts
             raise ValueError(
                 "Cannot resolve activation ordering when both "
                 "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
@@ -144,9 +146,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "Either unset `GPTQModifier.actorder` or "
                 "remove `actorder` from config groups."
             )
-
-            # setting `GPTQModifier.actorder = None` does nothing
-            return existing
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
