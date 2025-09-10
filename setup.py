@@ -159,11 +159,8 @@ setup(
             "soundfile",
             "torchcodec",
             # linting, formatting, and type checking
-            "black~=24.4.2",
-            "isort~=5.13.2",
             "mypy~=1.10.0",
             "ruff~=0.4.8",
-            "flake8~=7.0.0",
             # pre commit hooks
             "pre-commit",
             # docs
