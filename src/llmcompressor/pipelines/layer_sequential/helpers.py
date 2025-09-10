@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Tuple
 
 import torch
 import tqdm
-from compressed_tensors.quantization import find_name_or_class_matches
+from compressed_tensors.utils.match import match_targets
 from torch.nn import Module
 from torch.utils.data.dataloader import DataLoader
 
@@ -33,7 +33,7 @@ def match_modules(model: Module, target_names: List[str]) -> List[Module]:
     names_layers = [
         (name, module)
         for name, module in model.named_modules()
-        if find_name_or_class_matches(name, module, target_names)
+        if match_targets(name, module, target_names)
     ]
 
     names_layers = sorted(names_layers, key=lambda name_layer: name_layer[0])
