@@ -1,7 +1,7 @@
 import json
 import sys
-import torch
 
+import torch
 from vllm import LLM, SamplingParams
 
 
