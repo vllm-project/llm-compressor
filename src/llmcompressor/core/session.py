@@ -1,3 +1,11 @@
+"""
+Compression session management for LLM compression workflows.
+
+Provides the main CompressionSession class for managing compression
+workflows, including lifecycle management, event handling, callback
+registration, and state tracking.
+"""
+
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -47,7 +55,7 @@ class CompressionSession:
     def lifecycle(self) -> CompressionLifecycle:
         """
         Lifecycle is used to keep track of where we are in the compression
-        process and what modifiers are active. It also provides the ability
+        process and what modifiers are active. It also Provides the ability
         to invoke events on the lifecycle.
 
         :return: the lifecycle for the session

@@ -1,3 +1,11 @@
+"""
+Sentinel value implementation for LLM compression workflows.
+
+Provides unique sentinel values following PEP 661 with Pydantic validation
+support. Used for creating distinct marker objects that can be safely compared
+by identity across the compression framework.
+"""
+
 import inspect
 
 from pydantic_core import core_schema

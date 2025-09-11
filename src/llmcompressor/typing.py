@@ -1,3 +1,7 @@
+"""
+Defines type aliases for the llm-compressor library.
+"""
+
 from typing import Union
 
 from datasets import Dataset, DatasetDict, IterableDataset
