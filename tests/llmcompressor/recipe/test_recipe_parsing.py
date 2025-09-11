@@ -17,7 +17,7 @@ def setup_model_and_config(tmp_path):
     Loads a test model and returns common arguments used in oneshot runs.
     """
     model = AutoModelForCausalLM.from_pretrained(
-        "Xenova/llama2.c-stories110M",
+        "nm-testing/llama2.c-stories15M",
         torch_dtype="auto",
     )
 
