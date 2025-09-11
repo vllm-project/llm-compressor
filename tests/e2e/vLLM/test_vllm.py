@@ -192,13 +192,10 @@ class TestvLLM:
 
         llm_kwargs = {"model": self.save_dir}
 
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm_kwargs["dtype"] = torch.float16
-
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
 
+        json_scheme = json.dumps(self.scheme)
         json_llm_kwargs = json.dumps(llm_kwargs)
         json_prompts = json.dumps(self.prompts)
 
@@ -209,7 +206,7 @@ class TestvLLM:
         logger.info(self.vllm_env)
 
         result = subprocess.Popen(
-            [self.vllm_env, run_file_path, json_llm_kwargs, json_prompts],
+            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True

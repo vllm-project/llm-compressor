@@ -1,19 +1,25 @@
 import json
 import sys
+import torch
 
 from vllm import LLM, SamplingParams
 
 
 def parse_args():
     """Parse JSON arguments passed via command line."""
-    if len(sys.argv) < 3:
-        raise ValueError("Usage: python script.py '<llm_kwargs_json>' '<prompts_json>'")
+    if len(sys.argv) < 4:
+        raise ValueError("Usage: python script.py '<scheme>' '<llm_kwargs_json>' '<prompts_json>'")
 
     try:
-        llm_kwargs = json.loads(sys.argv[1])
-        prompts = json.loads(sys.argv[2])
+        scheme = json.loads(sys.argv[1])
+        llm_kwargs = json.loads(sys.argv[2])
+        prompts = json.loads(sys.argv[3])
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON input: {e}")
+
+    if "W4A16_2of4" in scheme:
+        # required by the kernel
+        llm_kwargs["dtype"] = torch.float16
 
     return llm_kwargs, prompts
 
