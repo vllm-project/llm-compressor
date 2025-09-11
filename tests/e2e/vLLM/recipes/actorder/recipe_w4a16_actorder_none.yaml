@@ -1,14 +1,5 @@
-sparsity_stage:
-  run_type: oneshot
-  sparsity_modifiers:
-    SparseGPTModifier:
-      sparsity: 0.5
-      mask_structure: "2:4"
-      targets: ["Linear"]
-      ignore: ["re:.*lm_head"]
-quantization_stage:
-  run_type: oneshot
-  quantization_modifiers:
+quant_stage:
+  quant_modifiers:
     GPTQModifier:
       ignore: ["lm_head"]
       actorder: null
