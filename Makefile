@@ -25,6 +25,7 @@ endif
 quality:
 	@echo "Running python quality checks";
 	ruff check $(CHECKDIRS);
+	ruff format --check $(CHECKDIRS);
 	isort --check-only $(CHECKDIRS);
 	flake8 $(CHECKDIRS) --max-line-length 88 --extend-ignore E203,W605;
 
