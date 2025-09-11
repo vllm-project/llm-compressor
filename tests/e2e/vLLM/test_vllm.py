@@ -188,8 +188,6 @@ class TestvLLM:
         import json
         import subprocess
 
-        import torch
-
         llm_kwargs = {"model": self.save_dir}
 
         if self.gpu_memory_utilization is not None:

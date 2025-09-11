@@ -8,7 +8,8 @@ from vllm import LLM, SamplingParams
 def parse_args():
     """Parse JSON arguments passed via command line."""
     if len(sys.argv) < 4:
-        raise ValueError("Usage: python script.py '<scheme>' '<llm_kwargs_json>' '<prompts_json>'")
+        msg = "Usage: python script.py '<scheme>' '<llm_kwargs_json>' '<prompts_json>'"
+        raise ValueError(msg)
 
     try:
         scheme = json.loads(sys.argv[1])
