@@ -137,7 +137,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             # user-provided value always attempts to override
             if existing is None or self.actorder == existing:
                 return self.actorder
-            
+
             # if existing provided and conflicts
             raise ValueError(
                 "Cannot resolve activation ordering when both "
