@@ -4,6 +4,7 @@ import inspect
 import linecache
 import sys
 import textwrap
+import traceback
 from typing import List
 
 import torch
@@ -11,7 +12,7 @@ import torch
 from llmcompressor.pipelines.sequential.ast_utils.auto_wrapper import AutoWrapper
 from llmcompressor.utils import patch_attr
 
-__all__ = ["autowrap_forwards"]
+__all__ = ["autowrap_forwards", "append_autowrap_source_on_fail"]
 
 
 @contextlib.contextmanager
@@ -58,18 +59,18 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     # autowrap untraceable code
     auto_wrapper = AutoWrapper(namespace, ignore)
     tree = auto_wrapper.auto_wrap(tree)
+    source = ast.unparse(tree)
 
     # compile new forward function from autowrapped code
-    filename = f"{module.__class__.__name__}_{hash(module)}_autowrapped"
-    code = compile(tree, filename=filename, mode="exec")
+    filename = f"<Autowrapped {module.__class__.__name__} {id(module)}>"
+    code = compile(source, filename=filename, mode="exec")
     exec(code, namespace)  # ensure ns of functions is the same ns as torch.fx.wrap
 
     # enable better tracebacks if autowrapped code fails
-    source_str = ast.unparse(tree)
     linecache.cache[filename] = (
-        len(source_str),
+        len(source),
         None,
-        [line + "\n" for line in source_str.splitlines()],
+        [line + "\n" for line in source.splitlines()],
         filename,
     )
 
@@ -77,3 +78,30 @@ def autowrap_forward(module: torch.nn.Module, ignore: List[str]):
     new_forward = namespace["forward"].__get__(module)
     with patch_attr(module, "forward", new_forward):
         yield
+
+
+@contextlib.contextmanager
+def append_autowrap_source_on_fail():
+    try:
+        yield
+    except Exception as exception:
+        _exc_type, _exc_value, exc_tb = sys.exc_info()
+        tb_list = traceback.extract_tb(exc_tb)
+
+        for frame in reversed(tb_list):
+            if "Autowrapped" in frame.filename:
+                source_lines = linecache.getlines(frame.filename)
+                lineno = frame.lineno
+
+                # annotate failing line
+                source_lines = [
+                    ("> " if i + 1 == lineno else "  ") + line
+                    for i, line in enumerate(source_lines)
+                ]
+
+                message = f"{exception}\n\n"
+                message += f"\n--- {frame.filename}:{lineno} ---\n"
+                message += "".join(source_lines)
+                raise RuntimeError(message) from exception
+
+        raise exception

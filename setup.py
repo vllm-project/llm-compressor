@@ -158,6 +158,7 @@ setup(
             "librosa==0.11.0",
             "soundfile",
             "torchcodec",
+            "timm",
             # linting, formatting, and type checking
             "black~=24.4.2",
             "isort~=5.13.2",
