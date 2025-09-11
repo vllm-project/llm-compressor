@@ -207,7 +207,7 @@ class TestvLLM:
             [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
         stdout, stderr = result.communicate()
         logger.info(stdout)
