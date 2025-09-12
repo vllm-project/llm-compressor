@@ -237,9 +237,6 @@ def get_model_compressor(
             else sparsity_config.sparsity_structure,
         )
     )
-    # quantization_format is an enum (CompressionFormat) but from_pretrain() below is expecting str.
-    if isinstance(quantization_format, CompressionFormat):
-        quantization_format = quantization_format.value
 
     return ModelCompressor.from_pretrained_model(
         model,
