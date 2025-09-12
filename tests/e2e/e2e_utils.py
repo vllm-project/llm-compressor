@@ -70,7 +70,10 @@ def run_oneshot_for_e2e_testing(
         # a compatible preset sceme
         if quant_type == "GPTQ":
             oneshot_kwargs["recipe"] = GPTQModifier(
-                targets="Linear", scheme=scheme, ignore=["lm_head"]
+                targets="Linear",
+                scheme=scheme,
+                actorder=None,  # added for consistency with past testing configs
+                ignore=["lm_head"],
             )
         else:
             oneshot_kwargs["recipe"] = QuantizationModifier(
