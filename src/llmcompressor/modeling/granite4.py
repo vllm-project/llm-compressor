@@ -74,8 +74,8 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
     def __init__(self, num_experts: int, input_size: int, output_size: int) -> None:
         """Use a real Linear so that llmcompressor and vllm can handle it easier.
         1. Change .weight from 3D [num_experts, output_size, input_size] to 2D
-            [num_experts * output_size, input_size]
-
+            [num_experts * output_size, input_size] before calling llm-compressor
+        2. Change it back to 3D before saving ckpt
         """
         super().__init__(input_size, output_size*num_experts, bias=False, device="meta")
         self.num_experts = num_experts
@@ -83,28 +83,30 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
         self.output_size = output_size
         self.is_2d: bool = True
 
-    def from_3d_expert(self, original: GraniteMoeHybridParallelExperts) -> None:
-        """Extract weights of a GraniteMoeHybridParallelExperts module (transformers)
-        into 2D shape and store them into this module.
+    @classmethod
+    def from_3d_expert(cls, original: GraniteMoeHybridParallelExperts):
+        """Extract weights of a GraniteMoeHybridParallelExperts module (transformers), convert it
+        into 2D shape and store them into this "Linear" module.
         """
-
-        self.weight = torch.nn.Parameter(
-            original.weight.view(-1, self.input_size).clone(), requires_grad=False,
+        newMoeLin = cls(original.num_experts, original.input_size, original.output_size)
+        newMoeLin.weight = torch.nn.Parameter(
+            original.weight.view(-1, original.input_size).clone(), requires_grad=False,
         )
         original.to("cpu")
-        self.is_2d = True
+        newMoeLin.is_2d = True
+        return newMoeLin
 
     def to_3d_expert(self) -> None:
         """Convert weights and quantization parameters from 2D to 3D shape."""
-
-        assert self.weight.shape == torch.Size((self.num_experts * self.output_size, self.input_size))
-        assert hasattr(self, "weight_scale")
-        assert self.weight_scale.shape == torch.Size((self.num_experts * self.output_size, 1))
+        dim0_mul = self.num_experts * self.output_size
+        assert (
+            self.weight.shape == torch.Size((dim0_mul, self.input_size)) and
+            hasattr(self, "weight_scale") and
+            self.weight_scale.shape == torch.Size((dim0_mul, 1))
+        ), "Shape mismatch, please check."
 
         self.weight = torch.nn.Parameter(
-            self.weight.view(
-                self.num_experts, self.output_size, self.input_size
-            ).clone(),
+            self.weight.view(self.num_experts, self.output_size, self.input_size).clone(),
             requires_grad=False,
         )
         self.weight_scale = torch.nn.Parameter(
@@ -112,7 +114,7 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
             requires_grad=False,
         )
         if hasattr(self, "weight_zero_point"):
-            assert self.weight_zero_point.shape == torch.Size((self.num_experts * self.output_size, 1))
+            assert self.weight_zero_point.shape == torch.Size((dim0_mul, 1))
             self.weight_zero_point = torch.nn.Parameter(
                 self.weight_zero_point.view(self.num_experts, self.output_size, 1).clone(),
                 requires_grad=False,
@@ -152,39 +154,6 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
             f"{self.__class__.__name__}{sizes_str}"
         )
 
-
-# [CL] copy this into modeling_granitemoehybrid.py---
-class GraniteMoeHybridParallelExpertsFP8(torch.nn.Module):
-    def __init__(self, num_experts: int, input_size: int, output_size: int) -> None:
-        """wrapper to hold FP8 input_layer and output_layer
-        """
-        super().__init__()
-        self.weight = torch.empty((output_size*num_experts, input_size), device="meta")
-        self.weight_scale = torch.empty((output_size*num_experts, 1), device="meta")
-        self.num_experts = num_experts
-        self.input_size = input_size
-        self.output_size = output_size
-
-    def forward(self, inputs, expert_size):
-        """Modified from original forward()"""
-        input_list = inputs.split(expert_size, dim=0)
-        if len(self.weight.shape) == 2:
-            # just like CompressedLinear's fwd(), dequantize once
-            weight_3d_dq = (self.weight.to(torch.bfloat16) * self.weight_scale).view(
-                self.num_experts, self.output_size, self.input_size).to(self.weight.device)
-            self.weight = weight_3d_dq
-        output_list = []
-        for i in range(self.num_experts):
-            output_list.append(torch.nn.functional.linear(input_list[i], self.weight[i]))
-
-        results = torch.cat(output_list, dim=0)
-        return results
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.num_experts},{self.output_size},{self.input_size})"
-        )
-# --- [CL]
 
 def replace(config: GraniteMoeHybridConfig, module: GraniteMoeHybridParallelExperts):
     return GraniteMoeHybridParallelExpertsModList(config=config.get_text_config(), original=module)
