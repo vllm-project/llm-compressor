@@ -72,7 +72,7 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
         if getattr(self, "quantization_status", None) == QuantizationStatus.COMPRESSED:
             weight_data = self.compressor.decompress_module(self)
             param = torch.nn.Parameter(
-                weight_data, dtype=torch.bfloat16, requires_grad=False
+                weight_data, dtype=inputs.dtype, requires_grad=False
             )
             register_offload_parameter(self, "weight", param)
 
