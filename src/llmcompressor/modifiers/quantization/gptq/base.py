@@ -3,11 +3,7 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import (
-    QuantizationConfig,
-    QuantizationScheme,
-    disable_quantization,
-)
+from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
@@ -76,8 +72,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
     :param block_size: Used to determine number of columns to compress in one pass
     :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
         diagonal norm
-    :param actorder: order in which weight columns are quantized. For more information,
-        on actorder options, see https://github.com/vllm-project/vllm/pull/8135
+    :param actorder: order in which weight columns are quantized. Defaults to "static"
+        activation ordering, which achieves best accuracy recovery with no runtime cost.
+        For more information, see https://github.com/vllm-project/vllm/pull/8135
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
 
@@ -110,7 +107,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    actorder: Optional[Union[ActivationOrdering, Sentinel]] = None
+    actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
 
     # private variables
@@ -138,18 +135,17 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 return ActivationOrdering.STATIC if existing is None else existing
 
             # user-provided value always attempts to override
-            if self.actorder is not None:
-                if existing is None or self.actorder == existing:
-                    return self.actorder
-                raise ValueError(
-                    "Cannot resolve activation ordering when both "
-                    "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
-                    "are provided and differ. Either set `GPTQModifier.actorder = "
-                    "None` or remove `actorder` from config groups."
-                )
+            if existing is None or self.actorder == existing:
+                return self.actorder
 
-            # setting `GPTQModifier.actorder = None` does nothing
-            return existing
+            # if existing provided and conflicts
+            raise ValueError(
+                "Cannot resolve activation ordering when both "
+                "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
+                f"are provided and differ ({self.actorder}, {existing}). "
+                "Either unset `GPTQModifier.actorder` or "
+                "remove `actorder` from config groups."
+            )
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
@@ -179,9 +175,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
-        # Unlike qmod, do not quantize as we calibrate
-        # This choice does not seem to have a meaningful impact on accuracy
-        state.model.apply(disable_quantization)
 
         # register gptq hooks
         added_hook = False

@@ -115,7 +115,7 @@ oneshot(
 Test the quantized model with a sample generation:
 
 ```python
-input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to("cuda")
+input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(model.device)
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 ```

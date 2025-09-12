@@ -1,12 +1,11 @@
 import os
 import weakref
 from functools import wraps
-from typing import Optional
+from typing import List, Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
 from compressed_tensors import (
-    CompressionFormat,
     ModelCompressor,
     SparsityCompressionConfig,
     delete_offload_parameter,
@@ -19,7 +18,7 @@ from transformers import PreTrainedModel
 from llmcompressor.core import active_session
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.transformers.compression.quantization_format import (
-    infer_quantization_format,
+    infer_and_set_per_module_quantization_format,
 )
 from llmcompressor.transformers.compression.sparsity_metadata_config import (
     SparsityConfigMetadata,
@@ -228,13 +227,15 @@ def get_model_compressor(
                 SparsityConfigMetadata.infer_sparsity_structure(model)
             )
 
-    quantization_format: Optional[CompressionFormat] = infer_quantization_format(
-        model=model,
-        quantization_format=quantization_format,
-        save_compressed=save_compressed,
-        sparsity_structure=None
-        if sparsity_config is None
-        else sparsity_config.sparsity_structure,
+    quantization_format: Optional[List[str]] = (
+        infer_and_set_per_module_quantization_format(
+            model=model,
+            quantization_format=quantization_format,
+            save_compressed=save_compressed,
+            sparsity_structure=None
+            if sparsity_config is None
+            else sparsity_config.sparsity_structure,
+        )
     )
     # quantization_format is an enum (CompressionFormat) but from_pretrain() below is expecting str.
     if isinstance(quantization_format, CompressionFormat):

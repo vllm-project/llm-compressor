@@ -247,7 +247,7 @@ def calibrate_kv_cache_input_hook(
     kv_cache to singleton QuantizedKVParameterCache.
     """
     kv_cache = getattr(module, "kv_cache")
-    kwargs["past_key_value"] = kv_cache
+    kwargs["past_key_values"] = kv_cache
     kwargs["use_cache"] = False
     return args, kwargs
 
