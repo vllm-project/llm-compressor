@@ -12,18 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Set, Tuple
-
 import torch
+from compressed_tensors.utils.helpers import deprecated
 
 
 __all__ = ["safe_permute"]
 
 
-# these datatypes are missing implementations required for standard permutation
-_EXPERIMENTAL_DTYPES: Set[Tuple[torch.dtype, torch.device]] = set()
-
-
+@deprecated("Tensor.index_select")
 def safe_permute(value: torch.Tensor, perm: torch.Tensor, dim: int = 0) -> torch.Tensor:
     """
     Perform out-of-place permutation without using torch.Tensor.index_put_,
@@ -34,37 +30,4 @@ def safe_permute(value: torch.Tensor, perm: torch.Tensor, dim: int = 0) -> torch
     :param dim: dimension along which to apply permutation
     :return: permuted value
     """
-    dtype_tuple = (value.dtype, value.device)
-
-    if dtype_tuple in _EXPERIMENTAL_DTYPES:
-        return _fallback_permute(value, perm, dim)
-
-    try:
-        return value[tuple([slice(None)] * dim + [perm])]
-    except RuntimeError:
-        # Mark dtype as experimental if advanced indexing fails
-        _EXPERIMENTAL_DTYPES.add(dtype_tuple)
-        return _fallback_permute(value, perm, dim)
-
-
-def _fallback_permute(
-    value: torch.Tensor, perm: torch.Tensor, dim: int
-) -> torch.Tensor:
-    """
-    Fallback permutation method for experimental dtypes.
-
-    :param value: tensor to permute
-    :param perm: permutation map
-    :param dim: dimension along which to apply permutation
-    :return: permuted value
-    """
-    value_ret = value.clone()  # cannot use zeros_like b/c of missing impl.
-    orig_slices = [slice(None)] * (dim + 1)
-    perm_slices = [slice(None)] * (dim + 1)
-
-    for index, perm_index in enumerate(perm):
-        orig_slices[dim] = index
-        perm_slices[dim] = perm_index
-        value_ret[tuple(orig_slices)] = value[tuple(perm_slices)]
-
-    return value_ret
+    return value.index_select(dim, perm)

@@ -29,7 +29,6 @@ from compressed_tensors.quantization.utils import (
     calculate_range,
     compute_dynamic_scales_and_zp,
 )
-from compressed_tensors.utils import safe_permute
 from torch.nn import Module
 
 
@@ -294,7 +293,7 @@ def _process_quantization(
             group_sizes = group_sizes[torch.argsort(group_indices)]
 
             perm = torch.argsort(g_idx)
-            x = safe_permute(x, perm, dim=1)
+            x = x.index_select(-1, perm)
 
         # Maintain all dimensions except the last dim, which is divided by group_size
         reshaped_dims = (
@@ -328,7 +327,8 @@ def _process_quantization(
         output = output.to(output_dtype)
 
         if not is_column_order:
-            output = safe_permute(output, torch.argsort(perm), dim=1)
+            inv_perm = torch.argsort(perm)
+            output = output.index_select(-1, inv_perm)
 
     else:  # covers channel, token and tensor strategies
         if do_quantize:

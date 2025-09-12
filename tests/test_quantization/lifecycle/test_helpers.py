@@ -15,31 +15,35 @@
 
 import pytest
 import torch
-from compressed_tensors.utils import safe_permute
-from compressed_tensors.utils.permute import _EXPERIMENTAL_DTYPES
+from compressed_tensors.utils.permute import safe_permute
+from tests.testing_utils import requires_gpu
 
 
+@requires_gpu
+@pytest.mark.unit
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.parametrize(
-    "dtype,device,exp_experimental",
+    "dtype",
     [
-        (torch.int8, torch.device("cpu"), False),
-        (torch.int16, torch.device("cpu"), False),
-        (torch.int32, torch.device("cpu"), False),
-        (torch.int64, torch.device("cpu"), False),
-        (torch.float16, torch.device("cpu"), False),
-        (torch.float32, torch.device("cpu"), False),
-        (torch.float64, torch.device("cpu"), False),
-        (torch.float8_e4m3fn, torch.device("cpu"), True),
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+        torch.bfloat16,
+        torch.float16,
+        torch.float32,
+        torch.float64,
+        torch.float8_e4m3fn,
     ],
 )
-def test_safe_permute(dtype: torch.dtype, device: str, exp_experimental: bool):
-    # some dtypes do not support arange initialization
-    tensor = torch.tensor([0, 1, 2, 3], dtype=dtype, device=device)
-    perm = torch.tensor([3, 1, 0, 2])
-    expected = torch.tensor([3, 1, 0, 2], dtype=dtype, device=device)
+@pytest.mark.parametrize(
+    "device", [torch.device("cpu"), torch.device("cuda"), torch.device("meta")]
+)
+def test_safe_permute(dtype: torch.dtype, device: torch.device):
+    value = torch.tensor([[0, 1, 2, 3]], dtype=dtype, device=device)
+    perm = torch.tensor([3, 1, 0, 2], device=device)
 
-    result = safe_permute(tensor, perm, dim=0)
+    result = safe_permute(value, perm, dim=-1)
 
-    if exp_experimental:
-        assert (dtype, device) in _EXPERIMENTAL_DTYPES
-    assert all(result == expected)
+    if device.type != "meta":
+        assert torch.equal(result.squeeze(0), perm.to(result.dtype))
