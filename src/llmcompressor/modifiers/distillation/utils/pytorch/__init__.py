@@ -1,4 +1,4 @@
-# flake8: noqa
+# ruff: noqa
 
 from .kd_factory import *
 from .kd_wrapper import *
