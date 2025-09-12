@@ -1,7 +1,7 @@
 name: PR Reminder Comment Bot
 on:
   pull_request_target:
-    branches: [main]
+    branches: [ main, 'release/*' ]
     types: [opened]
 
 jobs:
