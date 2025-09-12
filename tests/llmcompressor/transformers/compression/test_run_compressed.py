@@ -84,9 +84,17 @@ class Test_Decompressed_Linear_Uncompressed_Linear(unittest.TestCase):
     def tearDownClass(cls):
         if os.path.isdir(cls.test_dir):
             shutil.rmtree(cls.test_dir)
+
+        if hasattr(cls, "decompressed_model") and cls.decompressed_model is not None:
+            cls.decompressed_model.cpu()
+        if hasattr(cls, "uncompressed_model") and cls.uncompressed_model is not None:
+            cls.uncompressed_model.cpu()
         del cls.decompressed_model
         del cls.uncompressed_model
+        del cls.tokenizer
+
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
 
 @requires_gpu
@@ -157,17 +165,24 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         )
 
         inputs = inputs.to(compressed_device)
-
         compressed_model_out = self.compressed_model.generate(**inputs, max_length=50)
 
         # Compare outputs for each input
         for idx in range(len(SAMPLE_INPUT)):
-            torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
+            assert torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
 
     @classmethod
     def tearDownClass(cls):
         if os.path.isdir(cls.test_dir):
             shutil.rmtree(cls.test_dir)
+
+        if hasattr(cls, "decompressed_model") and cls.decompressed_model is not None:
+            cls.decompressed_model.cpu()
+        if hasattr(cls, "compressed_model") and cls.compressed_model is not None:
+            cls.compressed_model.cpu()
         del cls.decompressed_model
         del cls.compressed_model
+        del cls.tokenizer
+
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
