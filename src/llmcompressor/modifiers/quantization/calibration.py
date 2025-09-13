@@ -198,6 +198,10 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
             calculate_qparams = False
         if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
             calculate_gparam = True
+    
+    # (..., 1, hidden_dim)
+    # this reshaping is mostly for the benefit of group quantization
+    value = value.unsqueeze(-2)
 
     call_observer(
         module=module,
