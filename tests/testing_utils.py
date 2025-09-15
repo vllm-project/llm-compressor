@@ -5,8 +5,9 @@ import os
 import unittest
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Union
 
+import pytest
 import yaml
 from datasets import Dataset
 from transformers import ProcessorMixin
@@ -252,3 +253,12 @@ def process_dataset(
     ds = ds.map(process, remove_columns=ds.column_names)
 
     return ds
+
+
+def requires_cadence(cadence: Union[str, List[str]]) -> Callable:
+    cadence = [cadence] if isinstance(cadence, str) else cadence
+    current_cadence = os.environ.get("CADENCE", "commit")
+
+    return pytest.mark.skipif(
+        (current_cadence not in cadence), reason="cadence mismatch"
+    )
