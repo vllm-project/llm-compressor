@@ -193,7 +193,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
-            head_dim=self.transform_block_size,
+            block_size=self.transform_block_size,
             apply=[
                 TransformArgs(
                     targets=[
@@ -240,7 +240,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
-            head_dim=head_dim,
+            block_size=head_dim,
             apply=[
                 TransformArgs(targets=[self.mappings.attn_v], location="weight_output"),
                 TransformArgs(
@@ -262,7 +262,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             randomize=self.randomize,
             requires_grad=self.learnable,
             precision=self.precision,
-            head_dim=self.transform_block_size,
+            block_size=self.transform_block_size,
             apply=[
                 TransformArgs(
                     targets=[*self.mappings.mlp_out],

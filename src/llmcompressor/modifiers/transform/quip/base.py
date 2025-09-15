@@ -121,7 +121,7 @@ class QuIPModifier(Modifier):
             config_groups={
                 "v": TransformScheme(
                     type=self.transform_type,
-                    head_dim=self.transform_block_size,
+                    block_size=self.transform_block_size,
                     apply=[
                         TransformArgs(
                             targets=self.targets,
@@ -141,7 +141,7 @@ class QuIPModifier(Modifier):
                 ),
                 "u": TransformScheme(
                     type=self.transform_type,
-                    head_dim=self.transform_block_size,
+                    block_size=self.transform_block_size,
                     apply=[
                         TransformArgs(
                             targets=self.targets,
