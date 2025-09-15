@@ -182,14 +182,17 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # register gptq hooks
         added_hook = False
-        for _, module in match_named_modules(state.model, self.targets, self.ignore):
-            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
-                # HACK: previously, embeddings were not quantized because they were not
-                # accessible by the layer compressor. For now, we manually ignore it,
-                # but in the FUTURE this should be ignored by the user
-                if not isinstance(module, torch.nn.Embedding):
-                    self.register_hook(module, self.calibrate_module, "forward")
-                    added_hook = True
+        for name, module in match_named_modules(state.model, self.targets, self.ignore):
+            assert (
+                getattr_chain(module, "quantization_scheme.weights", None) is not None
+            ), ""
+
+            # HACK: previously, embeddings were not quantized because they were not
+            # accessible by the layer compressor. For now, we manually ignore it,
+            # but in the FUTURE this should be ignored by the user
+            if not isinstance(module, torch.nn.Embedding):
+                self.register_hook(module, self.calibrate_module, "forward")
+                added_hook = True
 
         if not added_hook:
             raise ValueError(
