@@ -2,8 +2,8 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.quantization import GPTQModifier
-from llmcompressor.modifiers.awq import AWQModifier, AWQMapping
 from llmcompressor.utils import dispatch_for_generation
 
 # Select model and load it.
