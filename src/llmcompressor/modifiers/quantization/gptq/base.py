@@ -154,12 +154,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            # actorder only valid for group quantization
-            if scheme.weights is not None:
-                if scheme.weights.strategy != QuantizationStrategy.GROUP.value:
-                    self.actorder = None
-                else:
-                    scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
+            if (
+                getattr_chain(scheme, "weights.strategy", None)
+                == QuantizationStrategy.GROUP
+            ):
+                scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
