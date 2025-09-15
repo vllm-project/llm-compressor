@@ -1,0 +1,8 @@
+cadence: "nightly"
+test_type: "regression"
+model: Qwen/Qwen2.5-0.5B
+recipe: tests/e2e/vLLM/recipes/actorder/recipe_w4a16_actorder_none.yaml
+dataset_id: neuralmagic/LLM_compression_calibration
+dataset_split: train
+scheme: W4A16_actorder_none
+save_dir: Qwen2.5-0.5B-actorder-none

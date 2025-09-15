@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -14,21 +15,14 @@ from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.examples.utils import requires_gpu_count
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
 
-try:
-    from vllm import LLM, SamplingParams
-
-    vllm_installed = True
-except ImportError:
-    vllm_installed = False
-    logger.warning("vllm is not installed. This test will be skipped")
-
-
 HF_MODEL_HUB_NAME = "nm-testing"
 
 TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
+# vllm python environment
+VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
@@ -45,7 +39,6 @@ EXPECTED_SAVED_FILES = [
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )
-@pytest.mark.skipif(not vllm_installed, reason="vLLM is not installed, skipping test")
 class TestvLLM:
     """
     The following test quantizes a model using a preset scheme or recipe,
@@ -83,6 +76,12 @@ class TestvLLM:
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
+        # vllm python env - if same, use the current python env, otherwise use
+        # the python passed in VLLM_PYTHON_ENV
+        if VLLM_PYTHON_ENV.lower() != "same":
+            self.vllm_env = VLLM_PYTHON_ENV
+        else:
+            self.vllm_env = sys.executable
 
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
@@ -152,20 +151,12 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-        logger.info("================= RUNNING vLLM =========================")
+        if VLLM_PYTHON_ENV.lower() == "same":
+            logger.info("========== RUNNING vLLM in the same python env ==========")
+        else:
+            logger.info("========== RUNNING vLLM in a separate python env ==========")
 
-        outputs = self._run_vllm()
-
-        logger.info("================= vLLM GENERATION ======================")
-        for output in outputs:
-            assert output
-            prompt = output.prompt
-            generated_text = output.outputs[0].text
-
-            logger.info("PROMPT")
-            logger.info(prompt)
-            logger.info("GENERATED TEXT")
-            logger.info(generated_text)
+        self._run_vllm(logger)
 
         self.tear_down()
 
@@ -193,22 +184,36 @@ class TestvLLM:
         tokenizer.save_pretrained(self.save_dir)
 
     @log_time
-    def _run_vllm(self):
-        import torch
+    def _run_vllm(self, logger):
+        import json
+        import subprocess
 
-        sampling_params = SamplingParams(temperature=0.80, top_p=0.95)
         llm_kwargs = {"model": self.save_dir}
-
-        if "W4A16_2of4" in self.scheme:
-            # required by the kernel
-            llm_kwargs["dtype"] = torch.float16
 
         if self.gpu_memory_utilization is not None:
             llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
 
-        llm = LLM(**llm_kwargs)
-        outputs = llm.generate(self.prompts, sampling_params)
-        return outputs
+        json_scheme = json.dumps(self.scheme)
+        json_llm_kwargs = json.dumps(llm_kwargs)
+        json_prompts = json.dumps(self.prompts)
+
+        test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+
+        logger.info("Run vllm in subprocess.Popen() using python env:")
+        logger.info(self.vllm_env)
+
+        result = subprocess.Popen(
+            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
+
+        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+        assert result.returncode == 0, error_msg
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
