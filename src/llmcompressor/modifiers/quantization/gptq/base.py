@@ -306,6 +306,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
 
+    @field_serializer("actorder")
+    def serialize_actorder(self, value: Union[Sentinel, str, None]) -> Optional[str]:
+        if value == Sentinel("static"):
+            return ActivationOrdering.STATIC.value
+
+        return value
+
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
         if not value:
@@ -316,10 +323,3 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
 
         return True
-
-    @field_serializer("actorder")
-    def serialize_actorder(self, value: Union[Sentinel, str, None]) -> Optional[str]:
-        if value == Sentinel("static"):
-            return ActivationOrdering.STATIC.value
-
-        return value
