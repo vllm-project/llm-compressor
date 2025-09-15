@@ -68,15 +68,6 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
         """Modified from original forward()"""
 
         input_list = inputs.split(expert_size, dim=0)
-        # consider the case of CompressedLinear
-        if getattr(self, "quantization_status", None) == QuantizationStatus.COMPRESSED:
-            weight_data = self.compressor.decompress_module(self)
-            param = torch.nn.Parameter(
-                weight_data, dtype=inputs.dtype, requires_grad=False
-            )
-            register_offload_parameter(self, "weight", param)
-
-            self.quantization_status = QuantizationStatus.FROZEN
 
         weight_3d = self.weight.view(
             self.num_experts, self.output_size, self.input_size
