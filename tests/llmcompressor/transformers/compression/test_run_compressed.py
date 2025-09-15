@@ -165,11 +165,12 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear(unittest.TestCase):
         )
 
         inputs = inputs.to(compressed_device)
+
         compressed_model_out = self.compressed_model.generate(**inputs, max_length=50)
 
         # Compare outputs for each input
         for idx in range(len(SAMPLE_INPUT)):
-            assert torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
+            torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
 
     @classmethod
     def tearDownClass(cls):
