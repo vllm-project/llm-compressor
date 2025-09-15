@@ -127,7 +127,7 @@ setup(
             if BUILD_TYPE == "release"
             else "transformers>=4.53.0"
         ),
-        ("datasets==4.0.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        ("datasets>=4.0.0,<=4.1.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
             "accelerate>=1.6.0,<=1.10.0"
             if BUILD_TYPE == "release"
