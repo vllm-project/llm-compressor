@@ -24,7 +24,7 @@ pip install llmcompressor
 ```
 
 This checkpoint format will need the latest vllm (ver >= 0.10.1.1) to run correctly. Additional dependencies and environment variables needed are:
-1. Dependencies:  `vllm=0.10.1.1, lm_eval=0.4.9.1, flash-attn=2.7.3, torch=2.7.1`
+1. Dependencies:  `vllm>=0.10.1.1, lm_eval>=0.4.9.1, flash-attn=2.7.3, torch>=2.7.1`
 2. ENV VAR:  `VLLM_USE_V1=0, VLLM_WORKER_MULTIPROC_METHOD=spawn`
 
 ## Quickstart
