@@ -248,15 +248,15 @@ def calibrate_kv_cache_input_hook(
     kv_cache to singleton QuantizedKVParameterCache.
     """
     kv_cache = getattr(module, "kv_cache")
-    # Determine which past KV parameter name to use based on module's forward signature
-    _past_kv_name = (
-        "past_key_values"  # transformers#39956
-        if "past_key_values" in inspect.signature(module.forward).parameters
-        else "past_key_value"
-    )
+    if not hasattr(module, "_past_kv_name"):
+        # Determine which past KV parameter name to use once and cache it
+        module._past_kv_name = (
+            "past_key_values"  # transformers#39956
+            if "past_key_values" in inspect.signature(module.forward).parameters
+            else "past_key_value"
+        )
 
-    # Update both parameter names to maintain compatibility
-    kwargs[_past_kv_name] = kv_cache
+    kwargs[module._past_kv_name] = kv_cache
     kwargs["use_cache"] = False
     return args, kwargs
 
