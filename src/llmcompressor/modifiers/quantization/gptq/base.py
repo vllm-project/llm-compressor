@@ -16,7 +16,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr, field_validator
+from pydantic import PrivateAttr, field_serializer, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -111,7 +111,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    # TODO: this does not serialize / will be incorrectly written
     actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
 
@@ -119,17 +118,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-
-    @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value: bool) -> bool:
-        if not value:
-            warnings.warn(
-                "`sequential_update=False` is no longer supported, setting "
-                "sequential_update=True",
-                DeprecationWarning,
-            )
-
-        return True
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -317,3 +305,21 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
+
+    @field_validator("sequential_update", mode="before")
+    def validate_sequential_update(cls, value: bool) -> bool:
+        if not value:
+            warnings.warn(
+                "`sequential_update=False` is no longer supported, setting "
+                "sequential_update=True",
+                DeprecationWarning,
+            )
+
+        return True
+
+    @field_serializer("actorder")
+    def serialize_actorder(self, value: Union[Sentinel, str, None]) -> Optional[str]:
+        if value == Sentinel("static"):
+            return ActivationOrdering.STATIC.value
+
+        return value

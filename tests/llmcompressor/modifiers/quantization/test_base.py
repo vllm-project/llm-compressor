@@ -142,3 +142,21 @@ def test_config_resolution(strategies, actorder):
     for config_group in modifier.config_groups.values():
         if config_group.weights.strategy == "group":
             assert config_group.weights.actorder == actorder
+
+
+@pytest.mark.parametrize(
+    "has_actorder,actorder,exp_actorder",
+    [
+        (False, "N/A", "static"),
+        (True, None, None),
+        (True, "static", "static"),
+        (True, "group", "group"),
+    ],
+)
+def test_serialize_actorder(has_actorder, actorder, exp_actorder):
+    if has_actorder:
+        modifier = GPTQModifier(targets=["Linear"], actorder=actorder)
+    else:
+        modifier = GPTQModifier(targets=["Linear"])
+
+    assert modifier.model_dump()["actorder"] == exp_actorder
