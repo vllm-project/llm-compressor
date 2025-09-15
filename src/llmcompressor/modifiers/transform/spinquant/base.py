@@ -228,7 +228,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             raise NotImplementedError()
 
         if self.transform_block_size:
-            if head_dim % self.transform_block_size == 0:
+            if head_dim % self.transform_block_size != 0:
                 raise ValueError(
                     f"transform_block_size {self.transform_block_size} must be set "
                     f"such that model's head_dim {head_dim} is evenly divisible by it"
