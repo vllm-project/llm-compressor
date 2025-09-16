@@ -1,4 +1,4 @@
-# flake8: noqa
+# ruff: noqa
 
 
 def valid_recipe_strings():

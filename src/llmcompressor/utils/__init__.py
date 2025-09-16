@@ -2,7 +2,7 @@
 General utility functions used throughout llmcompressor
 """
 
-# flake8: noqa
+# ruff: noqa
 
 from .dev import *
 from .helpers import *
