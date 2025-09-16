@@ -67,7 +67,7 @@ DEFAULT_stage:
       scheme: W8A8
 """
 
-    yaml_path = str(Path(__file__).parent / "recipe.yaml")
+    yaml_path = str(Path(__file__).parent / "recipes" / "recipe.yaml")
 
     return [python_modifiers, yaml_string, yaml_path]
 
