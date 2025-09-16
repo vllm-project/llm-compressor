@@ -24,8 +24,7 @@ make style
 make quality
 ```
 
-This will run automatic code styling using `ruff`, `flake8`, `black`, and `isort` to test that the
-repository's code matches its standards.
+This will run automatic code styling using `ruff` to test that the repository's code matches its standards.
 
 **EXAMPLE: test changes locally**
 
