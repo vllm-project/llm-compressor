@@ -23,14 +23,17 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
 
 class Qwen3MoeSparseMoeBlock(torch.nn.Module):
     def __init__(
-        self, config: Qwen3MoeConfig, original: OriginalQwen3MoeSparseMoeBlock
+        self,
+        config: Qwen3MoeConfig,
+        original: OriginalQwen3MoeSparseMoeBlock,
+        calibrate_all_experts: bool,
     ):
         super().__init__()
         self.num_experts = config.num_experts
-        self.top_k = config.top_k
+        self.top_k = config.num_experts_per_tok
         self.norm_topk_prob = config.norm_topk_prob
 
-        # gating
+        self.calibrate_all_experts = calibrate_all_experts
         self.gate = original.gate
         self.experts = original.experts
 
@@ -50,6 +53,7 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         # we cast back to the input dtype
         routing_weights = routing_weights.to(hidden_states.dtype)
+
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim),
             dtype=hidden_states.dtype,
@@ -62,20 +66,20 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
             selected_experts, num_classes=self.num_experts
         ).permute(2, 1, 0)
 
-        for expert_idx in range(len(self.experts)):
-            expert_layer = self.experts[expert_idx]
+        for expert_idx, expert_layer in enumerate(self.experts):
             idx, top_x = torch.where(expert_mask[expert_idx].squeeze(0))
-            # Index the correct hidden states and compute the expert hidden state for
-            # the current expert. We need to make sure to multiply the output hidden
-            # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
-            current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
-            expert_output = expert_layer(current_state)
-            current_hidden_states = expert_output * routing_weights[top_x, idx, None]
-            # However `index_add_` only support torch tensors for indexing so we'll use
-            # the `top_x` tensor here.
-            final_hidden_states.index_add_(
-                0, top_x, current_hidden_states.to(hidden_states.dtype)
-            )
+
+            if self.calibrate_all_experts:
+                expert_out = expert_layer(hidden_states)[top_x]
+            else:
+                expert_out = expert_layer(hidden_states[top_x])
+
+            # TODO: double check
+            if len(top_x) > 0:
+                current_hidden_states = expert_out * routing_weights[top_x, idx, None]
+                final_hidden_states.index_add_(
+                    0, top_x, current_hidden_states.to(hidden_states.dtype)
+                )
 
         final_hidden_states = final_hidden_states.reshape(
             batch_size, sequence_length, hidden_dim
@@ -83,5 +87,11 @@ class Qwen3MoeSparseMoeBlock(torch.nn.Module):
         return final_hidden_states, router_logits
 
 
-def replace(config: Qwen3MoeConfig, module: OriginalQwen3MoeSparseMoeBlock):
-    return Qwen3MoeSparseMoeBlock(config=config, original=module)
+def replace(
+    config: Qwen3MoeConfig,
+    module: OriginalQwen3MoeSparseMoeBlock,
+    calibrate_all_experts: bool,
+):
+    return Qwen3MoeSparseMoeBlock(
+        config=config, original=module, calibrate_all_experts=calibrate_all_experts
+    )
