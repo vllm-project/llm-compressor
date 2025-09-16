@@ -10,7 +10,7 @@ from transformers.data import default_data_collator
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
-
+import multiprocessing
 
 def get_processed_dataset(
     dataset_args: DatasetArguments,
@@ -138,6 +138,7 @@ def format_calibration_data(
         tokenized_dataset = tokenized_dataset.shuffle()
     tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
 
+    num_workers = min(8, multiprocessing.cpu_count() // 2)
     dataloader_params = {
         "batch_size": 1,
         "sampler": RandomSampler(tokenized_calibration)
@@ -145,6 +146,7 @@ def format_calibration_data(
         else SequentialSampler(tokenized_calibration),
         "collate_fn": collate_fn,
         "pin_memory": True,
+        "num_workers": num_workers,
     }
 
     calibration_dataloader = DataLoader(tokenized_calibration, **dataloader_params)
