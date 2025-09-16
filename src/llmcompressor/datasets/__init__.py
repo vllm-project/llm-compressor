@@ -1,4 +1,4 @@
-# flake8: noqa
+# ruff: noqa
 
 from .utils import (
     format_calibration_data,
