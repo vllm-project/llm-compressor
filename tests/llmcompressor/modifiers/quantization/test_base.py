@@ -1,6 +1,7 @@
 from contextlib import nullcontext
 
 import pytest
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.modifiers.quantization import GPTQModifier
 
@@ -107,3 +108,55 @@ def test_actorder_resolution(
         assert resolved.config_groups["group_0"].weights.actorder == expected_0
         assert resolved.config_groups["group_1"].input_activations.actorder is None
         assert resolved.config_groups["group_1"].weights.actorder == expected_1
+
+
+@pytest.mark.parametrize(
+    "strategies,actorder",
+    [
+        (["group"], None),
+        (["group"], "static"),
+        (["group"], "group"),
+        (["channel", "group"], None),
+        (["channel", "group"], "static"),
+        (["channel", "group"], "group"),
+        (["group", "channel"], None),
+        (["group", "channel"], "static"),
+        (["group", "channel"], "group"),
+    ],
+)
+def test_config_resolution(strategies, actorder):
+    config_groups = {
+        str(index): QuantizationScheme(
+            targets=[],
+            weights=QuantizationArgs(
+                strategy=strategy, group_size=(128 if strategy == "group" else None)
+            ),
+        )
+        for index, strategy in enumerate(strategies)
+    }
+
+    modifier = GPTQModifier(config_groups=config_groups, actorder=actorder)
+    modifier.resolve_quantization_config()
+
+    # validate that actorder was applied
+    for config_group in modifier.config_groups.values():
+        if config_group.weights.strategy == "group":
+            assert config_group.weights.actorder == actorder
+
+
+@pytest.mark.parametrize(
+    "has_actorder,actorder,exp_actorder",
+    [
+        (False, "N/A", "static"),
+        (True, None, None),
+        (True, "static", "static"),
+        (True, "group", "group"),
+    ],
+)
+def test_serialize_actorder(has_actorder, actorder, exp_actorder):
+    if has_actorder:
+        modifier = GPTQModifier(targets=["Linear"], actorder=actorder)
+    else:
+        modifier = GPTQModifier(targets=["Linear"])
+
+    assert modifier.model_dump()["actorder"] == exp_actorder
