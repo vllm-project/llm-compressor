@@ -16,6 +16,10 @@ env:
   CADENCE: "commit"
   HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
