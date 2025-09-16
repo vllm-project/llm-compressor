@@ -45,7 +45,13 @@ class Sentinel:
 
     @classmethod
     def __get_pydantic_core_schema__(cls, _source_type, _handler):
-        return core_schema.no_info_plain_validator_function(cls.validate)
+        return core_schema.no_info_after_validator_function(
+            cls.validate,
+            schema=core_schema.str_schema(),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                lambda v: str(v)
+            ),
+        )
 
     @classmethod
     def validate(cls, value: "Sentinel") -> "Sentinel":
