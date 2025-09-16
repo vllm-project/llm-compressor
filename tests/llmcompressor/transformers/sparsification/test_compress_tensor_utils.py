@@ -588,7 +588,7 @@ def _quantization_config_from_string(config_str, q_type):
         quantize_activations=quantize_activations,
         a_bits=a_bits,
         a_type=q_type,
-        a_strategy="channel",
+        a_strategy="tensor",
     )
 
 
