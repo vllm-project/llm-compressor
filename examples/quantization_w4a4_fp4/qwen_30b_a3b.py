@@ -5,7 +5,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "Qwen/Qwen3-30B-A3B"
+MODEL_ID = "/proving-grounds/engine/hub_cache/models--Qwen--Qwen3-Next-80B-A3B-Instruct/snapshots/609718eef2e2279fd6654e39cec856ec70906535"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -16,7 +16,7 @@ DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
 # Select number of samples
-NUM_CALIBRATION_SAMPLES = 200
+NUM_CALIBRATION_SAMPLES = 100
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -55,7 +55,8 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * calibrate a global_scale for activations, which will be used to
 #       quantize activations to fp4 on the fly
 recipe = QuantizationModifier(
-    targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"]
+    targets="Linear", scheme="NVFP4", ignore=['lm_head', 're:.*mlp.gate$', 're:.*mlp.shared_expert_gate$', 're:.*linear_attn.*',
+        're:.*self_attn.*']
 )
 
 # Apply quantization.
@@ -86,6 +87,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
+SAVE_DIR = "./Qwen3-Next-80B-A3B-Instruct" + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
