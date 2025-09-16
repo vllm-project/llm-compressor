@@ -59,11 +59,11 @@ def train(**kwargs) -> PreTrainedModel:
         ```
 
     """
-    model_args, dataset_args, recipe_args, training_args, _ = parse_args(
+    model_args, dataset_args, recipe_args, training_args, output_dir = parse_args(
         include_training_args=True, **kwargs
     )
 
-    pre_process(model_args)
+    pre_process(model_args, dataset_args, output_dir)
     dispatch_for_generation(model_args.model)  # train is dispatched same as generation
 
     processed_dataset = get_processed_dataset(
