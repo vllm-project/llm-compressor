@@ -1,6 +1,6 @@
 cadence: "commit"
 test_type: "sanity"
-model: "nm-testing/llama2.c-stories15M"
+model: "nm-testing/tinysmokellama-3.2"
 dataset: wikitext
 dataset_config_name: "wikitext-2-raw-v1"
 recipe: "tests/llmcompressor/transformers/finetune/test_alternate_recipe.yaml"

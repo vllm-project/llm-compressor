@@ -6,7 +6,7 @@ from llmcompressor.args import ModelArguments
 
 @pytest.fixture
 def tiny_llama_path():
-    return "nm-testing/llama2.c-stories15M"
+    return "nm-testing/tinysmokellama-3.2"
 
 
 @pytest.fixture

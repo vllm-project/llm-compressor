@@ -1,5 +1,5 @@
 cadence: "commit"
 test_type: "sanity"
-model: "nm-testing/llama2.c-stories15M"
+model: "nm-testing/tinysmokellama-3.2"
 file_extension: json
 num_train_epochs: 1

@@ -46,7 +46,7 @@ from tests.testing_utils import requires_gpu
 def test_sparse_model_reload(compressed, config, dtype, tmp_path):
     recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
     expected_sparsity = 0.5
-    model_path = "nm-testing/llama2.c-stories15M"
+    model_path = "nm-testing/tinysmokellama-3.2"
     dataset = "open_platypus"
     concatenate_data = False
     num_calibration_samples = 64
@@ -124,7 +124,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
 def test_dense_model_save(tmp_path, skip_compression_stats, save_compressed):
     reset_session()
 
-    model_path = "nm-testing/llama2.c-stories15M"
+    model_path = "nm-testing/tinysmokellama-3.2"
     model = AutoModelForCausalLM.from_pretrained(model_path)
 
     inferred_global_sparsity = SparsityConfigMetadata.infer_global_sparsity(model)
@@ -161,7 +161,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     recipe_str = (
         "tests/llmcompressor/transformers/compression/recipes/new_quant_simple.yaml"
     )
-    model_path = "nm-testing/llama2.c-stories15M"
+    model_path = "nm-testing/tinysmokellama-3.2"
     device = "cuda:0" if not torch.cuda.is_available() else "cpu"
     dataset = "open_platypus"
     concatenate_data = False
@@ -240,7 +240,7 @@ def test_quant_model_reload(format, dtype, tmp_path):
     ],
 )
 def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
-    model_path = "nm-testing/llama2.c-stories15M"
+    model_path = "nm-testing/tinysmokellama-3.2"
     save_path = tmp_path / "save_path"
 
     model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch_dtype)
@@ -292,7 +292,7 @@ def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp
 )
 def test_model_shared_tensors(offload, torch_dtype, tie_word_embeddings, device):
     # load model
-    model_path = "nm-testing/llama2.c-stories15M"
+    model_path = "nm-testing/tinysmokellama-3.2"
     model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch_dtype)
     if offload:
         model = dispatch_model(model, {"": device}, force_hooks=True)
@@ -333,7 +333,7 @@ def test_model_shared_tensors_gpu(offload, torch_dtype, tie_word_embeddings, dev
     "model_stub, recipe, sparse_format, quant_format",
     [
         (
-            "nm-testing/llama2.c-stories15M",
+            "nm-testing/tinysmokellama-3.2",
             "tests/llmcompressor/transformers/compression/recipes/sparse_24_fp8.yaml",
             CompressionFormat.sparse_24_bitmask.value,
             CompressionFormat.float_quantized.value,
@@ -414,7 +414,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     "model_stub, recipe, sparse_format",
     [
         (
-            "nm-testing/llama2.c-stories15M",
+            "nm-testing/tinysmokellama-3.2",
             "tests/llmcompressor/transformers/compression/recipes/sparse_24.yaml",
             CompressionFormat.sparse_24_bitmask.value,
         ),
