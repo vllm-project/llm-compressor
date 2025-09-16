@@ -86,4 +86,3 @@ class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
                 f"in={self.weight.shape[2]})"
             )
         return f"{self.__class__.__name__}{sizes_str}"
-

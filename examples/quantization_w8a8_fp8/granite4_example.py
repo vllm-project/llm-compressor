@@ -14,13 +14,13 @@ from llmcompressor.utils import dispatch_for_generation
 MODEL_ID = "ibm-granite/granite-4.0-tiny-preview"
 
 # Load model.
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, torch_dtype="bfloat16", device_map="auto"
-)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 skip_router_only = True  # assume we want to quantize input/output moe layers
-ignore_lay = ["lm_head",]
+ignore_lay = [
+    "lm_head",
+]
 if skip_router_only:
     # swap moe linears to a custom class
     for n, m in model.named_modules():
