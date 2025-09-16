@@ -67,7 +67,7 @@ DEFAULT_stage:
       scheme: W8A8
 """
 
-    yaml_path = str(Path(__file__).parent / "recipes" / "recipe.yaml")
+    yaml_path = str(Path(__file__).parent / "recipes" / "smoothquant_gptq_w8a8.yaml")
 
     return [python_modifiers, yaml_string, yaml_path]
 
