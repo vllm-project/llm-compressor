@@ -1,0 +1,14 @@
+quant_stage:
+  quant_modifiers:
+    GPTQModifier:
+      ignore: ["lm_head"]
+      actorder: null
+      config_groups:
+        group_0:
+          weights:
+            num_bits: 4
+            type: "int"
+            symmetric: true
+            strategy: "group"
+            group_size: 128
+          targets: ["Linear"]

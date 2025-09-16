@@ -5,13 +5,16 @@ import os
 import unittest
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
-from typing import List, Optional, Union
+from typing import Callable, List, Optional, Union
 
+import pytest
 import yaml
 from datasets import Dataset
 from transformers import ProcessorMixin
 
 from tests.data import CustomTestConfig, TestConfig
+
+TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 
 
 # TODO: probably makes sense to move this type of function to a more central place,
@@ -78,6 +81,10 @@ def parse_params(
 
         for file in os.listdir(current_config_dir):
             config_path = os.path.join(current_config_dir, file)
+            if TEST_DATA_FILE is not None:
+                if not config_path.endswith(TEST_DATA_FILE):
+                    continue
+
             config = _load_yaml(config_path)
             if not config:
                 continue
@@ -246,3 +253,12 @@ def process_dataset(
     ds = ds.map(process, remove_columns=ds.column_names)
 
     return ds
+
+
+def requires_cadence(cadence: Union[str, List[str]]) -> Callable:
+    cadence = [cadence] if isinstance(cadence, str) else cadence
+    current_cadence = os.environ.get("CADENCE", "commit")
+
+    return pytest.mark.skipif(
+        (current_cadence not in cadence), reason="cadence mismatch"
+    )

@@ -6,7 +6,7 @@ import torch
 from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
-    disable_quantization,
+    QuantizationStrategy,
 )
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
@@ -76,8 +76,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
     :param block_size: Used to determine number of columns to compress in one pass
     :param dampening_frac: Amount of dampening to apply to H, as a fraction of the
         diagonal norm
-    :param actorder: order in which weight columns are quantized. For more information,
-        on actorder options, see https://github.com/vllm-project/vllm/pull/8135
+    :param actorder: order in which weight columns are quantized. Defaults to "static"
+        activation ordering, which achieves best accuracy recovery with no runtime cost.
+        For more information, see https://github.com/vllm-project/vllm/pull/8135
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
 
@@ -110,24 +111,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
-    actorder: Optional[Union[ActivationOrdering, Sentinel]] = None
+    # TODO: this does not serialize / will be incorrectly written
+    actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-
-    @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value: bool) -> bool:
-        if not value:
-            warnings.warn(
-                "`sequential_update=False` is no longer supported, setting "
-                "sequential_update=True",
-                DeprecationWarning,
-            )
-
-        return True
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -138,24 +129,25 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 return ActivationOrdering.STATIC if existing is None else existing
 
             # user-provided value always attempts to override
-            if self.actorder is not None:
-                if existing is None or self.actorder == existing:
-                    return self.actorder
-                raise ValueError(
-                    "Cannot resolve activation ordering when both "
-                    "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
-                    "are provided and differ. Either set `GPTQModifier.actorder = "
-                    "None` or remove `actorder` from config groups."
-                )
+            if existing is None or self.actorder == existing:
+                return self.actorder
 
-            # setting `GPTQModifier.actorder = None` does nothing
-            return existing
+            # if existing provided and conflicts
+            raise ValueError(
+                "Cannot resolve activation ordering when both "
+                "`GPTQModifier.actorder` and `QuantizationScheme.actorder` "
+                f"are provided and differ ({self.actorder}, {existing}). "
+                "Either unset `GPTQModifier.actorder` or "
+                "remove `actorder` from config groups."
+            )
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            if scheme.weights is not None:
+            if (
+                getattr_chain(scheme, "weights.strategy", None)
+                == QuantizationStrategy.GROUP
+            ):
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
-
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -179,9 +171,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         QuantizationMixin.start_calibration(self, state.model)
-        # Unlike qmod, do not quantize as we calibrate
-        # This choice does not seem to have a meaningful impact on accuracy
-        state.model.apply(disable_quantization)
 
         # register gptq hooks
         added_hook = False
@@ -317,3 +306,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
+
+    @field_validator("sequential_update", mode="before")
+    def validate_sequential_update(cls, value: bool) -> bool:
+        if not value:
+            warnings.warn(
+                "`sequential_update=False` is no longer supported, setting "
+                "sequential_update=True",
+                DeprecationWarning,
+            )
+
+        return True
