@@ -2,18 +2,27 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+from transformers import (
+    AutoModelForCausalLM,
+    MllamaForConditionalGeneration,
+    PretrainedConfig,
+    PreTrainedModel,
+)
 
 from llmcompressor.utils import (
     ALL_TOKEN,
     DisableQuantization,
     calibration_forward_context,
     convert_to_bool,
+    disable_cache,
     flatten_iterable,
     getattr_chain,
     interpolate,
     patch_attr,
     validate_str_iterable,
 )
+from llmcompressor.utils.dev import skip_weights_download
+from tests.testing_utils import requires_gpu
 
 
 @pytest.mark.unit
@@ -140,8 +149,10 @@ def test_DisableQuantization():
 
 @pytest.mark.unit
 def test_calibration_forward_context():
-    model = torch.nn.Linear(1, 1)
-    model.config = SimpleNamespace()
+    class DummyModel(PreTrainedModel):
+        config_class = PretrainedConfig
+
+    model = DummyModel(PretrainedConfig())
     model.config.use_cache = True
     model.train()
 
@@ -170,3 +181,25 @@ def test_patch_attr():
         assert obj.attribute == "patched"
         obj.attribute = "modified"
     assert not hasattr(obj, "attribute")
+
+
+@requires_gpu
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_cls,model_stub",
+    [
+        (MllamaForConditionalGeneration, "meta-llama/Llama-3.2-11B-Vision-Instruct"),
+        (AutoModelForCausalLM, "nm-testing/llama2.c-stories15M"),
+    ],
+)
+def test_disable_cache(model_cls, model_stub):
+    with skip_weights_download(model_cls):
+        model = model_cls.from_pretrained(model_stub, device_map="cuda")
+    inputs = {key: value.to(model.device) for key, value in model.dummy_inputs.items()}
+
+    with disable_cache(model):
+        output = model(**inputs)
+        assert output.past_key_values is None
+
+    output = model(**inputs)
+    assert output.past_key_values is not None
