@@ -3,7 +3,11 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
@@ -107,6 +111,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
+    # TODO: this does not serialize / will be incorrectly written
     actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
 
@@ -149,9 +154,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            if scheme.weights is not None:
+            if (
+                getattr_chain(scheme, "weights.strategy", None)
+                == QuantizationStrategy.GROUP
+            ):
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
-
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
