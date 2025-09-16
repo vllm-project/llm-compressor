@@ -73,7 +73,7 @@ DEFAULT_stage:
 
 
 @requires_gpu
-@pytest.mark.regression
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "recipe",
     recipe_variants(),
