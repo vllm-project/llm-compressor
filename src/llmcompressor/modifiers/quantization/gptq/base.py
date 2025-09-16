@@ -111,6 +111,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
+    # TODO: this does not serialize / will be incorrectly written
     actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
 
