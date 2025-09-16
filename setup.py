@@ -129,7 +129,7 @@ setup(
         ),
         ("datasets>=4.0.0,<=4.1.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
-            "accelerate>=1.6.0,<=1.10.0"
+            "accelerate>=1.6.0,<=1.10.1"
             if BUILD_TYPE == "release"
             else "accelerate>=1.6.0"
         ),
