@@ -1,4 +1,5 @@
 import re
+import multiprocessing
 from typing import Any, Callable, Dict, List, Optional
 
 import torch
@@ -10,7 +11,6 @@ from transformers.data import default_data_collator
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 from llmcompressor.typing import Processor
-import multiprocessing
 
 def get_processed_dataset(
     dataset_args: DatasetArguments,
@@ -138,7 +138,14 @@ def format_calibration_data(
         tokenized_dataset = tokenized_dataset.shuffle()
     tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
 
-    num_workers = min(8, multiprocessing.cpu_count() // 2)
+    MAX_DATALOADER_WORKERS = 8
+    try:
+        num_workers = min(MAX_DATALOADER_WORKERS, multiprocessing.cpu_count() // 2)
+    except NotImplementedError:
+        logger.warning(
+            "Could not determine number of CPUs, defaulting to 0 dataloader workers."
+        )
+        num_workers = 0
     dataloader_params = {
         "batch_size": 1,
         "sampler": RandomSampler(tokenized_calibration)
