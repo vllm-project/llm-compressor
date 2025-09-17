@@ -1,3 +1,11 @@
+"""
+Compression session management for LLM compression workflows.
+
+Provides the main CompressionSession class for managing compression
+workflows, including lifecycle management, event handling, callback
+registration, and state tracking.
+"""
+
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union
 

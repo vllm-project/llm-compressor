@@ -1,3 +1,12 @@
+"""
+Base classes for text generation dataset handling and processing.
+
+This module provides the foundational TextGenerationDataset class with
+registry support for different dataset types. Handles dataset loading,
+tokenization, preprocessing, and text generation specific formatting
+for fine-tuning workflows.
+"""
+
 import inspect
 from functools import cached_property
 from inspect import _ParameterKind as Kind

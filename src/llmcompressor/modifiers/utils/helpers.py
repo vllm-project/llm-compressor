@@ -1,3 +1,12 @@
+"""
+Helper functions for modifier operations and weight management.
+
+Provides utility functions for updating layer weights, managing
+global scales for quantization, and handling fused layer operations in
+neural network compression workflows. Supports specialized quantization
+strategies like NVFP4.
+"""
+
 from typing import List
 
 import torch

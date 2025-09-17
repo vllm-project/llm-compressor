@@ -1,5 +1,6 @@
 """
-Contains code for loggers that help visualize the information from each modifier
+Contains code for loggers that help visualize the information from each
+modifier.
 """
 
 import os
