@@ -15,11 +15,11 @@
 import contextlib
 import warnings
 from functools import wraps
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, TypeVar
 
 import numpy
 import torch
-from frozendict import frozendict
 from transformers import AutoConfig
 
 
@@ -379,7 +379,7 @@ class ParameterizedDefaultDict(dict):
 
     def __init__(self, default_factory: Callable[[Any], Any]):
         self.default_factory = default_factory
-        self._factory_kwargs = frozendict()
+        self._factory_kwargs = MappingProxyType({})
 
     def __missing__(self, key: Any) -> Any:
         if isinstance(key, tuple):
@@ -389,7 +389,7 @@ class ParameterizedDefaultDict(dict):
         self[key] = value
         return value
 
-    def get(self, *args, factory_kwargs: Mapping = frozendict()) -> Any:
+    def get(self, *args, factory_kwargs: Mapping = MappingProxyType({})) -> Any:
         """
         Similar to `__getitem__`, but allows passing kwargs to factory function
 
