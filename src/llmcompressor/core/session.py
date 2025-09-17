@@ -55,7 +55,7 @@ class CompressionSession:
     def lifecycle(self) -> CompressionLifecycle:
         """
         Lifecycle is used to keep track of where we are in the compression
-        process and what modifiers are active. It also Provides the ability
+        process and what modifiers are active. It also provides the ability
         to invoke events on the lifecycle.
 
         :return: the lifecycle for the session
