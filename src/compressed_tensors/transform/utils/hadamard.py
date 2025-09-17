@@ -115,13 +115,16 @@ def _fetch_hadamard_divisor(
     than forcing callers to manage the file open context
 
     :param n: size of known hadamard matrix
+    :param dtype: data type to move fetched hadamard to
+    :param device: device to move fetched hadamard to
     :return: a known hadamard matrix of size `n` if one exists, else None
     """
-    with safe_open(file_path, framework="pt", device=str(device)) as file:
+    open_device = torch.device("cpu") if device.type == "meta" else device
+    with safe_open(file_path, framework="pt", device=str(open_device)) as file:
         divisors = sorted((int(key) for key in file.keys()), reverse=True)
         for divisor in divisors:
             if n % divisor == 0 and is_pow2(n // divisor):
-                return file.get_tensor(str(divisor)).to(dtype=dtype)
+                return file.get_tensor(str(divisor)).to(dtype=dtype, device=device)
 
     return None
 

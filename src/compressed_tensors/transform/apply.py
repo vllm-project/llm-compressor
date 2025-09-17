@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Dict
+
 import torch
+from accelerate.utils import has_offloaded_params
 from compressed_tensors import TRANSFORM_CONFIG_NAME
 from compressed_tensors.transform import TransformConfig, TransformFactory
 
@@ -34,3 +37,35 @@ def apply_transform_config(model: torch.nn.Module, config: TransformConfig):
 
     # attach config to model for compression/serialization
     setattr(model, TRANSFORM_CONFIG_NAME, config)
+
+    # ensure that tied weight transforms can be serialized without aliases
+    # In the future, this could be done by transformers or model compressor
+    # which would make this more robust to changing dispatches after transforms
+    _tie_offloaded_tensors(model)
+
+
+def _tie_offloaded_tensors(model: torch.nn.Module):
+    """
+    When accelerate replaces tensors with meta tensors during offloading, the meta
+    tensors may not be identical, even if the offloaded values are identical.
+
+    However, transformers can only serialize correctly if meta tensors are identical
+    (see transformers#39263).
+
+    This function collects all meta tensors which have shared offloaded values and sets
+    those tensors to be identical so that they can be removed during serialization
+
+    :param model: model potentially containing offloaded meta tensors to fix
+    """
+
+    # ensure that if a location shares an offloaded tensor pointers, that the
+    # meta tensor is also identical (assigned to the first instance of parameter)
+    ptr_to_meta: Dict[int, torch.nn.Parameter] = dict()
+    for module in model.modules():
+        if has_offloaded_params(module):
+            for key, _ in module.named_parameters(recurse=False):
+                offloaded_ptr = module._hf_hook.weights_map[key].data_ptr()
+
+                if offloaded_ptr not in ptr_to_meta:
+                    ptr_to_meta[offloaded_ptr] = getattr(module, key)
+                setattr(module, key, ptr_to_meta[offloaded_ptr])
