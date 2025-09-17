@@ -147,7 +147,6 @@ def update_weight_global_scale(module: Module):
         should_calculate_gparam=True,
         should_calculate_qparams=False,
     )
-    module.weight_observer.reset()
 
 
 def update_weight_zp_scale(module: Module):
