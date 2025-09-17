@@ -69,7 +69,7 @@ If you need more control, you can wrap `save_pretrained` manually:
 
 ```python
 from transformers import AutoModelForCausalLM
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import modify_save_pretrained
+from llmcompressor.transformers.compression.compressed_tensors_utils import modify_save_pretrained
 
 # Load model
 model = AutoModelForCausalLM.from_pretrained("your-model")

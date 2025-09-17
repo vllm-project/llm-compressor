@@ -23,7 +23,7 @@ from llmcompressor.args import (
 )
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
     untie_word_embeddings,
 )
