@@ -214,10 +214,10 @@ recipe = QuantizationModifier(
     scheme="FP8_DYNAMIC",
     ignore=[
         "re:.*lm_head",
-        're:.*self_attn',
-        're:.*attn',
-        're:.*attention.*',
-        're:.*router',
+        "re:.*self_attn",
+        "re:.*attn",
+        "re:.*attention.*",
+        "re:.*router",
     ],
 )
 
