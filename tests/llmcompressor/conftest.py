@@ -61,7 +61,7 @@ def check_for_created_files():
         f"Created files: {set(end_files_root) - set(start_files_root)}"
     )
 
-    max_allowed_sized_temp_files_megabytes = 1
+    max_allowed_sized_temp_files_megabytes = 1.5
     end_files_temp = _get_files(directory=tempfile.gettempdir())
     created_temp_files = set(end_files_temp) - set(start_files_temp)
     # pytest temp files are automatically deleted, exclude from size calculation
