@@ -1,7 +1,7 @@
 import os
 import weakref
 from functools import wraps
-from typing import List, Optional
+from typing import Optional
 
 import torch
 from accelerate.accelerator import get_state_dict_offloaded_model
@@ -12,10 +12,7 @@ from compressed_tensors import (
     has_offloaded_params,
     register_offload_parameter,
 )
-from compressed_tensors.config import (
-    CompressionFormat,
-    infer_and_set_per_module_quantization_format,
-)
+from compressed_tensors.config import CompressionFormat
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -229,20 +226,19 @@ def get_model_compressor(
             )
 
     if not save_compressed:
+        if quantization_format not in (None, CompressionFormat.dense.value):
+            raise ValueError(
+                "A quantizatiom format was provided but "
+                "save_compressed is set to False. "
+                "A compression format can only be applied when "
+                "saving the model compressed"
+            )
         quantization_format = CompressionFormat.dense.value
 
-    if quantization_format is None and save_compressed:
-        quantization_format: Optional[List[str]] = (
-            infer_and_set_per_module_quantization_format(
-                model=model,
-                sparsity_structure=None
-                if sparsity_config is None
-                else sparsity_config.sparsity_structure,
-            )
-        )
-
     return ModelCompressor.from_pretrained_model(
-        model, sparsity_config=sparsity_config, quantization_format=quantization_format
+        model,
+        sparsity_config_or_format=sparsity_config,
+        quantization_format=quantization_format,
     )
 
 
