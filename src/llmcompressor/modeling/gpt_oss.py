@@ -148,10 +148,9 @@ class SequentialGPTOSSMoE(nn.Module):
         for j in range(self.top_k):
             idx = router_indices[:, j]
             w   = router_scores[torch.arange(idx.size(0), device=idx.device), idx].unsqueeze(-1)
-            for e in range(self.num_experts):
+            unique_experts = torch.unique(idx)
+            for e in unique_experts:
                 mask = (idx == e)
-                if not torch.any(mask):
-                    continue
                 out[mask] += self.experts[e](x[mask]) * w[mask]
 
         out = out.view(B, T, H)
