@@ -1,13 +1,17 @@
 name: Check Ready Label
-
+# https://stackoverflow.com/a/71504928/29403906
 on:
   pull_request:
-   branches:
-     - main
+    branches: [ main , 'release/*' ]
+  types:
+    - opened
+    - labeled
+    - unlabeled
+   
 
 jobs:
   check-ready-label:
-    if: !contains(github.event.pull_request.labels.*.name, 'ready')
+    if: "!contains(github.event.pull_request.labels.*.name, 'ready')"
     runs-on: ubuntu-latest
     steps:
       - name: Fail if ready label has not been applied to PR
