@@ -1,4 +1,4 @@
-# flake8: noqa
+# ruff: noqa
 # populate registry
 from .basic import *
 from .data_free import *
