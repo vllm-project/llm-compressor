@@ -3,7 +3,11 @@ name: Check Ready Label
 on:
   pull_request:
     branches: [ main , 'release/*' ]
-   
+    types:
+      - labeled
+      - unlabeled
+      - opened
+      - reopened
 
 jobs:
   check-ready-label:
