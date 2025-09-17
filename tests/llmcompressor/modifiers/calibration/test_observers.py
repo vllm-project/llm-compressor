@@ -260,8 +260,6 @@ def test_static_weight_quantization(
     input = torch.eye(input_size, dtype=torch.bfloat16)
     output = linear(input)
 
-    print(output.T)
-    print(torch.nn.functional.mse_loss(output.T, linear.weight))
     assert torch.allclose(output.T, exp_quant.to(output.dtype))
     assert torch.nn.functional.mse_loss(output.T, linear.weight) <= exp_loss
 
@@ -376,8 +374,5 @@ def test_static_activation_quantization(
         assert torch.equal(observer.max_val[key], exp_max_val[key])
 
     # check forward pass
-    print(args.strategy)
-    print(output)
-    print(torch.nn.functional.mse_loss(output, input))
     assert torch.allclose(output, exp_quant.to(output.dtype))
     assert torch.nn.functional.mse_loss(output, input) <= exp_loss
