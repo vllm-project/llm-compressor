@@ -1,3 +1,12 @@
+"""
+Model argument classes for LLM compression workflows.
+
+This module defines dataclass-based argument containers for configuring model
+loading, tokenization, and preprocessing parameters. Supports various model
+sources including HuggingFace model hub, local paths, and custom
+configurations for compression workflows.
+"""
+
 from dataclasses import dataclass, field
 from typing import Optional
 

@@ -1,7 +1,7 @@
 """
-Module for managing the state of the LLM Compressor.
+Module for managing LLM Compressor state.
 
-This module provides classes for holding and updating the state information
+Provides classes for holding and updating the state information
 related to data, hardware, and model compression.
 """
 
