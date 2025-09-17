@@ -47,8 +47,8 @@ def convert_model_for_quantization_gptoss(model):
         gc.collect()
         try:
             torch.cuda.empty_cache()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[GPT-OSS] Warning: Failed to empty CUDA cache: {e}", flush=True)
 
 
 def _get_parent_and_child(model, dotted_name: str):
