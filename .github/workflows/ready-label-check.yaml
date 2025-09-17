@@ -1,0 +1,16 @@
+name: Check Ready Label
+
+on:
+  pull_request:
+   branches:
+     - main
+
+jobs:
+  check-ready-label:
+    if: !contains(github.event.pull_request.labels.*.name, 'ready')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if ready label has not been applied to PR
+        run: |
+          echo "::error::The PR is not labeled as 'ready'"
+          exit 1
