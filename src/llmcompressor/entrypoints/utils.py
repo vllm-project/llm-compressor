@@ -15,10 +15,15 @@ from transformers import (
 )
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from llmcompressor.args import ModelArguments, RecipeArguments, TrainingArguments
+from llmcompressor.args import (
+    DatasetArguments,
+    ModelArguments,
+    RecipeArguments,
+    TrainingArguments,
+)
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
     untie_word_embeddings,
 )
@@ -30,7 +35,11 @@ from llmcompressor.typing import Processor
 from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 
 
-def pre_process(model_args: "ModelArguments"):
+def pre_process(
+    model_args: ModelArguments,
+    dataset_args: DatasetArguments,
+    output_dir: Optional[str],
+):
     """
     Prepares the model and tokenizer/processor for calibration.
     - Initializes the model if it's specified as a path or string.
@@ -54,11 +63,27 @@ def pre_process(model_args: "ModelArguments"):
         model_args.model = model
         model_args.distill_teacher = distill_teacher
 
-    # Initialize processor
+    # Initialize processor if dataset provided
     if isinstance(model_args.processor, (str, type(None))):
-        model_args.processor = initialize_processor_from_path(
-            model_args, model_args.model
-        )
+        try:
+            model_args.processor = initialize_processor_from_path(
+                model_args, model_args.model
+            )
+        except Exception as e:
+            if dataset_args.is_dataset_provided():
+                raise RuntimeError(
+                    "An error occurred when attempting to initialize "
+                    "model processor, which is required when a dataset "
+                    "is provided. To resolve, create and pass in a "
+                    "processor directly to `oneshot`/`train`."
+                ) from e
+            elif output_dir:
+                logger.warning(
+                    "Model processor could not be auto-initialized and "
+                    "will not be saved along with the model. To resolve, "
+                    "create and pass in a processor directly to "
+                    f"`oneshot`/`train`.\nInitialization Error: {e}"
+                )
 
     # untie tie_word_embeddings weights
     if not model_args.tie_word_embeddings:

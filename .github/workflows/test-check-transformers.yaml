@@ -16,6 +16,10 @@ env:
   CADENCE: "commit"
   HF_TOKEN: ${{ secrets.HF_TOKEN_READ }}
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
@@ -97,10 +101,6 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/oneshot
-      - name: Running Sparsification Tests
-        if: (success() || failure()) && steps.install.outcome == 'success'
-        run: |
-          pytest tests/llmcompressor/transformers/sparsification -v
       - name: Running OBCQ Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
