@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-from compressed_tensors.quantization.lifecycle import KVCacheScaleType
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization import KVCacheScaleType, QuantizationArgs
 from torch import Tensor
 from transformers import DynamicCache
 
