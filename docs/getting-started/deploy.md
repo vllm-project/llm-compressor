@@ -24,11 +24,13 @@ Before deploying your model, ensure you have the following prerequisites:
 vLLM provides a Python API for easy integration with your applications, enabling you to load and use your compressed model directly in your Python code. To test the compressed model, use the following code:
 
 ```python
-from vllm import LLM
+from vllm import LLM, SamplingParams
 
 model = LLM("./TinyLlama-1.1B-Chat-v1.0-INT8")
-output = model.generate("What is machine learning?", max_tokens=256)
-print(output)
+sampling_params = SamplingParams(max_tokens=256)
+outputs = model.generate("What is machine learning?", sampling_params)
+for output in outputs:
+    print(output.outputs[0].text)
 ```
 
 After running the above code, you should see the generated output from your compressed model. This confirms that the model is loaded and ready for inference.
@@ -39,7 +41,7 @@ vLLM also provides an HTTP server for serving your model via a RESTful API that 
 To start the HTTP server, use the following command:
 
 ```bash
-vllm serve "./TinyLlama-1.1B-Chat-v1.0-INT8"
+vllm serve "TinyLlama-1.1B-Chat-v1.0-INT8"
 ```
 
 By default, the server will run on `localhost:8000`. You can change the host and port by using the `--host` and `--port` flags. Now that the server is running, you can send requests to it using any HTTP client. For example, you can use `curl` to send a request:

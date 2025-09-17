@@ -1,3 +1,3 @@
-# flake8: noqa
+# ruff: noqa
 
 from .timer import Timer

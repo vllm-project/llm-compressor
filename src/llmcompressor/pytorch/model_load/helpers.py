@@ -40,7 +40,7 @@ def save_checkpoint(
     :param save_safetensors: save model checkpoint using safetensors file type
     :param save_compressed: save model checkpoint using compressed-tensors format
     """
-    from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+    from llmcompressor.transformers.compression.compressed_tensors_utils import (
         get_model_compressor,  # avoid circular import
     )
 

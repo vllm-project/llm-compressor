@@ -38,7 +38,7 @@ If you need a specific version of LLM Compressor, you can specify the version nu
 pip install llmcompressor==0.5.1
 ```
 
-Replace `0.1.0` with your desired version number.
+Replace `0.5.1` with your desired version number.
 
 ### Install from Source
 

@@ -1,4 +1,4 @@
-# flake8: noqa
+# ruff: noqa
 
 from .base import *
 from .mappings import *

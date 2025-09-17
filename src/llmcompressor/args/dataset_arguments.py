@@ -218,3 +218,6 @@ class DatasetArguments(CustomDatasetArguments):
             "Default is set to True."
         },
     )
+
+    def is_dataset_provided(self) -> bool:
+        return self.dataset is not None or self.dataset_path is not None

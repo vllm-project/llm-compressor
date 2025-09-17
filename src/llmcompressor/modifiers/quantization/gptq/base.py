@@ -3,7 +3,11 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
@@ -107,6 +111,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
+    # TODO: this does not serialize / will be incorrectly written
     actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
     offload_hessians: bool = False
 
@@ -114,17 +119,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-
-    @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value: bool) -> bool:
-        if not value:
-            warnings.warn(
-                "`sequential_update=False` is no longer supported, setting "
-                "sequential_update=True",
-                DeprecationWarning,
-            )
-
-        return True
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -149,9 +143,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         for scheme in config.config_groups.values():
             assert isinstance(scheme, QuantizationScheme)
-            if scheme.weights is not None:
+            if (
+                getattr_chain(scheme, "weights.strategy", None)
+                == QuantizationStrategy.GROUP
+            ):
                 scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
-
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -310,3 +306,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
+
+    @field_validator("sequential_update", mode="before")
+    def validate_sequential_update(cls, value: bool) -> bool:
+        if not value:
+            warnings.warn(
+                "`sequential_update=False` is no longer supported, setting "
+                "sequential_update=True",
+                DeprecationWarning,
+            )
+
+        return True

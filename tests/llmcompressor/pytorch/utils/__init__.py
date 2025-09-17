@@ -1,1 +1,1 @@
-# flake8: noqa
+# ruff: noqa

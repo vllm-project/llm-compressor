@@ -7,7 +7,7 @@ from compressed_tensors.compressors import ModelCompressor
 from parameterized import parameterized_class
 from transformers import AutoConfig
 
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
     get_model_compressor,
 )
 from tests.testing_utils import parse_params, requires_gpu

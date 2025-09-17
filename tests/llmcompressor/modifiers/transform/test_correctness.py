@@ -6,7 +6,7 @@ from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import State
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
     untie_word_embeddings,
 )
 from tests.testing_utils import requires_gpu
