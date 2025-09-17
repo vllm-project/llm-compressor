@@ -8,9 +8,8 @@ from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
 )
-from compressed_tensors.quantization.utils import is_fp4
+from compressed_tensors.quantization.utils import is_fp4, strict_divide
 from compressed_tensors.registry.registry import RegistryMixin
-from compressed_tensors.utils import safe_permute
 from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 
@@ -125,8 +124,6 @@ class Observer(InternalModule, RegistryMixin):
         :return: tuple of scale and zero point based on last observed value
         """
         if observed is not None:
-            group_size = self.quantization_args.group_size
-
             if self.quantization_args.strategy == QuantizationStrategy.TENSOR:
                 # re-calculate scale and zero point, update the stored value
                 self._scale, self._zero_point = self.calculate_qparams(observed)
@@ -135,50 +132,43 @@ class Observer(InternalModule, RegistryMixin):
                 QuantizationStrategy.TENSOR_GROUP,
                 QuantizationStrategy.GROUP,
             ):
-                rows = observed.shape[0]
-                columns = observed.shape[1]
-                num_groups = int(ceil(columns / group_size))
-                if num_groups * group_size != columns:
-                    logger.bind(log_once=True).warning(
-                        "Attempting to quantize a module weight whose columns "
-                        f"({columns}) are not divisible by group_size ({group_size}). "
-                        "This scheme is not supported by vLLM, please consider "
-                        "adjusting the group_size for modules with this number of "
-                        "columns",
-                    )
+                # should be identical implementation to first half of
+                # `_process_quantization`
 
-                self._scale = torch.empty(
-                    (rows, num_groups), dtype=observed.dtype, device=observed.device
-                )
+                # get shapes
+                assert observed.ndim >= 2
+                rows, columns = observed.shape[-2:]
+                group_size = self.quantization_args.group_size
+                num_groups = strict_divide(columns, group_size)
+
+                # FP4: cast zp type
                 if is_fp4(quantization_args=self.quantization_args):
                     zp_dtype = FP8_E4M3_DATA.dtype
                 else:
                     zp_dtype = self.quantization_args.pytorch_dtype()
 
+                # allocate qparams
+                self._scale = torch.empty(
+                    (rows, num_groups), dtype=observed.dtype, device=observed.device
+                )
                 self._zero_point = torch.empty(
                     (rows, num_groups), dtype=zp_dtype, device=observed.device
                 )
 
-                # support column-order (default) quantization as well as other orderings
-                # such as activation ordering. Below checks if g_idx has initialized
-                is_column_order = g_idx is None or -1 in g_idx
-                if is_column_order:
-                    group_sizes = torch.full((num_groups,), group_size, dtype=torch.int)
-                else:
-                    group_indices, group_sizes = torch.unique(g_idx, return_counts=True)
-                    group_sizes = group_sizes[torch.argsort(group_indices)]
-
+                # permute groups
+                if g_idx is not None:
                     perm = torch.argsort(g_idx)
-                    observed = safe_permute(observed, perm, dim=1)
+                    observed = observed.index_select(-1, perm)
 
                 # TODO: experiment with vectorizing for loop for performance
+                # all reduce all dims except the second to last one
                 end = 0
-                for group_index, group_count in enumerate(group_sizes):
+                for group_index in range(num_groups):
                     start = end
-                    end = start + group_count
+                    end = start + group_size
                     scale, zero_point = self.get_qparams_along_dim(
-                        observed[:, start:end],
-                        0,
+                        observed[..., start:end],
+                        dim=-2,
                         tensor_id=group_index,
                         global_scale=global_scale,
                     )
@@ -187,8 +177,8 @@ class Observer(InternalModule, RegistryMixin):
                     self._zero_point[:, group_index] = zero_point.squeeze(1)
 
             elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
-                # assume observed is transposed, because its the output, hence use dim 0
-                self._scale, self._zero_point = self.get_qparams_along_dim(observed, 0)
+                # all reduce all dims except the second to last one
+                self._scale, self._zero_point = self.get_qparams_along_dim(observed, -2)
 
             elif self.quantization_args.strategy == QuantizationStrategy.TOKEN:
                 # use dim 1, assume the obsersed.shape = [batch, token, hidden]
@@ -201,7 +191,7 @@ class Observer(InternalModule, RegistryMixin):
             elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
                 # Block-wise quantization: one scale/zero_point per block of shape
                 # [block_rows, block_cols]
-                rows, cols = observed.shape[:2]
+                rows, cols = observed.shape[-2:]
                 bs = self.quantization_args.block_structure
                 if not (
                     isinstance(bs, (list, tuple))
@@ -253,15 +243,20 @@ class Observer(InternalModule, RegistryMixin):
 
     def get_qparams_along_dim(
         self,
-        observed,
+        observed: torch.Tensor,
         dim: Union[int, Iterable[int]],
         tensor_id: Optional[Any] = None,
         global_scale: Optional[Tensor] = None,
     ):
+        # cast to set
         if isinstance(dim, int):
             dim = [dim]
         dim = set(dim)
 
+        # convert negative dims
+        dim = [d if d >= 0 else observed.ndim + d for d in dim]
+
+        # reduce all dimensions except the the one passed as argument to this function
         reduce_dims = tuple(idx for idx in range(observed.ndim) if idx not in dim)
         return self.calculate_qparams(
             observed,

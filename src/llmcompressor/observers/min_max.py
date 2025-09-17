@@ -1,9 +1,9 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
-from compressed_tensors.utils import deprecated
+from compressed_tensors.utils import deprecated, patch_attr
 
 from llmcompressor.observers.base import Observer
 
@@ -58,6 +58,8 @@ class MinMaxObserver(Observer):
 
         # early stopping, save some computation and memory
         if self.averaging_constant == 1.0:
+            self.min_val[tensor_id] = min_val
+            self.max_val[tensor_id] = max_val
             return min_val, max_val
 
         running_min_val = self.min_val.get(tensor_id, None)
@@ -86,9 +88,11 @@ class MinMaxObserver(Observer):
         :return: updated global scale derived from the observed tensor
         """
 
-        updated_min_val, updated_max_val = self.calculate_updated_min_max(
-            observed=observed
-        )
+        # patch to avoid affecting running means
+        with patch_attr(self, "min_val", {}), patch_attr(self, "max_val", {}):
+            updated_min_val, updated_max_val = self.calculate_updated_min_max(
+                observed=observed
+            )
         return generate_gparam(
             updated_min_val=updated_min_val, updated_max_val=updated_max_val
         )
@@ -126,14 +130,23 @@ class MinMaxObserver(Observer):
     def get_qparams_along_dim(
         self,
         observed: torch.Tensor,
-        dim: int,
+        dim: Union[int, Iterable[int]],
         tensor_id: Optional[Any] = None,
         global_scale: Optional[torch.Tensor] = None,
     ):
         """
         Calculate quantization parameters along the specified dimension
         """
-        reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
+        # cast to set
+        if isinstance(dim, int):
+            dim = [dim]
+        dim = set(dim)
+
+        # convert negative dims
+        dim = [d if d >= 0 else observed.ndim + d for d in dim]
+
+        # reduce all dimensions except the the one passed as argument to this function
+        reduce_dims = tuple(idx for idx in range(observed.ndim) if idx not in dim)
         return self.calculate_qparams(
             observed,
             reduce_dims=reduce_dims,
