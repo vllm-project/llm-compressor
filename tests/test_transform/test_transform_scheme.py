@@ -72,3 +72,28 @@ def test_multiple_groups():
     assert not scheme.randomize
     assert scheme.type == "hadamard"
     assert len(scheme.apply) == 20
+
+
+def test_transform_scheme_block_size():
+    """
+    Ensure json with (deprecated) `head_dim` or `block_size`
+    both load up correctly and save with `block_size` field
+    """
+
+    old_scheme = TransformScheme.model_validate_json(
+        '{"type": "hadamard", "head_dim": 128}'
+    )
+    assert old_scheme.block_size == 128
+    assert old_scheme.model_dump()["block_size"] == 128
+    old_scheme = TransformScheme(type="hadamard", head_dim=64)
+    assert old_scheme.block_size == 64
+    assert old_scheme.model_dump()["block_size"] == 64
+
+    new_scheme = TransformScheme.model_validate_json(
+        '{"type": "hadamard", "block_size": 128}'
+    )
+    assert new_scheme.block_size == 128
+    assert new_scheme.model_dump()["block_size"] == 128
+    new_scheme = TransformScheme(type="hadamard", block_size=64)
+    assert new_scheme.block_size == 64
+    assert new_scheme.model_dump()["block_size"] == 64

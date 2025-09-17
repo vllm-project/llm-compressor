@@ -33,7 +33,7 @@ from tests.testing_utils import requires_accelerate, requires_gpu
 def test_correctness_linear(type, randomize, head_dim, input_batch_size):
     size = (4, 8)
     module = torch.nn.Linear(*size, bias=False)
-    scheme = TransformScheme(type=type, randomize=randomize, head_dim=head_dim)
+    scheme = TransformScheme(type=type, randomize=randomize, block_size=head_dim)
     factory = TransformFactory.from_scheme(scheme, name="")
 
     input_tfm = factory.create_transform(
@@ -150,7 +150,7 @@ def test_correctness_attention_heads(type, randomize, head_dim, input_batch_size
             "": TransformScheme(
                 type=type,
                 randomize=randomize,
-                head_dim=head_dim,
+                block_size=head_dim,
                 apply=[
                     TransformArgs(targets="v_proj", location="weight_output"),
                     TransformArgs(
