@@ -1,3 +1,12 @@
+"""
+Helper functions for observer token counting and analysis.
+
+Provides utility functions for analyzing observer statistics
+and token counts across model modules. Used for monitoring compression
+effects and understanding model behavior during quantization and
+pruning operations.
+"""
+
 from collections import Counter
 
 import torch

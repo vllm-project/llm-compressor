@@ -1,3 +1,12 @@
+"""
+PyTorch-specific helper functions for model compression.
+
+Provides utility functions for PyTorch model operations including
+batch processing, padding mask application, and model architecture
+detection. Supports MoE (Mixture of Experts) models and specialized
+tensor operations for compression workflows.
+"""
+
 from typing import Dict
 
 import torch

@@ -22,13 +22,13 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
-from llmcompressor.transformers.compression.sparsity_metadata_config import (
-    SparsityConfigMetadata,
-)
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
     get_model_compressor,
     modify_save_pretrained,
     untie_word_embeddings,
+)
+from llmcompressor.transformers.compression.sparsity_metadata_config import (
+    SparsityConfigMetadata,
 )
 from tests.testing_utils import requires_gpu
 

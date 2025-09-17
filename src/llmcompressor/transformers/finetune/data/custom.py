@@ -1,3 +1,12 @@
+"""
+Custom dataset implementation for JSON and CSV data sources.
+
+This module provides a CustomDataset class for loading and processing
+local JSON and CSV files for text generation fine-tuning. Supports
+flexible data formats and custom preprocessing pipelines for
+user-provided datasets.
+"""
+
 from llmcompressor.transformers.finetune.data import TextGenerationDataset
 
 
