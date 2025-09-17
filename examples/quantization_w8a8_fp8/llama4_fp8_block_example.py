@@ -13,8 +13,8 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 model = replace_modules_for_calibration(model)
 # Configure the quantization algorithm and scheme.
 # In this case, we:
-#   * quantize the weights to fp8 with per channel via ptq
-#   * quantize the activations to fp8 with dynamic per token
+#   * quantize the weights to fp8 with block size 128 via ptq
+#   * quantize the activations to fp8 with dynamic group activations
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="FP8_BLOCK",
