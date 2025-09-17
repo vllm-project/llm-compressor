@@ -47,8 +47,8 @@ def convert_model_for_quantization_gptoss(model):
         gc.collect()
         try:
             torch.cuda.empty_cache()
-        except Exception as e:
-            print(f"[GPT-OSS] Warning: Failed to empty CUDA cache: {e}", flush=True)
+        except Exception:
+            pass
 
 
 def _get_parent_and_child(model, dotted_name: str):
@@ -148,9 +148,10 @@ class SequentialGPTOSSMoE(nn.Module):
         for j in range(self.top_k):
             idx = router_indices[:, j]
             w   = router_scores[torch.arange(idx.size(0), device=idx.device), idx].unsqueeze(-1)
-            unique_experts = torch.unique(idx)
-            for e in unique_experts:
+            for e in range(self.num_experts):
                 mask = (idx == e)
+                if not torch.any(mask):
+                    continue
                 out[mask] += self.experts[e](x[mask]) * w[mask]
 
         out = out.view(B, T, H)
@@ -158,7 +159,7 @@ class SequentialGPTOSSMoE(nn.Module):
         return out, router_scores
 
 
-model_id = "/mnt/nvme4/openai/gpt-oss-120b-BF16"
+model_id = "unsloth/gpt-oss-120b-BF16"
 
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
@@ -213,14 +214,14 @@ recipe = QuantizationModifier(
     scheme="FP8_DYNAMIC",
     ignore=[
         "re:.*lm_head",
-        "re:.*self_attn",
-        "re:.*attn",
-        "re:.*attention.*",
-        "re:.*router",
+        're:.*self_attn',
+        're:.*attn',
+        're:.*attention.*',
+        're:.*router',
     ],
 )
 
-SAVE_DIR = f"/proving-grounds/machine/shubhra/gpt_oss_120b/{os.path.basename(model_id)}-{recipe.scheme}_ns{NUM_CALIBRATION_SAMPLES}_fixed_CTgb2df366"
+SAVE_DIR = f"{model_id.split('/')[-1]}-FP8-Dynamic"
 
 # Oneshot quantization
 oneshot(
