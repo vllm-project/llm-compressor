@@ -1,8 +1,8 @@
 """
 Module for managing the compression lifecycle in the LLM Compressor.
 
-This module provides a class for defining and managing the lifecycle of compression
-events, including initialization, finalization, and event handling.
+Provides a class for defining and managing the lifecycle of compression events,
+including initialization, finalization, and event handling.
 """
 
 from dataclasses import dataclass, field

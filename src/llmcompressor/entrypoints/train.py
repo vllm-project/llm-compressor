@@ -1,3 +1,12 @@
+"""
+Training entrypoint for fine-tuning models with compression support.
+
+Provides the main training entry point that supports both vanilla
+fine-tuning and compression-aware training workflows. Integrates with
+HuggingFace transformers and supports knowledge distillation, pruning,
+and quantization during the training process.
+"""
+
 import math
 import os
 

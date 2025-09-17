@@ -1,3 +1,12 @@
+"""
+Dataset utility functions for LLM compression workflows.
+
+Provides helper functions for loading, processing, and formatting datasets used
+in model compression pipelines. Handles dataset splitting, tokenization,
+calibration data preparation, and dataloader creation for both training and
+one-shot calibration workflows.
+"""
+
 import multiprocessing
 import re
 from typing import Any, Callable, Dict, List, Optional
