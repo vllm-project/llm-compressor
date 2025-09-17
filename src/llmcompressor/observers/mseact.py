@@ -1,17 +1,17 @@
 from typing import Any, Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import QuantizationArgs, FP4_E2M1_DATA, FP8_E4M3_DATA
 from compressed_tensors.quantization.utils import calculate_qparams
 from torch import FloatTensor, IntTensor, Tensor
 
 from llmcompressor.observers.base import Observer
 
-__all__ = ["MovingAverageMSEObserver"]
+__all__ = ["MovingAverageMSEObserverActivations"]
 
 
-@Observer.register("mse")
-class MovingAverageMSEObserver(Observer):
+@Observer.register("mseact")
+class MovingAverageMSEObserverActivations(Observer):
     """
     Implements a dynamic quantization observer that sets the scale and
     zero point based on a moving average of the mse-clipped min and max observed values
@@ -36,6 +36,32 @@ class MovingAverageMSEObserver(Observer):
         self.averaging_constant = averaging_constant
         self.grid = grid
         self.norm = norm
+
+    def _generate_dynamic_gparam(
+        self,
+        updated_min_val: torch.Tensor,
+        updated_max_val: torch.Tensor,
+        scale_data = FP8_E4M3_DATA,
+        quant_data = FP4_E2M1_DATA,
+        dtype: torch.dtype = torch.float32,
+    ) -> torch.Tensor:
+        """
+        Generate a dynamic global scale using MSE-optimized min/max values.
+        This implementation uses the MSE-optimized values instead of the static min/max approach.
+        
+        :param updated_min_val: MSE-optimized minimum values
+        :param updated_max_val: MSE-optimized maximum values  
+        :param scale_data: FP8 data configuration for scales
+        :param quant_data: FP4 data configuration for quantization
+        :param dtype: output dtype for the global scale
+        :return: dynamically calculated global scale
+        """
+        min_vals = torch.min(updated_min_val, torch.zeros_like(updated_min_val))
+        max_vals = torch.max(updated_max_val, torch.zeros_like(updated_max_val))
+        max_val_pos = torch.max(torch.abs(min_vals), torch.abs(max_vals))
+        max_val_pos = torch.clamp(max_val_pos, min=1e-12)
+        global_scale = scale_data.max * quant_data.max / max_val_pos
+        return global_scale.to(dtype).reshape([1])
 
     def calculate_mse_min_max(
         self,
@@ -82,23 +108,30 @@ class MovingAverageMSEObserver(Observer):
         total_iterations = int(self.maxshrink * self.grid)
         print(f"[MSE DEBUG]   Starting MSE optimization with {total_iterations} iterations")
 
+
         for i in range(int(self.maxshrink * self.grid)):
             p = 1 - i / self.grid
             shrinked_min_val = p * absolute_min_val
             shrinked_max_val = p * absolute_max_val
 
+            # Generate dynamic global scale using shrinked values
+            iteration_global_scale = self._generate_dynamic_gparam(
+                updated_min_val=shrinked_min_val, updated_max_val=shrinked_max_val
+            )
+
+            # Use shrinked values for BOTH global scale and local scales (consistent approach)
             candidate_scales, candidate_zero_points = calculate_qparams(
-                min_vals=shrinked_min_val,
-                max_vals=shrinked_max_val,
+                min_vals=shrinked_min_val,  # Use shrinked values (consistent with global scale)
+                max_vals=shrinked_max_val,  # Use shrinked values (consistent with global scale)
                 quantization_args=self.quantization_args,
-                global_scale=global_scale,
+                global_scale=iteration_global_scale,
             )
             q = fake_quantize(
                 observed,
                 candidate_scales,
                 candidate_zero_points,
                 self.quantization_args,
-                global_scale=global_scale,
+                global_scale=iteration_global_scale,
             )
 
             q -= observed
@@ -235,10 +268,12 @@ class MovingAverageMSEObserver(Observer):
 
     def calculate_gparam(self, observed: torch.Tensor) -> torch.Tensor:
         """
-        Generate a global scale using the observed min and max from MSE optimization.
+        Generate a dynamic global scale using the observed min and max from MSE optimization.
+        This method is called during calibration to calculate the global scale on-the-fly
+        using MSE-optimized min/max values instead of static min/max.
 
         :param observed: observed tensor to calculate quantization parameters for
-        :return: updated global scale derived from the observed tensor
+        :return: dynamically calculated global scale derived from MSE-optimized values
         """
         print(f"[MSE GLOBAL SCALE DEBUG] calculate_gparam called")
         print(f"[MSE GLOBAL SCALE DEBUG]   observed.shape: {observed.shape}")
@@ -246,18 +281,19 @@ class MovingAverageMSEObserver(Observer):
         print(f"[MSE GLOBAL SCALE DEBUG]   observed range: [{observed.min():.6f}, {observed.max():.6f}]")
         print(f"[MSE GLOBAL SCALE DEBUG]   quantization_args.strategy: {self.quantization_args.strategy}")
         print(f"[MSE GLOBAL SCALE DEBUG]   quantization_args.group_size: {self.quantization_args.group_size}")
-        
-        from compressed_tensors.quantization.utils import generate_gparam
-        
+                
+        # Get MSE-optimized min/max values using moving average
         updated_min_val, updated_max_val = self.calculate_updated_min_max(
             observed=observed
         )
         
         print(f"[MSE GLOBAL SCALE DEBUG]   MSE-optimized min_val: {updated_min_val}")
         print(f"[MSE GLOBAL SCALE DEBUG]   MSE-optimized max_val: {updated_max_val}")
-        
-        global_scale = generate_gparam(
-            updated_min_val=updated_min_val, updated_max_val=updated_max_val
+    
+        # Generate dynamic global scale using MSE-optimized values
+        global_scale = self._generate_dynamic_gparam(
+            updated_min_val=updated_min_val,
+            updated_max_val=updated_max_val,
         )
         
         print(f"[MSE GLOBAL SCALE DEBUG]   final global_scale: {global_scale}")
