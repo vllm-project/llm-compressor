@@ -79,12 +79,6 @@ class MovingAverageMSEObserverActivations(Observer):
         :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of min and max values derived from the observed tensor
         """
-        print(f"[MSE DEBUG] calculate_mse_min_max called")
-        print(f"[MSE DEBUG]   observed.shape: {observed.shape}")
-        print(f"[MSE DEBUG]   observed.dtype: {observed.dtype}")
-        print(f"[MSE DEBUG]   reduce_dims: {reduce_dims}")
-        print(f"[MSE DEBUG]   global_scale: {global_scale}")
-        print(f"[MSE DEBUG]   maxshrink: {self.maxshrink}, grid: {self.grid}, norm: {self.norm}, patience: {self.patience}")
 
         from compressed_tensors.quantization.lifecycle import fake_quantize
 
@@ -93,9 +87,6 @@ class MovingAverageMSEObserverActivations(Observer):
         else:
             absolute_min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             absolute_max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
-
-        print(f"[MSE DEBUG]   absolute_min_val: {absolute_min_val}")
-        print(f"[MSE DEBUG]   absolute_max_val: {absolute_max_val}")
 
         best = torch.full_like(
             absolute_min_val, torch.finfo(absolute_min_val.dtype).max
@@ -106,8 +97,6 @@ class MovingAverageMSEObserverActivations(Observer):
         # Early stopping params
         no_improve_count = 0
         total_iterations = int(self.maxshrink * self.grid)
-        print(f"[MSE DEBUG]   Starting MSE optimization with {total_iterations} iterations")
-
 
         for i in range(int(self.maxshrink * self.grid)):
             p = 1 - i / self.grid
@@ -153,9 +142,6 @@ class MovingAverageMSEObserverActivations(Observer):
                 if no_improve_count >= self.patience:
                     break
 
-        print(f"[MSE DEBUG]   MSE optimization completed")
-        print(f"[MSE DEBUG]   final min_val: {min_val}")
-        print(f"[MSE DEBUG]   final max_val: {max_val}")
         return min_val, max_val
 
     def calculate_updated_min_max(
@@ -178,9 +164,6 @@ class MovingAverageMSEObserverActivations(Observer):
         :param global_scale: optional scale to further scale local quantization scales
         :return: updated min and max values derived from the observed value
         """
-        print(f"[MSE DEBUG] calculate_updated_min_max called")
-        print(f"[MSE DEBUG]   tensor_id: {tensor_id}")
-        print(f"[MSE DEBUG]   averaging_constant: {self.averaging_constant}")
         min_val, max_val = self.calculate_mse_min_max(
             observed, reduce_dims, global_scale=global_scale
         )
@@ -225,8 +208,7 @@ class MovingAverageMSEObserverActivations(Observer):
         :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point derived from the observed tensor
         """
-        print(f"[MSE DEBUG] calculate_qparams called")
-        print(f"[MSE DEBUG]   quantization_args: {self.quantization_args}")
+
         updated_min_val, updated_max_val = self.calculate_updated_min_max(
             observed=observed,
             tensor_id=tensor_id,
@@ -239,8 +221,7 @@ class MovingAverageMSEObserverActivations(Observer):
             quantization_args=self.quantization_args,
             global_scale=global_scale,
         )
-        print(f"[MSE DEBUG]   final scale: {scale}")
-        print(f"[MSE DEBUG]   final zero_point: {zero_point}")
+
         return scale, zero_point
 
     def get_qparams_along_dim(
@@ -275,29 +256,16 @@ class MovingAverageMSEObserverActivations(Observer):
         :param observed: observed tensor to calculate quantization parameters for
         :return: dynamically calculated global scale derived from MSE-optimized values
         """
-        print(f"[MSE GLOBAL SCALE DEBUG] calculate_gparam called")
-        print(f"[MSE GLOBAL SCALE DEBUG]   observed.shape: {observed.shape}")
-        print(f"[MSE GLOBAL SCALE DEBUG]   observed.dtype: {observed.dtype}")
-        print(f"[MSE GLOBAL SCALE DEBUG]   observed range: [{observed.min():.6f}, {observed.max():.6f}]")
-        print(f"[MSE GLOBAL SCALE DEBUG]   quantization_args.strategy: {self.quantization_args.strategy}")
-        print(f"[MSE GLOBAL SCALE DEBUG]   quantization_args.group_size: {self.quantization_args.group_size}")
                 
         # Get MSE-optimized min/max values using moving average
         updated_min_val, updated_max_val = self.calculate_updated_min_max(
             observed=observed
         )
-        
-        print(f"[MSE GLOBAL SCALE DEBUG]   MSE-optimized min_val: {updated_min_val}")
-        print(f"[MSE GLOBAL SCALE DEBUG]   MSE-optimized max_val: {updated_max_val}")
     
         # Generate dynamic global scale using MSE-optimized values
         global_scale = self._generate_dynamic_gparam(
             updated_min_val=updated_min_val,
             updated_max_val=updated_max_val,
         )
-        
-        print(f"[MSE GLOBAL SCALE DEBUG]   final global_scale: {global_scale}")
-        print(f"[MSE GLOBAL SCALE DEBUG]   global_scale.shape: {global_scale.shape}")
-        print(f"[MSE GLOBAL SCALE DEBUG]   global_scale.dtype: {global_scale.dtype}")
         
         return global_scale
