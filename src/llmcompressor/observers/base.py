@@ -51,8 +51,12 @@ class Observer(InternalModule, RegistryMixin):
         :return: tuple of scale and zero point based on last observed value
         """
         self.record_observed_tokens(observed)
+
         if should_calculate_gparam:
+            # NOTE: this function updates running min/max values, which leads to
+            # running values updating twice
             return self.get_gparam(observed=observed)
+        
         return self.get_qparams(
             observed=observed,
             g_idx=g_idx,

@@ -3,7 +3,7 @@ from typing import Any, Iterable, Optional, Tuple, Union
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
-from compressed_tensors.utils import deprecated, patch_attr
+from compressed_tensors.utils import deprecated
 
 from llmcompressor.observers.base import Observer
 
@@ -87,12 +87,11 @@ class MinMaxObserver(Observer):
         :param observed: observed tensor to calculate quantization parameters for
         :return: updated global scale derived from the observed tensor
         """
-
-        # patch to avoid affecting running means
-        with patch_attr(self, "min_val", {}), patch_attr(self, "max_val", {}):
-            updated_min_val, updated_max_val = self.calculate_updated_min_max(
-                observed=observed
-            )
+        # NOTE: this function updates running min/max values, which leads to
+        # running values updating twice
+        updated_min_val, updated_max_val = self.calculate_updated_min_max(
+            observed=observed
+        )
         return generate_gparam(
             updated_min_val=updated_min_val, updated_max_val=updated_max_val
         )
