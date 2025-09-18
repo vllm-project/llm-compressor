@@ -2,7 +2,6 @@ import gc
 import torch
 from torch import nn
 import os
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -47,8 +46,8 @@ def convert_model_for_quantization_gptoss(model):
         gc.collect()
         try:
             torch.cuda.empty_cache()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[GPT-OSS] Warning: Failed to empty CUDA cache: {e}", flush=True)
 
 
 def _get_parent_and_child(model, dotted_name: str):
@@ -148,10 +147,9 @@ class SequentialGPTOSSMoE(nn.Module):
         for j in range(self.top_k):
             idx = router_indices[:, j]
             w   = router_scores[torch.arange(idx.size(0), device=idx.device), idx].unsqueeze(-1)
-            for e in range(self.num_experts):
+            unique_experts = torch.unique(idx)
+            for e in unique_experts:
                 mask = (idx == e)
-                if not torch.any(mask):
-                    continue
                 out[mask] += self.experts[e](x[mask]) * w[mask]
 
         out = out.view(B, T, H)
@@ -172,41 +170,6 @@ tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 convert_model_for_quantization_gptoss(model)
 
 # -----------------------------
-# Calibration data & preprocessing
-# -----------------------------
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-NUM_CALIBRATION_SAMPLES = 128
-MAX_SEQUENCE_LENGTH = 2048
-
-
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
-
-def preprocess(example):
-    return {
-        "text": tokenizer.apply_chat_template(
-            example["messages"],
-            tokenize=False,
-        )
-    }
-
-ds = ds.map(preprocess)
-
-# Tokenize inputs.
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
-
-# -----------------------------
 # Quantization recipe
 # -----------------------------
 recipe = QuantizationModifier(
@@ -214,10 +177,10 @@ recipe = QuantizationModifier(
     scheme="FP8_DYNAMIC",
     ignore=[
         "re:.*lm_head",
-        're:.*self_attn',
-        're:.*attn',
-        're:.*attention.*',
-        're:.*router',
+        "re:.*self_attn",
+        "re:.*attn",
+        "re:.*attention.*",
+        "re:.*router",
     ],
 )
 
@@ -227,10 +190,7 @@ SAVE_DIR = f"{model_id.split('/')[-1]}-FP8-Dynamic"
 oneshot(
     model=model,
     tokenizer=tokenizer,
-    dataset=ds,
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     trust_remote_code_model=True,
     output_dir=SAVE_DIR,
 )
