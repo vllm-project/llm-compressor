@@ -16,21 +16,22 @@
 import logging
 import math
 import warnings
-from enum import Enum
 from typing import Optional
 
 import torch
+from compressed_tensors.quantization import (
+    FP8_E4M3_DATA,
+    ActivationOrdering,
+    KVCacheScaleType,
+    QuantizationArgs,
+    QuantizationMetadata,
+    QuantizationScheme,
+    QuantizationStatus,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.lifecycle.forward import (
     wrap_module_forward_quantized,
 )
-from compressed_tensors.quantization.quant_args import (
-    FP8_E4M3_DATA,
-    ActivationOrdering,
-    QuantizationArgs,
-    QuantizationStrategy,
-)
-from compressed_tensors.quantization.quant_config import QuantizationStatus
-from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from compressed_tensors.quantization.utils import is_fp4, is_kv_cache_quant_scheme
 from compressed_tensors.utils import (
     disable_hf_hook,
@@ -43,16 +44,10 @@ from torch.nn import Module, Parameter
 __all__ = [
     "initialize_module_for_quantization",
     "is_attention_module",
-    "KVCacheScaleType",
 ]
 
 
 _LOGGER = logging.getLogger(__name__)
-
-
-class KVCacheScaleType(Enum):
-    KEY = "k_scale"
-    VALUE = "v_scale"
 
 
 def initialize_module_for_quantization(
@@ -61,10 +56,11 @@ def initialize_module_for_quantization(
     force_zero_point: bool = True,
 ):
     """
-    attaches appropriate scales, zero points, and observers to a layer
-    given its target quantization scheme
+    Attaches appropriate scales, zero points, and observers to a layer
+    given its target quantization scheme.
 
-    apply to full model with `model.apply(initialize_module_for_quantization)`
+    Previously initialized scales and zero points will be removed from
+    module if they no longer apply to the scheme
 
     :param module: module to set for calibration
     :param scheme: scheme to use for quantization. if None is provided,
@@ -78,6 +74,8 @@ def initialize_module_for_quantization(
     if scheme is None:
         # no scheme passed and layer not targeted for quantization - skip
         return
+
+    QuantizationMetadata.clear_all_qparams(module)
 
     if is_attention_module(module):
         # quantized actions based on calltime status

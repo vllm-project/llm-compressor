@@ -32,7 +32,6 @@ from torch.nn import Module
 
 
 __all__ = [
-    "infer_quantization_status",
     "is_module_quantized",
     "is_model_quantized",
     "module_type",
@@ -232,21 +231,6 @@ def calculate_range(quantization_args: QuantizationArgs, device: str) -> Tuple:
         raise ValueError(f"Invalid quantization type {quantization_args.type}")
 
     return q_min, q_max
-
-
-def infer_quantization_status(model: Module) -> Optional["QuantizationStatus"]:  # noqa
-    """
-    Checks the quantization status of a model. Assumes all modules in the model have
-    the same status, so only the first quantized model is checked.
-
-    :param model: model to check quantization status for
-    :return: quantization status if the model is quantized, otherwise None
-    """
-    for module in model.modules():
-        status = getattr(module, "quantization_status", None)
-        if status is not None:
-            return status
-    return None
 
 
 def is_module_quantized(module: Module) -> bool:

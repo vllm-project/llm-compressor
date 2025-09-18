@@ -17,7 +17,6 @@ import logging
 import operator
 import os
 import re
-from contextlib import contextmanager
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, TypeVar, Union
 
@@ -50,6 +49,7 @@ from compressed_tensors.utils import (
     get_offloaded_device,
     get_safetensors_folder,
     has_offloaded_params,
+    patch_attr,
     register_offload_parameter,
     update_parameter_data,
 )
@@ -200,9 +200,11 @@ class ModelCompressor:
             sparsity_config=sparsity_config,
             quantization_config=quantization_config,
             transform_config=transform_config,
-            compression_formats=[quantization_format]
-            if isinstance(quantization_format, str)
-            else quantization_format,
+            compression_formats=(
+                [quantization_format]
+                if isinstance(quantization_format, str)
+                else quantization_format
+            ),
         )
 
     @staticmethod
@@ -594,8 +596,10 @@ class ModelCompressor:
             # that the dtypes of the weights are not unintentionally updated.
             # The status is restored after quantization params are loaded.
 
-            with override_quantization_status(
-                self.quantization_config, QuantizationStatus.FROZEN
+            with patch_attr(
+                self.quantization_config,
+                "quantization_status",
+                QuantizationStatus.FROZEN,
             ):
                 apply_quantization_config(model, self.quantization_config)
                 names_to_scheme: Set[QuantizationScheme] = {
@@ -787,23 +791,3 @@ def new_dtype_byte_size(dtype):
         raise ValueError(f"`dtype` is not a valid dtype: {dtype}.")
     bit_size = int(bit_search.groups()[0])
     return bit_size // 8
-
-
-@contextmanager
-def override_quantization_status(
-    config: QuantizationConfig, status: QuantizationStatus
-):
-    """
-    Within this context, the quantization status will be set to the
-    supplied status. After the context exits, the original status
-    will be restored.
-
-    :param config: the quantization config to override
-    :param status: the status to temporarily set
-    """
-    original_status = config.quantization_status
-    config.quantization_status = status
-    try:
-        yield
-    finally:
-        config.quantization_status = original_status

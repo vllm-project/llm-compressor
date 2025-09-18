@@ -21,9 +21,6 @@ from typing import Union
 
 import torch
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.quantization.lifecycle.compressed import (
-    compress_quantized_weights,
-)
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
 )
@@ -35,7 +32,6 @@ from compressed_tensors.quantization.quant_config import (
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
 from compressed_tensors.quantization.utils import (
     KV_CACHE_TARGETS,
-    infer_quantization_status,
     is_kv_cache_quant_scheme,
 )
 from compressed_tensors.utils.helpers import deprecated, replace_module
@@ -49,7 +45,6 @@ from torch.nn import Module
 __all__ = [
     "load_pretrained_quantization_parameters",
     "apply_quantization_config",
-    "apply_quantization_status",
     "find_name_or_class_matches",
 ]
 
@@ -154,20 +149,27 @@ def apply_quantization_config(
 
         # replace with run compressed if applicable
         # FUTURE: move this to model compressor
-        if isinstance(submodule, torch.nn.Linear) and run_compressed:
-            format = config.format
-            if format != CompressionFormat.dense.value:
-                if isinstance(submodule, torch.nn.Linear):
-                    # TODO: expand to more module types
-                    compressed_linear = CompressedLinear.from_linear(
-                        submodule,
-                        quantization_scheme=scheme,
-                        quantization_format=format,
-                    )
-                    replace_module(model, name, compressed_linear)
+        if (
+            run_compressed
+            and isinstance(submodule, torch.nn.Linear)
+            and config.format != CompressionFormat.dense.value
+        ):
+            # TODO: expand to more module types
+            compressed_linear = CompressedLinear.from_linear(
+                submodule,
+                quantization_scheme=scheme,
+                quantization_format=config.format,
+            )
+            replace_module(model, name, compressed_linear)
 
-    # apply current quantization status across all targeted layers
-    apply_quantization_status(model, config.quantization_status)
+        else:
+            initialize_module_for_quantization(
+                submodule,
+                force_zero_point=config.quantization_status
+                != QuantizationStatus.COMPRESSED,
+            )
+
+        submodule.quantization_status = config.quantization_status
 
 
 def process_quantization_config(config: QuantizationConfig) -> QuantizationConfig:
@@ -206,29 +208,6 @@ def process_kv_cache_config(
     return config
 
 
-def apply_quantization_status(model: Module, status: QuantizationStatus):
-    """
-    Applies in place the quantization lifecycle up to the given status
-
-    :param model: model to apply quantization to
-    :param status: status to update the module to
-    """
-
-    current_status = infer_quantization_status(model)
-
-    if status >= QuantizationStatus.INITIALIZED > current_status:
-        force_zero_point_init = status != QuantizationStatus.COMPRESSED
-
-        model.apply(
-            lambda module: initialize_module_for_quantization(
-                module, force_zero_point=force_zero_point_init
-            )
-        )
-
-    if current_status < status >= QuantizationStatus.COMPRESSED > current_status:
-        model.apply(compress_quantized_weights)
-
-
 @deprecated(
     message="This function is deprecated and will be removed in a future release."
     "Please use `match_targets` from `compressed_tensors.utils.match` instead."
@@ -252,14 +231,6 @@ def find_name_or_class_matches(
         )
 
     return match_targets(name, module, targets)
-
-
-def _infer_status(model: Module) -> Optional[QuantizationStatus]:
-    for module in model.modules():
-        status = getattr(module, "quantization_status", None)
-        if status is not None:
-            return status
-    return None
 
 
 def _load_quant_args_from_mapping(

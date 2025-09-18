@@ -74,9 +74,6 @@ def infer_compressor_from_model_config(
     return compressor
 
 
-# TODO: There is already the same function in
-# SparseML, should be moved to a shared location
-# in the future
 def fix_fsdp_module_name(name: str) -> str:
     """
     Remove FSDP wrapper prefixes from a module name

@@ -42,7 +42,8 @@ def compress_quantized_weights(module: Module):
         # no quantization scheme or weights not quantized, nothing to do
         return
 
-    if scheme is QuantizationStatus.COMPRESSED:
+    status = getattr(module, "quantization_status", None)
+    if status is QuantizationStatus.COMPRESSED:
         # module is already compressed, nothing to do
         return
 
