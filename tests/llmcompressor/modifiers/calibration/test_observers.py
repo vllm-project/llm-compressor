@@ -294,8 +294,46 @@ def test_static_weight_quantization(
             0.06,
         ),
         # channel is not supported, but is in principle equivalent to token/tensor
-        # group is not yet supported
-        # tensor_group is not yet supported
+        (
+            QuantizationArgs(
+                num_bits=4,
+                type="int",
+                symmetric=True,
+                strategy="group",
+                group_size=3,
+                observer="minmax",
+            ),
+            {
+                "default": torch.tensor([[0]]),
+                1: torch.tensor([[3]]),
+            },
+            {
+                "default": torch.tensor([[2]]),
+                1: torch.tensor([[5]]),
+            },
+            torch.tensor([[0.0000, 1.0703, 1.8750, 2.6719, 4.0000, 4.6875]]),
+            0.04,
+        ),
+        (
+            QuantizationArgs(
+                num_bits=4,
+                type="float",  # tensor group requires FP4
+                symmetric=True,
+                strategy="tensor_group",
+                group_size=3,
+                observer="minmax",
+            ),
+            {
+                "default": torch.tensor([[0]]),
+                1: torch.tensor([[3]]),
+            },
+            {
+                "default": torch.tensor([[2]]),
+                1: torch.tensor([[5]]),
+            },
+            torch.tensor([[0.0000, 0.9766, 1.9531, 3.3125, 3.3125, 4.9688]]),
+            0.1,
+        ),
         # block is not supported, but is in principle similar to group
     ],
 )
