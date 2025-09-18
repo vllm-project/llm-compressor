@@ -171,7 +171,7 @@ class Observer(InternalModule, RegistryMixin):
                     group_indices, group_sizes = torch.unique(g_idx, return_counts=True)
                     group_sizes = group_sizes[torch.argsort(group_indices)]
 
-                    observed = observed.index_select(g_idx, -1)
+                    observed = observed.index_select(-1, g_idx)
 
                 # TODO: experiment with vectorizing for loop for performance
                 end = 0
