@@ -147,7 +147,6 @@ def update_weight_global_scale(module: Module):
         should_calculate_gparam=True,
         should_calculate_qparams=False,
     )
-    module.weight_observer.reset()
 
 
 def update_weight_zp_scale(module: Module):
@@ -198,6 +197,10 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
             calculate_qparams = False
         if quantization_args.strategy == QuantizationStrategy.TENSOR_GROUP:
             calculate_gparam = True
+
+    # (..., 1, hidden_dim)
+    # the second to last dim indicates that activations have one output channel
+    value = value.flatten(0, -1).unsqueeze(-2)
 
     call_observer(
         module=module,

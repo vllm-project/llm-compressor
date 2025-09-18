@@ -3,7 +3,7 @@ from typing import Any, Iterable, Optional, Tuple, Union
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
-from compressed_tensors.utils import deprecated
+from compressed_tensors.utils import deprecated, patch_attr
 
 from llmcompressor.observers.base import Observer
 
