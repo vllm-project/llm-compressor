@@ -277,13 +277,13 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
     while len(queue) > 0:
         node = queue.popleft()
 
-        # assign to partition
-        partitions[partition_index].append(node)
-
         # guarantee targets are assigned to disjoint partitions
-        if node in target_nodes:
+        if node in target_nodes and len(partitions[partition_index]) > 0:
             partition_index += 1
             partitions.append([])
+
+        # assign to partition
+        partitions[partition_index].append(node)
 
         # recurse on last indegree only in order to guarantee that
         # the node is assigned to maximal partition
