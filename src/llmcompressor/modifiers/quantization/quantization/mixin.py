@@ -130,7 +130,6 @@ class QuantizationMixin(HooksMixin):
 
         apply_quantization_config(model, config)
 
-        # TODO should we disable for entire model or just matching modules?
         # disable quantization until calibration
         model.apply(disable_quantization)
 
@@ -146,7 +145,6 @@ class QuantizationMixin(HooksMixin):
             self._initialize_observers(module)
             apply_calibration_status(module)
 
-        # TODO should we disable for entire model or just matching modules?
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def end_calibration(self, model: torch.nn.Module):
