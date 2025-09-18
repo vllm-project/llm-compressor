@@ -71,6 +71,7 @@ def initialize_observer(
         observer = Observer.load_from_registry(
             quantization_args.observer,
             quantization_args=quantization_args,
+            base_name=base_name,
             averaging_constant=observer_kwargs.get(
                 "averaging_constant", DEFAULT_AVERAGING_CONSTANT
             ),

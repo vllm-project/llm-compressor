@@ -30,6 +30,7 @@ class MovingAverageMSEObserver(Observer):
         averaging_constant: float = 0.01,
         grid: float = 100.0,
         norm: float = 2.4,
+        base_name: str = "weight",
         **kwargs,
     ):
         super().__init__(quantization_args=quantization_args)
@@ -41,6 +42,8 @@ class MovingAverageMSEObserver(Observer):
         self.averaging_constant = averaging_constant
         self.grid = grid
         self.norm = norm
+        self.is_activation = base_name != "weight"
+        print(f"[MSE-Observer] Created for {'activations' if self.is_activation else 'weights'}")
 
 
     def calculate_mse_min_max(
@@ -86,7 +89,8 @@ class MovingAverageMSEObserver(Observer):
 
             from compressed_tensors.quantization.utils import generate_gparam
             # For activations global: recompute global scale dynamically
-            if self.quantization_args.target == "input_activations" and reduce_dims is None:
+            if self.is_activation and reduce_dims is None:
+                print(f"[MSE DEBUG]   in activations global")
                 iteration_global_scale = generate_gparam(
                     updated_min_val=shrinked_min_val, updated_max_val=shrinked_max_val
                 )
@@ -152,10 +156,11 @@ class MovingAverageMSEObserver(Observer):
         :return: updated min and max values derived from the observed value
         """
 
-        if self.quantization_args.target == "input_activations" and reduce_dims is not None:
+        if self.is_activation and reduce_dims is not None:
             # Activations local scales: min–max
             min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
+            print(f"[MSE DEBUG]   in activations local")
         else:
             # Weights, or activations global: MSE loop
             min_val, max_val = self.calculate_mse_min_max(
@@ -180,6 +185,10 @@ class MovingAverageMSEObserver(Observer):
 
         self.min_val[tensor_id] = updated_min_val
         self.max_val[tensor_id] = updated_max_val
+        print(
+        f"[MSE-Observer] Updating { 'activations' if self.is_activation else 'weights' } "
+        f"(tensor_id={tensor_id}, reduce_dims={reduce_dims})"
+        )
         return updated_min_val, updated_max_val
 
     def calculate_qparams(
@@ -256,4 +265,3 @@ class MovingAverageMSEObserver(Observer):
         updated_min_val, updated_max_val = self.calculate_updated_min_max(observed=observed)
         
         return generate_gparam(updated_min_val=updated_min_val, updated_max_val=updated_max_val)
-        
