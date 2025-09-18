@@ -1,7 +1,7 @@
 from typing import Any, Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.quant_args import QuantizationArgs,  FP4_E2M1_DATA, FP8_E4M3_DATA
+from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams
 from torch import FloatTensor, IntTensor, Tensor
 
@@ -83,7 +83,7 @@ class MovingAverageMSEObserver(Observer):
             p = 1 - i / self.grid
             shrinked_min_val = p * absolute_min_val
             shrinked_max_val = p * absolute_max_val
-            
+
             from compressed_tensors.quantization.utils import generate_gparam
             # For activations global: recompute global scale dynamically
             if self.quantization_args.target == "input_activations" and reduce_dims is None:
@@ -256,3 +256,4 @@ class MovingAverageMSEObserver(Observer):
         updated_min_val, updated_max_val = self.calculate_updated_min_max(observed=observed)
         
         return generate_gparam(updated_min_val=updated_min_val, updated_max_val=updated_max_val)
+        
