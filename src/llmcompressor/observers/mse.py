@@ -1,7 +1,7 @@
 from typing import Any, Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import QuantizationArgs,  FP4_E2M1_DATA, FP8_E4M3_DATA
 from compressed_tensors.quantization.utils import calculate_qparams
 from torch import FloatTensor, IntTensor, Tensor
 
@@ -13,8 +13,13 @@ __all__ = ["MovingAverageMSEObserver"]
 @Observer.register("mse")
 class MovingAverageMSEObserver(Observer):
     """
-    Implements a dynamic quantization observer that sets the scale and
-    zero point based on a moving average of the mse-clipped min and max observed values
+    Implements a dynamic quantization observer that sets the scale and zero
+    point based on a moving average of observed values.
+
+    Behavior:
+      - Weights: global and local scales use MSE-optimized min/max.
+      - Activations: global scale uses MSE-optimized min/max; local scales
+        use plain min–max.
     """
 
     def __init__(
@@ -37,6 +42,7 @@ class MovingAverageMSEObserver(Observer):
         self.grid = grid
         self.norm = norm
 
+
     def calculate_mse_min_max(
         self,
         observed: Tensor,
@@ -44,8 +50,10 @@ class MovingAverageMSEObserver(Observer):
         global_scale: Optional[torch.Tensor] = None,
     ):
         """
-        Computes the mse-clipped min and max values of the observed tensor by
-        optimizing for quantization error
+        Computes MSE-optimized min and max values for quantization.
+
+        - Used for weights (global and local).
+        - Used for activations only at the global scale (local activations use min–max).
 
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
@@ -70,25 +78,33 @@ class MovingAverageMSEObserver(Observer):
 
         # Early stopping params
         no_improve_count = 0
-        total_iterations = int(self.maxshrink * self.grid)
 
         for i in range(int(self.maxshrink * self.grid)):
             p = 1 - i / self.grid
             shrinked_min_val = p * absolute_min_val
             shrinked_max_val = p * absolute_max_val
+            
+            from compressed_tensors.quantization.utils import generate_gparam
+            # For activations global: recompute global scale dynamically
+            if self.quantization_args.target == "input_activations" and reduce_dims is None:
+                iteration_global_scale = generate_gparam(
+                    updated_min_val=shrinked_min_val, updated_max_val=shrinked_max_val
+                )
+            else:
+                iteration_global_scale = global_scale
 
             candidate_scales, candidate_zero_points = calculate_qparams(
                 min_vals=shrinked_min_val,
                 max_vals=shrinked_max_val,
                 quantization_args=self.quantization_args,
-                global_scale=global_scale,
+                global_scale=iteration_global_scale,
             )
             q = fake_quantize(
                 observed,
                 candidate_scales,
                 candidate_zero_points,
                 self.quantization_args,
-                global_scale=global_scale,
+                global_scale=iteration_global_scale,
             )
 
             q -= observed
@@ -121,7 +137,10 @@ class MovingAverageMSEObserver(Observer):
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Updates the mse-clipped min and max values of the observed tensor using
-        a moving average smoothed by the averaging_constant
+        a moving average smoothed by the averaging_constant.
+
+        - Weights: global and local scales use MSE-optimized values.  
+        - Activations: global scale uses MSE-optimized values, local scales use min–max.  
 
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
@@ -133,9 +152,15 @@ class MovingAverageMSEObserver(Observer):
         :return: updated min and max values derived from the observed value
         """
 
-        min_val, max_val = self.calculate_mse_min_max(
-            observed, reduce_dims, global_scale=global_scale
-        )
+        if self.quantization_args.target == "input_activations" and reduce_dims is not None:
+            # Activations local scales: min–max
+            min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
+            max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
+        else:
+            # Weights, or activations global: MSE loop
+            min_val, max_val = self.calculate_mse_min_max(
+                observed, reduce_dims, global_scale=global_scale
+            )
 
         tensor_id = tensor_id or "default"
 
@@ -215,22 +240,19 @@ class MovingAverageMSEObserver(Observer):
         self.min_val = {}
         self.max_val = {}
 
-    def calculate_gparam(self, observed: torch.Tensor) -> torch.Tensor:
+ 
+    def calculate_gparam(self, observed: Tensor) -> torch.Tensor:
         """
         Generate a global scale using the observed min and max from MSE optimization.
+
+        - Weights: global scale is computed with standard MSE optimization.  
+        - Activations: global scale is computed with dynamic MSE-based scaling.  
 
         :param observed: observed tensor to calculate quantization parameters for
         :return: updated global scale derived from the observed tensor
         """
-        
         from compressed_tensors.quantization.utils import generate_gparam
+
+        updated_min_val, updated_max_val = self.calculate_updated_min_max(observed=observed)
         
-        updated_min_val, updated_max_val = self.calculate_updated_min_max(
-            observed=observed
-        )
-        
-        global_scale = generate_gparam(
-            updated_min_val=updated_min_val, updated_max_val=updated_max_val
-        )
-        
-        return global_scale
+        return generate_gparam(updated_min_val=updated_min_val, updated_max_val=updated_max_val)
