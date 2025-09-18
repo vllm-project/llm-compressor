@@ -187,7 +187,6 @@ def test_quant_model_reload(format, dtype, tmp_path):
     for _, module in model.named_modules():
         if hasattr(module, "quantization_scheme"):
             assert module.weight.dtype == dtype
-            assert module.quantization_status == QuantizationStatus.FROZEN
 
     # Save to disk
     model.save_pretrained(

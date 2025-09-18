@@ -95,11 +95,12 @@ def test_block_strategy_parsing(block_q_config_kwargs):
 def test_actorder_resolution(
     has_actorder, actorder, q_config_kwargs, expected_0, expected_1
 ):
+    if has_actorder:
+        modifier = GPTQModifier(**q_config_kwargs, actorder=actorder)
+    else:
+        modifier = GPTQModifier(**q_config_kwargs)
+
     with pytest.raises(ValueError) if expected_0 == "error" else nullcontext():
-        if has_actorder:
-            modifier = GPTQModifier(**q_config_kwargs, actorder=actorder)
-        else:
-            modifier = GPTQModifier(**q_config_kwargs)
         resolved = modifier.resolve_quantization_config()
 
     if expected_0 != "error":

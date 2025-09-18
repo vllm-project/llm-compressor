@@ -17,7 +17,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr, field_validator, model_validator
+from pydantic import PrivateAttr, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -121,20 +121,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
 
-    @model_validator(mode="after")
-    def validate_model_after(model: "GPTQModifier") -> "GPTQModifier":
-        """
-        Confirm weight quantization exists in each scheme, otherwise
-        assert will fail when registering GPTQ hooks
-        """
-        config = model.resolve_quantization_config()
-        for config_group in config.config_groups.values():
-            assert (
-                config_group.weights is not None
-            ), "In GPTQ, all config groups must include weight quantization"
-
-        return model
-
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
 
@@ -192,17 +178,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # register gptq hooks
         added_hook = False
-        for name, module in match_named_modules(state.model, self.targets, self.ignore):
-            assert (
-                getattr_chain(module, "quantization_scheme.weights", None) is not None
-            ), f"Matched target {name} does not have associated weight quantization"
-
-            # HACK: previously, embeddings were not quantized because they were not
-            # accessible by the layer compressor. For now, we manually ignore it,
-            # but in the FUTURE this should be ignored by the user
-            if not isinstance(module, torch.nn.Embedding):
-                self.register_hook(module, self.calibrate_module, "forward")
-                added_hook = True
+        for _, module in match_named_modules(state.model, self.targets, self.ignore):
+            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
+                # HACK: previously, embeddings were not quantized because they were not
+                # accessible by the layer compressor. For now, we manually ignore it,
+                # but in the FUTURE this should be ignored by the user
+                if not isinstance(module, torch.nn.Embedding):
+                    self.register_hook(module, self.calibrate_module, "forward")
+                    added_hook = True
 
         if not added_hook:
             raise ValueError(
