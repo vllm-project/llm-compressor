@@ -8,8 +8,8 @@ from parameterized import parameterized_class
 
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/sparsegpt_configs/sparse"
-GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/sparsegpt_configs/sparse/gpu"
+CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/sparse"
+GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/sparse/gpu"
 
 
 @pytest.mark.integration

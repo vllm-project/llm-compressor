@@ -13,9 +13,9 @@ from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/sparsegpt_configs/consec_runs"
+CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/consec_runs"
 GPU_CONFIGS_DIRECTORY = (
-    "tests/llmcompressor/transformers/obcq/sparsegpt_configs/consec_runs/gpu"
+    "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/consec_runs/gpu"
 )
 
 

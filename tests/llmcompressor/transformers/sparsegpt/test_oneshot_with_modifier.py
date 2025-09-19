@@ -9,7 +9,7 @@ from parameterized import parameterized_class
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = (
-    "tests/llmcompressor/transformers/obcq/sparsegpt_configs/sparsity_generic"
+    "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/sparsity_generic"
 )
 
 
