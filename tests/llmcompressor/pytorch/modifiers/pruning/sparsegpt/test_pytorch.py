@@ -4,7 +4,7 @@ import pytest
 import torch
 from parameterized import parameterized
 
-from llmcompressor.modifiers.obcq import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.modifiers.quantization.gptq import GPTQModifier
 from tests.llmcompressor.modifiers.conf import (
     LifecyleTestingHarness,

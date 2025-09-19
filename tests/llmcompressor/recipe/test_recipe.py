@@ -3,7 +3,7 @@ import tempfile
 import pytest
 import yaml
 
-from llmcompressor.modifiers.obcq.base import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.recipe import Recipe
 from tests.llmcompressor.helpers import valid_recipe_strings
 

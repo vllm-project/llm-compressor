@@ -9,7 +9,7 @@ from parameterized import parameterized_class
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = (
-    "tests/llmcompressor/transformers/obcq/obcq_configs/sparsity_generic"
+    "tests/llmcompressor/transformers/obcq/sparsegpt_configs/sparsity_generic"
 )
 
 
@@ -25,7 +25,7 @@ class TestOneshotWithModifierObject(unittest.TestCase):
 
     def test_oneshot_with_modifier_object(self):
         from llmcompressor import oneshot
-        from llmcompressor.modifiers.obcq.base import SparseGPTModifier
+        from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
         recipe_str = [
             SparseGPTModifier(sparsity=0.5, targets=[r"re:model.layers.\d+$"])

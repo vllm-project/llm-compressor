@@ -11,8 +11,8 @@ from loguru import logger
 from pydantic import PrivateAttr
 
 from llmcompressor.core import State
-from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
-from llmcompressor.modifiers.obcq.sgpt_sparsify import (
+from llmcompressor.modifiers.pruning.sparsegpt.sgpt_base import SparsityModifierBase
+from llmcompressor.modifiers.pruning.sparsegpt.sgpt_sparsify import (
     accumulate_hessian,
     make_empty_hessian,
     sparsify_weight,
