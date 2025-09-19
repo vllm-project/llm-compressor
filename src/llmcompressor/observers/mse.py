@@ -169,7 +169,8 @@ class MovingAverageMSEObserver(Observer):
         :return: updated min and max values derived from the observed value
         """
 
-        if self.is_activation and reduce_dims is not None:
+        # Skip local scales updates for dynamic activations (this will happen at runtime)
+        if self.is_activation and self.quantization_args.dynamic in (True, DynamicType.LOCAL):
             # Activations local scales: min–max
             min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
