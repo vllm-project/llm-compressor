@@ -1,7 +1,7 @@
 from typing import Any, Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.quant_args import QuantizationArgs, DynamicType
+from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams, is_fp4
 from torch import FloatTensor, IntTensor, Tensor
 
