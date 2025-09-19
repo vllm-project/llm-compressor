@@ -5,13 +5,11 @@ from llmcompressor.modifiers.logarithmic_equalization.base import (
     LogarithmicEqualizationModifier,
 )
 from llmcompressor.modifiers.smoothquant.base import SmoothQuantModifier
-from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 
 @pytest.mark.unit
+@pytest.mark.usefixtures("setup_modifier_factory")
 def test_logarithmic_equalization_is_registered():
-    setup_modifier_factory()
-
     smoothing_strength = 0.3
     mappings = [(["layer1", "layer2"], "layer3")]
     modifier = ModifierFactory.create(

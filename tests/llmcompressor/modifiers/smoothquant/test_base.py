@@ -2,13 +2,11 @@ import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.smoothquant.base import SmoothQuantModifier
-from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 
 @pytest.mark.unit
+@pytest.mark.usefixtures("setup_modifier_factory")
 def test_smooth_quant_is_registered():
-    setup_modifier_factory()
-
     smoothing_strength = 0.3
     mappings = [(["layer1", "layer2"], "layer3")]
     modifier = ModifierFactory.create(
@@ -27,9 +25,8 @@ def test_smooth_quant_is_registered():
 
 
 @pytest.mark.unit
+@pytest.mark.usefixtures("setup_modifier_factory")
 def test_smooth_quant_defaults():
-    setup_modifier_factory()
-
     default_sq = SmoothQuantModifier()
     assert default_sq.smoothing_strength == 0.5
 

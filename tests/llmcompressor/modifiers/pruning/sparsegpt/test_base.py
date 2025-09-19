@@ -2,13 +2,11 @@ import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.obcq.base import SparseGPTModifier
-from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 
 @pytest.mark.unit
+@pytest.mark.usefixtures("setup_modifier_factory")
 def test_sparse_gpt_is_registered():
-    setup_modifier_factory()
-
     sparsity = 0.5
     targets = "__ALL_PRUNABLE__"
     type_ = ModifierFactory.create(

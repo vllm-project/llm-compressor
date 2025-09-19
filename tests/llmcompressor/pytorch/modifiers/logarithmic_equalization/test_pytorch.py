@@ -1,16 +1,9 @@
 import pytest
 from torch.nn import Linear
 
-from llmcompressor.core import State
 from llmcompressor.modifiers.logarithmic_equalization import (
     LogarithmicEqualizationModifier,
 )
-from tests.llmcompressor.pytorch.helpers import LinearNet
-
-
-@pytest.fixture
-def state():
-    return State(model=LinearNet())
 
 
 @pytest.mark.unit
