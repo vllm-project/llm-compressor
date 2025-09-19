@@ -87,34 +87,28 @@ class MovingAverageMSEObserver(Observer):
             shrinked_max_val = p * absolute_max_val
 
             from compressed_tensors.quantization.utils import generate_gparam
-            
-            if(is_fp4(self.quantization_args)):
-                if global_scale is not None:
-                    # If the observed tensor is fp4 and global_scale is not None i.e it has already been optimized, 
-                    # then we will optimize just the local scales
-                    iteration_global_scale = global_scale
-                else:
-                    # If the observed tensor is fp4 and global_scale is still None, i.e it has not yet been optimized,
-                    # then we are should first get the global scale and then optimize the local scales
-                    iteration_global_scale = generate_gparam(
-                        updated_min_val=shrinked_min_val, updated_max_val=shrinked_max_val
-                    )
 
-                # Optimize the local scales using the global scale with the not shrinked min and max 
-                candidate_scales, candidate_zero_points = calculate_qparams(
-                    min_vals=absolute_min_val,
-                    max_vals=absolute_max_val,
-                    quantization_args=self.quantization_args,
-                    global_scale=iteration_global_scale,
+            if(is_fp4(self.quantization_args)) and global_scale is None:
+                # If the observed tensor is fp4 and global_scale is still None, i.e it has not yet been optimized,
+                # then we are should first get the global scale and then optimize the local scales.
+                # Local scales are set to by the absolute min and max.
+                iteration_global_scale = generate_gparam(
+                    updated_min_val=shrinked_min_val, updated_max_val=shrinked_max_val
                 )
-                    
+                iteration_min_val = absolute_min_val
+                iteration_max_val = absolute_max_val
             else:
-                # If the observed tensor is not fp4, then we do no use any global scale but use the shrinked min and max
-                candidate_scales, candidate_zero_points = calculate_qparams(
-                    min_vals=shrinked_min_val,
-                    max_vals=shrinked_max_val,
-                    quantization_args=self.quantization_args,
-                )
+                # Otherwise, we are optimizing local scales and use the shrinked min and max
+                iteration_min_val = shrinked_min_val
+                iteration_max_val = shrinked_max_val
+                iteration_global_scale = global_scale
+
+            candidate_scales, candidate_zero_points = calculate_qparams(
+                min_vals=iteration_min_val,
+                max_vals=iteration_max_val,
+                quantization_args=self.quantization_args,
+                global_scale=iteration_global_scale,
+            )
 
             q = fake_quantize(
                 observed,
