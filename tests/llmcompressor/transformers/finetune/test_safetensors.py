@@ -1,11 +1,8 @@
 import os
-import shutil
-import unittest
-from pathlib import Path
 
 import pytest
-from parameterized import parameterized_class
 
+from llmcompressor import train
 from tests.testing_utils import parse_params, requires_gpu
 
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_generic"
@@ -13,42 +10,33 @@ CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/finetune/finetune_generic"
 
 @pytest.mark.integration
 @requires_gpu
-@parameterized_class(parse_params(CONFIGS_DIRECTORY))
-class TestSafetensors(unittest.TestCase):
-    model = None
-    dataset = None
+@pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
+def test_safetensors(config, tmp_path):
+    model = config["model"]
+    dataset = config["dataset"]
+    output = tmp_path / "finetune_output"
 
-    def setUp(self):
-        self.output = Path("./finetune_output")
+    output_dir = output / "output1"
+    max_steps = 10
+    splits = {"train": "train[:10%]"}
 
-    def test_safetensors(self):
-        from llmcompressor import train
+    train(
+        model=model,
+        dataset=dataset,
+        output_dir=output_dir,
+        max_steps=max_steps,
+        splits=splits,
+    )
 
-        output_dir = self.output / "output1"
-        max_steps = 10
-        splits = {"train": "train[:10%]"}
+    assert os.path.exists(output_dir / "model.safetensors")
+    assert not os.path.exists(output_dir / "pytorch_model.bin")
 
-        train(
-            model=self.model,
-            dataset=self.dataset,
-            output_dir=output_dir,
-            max_steps=max_steps,
-            splits=splits,
-        )
-
-        assert os.path.exists(output_dir / "model.safetensors")
-        assert not os.path.exists(output_dir / "pytorch_model.bin")
-
-        # test we can also load
-        new_output_dir = self.output / "output2"
-        train(
-            model=output_dir,
-            dataset=self.dataset,
-            output_dir=new_output_dir,
-            max_steps=max_steps,
-            splits=splits,
-        )
-
-    def tearDown(self):
-        if os.path.isdir(self.output):
-            shutil.rmtree(self.output)
+    # test we can also load
+    new_output_dir = output / "output2"
+    train(
+        model=output_dir,
+        dataset=dataset,
+        output_dir=new_output_dir,
+        max_steps=max_steps,
+        splits=splits,
+    )

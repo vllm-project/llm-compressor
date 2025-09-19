@@ -19,8 +19,3 @@ class Cadence(Enum):
 class TestConfig:
     test_type: TestType
     cadence: Cadence
-
-
-@dataclass
-class CustomTestConfig(TestConfig):
-    script_path: str

@@ -5,6 +5,8 @@ from typing import List
 
 import pytest
 
+from llmcompressor.modifiers.factory import ModifierFactory
+
 try:
     import wandb
 except Exception:
@@ -13,6 +15,12 @@ except Exception:
 
 os.environ["NM_TEST_MODE"] = "True"
 os.environ["NM_TEST_LOG_DIR"] = "nm_temp_test_logs"
+
+
+@pytest.fixture
+def setup_modifier_factory():
+    ModifierFactory.refresh()
+    assert ModifierFactory._loaded, "ModifierFactory not loaded"
 
 
 def _get_files(directory: str) -> List[str]:

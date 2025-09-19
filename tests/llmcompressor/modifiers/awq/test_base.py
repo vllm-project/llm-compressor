@@ -6,15 +6,12 @@ from pydantic import ValidationError
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.awq.base import get_lowest_common_parent
 from llmcompressor.modifiers.factory import ModifierFactory
-from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 
 
 @pytest.mark.unit
+@pytest.mark.usefixtures("setup_modifier_factory")
 def test_awq_is_registered():
     """Ensure AWQModifier is registered in ModifierFactory"""
-
-    setup_modifier_factory()
-
     modifier = ModifierFactory.create(
         type_="AWQModifier",
         allow_experimental=False,
