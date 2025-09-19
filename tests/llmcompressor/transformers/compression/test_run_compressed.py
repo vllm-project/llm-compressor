@@ -1,3 +1,5 @@
+import gc
+
 import pytest
 import torch
 from compressed_tensors.linear.compressed_linear import CompressedLinear
@@ -42,6 +44,8 @@ def decompressed_linear_uncompressed_linear_models(request):
     del decompressed_model
     del uncompressed_model
     del tokenizer
+
+    gc.collect()
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
 
@@ -125,6 +129,7 @@ class Test_Compressed_CompressedLinear_Decompressed_Linear:
         del compressed_model
         del tokenizer
 
+        gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 
