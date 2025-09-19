@@ -145,6 +145,7 @@ class MovingAverageMSEObserver(Observer):
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
         global_scale: Optional[torch.Tensor] = None,
+        is_local: Optional[bool]= False,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Updates the mse-clipped min and max values of the observed tensor using
@@ -164,7 +165,7 @@ class MovingAverageMSEObserver(Observer):
         """
 
         # Skip local scales updates for dynamic activations (this will happen at runtime)
-        if self.is_activation and reduce_dims is not None:
+        if self.is_activation and is_local:
             # Activations local scales: min–max
             min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
             max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
@@ -219,6 +220,7 @@ class MovingAverageMSEObserver(Observer):
             tensor_id=tensor_id,
             reduce_dims=reduce_dims,
             global_scale=global_scale,
+            is_local=True,
         )
         scale, zero_point = calculate_qparams(
             min_vals=updated_min_val,
