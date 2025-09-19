@@ -83,89 +83,90 @@ def test_decompressed_linear_uncompressed_linear(
         assert torch.equal(decompressed_output[idx], uncompressed_output[idx])
 
 
-@pytest.fixture(params=parse_params(COMPRESSED_LINEAR_CONFIG_DIR), scope="module")
-def compressed_compressed_linear_decompressed_linear_models(request):
-    """
-    Compressed-CompresesdLinear, Decompressed-Linear check
+class Test_Compressed_CompressedLinear_Decompressed_Linear:
+    @pytest.fixture(params=parse_params(COMPRESSED_LINEAR_CONFIG_DIR), scope="class")
+    def compressed_compressed_linear_decompressed_linear_models(self, request):
+        """
+        Compressed-CompresesdLinear, Decompressed-Linear check
 
-    Compressed:    Optimized model saved as run_compressed=True, no decompression
-    Decompressed:  Optimized model saved as run_compressed=True, and decompressed using
-        AutoModelForCausalLM decompression
+        Compressed:    Optimized model saved as run_compressed=True, no decompression
+        Decompressed:  Optimized model saved as run_compressed=True, and decompressed
+            using AutoModelForCausalLM decompression
 
-    All compressed model should have CompressedLinear, which has its custom forward call
+        All compressed model should have CompressedLinear, which has its custom forward
 
-    """
-    config = request.param
-    # config: {compressed_model_stub}
+        """
+        config = request.param
+        # config: {compressed_model_stub}
 
-    # Should have CompressedLinear modules
-    # Compressed Linear forward
-    compressed_model = AutoModelForCausalLM.from_pretrained(
-        config["compressed_model_stub"],
-        torch_dtype="auto",
-        device_map="auto",
-    )
+        # Should have CompressedLinear modules
+        # Compressed Linear forward
+        compressed_model = AutoModelForCausalLM.from_pretrained(
+            config["compressed_model_stub"],
+            torch_dtype="auto",
+            device_map="auto",
+        )
 
-    # Should just be linear modules
-    # Linear forward
-    quantization_config = CompressedTensorsConfig(run_compressed=False)
-    decompressed_model = AutoModelForCausalLM.from_pretrained(
-        config["compressed_model_stub"],
-        torch_dtype=compressed_model.dtype,
-        device_map=compressed_model.device,
-        quantization_config=quantization_config,
-    )
+        # Should just be linear modules
+        # Linear forward
+        quantization_config = CompressedTensorsConfig(run_compressed=False)
+        decompressed_model = AutoModelForCausalLM.from_pretrained(
+            config["compressed_model_stub"],
+            torch_dtype=compressed_model.dtype,
+            device_map=compressed_model.device,
+            quantization_config=quantization_config,
+        )
 
-    tokenizer = AutoTokenizer.from_pretrained(config["compressed_model_stub"])
+        tokenizer = AutoTokenizer.from_pretrained(config["compressed_model_stub"])
 
-    yield compressed_model, decompressed_model, tokenizer
+        yield compressed_model, decompressed_model, tokenizer
 
-    del decompressed_model
-    del compressed_model
-    del tokenizer
+        del decompressed_model
+        del compressed_model
+        del tokenizer
 
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
+    def test_compressed_linear_modules_exist(
+        self,
+        compressed_compressed_linear_decompressed_linear_models,
+    ):
+        compressed_model, _, _ = compressed_compressed_linear_decompressed_linear_models
+        compressed_linear_counts = 0
+        for submodule in compressed_model.modules():
+            if isinstance(submodule, CompressedLinear):
+                compressed_linear_counts += 1
 
-def test_compressed_linear_modules_exist(
-    compressed_compressed_linear_decompressed_linear_models,
-):
-    compressed_model, _, _ = compressed_compressed_linear_decompressed_linear_models
-    compressed_linear_counts = 0
-    for submodule in compressed_model.modules():
-        if isinstance(submodule, CompressedLinear):
-            compressed_linear_counts += 1
+        # some linear models are not compressed - ex. lm_head
+        assert compressed_linear_counts > 0
 
-    # some linear models are not compressed - ex. lm_head
-    assert compressed_linear_counts > 0
+    def test_compressed_matches_decompressed__hf_quantizer(
+        self,
+        compressed_compressed_linear_decompressed_linear_models,
+    ):
+        SAMPLE_INPUT = [
+            "I love 4-bit quantization because",
+            "What is the capital of France?",
+            "def fibonacci(n):",
+        ]
+        compressed_model, decompressed_model, tokenizer = (
+            compressed_compressed_linear_decompressed_linear_models
+        )
 
+        decompressed_device = decompressed_model.device
+        compressed_device = compressed_model.device
 
-def test_compressed_matches_decompressed__hf_quantizer(
-    compressed_compressed_linear_decompressed_linear_models,
-):
-    SAMPLE_INPUT = [
-        "I love 4-bit quantization because",
-        "What is the capital of France?",
-        "def fibonacci(n):",
-    ]
-    compressed_model, decompressed_model, tokenizer = (
-        compressed_compressed_linear_decompressed_linear_models
-    )
+        inputs = tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
+            decompressed_device
+        )
 
-    decompressed_device = decompressed_model.device
-    compressed_device = compressed_model.device
+        decompressed_model_out = decompressed_model.generate(**inputs, max_length=50)
 
-    inputs = tokenizer(SAMPLE_INPUT, return_tensors="pt", padding=True).to(
-        decompressed_device
-    )
+        inputs = inputs.to(compressed_device)
 
-    decompressed_model_out = decompressed_model.generate(**inputs, max_length=50)
+        compressed_model_out = compressed_model.generate(**inputs, max_length=50)
 
-    inputs = inputs.to(compressed_device)
-
-    compressed_model_out = compressed_model.generate(**inputs, max_length=50)
-
-    # Compare outputs for each input
-    for idx in range(len(SAMPLE_INPUT)):
-        torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
+        # Compare outputs for each input
+        for idx in range(len(SAMPLE_INPUT)):
+            torch.equal(compressed_model_out[idx], decompressed_model_out[idx])
