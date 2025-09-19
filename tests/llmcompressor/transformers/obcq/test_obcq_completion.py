@@ -51,7 +51,7 @@ class TestOBCQCompletion(unittest.TestCase):
         from llmcompressor import oneshot
         from llmcompressor.pytorch.model_load.helpers import get_session_model
         from llmcompressor.pytorch.utils import tensors_to_device
-        from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+        from llmcompressor.transformers.compression.compressed_tensors_utils import (
             get_model_compressor,  # avoid circular import
         )
 
