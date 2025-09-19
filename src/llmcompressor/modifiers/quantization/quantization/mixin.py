@@ -15,7 +15,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.utils import match_named_modules
-from pydantic import Field, PrivateAttr, field_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.quantization.calibration import (
@@ -59,8 +59,9 @@ class QuantizationMixin(HooksMixin):
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
-    :param targets: list of layer names to quantize if a scheme is provided. Defaults
-        to Linear layers
+    :param targets: list of layer names to quantize if a scheme is provided. If unset,
+        will contain all targets listed in config_groups. If config_groups is also
+        unset, will default to ["Linear"] (i.e. all Linear layers will be targeted).
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
     :param scheme: a single quantization scheme to apply to the model. This is a
@@ -82,7 +83,7 @@ class QuantizationMixin(HooksMixin):
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
-    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
+    targets: Optional[Union[str, List[str]]] = None
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
@@ -90,7 +91,9 @@ class QuantizationMixin(HooksMixin):
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
 
     @field_validator("targets", mode="before")
-    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
+    def validate_targets(
+        cls, value: Optional[Union[str, List[str]]]
+    ) -> Optional[List[str]]:
         if isinstance(value, str):
             return [value]
 
@@ -114,6 +117,29 @@ class QuantizationMixin(HooksMixin):
                 value[key] = cls.validate_targets(target)
 
         return value
+
+    @model_validator(mode="after")
+    def validate_model_after(model: "QuantizationMixin") -> "QuantizationMixin":
+        """
+        If targets has not been set but config_groups has, aggregate targets from
+        each config_group into a single unique list for self.targets. If config_groups
+        has not been set, default to targets=["Linear"]
+        """
+        config = model.resolve_quantization_config()
+
+        if model.targets is None:
+            if config.config_groups is not None:
+                targets = []
+                for config_group in config.config_groups.values():
+                    for target in config_group.targets:
+                        if target not in targets:
+                            targets.append(target)
+
+                model.targets = list(targets)
+            else:
+                model.targets = ["Linear"]
+
+        return model
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
