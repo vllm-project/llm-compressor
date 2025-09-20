@@ -14,4 +14,3 @@ test_stage:
                     targets: ["Linear", "Embedding"]
         GPTQModifier:
             block_size: 128
-            targets: ["re:model.layers.\\d+$"]

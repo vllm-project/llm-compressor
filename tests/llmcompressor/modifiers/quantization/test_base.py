@@ -155,8 +155,8 @@ def test_config_resolution(strategies, actorder):
 )
 def test_serialize_actorder(has_actorder, actorder, exp_actorder):
     if has_actorder:
-        modifier = GPTQModifier(targets=["Linear"], actorder=actorder)
+        modifier = GPTQModifier(targets=["Linear"], scheme="W8A8", actorder=actorder)
     else:
-        modifier = GPTQModifier(targets=["Linear"])
+        modifier = GPTQModifier(targets=["Linear"], scheme="W8A8")
 
     assert modifier.model_dump()["actorder"] == exp_actorder
