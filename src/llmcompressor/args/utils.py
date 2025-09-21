@@ -1,3 +1,12 @@
+"""
+Utility functions for parsing and processing argument classes.
+
+Provides helper functions for parsing command-line arguments and
+configuration dictionaries into structured argument dataclasses used in
+LLM compression workflows. Handles argument validation, deprecation
+warnings, and processor resolution.
+"""
+
 from typing import Tuple
 
 from loguru import logger

@@ -1,3 +1,11 @@
+"""
+Metadata classes for recipe and model information tracking.
+
+This module defines Pydantic models for capturing and validating metadata about
+datasets, parameters, layers, and models used in compression recipes. Provides
+structured data containers for recipe configuration and execution tracking.
+"""
+
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field

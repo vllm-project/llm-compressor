@@ -1,5 +1,5 @@
 """
-General utility functions used throughout llmcompressor
+General utility functions used throughout LLM Compressor.
 """
 
 # ruff: noqa

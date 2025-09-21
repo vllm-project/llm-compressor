@@ -1,3 +1,11 @@
+"""
+Helper functions for core compression operations.
+
+Provides utility functions for logging model information and state
+management during compression workflows. Includes functionality for
+conditional logging and parameter tracking.
+"""
+
 from typing import Any, Generator, Optional, Tuple, Union
 
 from llmcompressor.core.state import State
