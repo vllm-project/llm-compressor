@@ -2,6 +2,8 @@ import dataclasses
 import enum
 import logging
 import os
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
 from typing import Callable, List, Optional, Union
@@ -11,9 +13,26 @@ import yaml
 from datasets import Dataset
 from transformers import ProcessorMixin
 
-from tests.data import TestConfig
-
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
+
+
+# TODO: maybe test type as decorators?
+class TestType(Enum):
+    SANITY = "sanity"
+    REGRESSION = "regression"
+    SMOKE = "smoke"
+
+
+class Cadence(Enum):
+    COMMIT = "commit"
+    WEEKLY = "weekly"
+    NIGHTLY = "nightly"
+
+
+@dataclass
+class TestConfig:
+    test_type: TestType
+    cadence: Cadence
 
 
 def _enough_gpus(num_required_gpus):
