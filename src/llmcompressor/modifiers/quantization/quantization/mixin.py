@@ -91,9 +91,7 @@ class QuantizationMixin(HooksMixin):
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
 
     @field_validator("targets", mode="before")
-    def validate_targets(
-        cls, value: Optional[Union[str, List[str]]]
-    ) -> Optional[List[str]]:
+    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
         if isinstance(value, str):
             return [value]
 
@@ -125,6 +123,9 @@ class QuantizationMixin(HooksMixin):
           config into a single unique list for self.targets.
         - If targets have still not been found, default to targets=["Linear"]
         """
+
+        if len(model.targets) > 0 and model.config_groups is not None:
+            raise ValueError("Please specify either `targets` or `config_groups`")
 
         if len(model.targets) == 0:
             config = model.resolve_quantization_config()
