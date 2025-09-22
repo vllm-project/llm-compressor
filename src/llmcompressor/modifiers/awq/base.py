@@ -148,6 +148,18 @@ class AWQModifier(Modifier, QuantizationMixin):
         """
         config = model.resolve_quantization_config()
 
+        if model.targets is None:
+            if config.config_groups is not None:
+                targets = []
+                for config_group in config.config_groups.values():
+                    for target in config_group.targets:
+                        if target not in targets:
+                            targets.append(target)
+
+                model.targets = list(targets)
+            else:
+                model.targets = ["Linear"]
+
         num_bits_set = set(
             group.weights.num_bits
             for group in config.config_groups.values()
