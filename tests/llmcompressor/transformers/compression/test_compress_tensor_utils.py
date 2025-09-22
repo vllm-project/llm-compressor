@@ -184,10 +184,14 @@ def test_quant_model_reload(format, dtype, tmp_path):
     og_state_dict = model.state_dict()
     save_path_compressed = tmp_path / "compressed"
 
-    for _, module in model.named_modules():
+    for name, module in model.named_modules():
         if hasattr(module, "quantization_scheme"):
-            assert module.weight.dtype == dtype
-            assert module.quantization_status == QuantizationStatus.FROZEN
+            assert (
+                module.weight.dtype == dtype
+            ), f"Module {name} has incorrect weight dtype"
+            assert (
+                module.quantization_status == QuantizationStatus.FROZEN
+            ), f"Module {name} has incorrect quantization status"
 
     # Save to disk
     model.save_pretrained(
