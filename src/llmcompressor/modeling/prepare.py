@@ -1,3 +1,5 @@
+import warnings
+
 import tqdm
 from compressed_tensors.utils import replace_module
 from transformers import PreTrainedModel
@@ -20,6 +22,14 @@ def replace_modules_for_calibration(
     model: PreTrainedModel,
     calibrate_all_experts: bool = True,
 ) -> PreTrainedModel:
+    # This function is deprecated. Use moe_calibration_context instead.
+    warnings.warn(
+        "replace_modules_for_calibration is deprecated. \
+    Use moe_calibration_context instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     for name, module in tqdm.tqdm(list(model.named_modules())):
         cls_name = module.__class__.__name__
         if cls_name in replacements:
