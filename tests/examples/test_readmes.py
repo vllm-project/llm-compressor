@@ -1,55 +1,32 @@
 import re
 from pathlib import Path
-from typing import Optional
 
 import pytest
-from bs4 import BeautifulSoup, ResultSet, Tag
+from bs4 import BeautifulSoup
 from cmarkgfm import github_flavored_markdown_to_html as gfm_to_html
 
 
 class ReadMe:
-    """
-    Class representing a README (Markdown) file with methods to expedite common usage.
-    """
+    """Class for reading and parsing a README file for code blocks."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.content = self.path.expanduser().read_text(encoding="utf-8")
-        self.__normalize_code_fence_lang()
-        self.html = gfm_to_html(self.content)
-        self.soup = BeautifulSoup(self.html, "html.parser")
+        content = self.path.expanduser().read_text(encoding="utf-8")
 
-    def __normalize_code_fence_lang(self):
-        """
-        Perform limited normalization on the code language of code blocks to maintain
-        consistency and simplicity with locating them.
-        """
-        self.content = re.sub(r"```(shell|bash|sh)\b", "```shell", self.content)
+        # Normalize code fence language
+        content = re.sub(r"```(shell|bash|sh)\b", "```shell", content)
+        html = gfm_to_html(content)
+        self.soup = BeautifulSoup(html, "html.parser")
 
-    def get_code_blocks(self, *, lang: Optional[str] = None) -> ResultSet[Tag]:
+    def get_code_block_content(self, *, position: int, lang: str) -> str:
         """
-        Get all code blocks with language `lang`, or all code blocks if `lang` is None
-        (default).
-        :param lang: language of code block to filter by
-        :return: code block `Tag`s found in README
-        """
-        lang = "shell" if lang == "bash" else lang
-        selector = f'pre[lang="{lang}"] > code' if lang else "pre > code"
-        tags = self.soup.select(selector)
-        return tags
-
-    def get_code_block_content(
-        self, *, position: int, lang: Optional[str] = None
-    ) -> str:
-        """
-        Get contents of code block at specified position (starting with 0). Optionally
-        pass a language specifier, `lang`, to only look at code blocks highlighted for
-        that language (happens prior to indexing).
+        Get contents of code block of specified language and position (starting with 0).
         :param position: position of code block to get (starting at 0)
-        :param lang: language of code block to filter by
+        :param lang: language of code block to get
         :return: content of the code block
         """
-        code_blocks = self.get_code_blocks(lang=lang)
+        selector = f'pre[lang="{lang}"] > code'
+        code_blocks = self.soup.select(selector)
         code = code_blocks[position].text.strip()
         return code
 
@@ -68,13 +45,9 @@ class ReadMe:
 )
 def test_readmes(subdir):
     path = Path("examples") / subdir / "README.md"
-
     readme = ReadMe(path)
-
-    cmd = readme.get_code_block_content(position=1, lang="bash").split()
+    cmd = readme.get_code_block_content(position=1, lang="shell").split()
 
     assert cmd[0] in ["python", "python3"]
-
     script_path = Path("examples") / subdir / cmd[1]
-
     assert script_path.is_file(), f"Could not find script at {script_path}"
