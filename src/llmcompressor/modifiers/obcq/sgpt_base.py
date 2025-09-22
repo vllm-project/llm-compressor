@@ -34,7 +34,7 @@ class SparsityModifierBase(Modifier):
     owl_lmbda: Optional[float] = None
 
     # data pipeline arguments
-    sequential_update: Optional[bool] = False  # deprecated
+    sequential_update: Optional[bool] = True  # deprecated
     sequential_targets: Union[str, List[str], None] = None
     targets: Union[str, List[str]] = ["Linear"]
     ignore: List[str] = Field(default_factory=list)
