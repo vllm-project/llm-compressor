@@ -10,7 +10,6 @@ from compressed_tensors.quantization.quant_args import (
 )
 from compressed_tensors.quantization.utils import is_fp4
 from compressed_tensors.registry.registry import RegistryMixin
-from compressed_tensors.utils import safe_permute
 from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 
@@ -51,8 +50,12 @@ class Observer(InternalModule, RegistryMixin):
         :return: tuple of scale and zero point based on last observed value
         """
         self.record_observed_tokens(observed)
+
         if should_calculate_gparam:
+            # NOTE: this function updates running min/max values, which leads to
+            # running values updating twice
             return self.get_gparam(observed=observed)
+
         return self.get_qparams(
             observed=observed,
             g_idx=g_idx,
@@ -168,8 +171,7 @@ class Observer(InternalModule, RegistryMixin):
                     group_indices, group_sizes = torch.unique(g_idx, return_counts=True)
                     group_sizes = group_sizes[torch.argsort(group_indices)]
 
-                    perm = torch.argsort(g_idx)
-                    observed = safe_permute(observed, perm, dim=1)
+                    observed = observed.index_select(-1, g_idx)
 
                 # TODO: experiment with vectorizing for loop for performance
                 end = 0
