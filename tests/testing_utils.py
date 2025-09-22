@@ -2,7 +2,8 @@ import dataclasses
 import enum
 import logging
 import os
-import unittest
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
 from typing import Callable, List, Optional, Union
@@ -12,36 +13,66 @@ import yaml
 from datasets import Dataset
 from transformers import ProcessorMixin
 
-from tests.data import CustomTestConfig, TestConfig
-
 TEST_DATA_FILE = os.environ.get("TEST_DATA_FILE", None)
 
 
-# TODO: probably makes sense to move this type of function to a more central place,
-# which can be used by __init__.py as well
-def is_torch_available():
+# TODO: maybe test type as decorators?
+class TestType(Enum):
+    SANITY = "sanity"
+    REGRESSION = "regression"
+    SMOKE = "smoke"
+
+
+class Cadence(Enum):
+    COMMIT = "commit"
+    WEEKLY = "weekly"
+    NIGHTLY = "nightly"
+
+
+@dataclass
+class TestConfig:
+    test_type: TestType
+    cadence: Cadence
+
+
+def _enough_gpus(num_required_gpus):
     try:
         import torch  # noqa: F401
 
-        return True
+        return torch.cuda.device_count() >= num_required_gpus
     except ImportError:
         return False
 
 
-def is_gpu_available():
+def requires_gpu(test_case_or_num):
     """
-    Check for GPU and warn if not found
+    Pytest decorator to skip based on number of available GPUs.
+
+    Designed for backwards compatibility with the old requires_gpu decorator
+    Usage:
+    @requires_gpu
+    def test_something():
+        # only runs if there is at least 1 GPU available
+        pass
+
+    @requires_gpu(2)
+    def test_something_else():
+        # only runs if there are at least 2 GPUs available
+        pass
     """
-    try:
-        import torch  # noqa: F401
+    if isinstance(test_case_or_num, int):
+        num_required_gpus = test_case_or_num
+    else:
+        num_required_gpus = 1
 
-        return torch.cuda.device_count() > 0
-    except ImportError:
-        return False
-
-
-def requires_gpu(test_case):
-    return unittest.skipUnless(is_gpu_available(), "test requires GPU")(test_case)
+    decorator = pytest.mark.skipif(
+        not _enough_gpus(num_required_gpus),
+        reason=f"Not enough GPUs available, {num_required_gpus} GPUs required",
+    )
+    if isinstance(test_case_or_num, int):
+        return decorator
+    else:
+        return decorator(test_case_or_num)
 
 
 def _load_yaml(config_path: str):
@@ -67,9 +98,7 @@ def _validate_test_config(config: dict):
 
 # Set cadence in the config. The environment must set if nightly, weekly or commit
 # tests are running
-def parse_params(
-    configs_directory: Union[list, str], type: Optional[str] = None
-) -> List[Union[dict, CustomTestConfig]]:
+def parse_params(configs_directory: Union[list, str]) -> List[dict]:
     # parses the config files provided
 
     config_dicts = []
@@ -97,15 +126,12 @@ def parse_params(
             if not isinstance(expected_cadence, list):
                 expected_cadence = [expected_cadence]
             if cadence in expected_cadence:
-                if type == "custom":
-                    config = CustomTestConfig(**config)
-                else:
-                    if not _validate_test_config(config):
-                        raise ValueError(
-                            "The config provided does not comply with the expected "
-                            "structure. See tests.data.TestConfig for the expected "
-                            "fields."
-                        )
+                if not _validate_test_config(config):
+                    raise ValueError(
+                        "The config provided does not comply with the expected "
+                        "structure. See tests.data.TestConfig for the expected "
+                        "fields."
+                    )
                 config_dicts.append(config)
             else:
                 logging.info(

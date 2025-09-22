@@ -3,12 +3,6 @@ from unittest.mock import MagicMock
 from torch.utils.data import DataLoader
 
 from llmcompressor.core import Event, EventType, State
-from llmcompressor.modifiers.factory import ModifierFactory
-
-
-def setup_modifier_factory():
-    ModifierFactory.refresh()
-    assert ModifierFactory._loaded, "ModifierFactory not loaded"
 
 
 class LifecyleTestingHarness:
