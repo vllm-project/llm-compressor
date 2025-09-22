@@ -83,7 +83,7 @@ class QuantizationMixin(HooksMixin):
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
-    targets: Optional[Union[str, List[str]]] = None
+    targets: Union[str, List[str]] = Field(default_factory=list)
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
@@ -121,23 +121,23 @@ class QuantizationMixin(HooksMixin):
     @model_validator(mode="after")
     def validate_model_after(model: "QuantizationMixin") -> "QuantizationMixin":
         """
-        If targets has not been set but config_groups has, aggregate targets from
-        each config_group into a single unique list for self.targets. If config_groups
-        has not been set, default to targets=["Linear"]
+        - If targets have not been set, aggregate targets from
+        each config_group into a single unique list for self.targets.
+        - If targets have still not been found, default to targets=["Linear"]
         """
         config = model.resolve_quantization_config()
 
-        if model.targets is None:
-            if config.config_groups is not None:
-                targets = []
-                for config_group in config.config_groups.values():
-                    for target in config_group.targets:
-                        if target not in targets:
-                            targets.append(target)
+        if len(model.targets) == 0:
+            targets = []
+            for config_group in config.config_groups.values():
+                for target in config_group.targets:
+                    if target not in targets:
+                        targets.append(target)
 
-                model.targets = list(targets)
-            else:
-                model.targets = ["Linear"]
+            if len(targets) == 0:
+                targets.append("Linear")
+
+            model.targets = targets
 
         return model
 
@@ -210,6 +210,9 @@ class QuantizationMixin(HooksMixin):
 
         if scheme is not None and config_groups is not None:
             raise ValueError("Please specify either `scheme` or `config_groups`")
+
+        if len(targets) > 0 and config_groups is not None:
+            raise ValueError("Please specify either `targets` or `config_groups`")
 
         if scheme is not None:
             # takes precedence over config_groups
