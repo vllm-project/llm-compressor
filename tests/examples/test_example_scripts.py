@@ -10,8 +10,7 @@ from typing import Callable, List, NamedTuple
 import pytest
 from transformers import AutoConfig
 
-from tests.examples.utils import requires_gpu_count
-from tests.testing_utils import run_cli_command
+from tests.testing_utils import requires_gpu, run_cli_command
 
 
 def replace_2of4_w4a16_recipe(content: str) -> str:
@@ -96,7 +95,7 @@ class TestCase(NamedTuple):
 
 
 @pytest.mark.example
-@requires_gpu_count(1)
+@requires_gpu(1)
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -114,7 +113,7 @@ class TestCase(NamedTuple):
         "quantizing_moe/mixtral_example.py",
         pytest.param(
             "quantizing_moe/mixtral_example.py",
-            marks=(requires_gpu_count(2), pytest.mark.multi_gpu),
+            marks=(requires_gpu(2), pytest.mark.multi_gpu),
         ),
         "quantizing_moe/qwen_example.py",
         # sparse_2of4

@@ -3,14 +3,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 import pytest
-from tests.testing_utils import requires_gpu
 from bs4 import BeautifulSoup, ResultSet, Tag
 from cmarkgfm import github_flavored_markdown_to_html as gfm_to_html
-
-
-def requires_gpu_count(num_required_gpus: int) -> pytest.MarkDecorator:
-    # Remove after #1801
-    return requires_gpu(num_required_gpus)
 
 
 def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator:
