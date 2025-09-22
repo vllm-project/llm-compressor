@@ -28,6 +28,7 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
+* **Quantization with Multiple Modifiers**: Multiple quantization modifiers can now be applied to the same model for mixed-precision quantization, for example applying AWQ W4A16 to a model's `self_attn` layers and GPTQ W8A8 to its `mlp` layers. This is an advanced usage of `llm-compressor` and an active area of research. See the [non-uniform quantization support](examples/quantization_non_uniform) section for more detail and [example usage](examples/quantization_non_uniform/quantization_multiple_modifiers.py).
 * **QuIP and SpinQuant-style Transforms**: The newly added [`QuIPModifier`](examples/transform/quip_example.py) and [`SpinQuantModifier`](examples/transform/spinquant_example.py) allow users to quantize their models after injecting hadamard weights into the computation graph, reducing quantization error and greatly improving accuracy recovery for low bit weight and activation quantization.
 * **DeepSeekV3-style Block Quantization Support**:  This allows for more efficient compression of large language models without needing a calibration dataset. Quantize a Qwen3 model to [W8A8](examples/quantization_w8a8_fp8/fp8_block_example.py). 
 * **Llama4 Quantization Support**: Quantize a Llama4 model to [W4A16](examples/multimodal_vision/llama4_example.py) or [NVFP4](examples/quantization_w4a4_fp4/llama4_example.py). The checkpoint produced can seamlessly run in vLLM.

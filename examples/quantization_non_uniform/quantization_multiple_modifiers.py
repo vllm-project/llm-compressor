@@ -1,3 +1,4 @@
+import argparse
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -5,6 +6,20 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.quantization import GPTQModifier
 from llmcompressor.utils import dispatch_for_generation
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Quantization with multiple modifiers")
+    parser.add_argument(
+        "--independent",
+        action="store_true",
+        help="Add this flag if you'd like to run each modifier "
+        "independently instead of in the same sequence",
+    )
+    return parser.parse_args()
+
+
+args = parse_args()
 
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
@@ -79,10 +94,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    # Option 1) run both modifiers in a single calibrated run
-    pipeline="sequential",
-    # Option 2) run each modifier in its own separate pipeline
-    # pipeline="independent",
+    pipeline="independent" if args.independent else "sequential",
 )
 
 # Confirm generations of the quantized model look sane.
