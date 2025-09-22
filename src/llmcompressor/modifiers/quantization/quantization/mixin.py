@@ -119,8 +119,8 @@ class QuantizationMixin(HooksMixin):
     @model_validator(mode="after")
     def validate_model_after(model: "QuantizationMixin") -> "QuantizationMixin":
         """
-        - If targets have not been set, aggregate targets from quantization
-          config into a single unique list for self.targets.
+        - If targets have not been set, aggregate targets from config_groups
+          into a single unique list
         - If targets have still not been found, default to targets=["Linear"]
         """
 
@@ -128,9 +128,8 @@ class QuantizationMixin(HooksMixin):
             raise ValueError("Please specify either `targets` or `config_groups`")
 
         if len(model.targets) == 0:
-            config = model.resolve_quantization_config()
             targets = []
-            for config_group in config.config_groups.values():
+            for config_group in model.config_groups.values():
                 for target in config_group.targets:
                     if target not in targets:
                         targets.append(target)
