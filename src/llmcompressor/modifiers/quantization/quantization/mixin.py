@@ -127,6 +127,9 @@ class QuantizationMixin(HooksMixin):
         """
         config = model.resolve_quantization_config()
 
+        if len(model.targets) > 0 and config.config_groups is not None:
+            raise ValueError("Please specify either `targets` or `config_groups`")
+
         if len(model.targets) == 0:
             targets = []
             for config_group in config.config_groups.values():
@@ -210,9 +213,6 @@ class QuantizationMixin(HooksMixin):
 
         if scheme is not None and config_groups is not None:
             raise ValueError("Please specify either `scheme` or `config_groups`")
-
-        if len(targets) > 0 and config_groups is not None:
-            raise ValueError("Please specify either `targets` or `config_groups`")
 
         if scheme is not None:
             # takes precedence over config_groups
