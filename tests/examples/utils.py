@@ -10,21 +10,14 @@ import pytest
 from bs4 import BeautifulSoup, ResultSet, Tag
 from cmarkgfm import github_flavored_markdown_to_html as gfm_to_html
 
-from tests.testing_utils import run_cli_command
+from tests.testing_utils import requires_gpu, run_cli_command
 
 _T = TypeVar("_T")
 
 
 def requires_gpu_count(num_required_gpus: int) -> pytest.MarkDecorator:
-    """
-    Pytest decorator to skip based on number of available GPUs. This plays nicely with
-    the CUDA_VISIBLE_DEVICES environment variable.
-    """
-    import torch
-
-    num_gpus = torch.cuda.device_count()
-    reason = f"{num_required_gpus} GPUs required, {num_gpus} GPUs detected"
-    return pytest.mark.skipif(num_required_gpus > num_gpus, reason=reason)
+    # Remove after #1801
+    return requires_gpu(num_required_gpus)
 
 
 def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator:
