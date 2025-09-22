@@ -127,17 +127,14 @@ class QuantizationMixin(HooksMixin):
         if len(model.targets) > 0 and model.config_groups is not None:
             raise ValueError("Please specify either `targets` or `config_groups`")
 
-        if len(model.targets) == 0:
-            targets = []
+        if len(model.targets) == 0 and model.config_groups is not None:
             for config_group in model.config_groups.values():
                 for target in config_group.targets:
-                    if target not in targets:
-                        targets.append(target)
+                    if target not in model.targets:
+                        model.targets.append(target)
 
-            if len(targets) == 0:
-                targets.append("Linear")
-
-            model.targets = targets
+        if len(model.targets) == 0:
+            model.targets.append("Linear")
 
         return model
 
