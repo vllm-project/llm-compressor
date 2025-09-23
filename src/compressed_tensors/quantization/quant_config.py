@@ -165,7 +165,7 @@ class QuantizationConfig(BaseModel):
 
     @staticmethod
     def from_pretrained(
-        model: Module, format: Optional[str] = None
+        model: Module, format: Optional[Union[str, list]] = None
     ) -> Optional["QuantizationConfig"]:
         """
         Converts a model into its associated QuantizationConfig based on the

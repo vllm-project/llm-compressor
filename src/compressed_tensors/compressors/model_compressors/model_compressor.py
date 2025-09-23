@@ -33,6 +33,9 @@ from compressed_tensors.base import (
 from compressed_tensors.compressors.base import BaseCompressor
 from compressed_tensors.compressors.sparse_compressors import DenseCompressor
 from compressed_tensors.config import CompressionFormat, SparsityCompressionConfig
+from compressed_tensors.config.format import (
+    infer_and_set_per_module_quantization_format,
+)
 from compressed_tensors.quantization import (
     DEFAULT_QUANTIZATION_METHOD,
     QuantizationConfig,
@@ -58,6 +61,7 @@ from compressed_tensors.utils.helpers import (
     is_compressed_tensors_config,
 )
 from compressed_tensors.utils.match import match_named_modules
+from loguru import logger
 from torch import Tensor
 from torch.nn import Module
 from tqdm import tqdm
@@ -166,8 +170,9 @@ class ModelCompressor:
     def from_pretrained_model(
         cls,
         model: Module,
+        sparsity_config_or_format: Union[SparsityCompressionConfig, str, None] = None,
+        quantization_format: Optional[str] = None,
         sparsity_config: Union[SparsityCompressionConfig, str, None] = None,
-        quantization_format: Optional[Union[str, List[str]]] = None,
     ) -> Optional["ModelCompressor"]:
         """
         Given a pytorch model and optional sparsity and/or quantization configs,
@@ -175,20 +180,40 @@ class ModelCompressor:
 
         :param model: pytorch model to target for compression
         :param sparsity_config: a filled in sparsity config or string corresponding
-            to a sparsity compression algorithm
-        :param quantization_format: string corresponding to a quantization compression
-            algorithm
+            to a sparsity format
+        :param quantization_format: string corresponding to a quantization
+            format that should be applied to the entire model
         :return: compressor for the configs, or None if model is not compressed
         """
+        if sparsity_config:
+            logger.warning(
+                "sparsity_config is deprecated, use sparsity_config_or_format"
+            )
+            sparsity_config_or_format = sparsity_config
+
+        if sparsity_config_or_format and isinstance(
+            sparsity_config_or_format, str
+        ):  # we passed in a sparsity format
+            sparsity_config = SparsityCompressionConfig.load_from_registry(
+                sparsity_config_or_format
+            )
+        else:
+            # otherwise, config or None
+            sparsity_config = sparsity_config_or_format
+
+        quantization_format = infer_and_set_per_module_quantization_format(
+            model=model,
+            sparsity_structure=(
+                sparsity_config.sparsity_structure
+                if sparsity_config is not None
+                else None
+            ),
+            quantization_format=quantization_format,
+        )
+
         quantization_config = QuantizationConfig.from_pretrained(
             model, format=quantization_format
         )
-
-        # use config passed as argument
-        if isinstance(sparsity_config, str):  # we passed in a sparsity format
-            sparsity_config = SparsityCompressionConfig.load_from_registry(
-                sparsity_config
-            )
 
         # use config attached to model
         transform_config = getattr(model, TRANSFORM_CONFIG_NAME, None)
@@ -200,11 +225,7 @@ class ModelCompressor:
             sparsity_config=sparsity_config,
             quantization_config=quantization_config,
             transform_config=transform_config,
-            compression_formats=(
-                [quantization_format]
-                if isinstance(quantization_format, str)
-                else quantization_format
-            ),
+            compression_formats=quantization_format,
         )
 
     @staticmethod
@@ -620,6 +641,7 @@ class ModelCompressor:
                     # compressor in a follow-up including initialization
                     load_weight_qparams=load_weight_qparams,
                 )
+
             model_path_or_state_dict = (
                 model.state_dict() if sparse_decompressed else model_path
             )

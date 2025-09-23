@@ -82,7 +82,9 @@ def _get_quant_compression_format(
 
 
 def set_per_module_format(
-    module: torch.nn.Module, sparsity_structure: Optional[str] = None
+    module: torch.nn.Module,
+    sparsity_structure: Optional[str] = None,
+    quantization_format: Optional[str] = None,
 ):
     """
     Determine and set the per module quantization format given quantization args
@@ -90,6 +92,8 @@ def set_per_module_format(
 
     :param module: module which has its quantization inferred
     :param sparsity_structure: optional sparsity applied to the module
+    :param quantization_format: optional global format to override
+        the per module formats
 
     """
     weight_scheme = module.quantization_scheme.weights
@@ -100,41 +104,56 @@ def set_per_module_format(
         input_scheme, weight_scheme, sparsity_structure
     )
 
-    # If set, we check if it matches our inferred one
-    if module.quantization_scheme.format is not None:
+    # Check if a global format was provided first
+    # This will override any per module format
+    if quantization_format is not None:
+        if quantization_format != compression_format.value:
+            logger.warning(
+                "The provided format for the module does not match the "
+                "inferred format. Compression may fail "
+            )
+        module.quantization_scheme.format = quantization_format
+    # If a per module format is not provided, we check if it matches our inferred one
+    elif module.quantization_scheme.format is not None:
         # If it does not, warn the user
         if module.quantization_scheme.format != compression_format.value:
             logger.warning(
                 "The provided format for the module does not match the "
                 "inferred format. Compression may fail "
             )
+    # If neither provided, set ours
     else:
-        # If not set, we set ours
         module.quantization_scheme.format = compression_format.value
 
 
 def infer_and_set_per_module_quantization_format(
     model: torch.nn.Module,
     sparsity_structure: Optional[str] = None,
+    quantization_format: Optional[str] = None,
 ) -> List[str]:
     """
     Infers the quantization format for a model based on its state and provided
     compression arguments. Updates thhe quantization_scheme.format value
-    based on the inferred format. Returns the unique list of formats in the model
-    or None if empty list
+    based on the inferred format. Returns the unique list of formats in the model.
+    All None formats are mapped to CompressionFormat.dense.value
 
     For a summary of the formats, see `docs/guides/compression_formats.md`.
 
     :param model: model to check for quantization
     :param sparsity_structure: optional sparsity applied to the module
-    :return compression format appropriate for model
+    :param quantization_format: optional global format to override
+        the per module formats
+    :return compression format appropriate for the model
     """
     unique_formats = []
     for submodule in model.modules():
         if is_module_quantized(submodule):
             assert hasattr(submodule, "quantization_scheme")
-            set_per_module_format(submodule, sparsity_structure)
-            if submodule.quantization_scheme.format not in unique_formats:
+            set_per_module_format(submodule, sparsity_structure, quantization_format)
+            if (
+                submodule.quantization_scheme.format
+                and submodule.quantization_scheme.format not in unique_formats
+            ):
                 unique_formats.append(submodule.quantization_scheme.format)
 
     if len(unique_formats) > 0:
