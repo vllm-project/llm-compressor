@@ -14,7 +14,7 @@ def test_oneshot_sparsification_then_finetune(tmp_path):
 
     recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
     model = AutoModelForCausalLM.from_pretrained(
-        "nm-testing/llama2.c-stories15M", torch_dtype="auto"
+        "nm-testing/tinysmokellama-3.2", torch_dtype="auto"
     )
     dataset = "open_platypus"
     concatenate_data = False
@@ -42,7 +42,7 @@ def test_oneshot_sparsification_then_finetune(tmp_path):
         quantization_config=quantization_config,
     )
     distill_teacher = AutoModelForCausalLM.from_pretrained(
-        "nm-testing/llama2.c-stories15M", torch_dtype="auto"
+        "nm-testing/tinysmokellama-3.2", torch_dtype="auto"
     )
     dataset = "open_platypus"
     concatenate_data = False

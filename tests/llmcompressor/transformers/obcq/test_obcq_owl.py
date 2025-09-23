@@ -21,7 +21,7 @@ def test_infer_owl_layer_sparsity():
         modifier = SparseGPTModifier(
             sparsity=0.7, sparsity_profile="owl", owl_m=5, owl_lmbda=0.05
         )
-        model = AutoModelForCausalLM.from_pretrained("nm-testing/llama2.c-stories15M")
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
 
         dataset = Dataset.from_dict(
             {"input_ids": torch.randint(0, vocab_size, (ds_size, seq_len))}
