@@ -40,10 +40,12 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
 
     @field_validator("leave_enabled")
     def validate_leave_enabled(value: bool) -> bool:
-        warnings.warn(
-            "MagnitudePruningModifier.leave_enable has been deprecated",
-            DeprecationWarning,
-        )
+        if value:
+            warnings.warn(
+                "MagnitudePruningModifier.leave_enabled has been deprecated "
+                "and will be set to False.",
+                DeprecationWarning,
+            )
         return False
 
     def on_initialize(self, state: State, **kwargs) -> bool:
