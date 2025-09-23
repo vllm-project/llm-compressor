@@ -105,7 +105,7 @@ class SparsityModifierBase(Modifier):
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
-        Initialize and run the OBCQ algorithm on the current state
+        Initialize and run the SparseGPT algorithm on the current state
 
         :param state: session state storing input model and calibration data
         """

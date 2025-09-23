@@ -11,8 +11,8 @@ from loguru import logger
 from pydantic import PrivateAttr
 
 from llmcompressor.core import State
-from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
-from llmcompressor.modifiers.obcq.sgpt_sparsify import (
+from llmcompressor.modifiers.pruning.sparsegpt.sgpt_base import SparsityModifierBase
+from llmcompressor.modifiers.pruning.sparsegpt.sgpt_sparsify import (
     accumulate_hessian,
     make_empty_hessian,
     sparsify_weight,
@@ -62,9 +62,10 @@ class SparseGPTModifier(SparsityModifierBase):
         previously pruned model, defaults to False.
     :param offload_hessians: Set to True for decreased memory usage but increased
         runtime.
-    :param sequential_targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model. Alias for `targets`
-    :param targets: list of layer names to compress during OBCQ, or '__ALL__'
+    :param sequential_targets: list of layer names to compress
+        during SparseGPT, or '__ALL__' to compress every layer
+        in the model. Alias for `targets`
+    :param targets: list of layer names to compress during SparseGPT, or '__ALL__'
         to compress every layer in the model. Alias for `sequential_targets`
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target. Defaults to empty list.

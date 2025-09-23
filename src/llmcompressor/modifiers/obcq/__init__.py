@@ -1,5 +1,10 @@
-# Legacy shim for backwards-compat imports 
+# Legacy shim for backwards-compat imports
 import warnings
+
+from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
+
+__all__ = ["SparseGPTModifier"]
+
 
 warnings.warn(
     "llmcompressor.modifiers.obcq is deprecated; "
@@ -7,6 +12,3 @@ warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
-
-# Re-export public API from the new location
-from llmcompressor.modifiers.pruning.sparsegpt import *
