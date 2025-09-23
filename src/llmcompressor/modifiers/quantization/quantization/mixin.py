@@ -14,7 +14,8 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
-from pydantic import Field, PrivateAttr, field_validator
+from compressed_tensors.utils import match_named_modules
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.quantization.calibration import (
@@ -58,8 +59,9 @@ class QuantizationMixin(HooksMixin):
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
-    :param targets: list of layer names to quantize if a scheme is provided. Defaults
-        to Linear layers
+    :param targets: list of layer names to quantize if a scheme is provided. If unset,
+        will contain all targets listed in config_groups. If config_groups is also
+        unset, will default to ["Linear"] (i.e. all Linear layers will be targeted).
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
     :param scheme: a single quantization scheme to apply to the model. This is a
@@ -81,7 +83,7 @@ class QuantizationMixin(HooksMixin):
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
-    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
+    targets: Union[str, List[str]] = Field(default_factory=list)
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
@@ -114,43 +116,71 @@ class QuantizationMixin(HooksMixin):
 
         return value
 
+    @model_validator(mode="after")
+    def validate_model_after(model: "QuantizationMixin") -> "QuantizationMixin":
+        """
+        - If targets have not been set, aggregate targets from config_groups
+          into a single unique list
+        - If targets have still not been found, default to targets=["Linear"]
+        """
+
+        if len(model.targets) > 0 and model.config_groups is not None:
+            raise ValueError("Please specify either `targets` or `config_groups`")
+
+        if len(model.targets) == 0 and model.config_groups is not None:
+            for config_group in model.config_groups.values():
+                for target in config_group.targets:
+                    if target not in model.targets:
+                        model.targets.append(target)
+
+        if len(model.targets) == 0:
+            model.targets.append("Linear")
+
+        return model
+
     def initialize_quantization(self, model: torch.nn.Module):
         """
-        Attach quantization schemes and observers to modules in the model according to
+        Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
         """
-        reset_quantization_status(model)  # reset any previously applied qconfigs
-
         # apply scheme and status to model
         config = self.resolve_quantization_config()
+
+        for _, module in match_named_modules(model, self.targets, self.ignore):
+            reset_quantization_status(module)  # reset any previously applied qconfigs
+
         apply_quantization_config(model, config)
 
-        # apply observers, disable quantization until calibration
-        model.apply(self._initialize_observers)
+        # disable quantization until calibration
         model.apply(disable_quantization)
 
     def start_calibration(self, model: torch.nn.Module):
         """
-        Register activation calibration hooks (including kv_cache quantization) and
-        enable quantization as we calibrate
+        Attach observers, register activation calibration hooks (including
+        kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
         self._calibration_hooks = self._initialize_hooks(model)
-        model.apply(apply_calibration_status)
+        for _, module in match_named_modules(model, self.targets, self.ignore):
+            self._initialize_observers(module)
+            apply_calibration_status(module)
+
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def end_calibration(self, model: torch.nn.Module):
         """
-        Remove calibration hooks and set the model status to frozen. Keep quantization
-        enabled for future operations
+        Remove calibration hooks and observers, and set the model status to frozen.
+        Keep quantization enabled for future operations
 
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        model.apply(freeze_module_quantization)  # remove observers
+        for _, module in match_named_modules(model, self.targets, self.ignore):
+            freeze_module_quantization(module)  # remove observers
+
         model.apply(enable_quantization)  # keep quantization enabled
 
     def has_config(self) -> bool:
@@ -240,7 +270,7 @@ class QuantizationMixin(HooksMixin):
 
     def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
-        for module in model.modules():
+        for _, module in match_named_modules(model, self.targets, self.ignore):
             if not hasattr(module, "quantization_scheme"):
                 continue
 

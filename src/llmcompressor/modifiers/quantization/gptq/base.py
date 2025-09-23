@@ -13,6 +13,7 @@ from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
     getattr_chain,
+    match_named_modules,
     update_offload_parameter,
 )
 from loguru import logger
@@ -161,7 +162,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
-        self._module_names = {m: name for name, m in state.model.named_modules()}
+        self._module_names = {
+            m: name
+            for name, m in match_named_modules(state.model, self.targets, self.ignore)
+        }
 
         return True
 
@@ -174,7 +178,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # register gptq hooks
         added_hook = False
-        for module in state.model.modules():
+        for _, module in match_named_modules(state.model, self.targets, self.ignore):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
