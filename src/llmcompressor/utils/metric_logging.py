@@ -59,8 +59,8 @@ class CompressionLogger:
         self.loss = None
         self.gpu_type = GPUType.amd if torch.version.hip else GPUType.nv
 
-        # For nvidia, parse CUDA_VISIBLE_DEVICES for visible devices to monitor
-        # If unset, default to all devices
+        # Parse appropriate env var for visible devices to monitor
+        # If env var is unset, default to all devices
         self.visible_ids = []
         visible_devices_env_var = (
             "CUDA_VISIBLE_DEVICES"
