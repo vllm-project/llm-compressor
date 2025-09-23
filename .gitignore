@@ -809,6 +809,3 @@ env_log.json
 uv.lock
 .venv/
 
-# uv artifacts
-uv.lock
-.venv/
