@@ -25,8 +25,9 @@ def setup_modifier_factory():
 
 def _get_files(directory: str, ignore_dirs: List[str] = []) -> List[str]:
     list_filepaths = []
+    ignore_dirs = tuple(ignore_dirs)  # has to be a tuple for str.startswith
     for root, dirs, files in os.walk(directory):
-        dirs[:] = [dir_ for dir_ in dirs if str(dir_) not in ignore_dirs]
+        dirs[:] = [dir_ for dir_ in dirs if not str(dir_).startswith(ignore_dirs)]
         for file in files:
             list_filepaths.append(os.path.join(os.path.abspath(root), file))
     return list_filepaths
