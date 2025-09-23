@@ -370,7 +370,7 @@ def test_compressor_stacking(model_stub, recipe, sparse_format, quant_format, tm
     # As HFQuantizer doesn't decompress the model, use the compressor to decompress
     # the model instead
     compressor = ModelCompressor.from_pretrained_model(
-        model, sparsity_config=sparse_format, quantization_format=quant_format
+        model, sparsity_config_or_format=sparse_format, quantization_format=quant_format
     )
 
     assert (

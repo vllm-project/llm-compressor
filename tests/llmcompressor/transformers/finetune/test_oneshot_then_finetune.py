@@ -92,7 +92,6 @@ def test_oneshot_sparsification_then_finetune(tmp_path):
             concatenate_data=concatenate_data,
             splits=splits,
             recipe=recipe,
-            resume_from_checkpoint=True,  # use last checkpoint
         )
 
 
@@ -158,5 +157,4 @@ def test_oneshot_quantization_then_finetune(tmp_path):
             concatenate_data=concatenate_data,
             splits=splits,
             num_train_epochs=0.05,
-            resume_from_checkpoint=True,  # use last checkpoint
         )
