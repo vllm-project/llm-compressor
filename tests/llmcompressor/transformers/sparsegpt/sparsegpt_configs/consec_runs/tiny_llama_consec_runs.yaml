@@ -1,0 +1,6 @@
+cadence: "commit"
+test_type: "sanity"
+model: "nm-testing/tinysmokellama-3.2"
+dataset: open_platypus
+first_recipe: "tests/llmcompressor/transformers/sparsegpt/recipes/quant_and_sparse.yaml"
+second_recipe: "tests/llmcompressor/transformers/sparsegpt/recipes/additional_sparsity.yaml"
