@@ -1,4 +1,5 @@
 import argparse
+
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -19,8 +20,6 @@ def parse_args():
     return parser.parse_args()
 
 
-args = parse_args()
-
 # Select model and load it.
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
@@ -35,10 +34,6 @@ DATASET_SPLIT = "train_sft"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
-# Load dataset and preprocess.
-ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-ds = ds.shuffle(seed=42)
-
 
 def preprocess(example):
     return {
@@ -47,9 +42,6 @@ def preprocess(example):
             tokenize=False,
         )
     }
-
-
-ds = ds.map(preprocess)
 
 
 # Tokenize inputs.
@@ -62,8 +54,6 @@ def tokenize(sample):
         add_special_tokens=False,
     )
 
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize self_attn layers to W8A8 with GPTQ
@@ -87,27 +77,37 @@ recipe = [
     ),
 ]
 
-# Apply algorithms.
-oneshot(
-    model=model,
-    dataset=ds,
-    recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    pipeline="independent" if args.independent else "sequential",
-)
+if __name__ == "__main__":
+    args = parse_args()
+    # Load dataset and preprocess.
+    ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
+    ds = ds.shuffle(seed=42)
+    ds = ds.map(preprocess)
+    ds = ds.map(tokenize, remove_columns=ds.column_names)
 
-# Confirm generations of the quantized model look sane.
-print("\n\n")
-print("========== SAMPLE GENERATION ==============")
-dispatch_for_generation(model)
-sample = tokenizer("Hello my name is", return_tensors="pt")
-sample = {key: value.to(model.device) for key, value in sample.items()}
-output = model.generate(**sample, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
-print("==========================================\n\n")
+    # Apply algorithms.
+    oneshot(
+        model=model,
+        dataset=ds,
+        recipe=recipe,
+        max_seq_length=MAX_SEQUENCE_LENGTH,
+        num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+        pipeline="independent" if args.independent else "sequential",
+    )
 
-# Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-gptq-w8a8-self_attn-awq-w4a16-mlp"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+    # Confirm generations of the quantized model look sane.
+    print("\n\n")
+    print("========== SAMPLE GENERATION ==============")
+    dispatch_for_generation(model)
+    sample = tokenizer("Hello my name is", return_tensors="pt")
+    sample = {key: value.to(model.device) for key, value in sample.items()}
+    output = model.generate(**sample, max_new_tokens=100)
+    print(tokenizer.decode(output[0]))
+    print("==========================================\n\n")
+
+    # Save to disk compressed.
+    SAVE_DIR = (
+        model_id.rstrip("/").split("/")[-1] + "-gptq-w8a8-self_attn-awq-w4a16-mlp"
+    )
+    model.save_pretrained(SAVE_DIR, save_compressed=True)
+    tokenizer.save_pretrained(SAVE_DIR)
