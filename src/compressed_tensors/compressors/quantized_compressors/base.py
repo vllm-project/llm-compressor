@@ -129,14 +129,6 @@ class BaseQuantizationCompressor(BaseCompressor):
                 if name.endswith("zero_point") and self._skip_zp(name, names_to_scheme):
                     continue
 
-                # omit saving for g_idx if uninitialized
-                # TODO: does this case actually occur?
-                elif (
-                    name.endswith("g_idx")
-                    and value.device.type != "meta"
-                    and torch.any(value <= -1)
-                ):
-                    continue
                 compressed_dict[name] = value.to(compression_device)
 
         return compressed_dict
