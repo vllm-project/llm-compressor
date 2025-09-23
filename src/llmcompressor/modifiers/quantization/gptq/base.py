@@ -1,5 +1,4 @@
 import contextlib
-import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -17,7 +16,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr, field_validator
+from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -108,7 +107,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     # gptq modifier arguments
-    sequential_update: bool = True  # DEPRECATED
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -310,14 +308,3 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
-
-    @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value: bool) -> bool:
-        if not value:
-            warnings.warn(
-                "`sequential_update=False` is no longer supported, setting "
-                "sequential_update=True",
-                DeprecationWarning,
-            )
-
-        return True
