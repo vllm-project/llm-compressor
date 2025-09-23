@@ -12,7 +12,7 @@ from llmcompressor.modifiers.obcq import SparseGPTModifier
 def model():
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     return AutoModelForCausalLM.from_pretrained(
-        "nm-testing/llama2.c-stories15M", device_map=device
+        "nm-testing/tinysmokellama-3.2", device_map=device
     )
 
 

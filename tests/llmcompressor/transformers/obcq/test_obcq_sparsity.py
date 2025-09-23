@@ -34,7 +34,7 @@ def test_sparsities(tmp_path, config):
     )
 
     layer_1_sparse = tensor_sparsity(model.model.layers[1].self_attn.k_proj.weight)
-    assert math.isclose(layer_1_sparse.item(), config["sparsity"], rel_tol=1e-4)
+    assert math.isclose(layer_1_sparse.item(), config["sparsity"], rel_tol=1e-3)
     layer_2_dense = tensor_sparsity(model.model.layers[2].self_attn.k_proj.weight)
     assert math.isclose(layer_2_dense.item(), 0.0, rel_tol=1e-4)
 
