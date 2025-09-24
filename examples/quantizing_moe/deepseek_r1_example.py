@@ -2,7 +2,6 @@ from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import GPTQModifier
 
 # Select model and load it.
@@ -20,7 +19,9 @@ model = AutoModelForCausalLM.from_pretrained(
     model_id, torch_dtype="auto", config=config
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
-model = replace_modules_for_calibration(model)
+# MoE calibration is now handled automatically by the pipeline.
+# The `DeepseekV3MoECalibrate` modules will be applied during calibration
+# to enable proper expert calibration.
 
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
