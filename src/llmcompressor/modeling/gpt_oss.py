@@ -19,29 +19,30 @@ def convert_model_for_quantization_gptoss(model):
         if not (hasattr(experts, "gate_up_proj") and hasattr(experts, "down_proj")):
             continue
 
-        gup = experts.gate_up_proj        # [E, H, 2I]
-        dwn = experts.down_proj           # [E, I, H]
-        assert gup.dim() == 3 and dwn.dim() == 3
-        E, gH, g2i = gup.shape
-        Ed, dI, dH = dwn.shape
-        assert E == Ed and gH == dH
-        assert g2i % 2 == 0
-        intermediate = g2i // 2
-        hidden = gH
+        with align_module_device(experts):
+            gup = experts.gate_up_proj        # [E, H, 2I]
+            dwn = experts.down_proj           # [E, I, H]
+            assert gup.dim() == 3 and dwn.dim() == 3
+            E, gH, g2i = gup.shape
+            Ed, dI, dH = dwn.shape
+            assert E == Ed and gH == dH
+            assert g2i % 2 == 0
+            intermediate = g2i // 2
+            hidden = gH
 
-        dtype = gup.dtype
-        parent, child_name = _get_parent_and_child(model, name)
-        top_k = int(max(1, min(_get_top_k(model.config) or 1, E)))
-        seq = SequentialGPTOSSMoE(
-            hidden_size=hidden,             
-            intermediate_size=intermediate,
-            top_k=top_k,
-            original_moe=module,
-            dtype=dtype,
-        )
-        parent._modules[child_name] = seq
-        to_delete.append(module)
-        print(f"[GPT-OSS] Patched {name} -> SequentialGPTOSSMoE (E={E}, inter={intermediate}, hidden={hidden})", flush=True)
+            dtype = gup.dtype
+            parent, child_name = _get_parent_and_child(model, name)
+            top_k = int(max(1, min(_get_top_k(model.config) or 1, E)))
+            seq = SequentialGPTOSSMoE(
+                hidden_size=hidden,             
+                intermediate_size=intermediate,
+                top_k=top_k,
+                original_moe=module,
+                dtype=dtype,
+            )
+            parent._modules[child_name] = seq
+            to_delete.append(module)
+            print(f"[GPT-OSS] Patched {name} -> SequentialGPTOSSMoE (E={E}, inter={intermediate}, hidden={hidden})", flush=True)
 
     for m in to_delete:
         del m
