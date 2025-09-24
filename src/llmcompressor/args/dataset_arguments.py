@@ -7,6 +7,7 @@ sources and processing pipelines. Supports various input formats including
 HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -126,16 +127,6 @@ class DatasetArguments(CustomDatasetArguments):
         default=512,
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
-    calibrate_moe_context: bool = field(
-        default=False,
-        metadata={
-            "help": "If during calibration, the MoE context should be enabled "
-            "for the given model. This usually involves updating all MoE modules "
-            "in the model for the duration of calibration. See moe_context under "
-            "modeling/prepare.py for a list of supported MoEs and their updated "
-            "module definitions"
-        },
-    )
     shuffle_calibration_samples: Optional[bool] = field(
         default=True,
         metadata={
@@ -178,6 +169,17 @@ class DatasetArguments(CustomDatasetArguments):
                 "pass of the calibration. If a module receives fewer tokens, "
                 "a warning will be logged. Defaults to 1/num_of_experts."
                 "note: this argument is only relevant for MoE models"
+            ),
+        },
+    )
+    calibrate_moe_context: Optional[bool] = field(
+        default=None,
+        metadata={
+            "help": (
+                "DEPRECATED: This parameter is deprecated and will be \
+                    removed in a future version. "
+                "MoE calibration context is now handled automatically by the pipeline. "
+                "This parameter is ignored and will not affect the calibration process."
             ),
         },
     )
@@ -229,3 +231,16 @@ class DatasetArguments(CustomDatasetArguments):
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None
+
+    def __post_init__(self):
+        """Post-initialization hook to issue deprecation warnings."""
+        if self.calibrate_moe_context is not None:
+            warnings.warn(
+                "The 'calibrate_moe_context' parameter is deprecated\
+                     and will be removed in a future version. "
+                "MoE calibration context is now handled automatically by the pipeline. "
+                "This parameter is ignored and will not affect\
+                     the calibration process.",
+                DeprecationWarning,
+                stacklevel=2,
+            )

@@ -26,8 +26,7 @@ def test_calib_replace_qwen3moe_all_experts(model_stub):
     with contextlib.ExitStack() as stack:
         stack.enter_context(calibration_forward_context(model))
         stack.enter_context(DisableQuantization(model))
-
-        moe_calibration_context(model, stack, calibrate_all_experts=True)
+        stack.enter_context(moe_calibration_context(model, calibrate_all_experts=True))
 
         # Find one MoE layer
         moe_layer = None
