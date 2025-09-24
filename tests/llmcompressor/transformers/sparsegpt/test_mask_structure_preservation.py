@@ -12,7 +12,7 @@ from llmcompressor.utils.pytorch import qat_active
 from tests.testing_utils import parse_params
 
 MASK_STRUCTURE_CONFIGS_DIRECTORY = (
-    "tests/llmcompressor/transformers/obcq/obcq_configs/mask_structure"
+    "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/mask_structure"
 )
 
 _TestArgs = namedtuple(

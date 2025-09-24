@@ -10,7 +10,7 @@ from loguru import logger
 from pydantic import PrivateAttr
 
 from llmcompressor.core import State
-from llmcompressor.modifiers.obcq.sgpt_base import SparsityModifierBase
+from llmcompressor.modifiers.pruning.sparsegpt.sgpt_base import SparsityModifierBase
 from llmcompressor.modifiers.pruning.wanda.wanda_sparsify import (
     accumulate_row_scalars,
     make_empty_row_scalars,

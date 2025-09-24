@@ -5,7 +5,7 @@
 ```python
 from llmcompressor import train
 
-model = "./obcq_deployment"
+model = "./sparsegpt_deployment"
 teacher_model = "Xenova/llama2.c-stories15M"
 dataset_name = "open_platypus"
 concatenate_data = False
