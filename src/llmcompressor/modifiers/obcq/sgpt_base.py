@@ -12,8 +12,8 @@ __all__ = ["SparseGPTModifier"]
 class SparseGPTModifier(PruningSparseGPTModifier):
     @deprecated(
         message=(
-            "SparseGPTModifier has been moved. In future, please initialize it "
-            " from `llmcompressor.modifiers.pruning.sparsegpt.SparseGPTModifier`"
+            "SparseGPTModifier has moved. In future, please initialize it from "
+            "`llmcompressor.modifiers.pruning.sparsegpt.SparseGPTModifier`."
         )
     )
     def __new__(cls, *args, **kwargs):
