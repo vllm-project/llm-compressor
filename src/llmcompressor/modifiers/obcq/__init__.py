@@ -1,3 +1,3 @@
 # ruff: noqa
 
-from .base import *
+from .sgpt_base import *

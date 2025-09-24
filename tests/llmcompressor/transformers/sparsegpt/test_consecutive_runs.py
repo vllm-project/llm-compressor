@@ -13,9 +13,11 @@ from llmcompressor.transformers.utils import is_model_ct_quantized_from_path
 from llmcompressor.utils.pytorch import qat_active
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs"
+CONFIGS_DIRECTORY = (
+    "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/consec_runs"
+)
 GPU_CONFIGS_DIRECTORY = (
-    "tests/llmcompressor/transformers/obcq/obcq_configs/consec_runs/gpu"
+    "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/consec_runs/gpu"
 )
 
 

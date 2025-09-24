@@ -1,7 +1,7 @@
 import pytest
 
 from llmcompressor.modifiers.factory import ModifierFactory
-from llmcompressor.modifiers.obcq.base import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
 
 @pytest.mark.unit

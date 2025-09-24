@@ -44,9 +44,17 @@ class ModifierFactory:
         loaded = {}
         main_package = importlib.import_module(package_path)
 
-        for importer, modname, is_pkg in pkgutil.walk_packages(
+        # exclude deprecated packages from registry so
+        # their new location is used instead
+        deprecated_packages = [
+            "llmcompressor.modifiers.obcq",
+            "llmcompressor.modifiers.obcq.sgpt_base",
+        ]
+        for _importer, modname, _is_pkg in pkgutil.walk_packages(
             main_package.__path__, package_path + "."
         ):
+            if modname in deprecated_packages:
+                continue
             try:
                 module = importlib.import_module(modname)
 
