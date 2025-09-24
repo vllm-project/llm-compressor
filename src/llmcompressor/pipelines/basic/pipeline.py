@@ -46,9 +46,7 @@ class BasicPipeline(CalibrationPipeline):
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
-
-            if dataset_args is not None and dataset_args.calibrate_moe_context:
-                moe_calibration_context(model, stack)
+            stack.enter_context(moe_calibration_context(model))
 
             for batch in tqdm.tqdm(dataloader, desc="Calibrating"):
                 batch = apply_pad_mask_to_batch(batch)
