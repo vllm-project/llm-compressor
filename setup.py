@@ -127,7 +127,8 @@ setup(
             if BUILD_TYPE == "release"
             else "transformers>=4.53.0"
         ),
-        ("datasets>=4.0.0,<=4.1.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        # datasets v3.6.0 allowed to be compatible with lm_eval
+        ("datasets>=3.6.0,<=4.1.0" if BUILD_TYPE == "release" else "datasets>=3.6.0"),
         (
             "accelerate>=1.6.0,<=1.10.1"
             if BUILD_TYPE == "release"
@@ -151,7 +152,7 @@ setup(
             "pytest>=6.0.0",
             "pytest-mock>=3.6.0",
             "pytest-rerunfailures>=13.0",
-            "lm_eval==0.4.5",
+            "lm_eval>=0.4.5",
             # test dependencies
             "beautifulsoup4~=4.12.3",
             "cmarkgfm~=2024.1.14",
