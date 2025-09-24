@@ -12,7 +12,7 @@ def test_oneshot_sparsification_then_finetune(tmp_path):
     output = tmp_path / "finetune_output"
     quantization_config = CompressedTensorsConfig(run_compressed=False)
 
-    recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
+    recipe_str = "tests/llmcompressor/transformers/sparsegpt/recipes/test_tiny2.yaml"
     model = AutoModelForCausalLM.from_pretrained(
         "nm-testing/tinysmokellama-3.2", torch_dtype="auto"
     )

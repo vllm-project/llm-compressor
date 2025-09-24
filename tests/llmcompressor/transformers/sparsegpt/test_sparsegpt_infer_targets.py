@@ -2,7 +2,7 @@ import pytest
 from accelerate import init_empty_weights
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.modifiers.obcq import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
 
 @pytest.mark.integration
