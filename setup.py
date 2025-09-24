@@ -133,7 +133,11 @@ setup(
             if BUILD_TYPE == "release"
             else "accelerate>=1.6.0"
         ),
-        ("pynvml>=11.5.3,<=13.0.1" if BUILD_TYPE == "release" else "pynvml>=11.5.3"),
+        (
+            "nvidia-ml-py>=12.560.30,<=13.580.82"
+            if BUILD_TYPE == "release"
+            else "nvidia-ml-py>=12.560.30"
+        ),
         ("pillow>=10.4.0,<=11.3.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
             "compressed-tensors==0.11.0"

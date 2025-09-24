@@ -10,7 +10,6 @@ from compressed_tensors.quantization.quant_args import (
 )
 from compressed_tensors.quantization.utils import is_fp4
 from compressed_tensors.registry.registry import RegistryMixin
-from compressed_tensors.utils import safe_permute
 from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
 
@@ -169,7 +168,7 @@ class Observer(InternalModule, RegistryMixin):
                     group_sizes = group_sizes[torch.argsort(group_indices)]
 
                     perm = torch.argsort(g_idx)
-                    observed = safe_permute(observed, perm, dim=1)
+                    observed = observed.index_select(dim=1, index=perm)
 
                 # TODO: experiment with vectorizing for loop for performance
                 end = 0
