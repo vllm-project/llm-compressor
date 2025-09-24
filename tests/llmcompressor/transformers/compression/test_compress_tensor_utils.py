@@ -44,7 +44,7 @@ from tests.testing_utils import requires_gpu
     ],
 )
 def test_sparse_model_reload(compressed, config, dtype, tmp_path):
-    recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
+    recipe_str = "tests/llmcompressor/transformers/sparsegpt/recipes/test_tiny2.yaml"
     expected_sparsity = 0.5
     model_path = "nm-testing/tinysmokellama-3.2"
     dataset = "open_platypus"
