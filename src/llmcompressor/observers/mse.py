@@ -154,7 +154,7 @@ class MovingAverageMSEObserver(Observer):
         a moving average smoothed by the averaging_constant.
 
         - Weights: global and local scales use MSE-optimized values.
-        - Activations: global scale uses MSE-optimized values, local scales use 
+        - Activations: global scale uses MSE-optimized values, local scales use
         min–max.
 
         :param observed: observed tensor to calculate quantization parameters for
