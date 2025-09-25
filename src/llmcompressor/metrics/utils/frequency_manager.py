@@ -1,3 +1,12 @@
+"""
+Frequency management utilities for metrics logging.
+
+Provides classes and functions for managing logging frequencies
+and determining when metrics should be recorded during training and
+compression workflows. Supports both epoch-based and step-based logging
+with configurable modes and intervals.
+"""
+
 from typing import Literal, Optional, Union
 
 __all__ = [

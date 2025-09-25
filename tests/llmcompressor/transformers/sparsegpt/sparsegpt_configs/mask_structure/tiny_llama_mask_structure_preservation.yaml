@@ -1,0 +1,9 @@
+cadence: "commit"
+test_type: "sanity"
+model: "nm-testing/tinysmokellama-3.2"
+dataset: open_platypus
+initial_pruning_only_recipe: "tests/llmcompressor/transformers/sparsegpt/recipes/sparse_with_mask_structure.yaml"
+initial_sparsity: 0.5
+recipe_mask_structure: "2:4"
+subsequent_prune_and_quant_recipe: "tests/llmcompressor/transformers/sparsegpt/recipes/additional_sparsity_with_quant.yaml"
+final_sparsity: 0.7

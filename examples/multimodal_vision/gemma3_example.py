@@ -32,8 +32,8 @@ recipe = [
         scheme="W4A16",
         ignore=[
             "lm_head",
-            "re:model\.vision_tower.*",
-            "re:model\.multi_modal_projector.*",
+            r"re:model\.vision_tower.*",
+            r"re:model\.multi_modal_projector.*",
         ],
     ),
 ]

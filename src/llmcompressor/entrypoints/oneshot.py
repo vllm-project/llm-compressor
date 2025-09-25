@@ -1,6 +1,15 @@
+"""
+Oneshot compression entrypoint for post-training model optimization.
+
+Provides the main oneshot compression entry point for applying
+quantization, pruning, and other compression techniques to pre-trained
+models without additional training. Supports calibration-based compression
+with various pipeline configurations for efficient model optimization.
+"""
+
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -125,7 +134,7 @@ class Oneshot:
         self.output_dir = output_dir
 
         # initialize the model and processor
-        pre_process(model_args)
+        pre_process(model_args, dataset_args, output_dir)
 
         # Set instance attributes
         self.model = self.model_args.model
@@ -221,6 +230,7 @@ def oneshot(
     dataset: Optional[Union[str, "Dataset", "DatasetDict"]] = None,
     dataset_config_name: Optional[str] = None,
     dataset_path: Optional[str] = None,
+    splits: Optional[Union[str, List, Dict]] = None,
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
     max_seq_length: int = 384,
@@ -279,6 +289,7 @@ def oneshot(
     :param dataset_config_name: The configuration name of the dataset
         to use.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
+    :param splits: Optional percentages of each split to download.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before

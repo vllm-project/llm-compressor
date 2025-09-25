@@ -1,13 +1,12 @@
 import os
-import shutil
-import unittest
 
 import pytest
+import torch
 from compressed_tensors.compressors import ModelCompressor
-from parameterized import parameterized_class
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForCausalLM
 
-from llmcompressor.transformers.sparsification.compressed_tensors_utils import (
+from llmcompressor import oneshot, train
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
     get_model_compressor,
 )
 from tests.testing_utils import parse_params, requires_gpu
@@ -18,109 +17,106 @@ GPU_CONFIGS_DIRECTORY = (
 )
 
 
-class TestOneshotAndFinetune(unittest.TestCase):
-    def _test_oneshot_and_finetune(self):
-        from llmcompressor import oneshot, train
+def _test_oneshot_and_finetune(
+    model, dataset, recipe, dataset_config_name, concat_txt, output, num_train_epochs
+):
+    splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
+    if dataset == "ultrachat-200k":
+        splits = {"train": "train_gen[:5%]", "calibration": "train_gen[5%:10%]"}
 
-        splits = {"train": "train[:5%]", "calibration": "train[5%:10%]"}
-        if self.dataset == "ultrachat-200k":
-            splits = {"train": "train_gen[:5%]", "calibration": "train_gen[5%:10%]"}
+    oneshot_args = dict(
+        dataset=dataset,
+        splits=splits,
+        recipe=recipe,
+        num_calibration_samples=64,
+        dataset_config_name=dataset_config_name,
+        concatenate_data=concat_txt,
+        output_dir=output,
+    )
 
-        oneshot_args = dict(
-            dataset=self.dataset,
-            splits=splits,
-            recipe=self.recipe,
-            num_calibration_samples=64,
-            dataset_config_name=self.dataset_config_name,
-            concatenate_data=self.concat_txt,
-            output_dir=self.output,
-        )
+    oneshot_model = oneshot(
+        model=model,
+        **oneshot_args,
+        stage="test_oneshot_stage",
+    )
 
-        oneshot_model = oneshot(
-            model=self.model,
-            **oneshot_args,
-            stage="test_oneshot_stage",
-        )
+    compressor = get_model_compressor(model=oneshot_model, save_compressed=True)
+    if compressor is not None:
+        compressor.decompress_model(oneshot_model)
 
-        compressor = get_model_compressor(model=oneshot_model, save_compressed=True)
-        if compressor is not None:
-            compressor.decompress_model(oneshot_model)
+    train_args = dict(
+        num_train_epochs=num_train_epochs,
+        precision="bfloat16",
+        bf16=True,
+    )
+    train(
+        model=oneshot_model,
+        **oneshot_args,
+        **train_args,
+        stage="test_train_stage",
+    )
 
-        train_args = dict(
-            num_train_epochs=self.num_train_epochs,
-            precision="bfloat16",
-            bf16=True,
-        )
-        train(
-            model=oneshot_model,
-            **oneshot_args,
-            **train_args,
-            stage="test_train_stage",
-        )
-
-        config_sparse_applied = ModelCompressor.parse_sparsity_config(
-            AutoConfig.from_pretrained(
-                os.path.join(self.output, "test_oneshot_stage")
-            ).quantization_config
-        )
-        config_finetune_applied = ModelCompressor.parse_sparsity_config(
-            AutoConfig.from_pretrained(
-                os.path.join(self.output, "test_train_stage")
-            ).quantization_config
-        )
-        # model is first sparsified, then finetuned, both should have the same sparsity
-        assert config_sparse_applied["global_sparsity"] == pytest.approx(
-            config_finetune_applied["global_sparsity"], abs=1e-5
-        )
-
-    def tearDown(self):
-        # TODO: we get really nice stats from finetune that we should log
-        # stored in results.json
-        if os.path.isdir(self.output):
-            shutil.rmtree(self.output)
+    config_sparse_applied = ModelCompressor.parse_sparsity_config(
+        AutoConfig.from_pretrained(
+            os.path.join(output, "test_oneshot_stage")
+        ).quantization_config
+    )
+    config_finetune_applied = ModelCompressor.parse_sparsity_config(
+        AutoConfig.from_pretrained(
+            os.path.join(output, "test_train_stage")
+        ).quantization_config
+    )
+    # model is first sparsified, then finetuned, both should have the same sparsity
+    assert config_sparse_applied["global_sparsity"] == pytest.approx(
+        config_finetune_applied["global_sparsity"], abs=1e-5
+    )
 
 
 @pytest.mark.integration
-@parameterized_class(parse_params(CONFIGS_DIRECTORY))
-class TestOneshotAndFinetuneSmall(TestOneshotAndFinetune):
-    model = None
-    dataset = None
-    recipe = None
-    dataset_config_name = None
-    num_train_epochs = None
-    concat_txt = None
+@pytest.mark.parametrize("config", parse_params(CONFIGS_DIRECTORY))
+def test_oneshot_and_finetune_small(config, tmp_path):
+    model = config["model"]
+    dataset = config["dataset"]
+    recipe = config["recipe"]
+    dataset_config_name = config.get("dataset_config_name")
+    num_train_epochs = config["num_train_epochs"]
+    concat_txt = config["concat_txt"]
+    output = tmp_path / "finetune_output"
 
-    def setUp(self):
-        import torch
-
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.output = "./finetune_output"
-
-    def test_oneshot_then_finetune_small(self):
-        self._test_oneshot_and_finetune()
+    _test_oneshot_and_finetune(
+        model,
+        dataset,
+        recipe,
+        dataset_config_name,
+        concat_txt,
+        output,
+        num_train_epochs,
+    )
 
 
 @requires_gpu
 @pytest.mark.integration
-@parameterized_class(parse_params(GPU_CONFIGS_DIRECTORY))
-class TestOneshotAndFinetuneGPU(TestOneshotAndFinetune):
-    model = None
-    dataset = None
-    recipe = None
-    dataset_config_name = None
-    num_train_epochs = None
-    concat_txt = None
+@pytest.mark.parametrize("config", parse_params(GPU_CONFIGS_DIRECTORY))
+def test_oneshot_and_finetune_gpu(config, tmp_path):
+    model = config["model"]
+    dataset = config["dataset"]
+    recipe = config["recipe"]
+    dataset_config_name = config.get("dataset_config_name")
+    num_train_epochs = config["num_train_epochs"]
+    concat_txt = config["concat_txt"]
+    output = tmp_path / "finetune_output"
 
-    def setUp(self):
-        import torch
-        from transformers import AutoModelForCausalLM
+    device = "cuda:0"
+    model = AutoModelForCausalLM.from_pretrained(
+        model, device_map=device, torch_dtype=torch.bfloat16
+    )
 
-        self.device = "cuda:0"
-        self.output = "./finetune_output"
-
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model, device_map=self.device, torch_dtype=torch.bfloat16
-        )
-
-    def test_oneshot_then_finetune_gpu(self):
-        self._test_oneshot_and_finetune()
+    _test_oneshot_and_finetune(
+        model,
+        dataset,
+        recipe,
+        dataset_config_name,
+        concat_txt,
+        output,
+        num_train_epochs,
+    )

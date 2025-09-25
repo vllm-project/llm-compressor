@@ -1,0 +1,14 @@
+cadence: "commit"
+test_type: "smoke"
+tokenize: False
+model: "nm-testing/tinysmokellama-3.2"
+dataset: open_platypus
+recipe: |
+  test_stage:
+    obcq_modifiers:
+      SparseGPTModifier:
+        sparsity: 0.5
+        block_size: 128
+        targets: [
+          're:model.layers.3.mlp.gate_proj.weight'
+        ]

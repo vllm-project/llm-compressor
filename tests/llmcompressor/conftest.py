@@ -5,6 +5,8 @@ from typing import List
 
 import pytest
 
+from llmcompressor.modifiers.factory import ModifierFactory
+
 try:
     import wandb
 except Exception:
@@ -15,9 +17,17 @@ os.environ["NM_TEST_MODE"] = "True"
 os.environ["NM_TEST_LOG_DIR"] = "nm_temp_test_logs"
 
 
-def _get_files(directory: str) -> List[str]:
+@pytest.fixture
+def setup_modifier_factory():
+    ModifierFactory.refresh()
+    assert ModifierFactory._loaded, "ModifierFactory not loaded"
+
+
+def _get_files(directory: str, ignore_dirs: List[str] = []) -> List[str]:
     list_filepaths = []
+    ignore_dirs = tuple(ignore_dirs)  # has to be a tuple for str.startswith
     for root, dirs, files in os.walk(directory):
+        dirs[:] = [dir_ for dir_ in dirs if not str(dir_).startswith(ignore_dirs)]
         for file in files:
             list_filepaths.append(os.path.join(os.path.abspath(root), file))
     return list_filepaths
@@ -38,8 +48,11 @@ def _files_size_mb(path_list: List[str]) -> int:
 
 @pytest.fixture(scope="session", autouse=True)
 def check_for_created_files():
-    start_files_root = _get_files(directory=r".")
-    start_files_temp = _get_files(directory=tempfile.gettempdir())
+    ignore_dirs = ["__pycache__", "sparse_logs"]
+    start_files_root = _get_files(directory=r".", ignore_dirs=ignore_dirs)
+    start_files_temp = _get_files(
+        directory=tempfile.gettempdir(), ignore_dirs=["pytest-of"]
+    )
     yield
     if wandb:
         wandb.finish()
@@ -48,10 +61,7 @@ def check_for_created_files():
         shutil.rmtree(log_dir)
 
     # allow creation of __pycache__ directories
-    end_files_root = [
-        f_path for f_path in _get_files(directory=r".") if "__pycache__" not in f_path
-    ]
-    end_files_temp = _get_files(directory=tempfile.gettempdir())
+    end_files_root = _get_files(directory=r".", ignore_dirs=ignore_dirs)
     # assert no files created in root directory while running
     # the pytest suite
     assert len(start_files_root) >= len(end_files_root), (
@@ -62,12 +72,11 @@ def check_for_created_files():
     )
 
     max_allowed_sized_temp_files_megabytes = 1
-    end_files_temp = _get_files(directory=tempfile.gettempdir())
-    created_temp_files = set(end_files_temp) - set(start_files_temp)
     # pytest temp files are automatically deleted, exclude from size calculation
-    created_temp_files = [
-        f_path for f_path in created_temp_files if "pytest-of" not in f_path
-    ]
+    end_files_temp = _get_files(
+        directory=tempfile.gettempdir(), ignore_dirs=["pytest-of"]
+    )
+    created_temp_files = set(end_files_temp) - set(start_files_temp)
 
     # assert no more than 1 megabyte of temp files created in temp directory
     # while running the pytest suite (excluding files created by pytest)

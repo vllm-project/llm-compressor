@@ -1,3 +1,12 @@
+"""
+Utility functions for metrics logging and GPU memory monitoring.
+
+This module provides functions for tracking GPU memory usage, measuring model
+layer sizes, and comprehensive logging during compression workflows.
+Supports both NVIDIA and AMD GPU monitoring with detailed memory
+statistics and performance metrics.
+"""
+
 import time
 from typing import List, Tuple
 
