@@ -274,6 +274,6 @@ class MovingAverageMSEObserver(Observer):
         updated_min_val, updated_max_val = self.calculate_updated_min_max(
             observed=observed
         )
-        
+
         return generate_gparam(
             updated_min_val=updated_min_val, updated_max_val=updated_max_val)
