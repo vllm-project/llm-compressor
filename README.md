@@ -22,6 +22,15 @@
    <img alt="LLM Compressor Flow" src="https://github.com/user-attachments/assets/adf07594-6487-48ae-af62-d9555046d51b" width="80%" />
 </p>
 
+---
+
+💬 Join us on the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack) and share your questions, thoughts, or ideas in:  
+
+- `#sig-quantization`  
+- `#llm-compressor`  
+
+---
+
 ## 🚀 What's New!
 
 Big updates have landed in LLM Compressor! To get a more in-depth look, check out the [deep-dive](https://x.com/RedHat_AI/status/1937865425687093554).
