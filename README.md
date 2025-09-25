@@ -24,10 +24,10 @@
 
 ---
 
-💬 Join us on the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack) and share your questions, thoughts, or ideas in:  
+💬 Join us on the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack) and share your questions, thoughts, or ideas in:
 
-- `#sig-quantization`  
-- `#llm-compressor`  
+- `#sig-quantization`
+- `#llm-compressor`
 
 ---
 
