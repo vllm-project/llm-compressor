@@ -44,7 +44,6 @@ class MovingAverageMSEObserver(Observer):
         self.norm = norm
         self.is_activation = base_name != "weight"
 
-
     def calculate_mse_min_max(
         self,
         observed: Tensor,
@@ -88,7 +87,7 @@ class MovingAverageMSEObserver(Observer):
 
             from compressed_tensors.quantization.utils import generate_gparam
 
-            if(is_fp4(self.quantization_args)) and global_scale is None:
+            if (is_fp4(self.quantization_args)) and global_scale is None:
                 # If the quantization scheme is fp4 and global_scale is still None
                 # i.e it has not yet been optimized, then we are should first get
                 # the global scale and then optimize the local scales.
@@ -147,7 +146,7 @@ class MovingAverageMSEObserver(Observer):
         reduce_dims: Optional[Tuple[int]] = None,
         tensor_id: Optional[Any] = None,
         global_scale: Optional[torch.Tensor] = None,
-        is_local: Optional[bool]= False,
+        is_local: Optional[bool] = False,
     ) -> Tuple[FloatTensor, IntTensor]:
         """
         Updates the mse-clipped min and max values of the observed tensor using
@@ -258,7 +257,6 @@ class MovingAverageMSEObserver(Observer):
         self.min_val = {}
         self.max_val = {}
 
-
     def calculate_gparam(self, observed: Tensor) -> torch.Tensor:
         """
         Generate a global scale using the observed min and max from MSE optimization.
@@ -276,4 +274,5 @@ class MovingAverageMSEObserver(Observer):
         )
 
         return generate_gparam(
-            updated_min_val=updated_min_val, updated_max_val=updated_max_val)
+            updated_min_val=updated_min_val, updated_max_val=updated_max_val
+        )
