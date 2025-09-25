@@ -101,7 +101,7 @@ def test_oneshot_and_finetune_gpu(config, tmp_path):
     model = config["model"]
     dataset = config["dataset"]
     recipe = config["recipe"]
-    dataset_config_name = config["dataset_config_name"]
+    dataset_config_name = config.get("dataset_config_name")
     num_train_epochs = config["num_train_epochs"]
     concat_txt = config["concat_txt"]
     output = tmp_path / "finetune_output"
