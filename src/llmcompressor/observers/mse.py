@@ -89,8 +89,8 @@ class MovingAverageMSEObserver(Observer):
             from compressed_tensors.quantization.utils import generate_gparam
 
             if(is_fp4(self.quantization_args)) and global_scale is None:
-                # If the quantization scheme is fp4 and global_scale is still None 
-                # i.e it has not yet been optimized, then we are should first get 
+                # If the quantization scheme is fp4 and global_scale is still None
+                # i.e it has not yet been optimized, then we are should first get
                 # the global scale and then optimize the local scales.
                 # Local scales are set to by the absolute min and max.
                 iteration_global_scale = generate_gparam(
@@ -99,7 +99,8 @@ class MovingAverageMSEObserver(Observer):
                 iteration_min_val = absolute_min_val
                 iteration_max_val = absolute_max_val
             else:
-                # Otherwise, we are optimizing local scales and use the shrinked min and max
+                # Otherwise, we are optimizing local scales and use the shrinked
+                # min and max
                 iteration_min_val = shrinked_min_val
                 iteration_max_val = shrinked_max_val
                 iteration_global_scale = global_scale
@@ -152,8 +153,9 @@ class MovingAverageMSEObserver(Observer):
         Updates the mse-clipped min and max values of the observed tensor using
         a moving average smoothed by the averaging_constant.
 
-        - Weights: global and local scales use MSE-optimized values.  
-        - Activations: global scale uses MSE-optimized values, local scales use min–max.  
+        - Weights: global and local scales use MSE-optimized values.
+        - Activations: global scale uses MSE-optimized values, local scales use 
+        min–max.
 
         :param observed: observed tensor to calculate quantization parameters for
         :param reduce_dims: optional tuple of dimensions to reduce along,
@@ -165,7 +167,8 @@ class MovingAverageMSEObserver(Observer):
         :return: updated min and max values derived from the observed value
         """
 
-        # Skip local scales updates for dynamic activations (this will happen at runtime)
+        # Skip local scales updates for dynamic activations (this will happen at
+        # runtime)
         if self.is_activation and is_local:
             # Activations local scales: min–max
             min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
@@ -255,19 +258,22 @@ class MovingAverageMSEObserver(Observer):
         self.min_val = {}
         self.max_val = {}
 
- 
+
     def calculate_gparam(self, observed: Tensor) -> torch.Tensor:
         """
         Generate a global scale using the observed min and max from MSE optimization.
 
-        - Weights: global scale is computed with standard MSE optimization.  
-        - Activations: global scale is computed with dynamic MSE-based scaling.  
+        - Weights: global scale is computed with standard MSE optimization.
+        - Activations: global scale is computed with dynamic MSE-based scaling.
 
         :param observed: observed tensor to calculate quantization parameters for
         :return: updated global scale derived from the observed tensor
         """
         from compressed_tensors.quantization.utils import generate_gparam
 
-        updated_min_val, updated_max_val = self.calculate_updated_min_max(observed=observed)
+        updated_min_val, updated_max_val = self.calculate_updated_min_max(
+            observed=observed
+        )
         
-        return generate_gparam(updated_min_val=updated_min_val, updated_max_val=updated_max_val)
+        return generate_gparam(
+            updated_min_val=updated_min_val, updated_max_val=updated_max_val)
