@@ -51,10 +51,8 @@ def get_calib_dataset(tokenizer):
 
 
 if __name__ == "__main__":
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID, torch_dtype="auto", trust_remote_code=True
-    )
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
     ###
     ### Apply algorithms.
@@ -66,11 +64,7 @@ if __name__ == "__main__":
         max_seq_length=MAX_SEQUENCE_LENGTH,
         num_calibration_samples=NUM_CALIBRATION_SAMPLES,
         log_dir=None,
-        trust_remote_code_model=True,
     )
-
-    model.save_pretrained(SAVE_DIR)
-    tokenizer.save_pretrained(SAVE_DIR)
 
     # Confirm generations of the quantized model look sane.
     print("========== SAMPLE GENERATION ==============")
@@ -78,6 +72,10 @@ if __name__ == "__main__":
     input_ids = tokenizer(
         "Write a binary search function", return_tensors="pt"
     ).input_ids.to(model.device)
-    output = model.generate(input_ids, max_new_tokens=100)
+    output = model.generate(input_ids, max_new_tokens=150)
     print(tokenizer.decode(output[0]))
     print("==========================================\n\n")
+
+    # Save model to disk
+    model.save_pretrained(SAVE_DIR)
+    tokenizer.save_pretrained(SAVE_DIR)
