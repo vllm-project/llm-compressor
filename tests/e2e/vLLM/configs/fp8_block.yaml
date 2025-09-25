@@ -1,0 +1,5 @@
+cadence: "nightly"
+test_type: "regression"
+model: Qwen/Qwen2.5-0.5B
+scheme: FP8_BLOCK
+recipe: tests/e2e/vLLM/recipes/FP8/recipe_fp8_block.yaml
