@@ -31,9 +31,11 @@ MAX_SEQUENCE_LENGTH = 2048
 def data_collator(batch):
     assert len(batch) == 1
     return {
-        key: torch.tensor(value)
-        if key != "pixel_values"
-        else torch.tensor(value, dtype=model.dtype)
+        key: (
+            torch.tensor(value)
+            if key != "pixel_values"
+            else torch.tensor(value, dtype=model.dtype)
+        )
         for key, value in batch[0].items()
     }
 
@@ -43,7 +45,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        ignore=["re:.*lm_head", "re:.*vision_tower.*", "re:.*multi_modal_projector.*"],
     ),
 ]
 
