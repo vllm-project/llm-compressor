@@ -5,7 +5,7 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.core.state import State
-from llmcompressor.modifiers.obcq import SparseGPTModifier
+from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 
 
 @pytest.fixture

@@ -9,8 +9,12 @@ from llmcompressor import oneshot
 from llmcompressor.pytorch.utils.helpers import tensor_sparsity
 from tests.testing_utils import parse_params, requires_gpu
 
-CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/sparse"
-GPU_CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/obcq/obcq_configs/sparse/gpu"
+CONFIGS_DIRECTORY = (
+    "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/sparse"
+)
+GPU_CONFIGS_DIRECTORY = (
+    "tests/llmcompressor/transformers/sparsegpt/sparsegpt_configs/sparse/gpu"
+)
 
 
 @pytest.fixture
