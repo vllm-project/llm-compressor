@@ -1,0 +1,7 @@
+cadence: "commit"
+test_type: "smoke"
+tokenize: False
+model: "nm-testing/tinysmokellama-3.2"
+dataset: "gsm8k"
+dataset_config_name: "main"
+recipe: "tests/llmcompressor/transformers/oneshot/oneshot_configs/recipes/recipe.yaml"

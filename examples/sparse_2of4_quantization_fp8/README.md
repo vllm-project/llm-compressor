@@ -57,7 +57,6 @@ recipe = [
     SparseGPTModifier(
         sparsity=0.5,
         mask_structure="2:4",
-        sequential_update=True,
         targets=[r"re:model.layers.\d*$"],
     )
 ]

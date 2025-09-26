@@ -1,4 +1,0 @@
-cadence: "commit"
-test_type: "regression"
-model_stub: "nm-testing/llama2.c-stories15M"
-new_recipe: "tests/llmcompressor/transformers/compression/recipes/new_quant_weight.yaml"

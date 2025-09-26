@@ -804,3 +804,8 @@ wandb/
 timings/
 output_finetune/
 env_log.json
+
+# uv artifacts
+uv.lock
+.venv/
+

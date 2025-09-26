@@ -101,10 +101,10 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/oneshot
-      - name: Running OBCQ Tests
+      - name: Running SparseGPT Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/obcq
+          pytest -v tests/llmcompressor/transformers/sparsegpt
       - name: Running Tracing Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |

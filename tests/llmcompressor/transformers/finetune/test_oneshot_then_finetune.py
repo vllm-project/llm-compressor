@@ -12,9 +12,9 @@ def test_oneshot_sparsification_then_finetune(tmp_path):
     output = tmp_path / "finetune_output"
     quantization_config = CompressedTensorsConfig(run_compressed=False)
 
-    recipe_str = "tests/llmcompressor/transformers/obcq/recipes/test_tiny2.yaml"
+    recipe_str = "tests/llmcompressor/transformers/sparsegpt/recipes/test_tiny2.yaml"
     model = AutoModelForCausalLM.from_pretrained(
-        "nm-testing/llama2.c-stories15M", torch_dtype="auto"
+        "nm-testing/tinysmokellama-3.2", torch_dtype="auto"
     )
     dataset = "open_platypus"
     concatenate_data = False
@@ -42,7 +42,7 @@ def test_oneshot_sparsification_then_finetune(tmp_path):
         quantization_config=quantization_config,
     )
     distill_teacher = AutoModelForCausalLM.from_pretrained(
-        "nm-testing/llama2.c-stories15M", torch_dtype="auto"
+        "nm-testing/tinysmokellama-3.2", torch_dtype="auto"
     )
     dataset = "open_platypus"
     concatenate_data = False
@@ -92,7 +92,6 @@ def test_oneshot_sparsification_then_finetune(tmp_path):
             concatenate_data=concatenate_data,
             splits=splits,
             recipe=recipe,
-            resume_from_checkpoint=True,  # use last checkpoint
         )
 
 
@@ -158,5 +157,4 @@ def test_oneshot_quantization_then_finetune(tmp_path):
             concatenate_data=concatenate_data,
             splits=splits,
             num_train_epochs=0.05,
-            resume_from_checkpoint=True,  # use last checkpoint
         )
