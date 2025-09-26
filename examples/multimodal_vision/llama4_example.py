@@ -15,8 +15,10 @@ processor = Llama4Processor.from_pretrained(model_id)
 #
 # NOTE: This restructuring is specifically required for vLLM compatibility
 # Users can customize the calibration behavior as needed by modifying the
-# To define custom calibration logic, implement your function in modeling/llama4.py (e.g., `SequentialLlama4TextMoe`).
-# Then, update `MOE_EXPERTS_REPLACEMENT` in prepare.py to reference your custom function.
+# To define custom calibration logic, implement your function in
+# modeling/llama4.py (e.g., `SequentialLlama4TextMoe`).
+# Then, update `MOE_EXPERTS_REPLACEMENT` in prepare.py to reference your
+# custom function.
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 512
