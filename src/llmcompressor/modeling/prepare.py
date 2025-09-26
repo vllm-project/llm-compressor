@@ -62,7 +62,7 @@ moe_context = {
 def moe_calibration_context(
     model: PreTrainedModel,
     stack,
-    calibrate_all_experts: bool = False,
+    calibrate_all_experts: bool = True,
 ):
     # Temporarily updates the MoE modules within the context
     # Once the context exists, parameter updates persist
