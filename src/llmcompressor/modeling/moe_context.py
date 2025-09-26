@@ -2,8 +2,8 @@
 Standardized interface for MoE model calibration.
 MoE calibration context is used to apply MoE calibration modifications to the model.
 There are two types of MoE calibration contexts:
-1. ContextualMoECalibration: uses context managers for temporary modifications
-2. PermanentMoECalibration: permanently modifies the model
+1. ContextualMoECalibration: uses context managers for temporary modifications and restores the model to its original state after pipeline execution
+2. PermanentMoECalibration: permanently modifies the model and stays in its modified form after pipeline execution
 """
 
 import contextlib
@@ -41,7 +41,8 @@ class MoEModelConfig:
         calibration_type: Type of calibration - MoECalibrationType.PERMANENT or
             MoECalibrationType.CONTEXTUAL
         target_class_name: The class name of the MoE module to replace
-        replace_function: Function that creates the replacement module
+        replace_function: Function that creates the replacement module, 
+            generally defined in modeling/model_name.py
         target_attribute: For contextual calibration, the attribute to replace
         description: Optional description of the model configuration
     """
