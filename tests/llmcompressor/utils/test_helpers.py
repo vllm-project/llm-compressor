@@ -189,7 +189,7 @@ def test_patch_attr():
     "model_cls,model_stub",
     [
         (MllamaForConditionalGeneration, "meta-llama/Llama-3.2-11B-Vision-Instruct"),
-        (AutoModelForCausalLM, "nm-testing/llama2.c-stories15M"),
+        (AutoModelForCausalLM, "nm-testing/tinysmokellama-3.2"),
     ],
 )
 def test_disable_cache(model_cls, model_stub):

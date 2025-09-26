@@ -12,7 +12,7 @@ processor = Llama4Processor.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.
 # The `SequentialLlama4TextMoe` modules will be applied during calibration
 # to enable proper expert calibration and vLLM compatibility.
-# 
+#
 # NOTE: This restructuring is specifically required for vLLM compatibility
 # Users can customize the calibration behavior as needed by modifying the
 # To define custom calibration logic, implement your function in modeling/llama4.py (e.g., `SequentialLlama4TextMoe`).

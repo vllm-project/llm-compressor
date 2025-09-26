@@ -12,8 +12,8 @@ from loguru import logger
 
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
-from tests.examples.utils import requires_gpu_count
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
+from tests.testing_utils import requires_gpu
 
 HF_MODEL_HUB_NAME = "nm-testing"
 
@@ -35,7 +35,7 @@ EXPECTED_SAVED_FILES = [
 
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
-@requires_gpu_count(1)
+@requires_gpu(1)
 @pytest.mark.parametrize(
     "test_data_file", [pytest.param(TEST_DATA_FILE, id=TEST_DATA_FILE)]
 )

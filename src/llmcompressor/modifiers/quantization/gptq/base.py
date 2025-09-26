@@ -1,5 +1,4 @@
 import contextlib
-import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
@@ -13,10 +12,11 @@ from compressed_tensors.utils import (
     align_module_device,
     get_execution_device,
     getattr_chain,
+    match_named_modules,
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr, field_validator
+from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -107,7 +107,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     # gptq modifier arguments
-    sequential_update: bool = True  # DEPRECATED
     sequential_targets: Union[str, List[str], None] = None
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
@@ -161,7 +160,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(self, state.model)
 
         # prepare module names
-        self._module_names = {m: name for name, m in state.model.named_modules()}
+        self._module_names = {
+            m: name
+            for name, m in match_named_modules(state.model, self.targets, self.ignore)
+        }
 
         return True
 
@@ -174,7 +176,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # register gptq hooks
         added_hook = False
-        for module in state.model.modules():
+        for _, module in match_named_modules(state.model, self.targets, self.ignore):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
@@ -306,14 +308,3 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if self.offload_hessians:
             if module in self._hessians:  # may have been deleted in context
                 self._hessians[module] = self._hessians[module].to(device="cpu")
-
-    @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value: bool) -> bool:
-        if not value:
-            warnings.warn(
-                "`sequential_update=False` is no longer supported, setting "
-                "sequential_update=True",
-                DeprecationWarning,
-            )
-
-        return True
