@@ -12,7 +12,7 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 # NOTE: currently only rotations R1, R2, and R4 are available
-# Learned rotations and R3 will be added in a future release.
+# R3 and learned R1/R2 rotations will be added in a future release.
 # Configure the quantization algorithm to run.
 #   * apply spinquant transforms to model to reduce quantization loss
 #   * quantize the weights to 4 bit with group size 128
