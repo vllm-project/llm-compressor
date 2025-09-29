@@ -11,4 +11,3 @@ quant_stage:
             strategy: "group"
             group_size: 128
           targets: ["Linear"]
-          
