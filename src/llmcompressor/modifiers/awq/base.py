@@ -3,7 +3,7 @@ import warnings
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
-from compressed_tensors.quantization import disable_quantization
+from compressed_tensors.quantization import QuantizationType, disable_quantization
 from compressed_tensors.utils import (
     align_modules,
     get_execution_device,
@@ -126,6 +126,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during validation
     _num_bits: Optional[int] = PrivateAttr(default=None)
+    _activation_bits: int = PrivateAttr(default=16)
     _symmetric: Optional[bool] = PrivateAttr(default=None)
     _group_size: Optional[int] = PrivateAttr(default=None)
 
@@ -189,6 +190,18 @@ class AWQModifier(Modifier, QuantizationMixin):
             if act is not None
         }
         if not (len(num_bits_set) == 0 or num_bits_set == {16}):
+            num_bits_type = {
+                act.type
+                for group in config.config_groups.values()
+                for act in (group.input_activations, group.output_activations)
+                if act is not None
+            }
+            assert (
+                next(iter(num_bits_type)) == QuantizationType.FLOAT
+            ), "In AWQ, lower-precision activation quantization must be float"
+
+            model._activation_bits = next(iter(num_bits_set))
+
             warnings.warn(
                 "A strategy including activation quantization was detected. "
                 "AWQ was originally intended for weight-only quantization. "
@@ -612,16 +625,26 @@ class AWQModifier(Modifier, QuantizationMixin):
             # Q(W * s)
             for linear in linears2scale:
                 linear.weight.mul_(_scalesview)
-                update_offload_parameter(
-                    linear,
-                    "weight",
+                scaled_weight = (
                     _pseudo_quantize_tensor(
                         w=linear.weight.data,
                         symmetric=self._symmetric,
                         bit_width=self._num_bits,
                         group_size=self._group_size,
                     )[0]
-                    / _scalesview,
+                    / _scalesview
+                )
+
+                # fp8 activation simulation
+                if self._activation_bits == 8:
+                    scaled_weight = scaled_weight.to(torch.float8_e4m3fn).to(
+                        torch.float16
+                    )
+
+                update_offload_parameter(
+                    linear,
+                    "weight",
+                    scaled_weight,
                 )
 
             # W * X
