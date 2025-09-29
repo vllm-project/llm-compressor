@@ -52,6 +52,7 @@ from compressed_tensors.utils import (
     get_offloaded_device,
     get_safetensors_folder,
     has_offloaded_params,
+    merge_names,
     patch_attr,
     register_offload_parameter,
     update_parameter_data,
@@ -342,6 +343,61 @@ class ModelCompressor:
                 ] = BaseCompressor.load_from_registry(
                     format, config=quantization_config
                 )
+
+    def get_unexpected_file_keys(self, model: Module) -> List[str]:
+        """
+        Identifies extra keys introduced by the compression process in the
+        compressed state_dict that are not expected by the model graph.
+
+        During sparsity or quantization compression, additional metadata or
+        auxiliary parameters may be stored in the checkpoint, which do not
+        correspond to any parameter in the original model. These keys are
+        typically introduced to support the reconstruction of compressed weights.
+
+        For example, Sparse24Bitmask compression may introduce keys such as
+        'compressed', 'bitmask', and 'shape' in the checkpoint, which are
+        not part of the original model parameters.
+
+        :param model: The PyTorch model to check for unexpected keys.
+        :return: A list of extra keys introduced by the compression process
+                that are not expected by the model.
+        """
+
+        unexpected_keys = set()
+
+        # Identify unexpected keys from sparsity compression
+        if (
+            self.sparsity_compressor
+            and self.sparsity_config.format != CompressionFormat.dense.value
+        ):
+            sparse_targets = match_named_modules(
+                model=model,
+                targets=self.sparsity_config.targets,
+                ignore=self.sparsity_config.ignore,
+            )
+            unexpected_keys.update(
+                merge_names(target_name, param)
+                for target_name, _module in sparse_targets
+                for param in self.sparsity_compressor.compression_param_names
+            )
+
+        # Identify unexpected keys from quantization compression
+        if self.quantization_compressor:
+            for scheme in self.quantization_config.config_groups.values():
+                quant_targets = match_named_modules(
+                    model=model,
+                    targets=scheme.targets,
+                    ignore=self.quantization_config.ignore,
+                )
+                for quant_compressor in self.quantization_compressor.values():
+                    unexpected_keys.update(
+                        merge_names(target_name, param)
+                        for target_name, _module in quant_targets
+                        for param in quant_compressor.compression_param_names
+                        if param != "weight"
+                    )
+
+        return list(unexpected_keys)
 
     # ----- model memory compression/decompression pathways ----- #
 
