@@ -69,7 +69,7 @@ recipe = GPTQModifier(
         "re:.*lm_head",
         "re:.*self_attn",
         "re:.*router",
-        "re:vision_model.*",
+        "re:.*vision_model.*",
         "re:.*multi_modal_projector.*",
         "Llama4TextAttention",
     ],
