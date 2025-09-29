@@ -1,6 +1,10 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationType,
+)
 from pydantic import ValidationError
 
 from llmcompressor.modifiers.awq import AWQMapping, AWQModifier
@@ -154,6 +158,25 @@ def test_validate():
             }
         )
 
+    with pytest.raises(ValidationError):
+        AWQModifier(
+            config_groups={
+                "group_0": QuantizationScheme(
+                    targets=["Linear"],
+                    weights=QuantizationArgs(
+                        num_bits=4,
+                        group_size=128,
+                    ),
+                    input_activations=QuantizationArgs(
+                        num_bits=8, type=QuantizationType.INT
+                    ),
+                    output_activations=QuantizationArgs(
+                        num_bits=8, type=QuantizationType.INT
+                    ),
+                ),
+            }
+        )
+
     # valid configuration
     AWQModifier(
         config_groups={
@@ -164,6 +187,16 @@ def test_validate():
             "group_1": QuantizationScheme(
                 targets=["Linear"],
                 weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
+            ),
+            "group_2": QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(num_bits=4, group_size=128, symmetric=False),
+                input_activations=QuantizationArgs(
+                    num_bits=8, type=QuantizationType.FLOAT
+                ),
+                output_activations=QuantizationArgs(
+                    num_bits=8, type=QuantizationType.FLOAT
+                ),
             ),
         }
     )
