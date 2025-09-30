@@ -36,12 +36,11 @@ def tensors():
 
 
 @pytest.fixture
-def llama_model(tmp_path):
-    model_name = "neuralmagic/llama2.c-stories110M-pruned50"
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, torch_dtype="auto", cache_dir=tmp_path
+def llama_model():
+    return AutoModelForCausalLM.from_pretrained(
+        "RedHatAI/llama2.c-stories110M-pruned50",
+        torch_dtype="auto",
     )
-    yield model
 
 
 def test_save_compressed_sparse_bitmask(tmp_path, tensors):
@@ -120,9 +119,9 @@ def test_load_compressed_dense(tmp_path, tensors):
 
 
 def test_load_compressed_sharded(tmp_path, llama_model):
-    sharded_model_path = tmp_path / "shared_model"
+    sharded_model_path = tmp_path / "sharded_model"
     llama_model.save_pretrained(sharded_model_path, max_shard_size="2MB")
-    # make sure that model is shared on disk
+    # make sure that model is sharded on disk
     assert len(os.listdir(sharded_model_path)) > 1
     loaded_state_dict = dict(load_compressed(sharded_model_path))
     for key, value in llama_model.state_dict().items():

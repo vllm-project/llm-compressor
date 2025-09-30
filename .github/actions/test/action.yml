@@ -9,8 +9,7 @@ inputs:
     required: true
   code_coverage:
     description: whether to collect code coverage metrics during test run
-    type: boolean
-    default: false
+    default: 'false'
 outputs:
   status:
     description: "final status from test"
@@ -51,7 +50,7 @@ runs:
 
           if [[ "${ENABLE_COVERAGE}" == "true" ]]; then
             echo "::group::Installing code coverage requirements via pip"
-            pip install bashlex https://github.com/neuralmagic/pytest-nm-releng/archive/v0.4.0.tar.gz
+            pip install https://github.com/neuralmagic/pytest-nm-releng/archive/v0.4.0.tar.gz
             pip install coverage pytest-cov
 
             # Adding Code coverage to the tests
@@ -76,7 +75,7 @@ runs:
             fi
             echo "::endgroup::"
           fi
-          
+
           deactivate
           exit ${SUCCESS}
       shell: bash

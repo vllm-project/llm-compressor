@@ -71,6 +71,9 @@ jobs:
             contents: 'read'
             id-token: 'write'
             pages: 'write'
+        env:
+            HF_HOME: /model-cache
+            HF_TOKEN: ${{ secrets.NM_HF_TOKEN_READ_ONLY }}
         environment:
             name: github-pages
             url: ${{ steps.coverage.outputs.page_url }}
@@ -90,13 +93,9 @@ jobs:
                   python-version: ${{ inputs.python }}
 
             - name: install system dependencies
-              run: |
-                if command -v g++ >/dev/null 2>&1; then
-                  echo "found g++ compiler"
-                else
-                   echo "installing g++ etc compilers..."
-                   sudo apt update && sudo apt install -y g++ gcc
-                fi
+              run: |-
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends g++ gcc make
               shell: bash
 
             - name: checkout code
