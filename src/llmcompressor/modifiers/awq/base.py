@@ -139,8 +139,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         default_factory=dict
     )
 
+    # NOTE: different name chosen to avoid collision with
+    # QuantizationMixin.validate_model_after, which must be called first
     @model_validator(mode="after")
-    def validate_model_after(model: "AWQModifier") -> "AWQModifier":
+    def validate_awq_after(model: "AWQModifier") -> "AWQModifier":
         """
         Confirm only one configuration for group_size, symmetric, and num_bits,
         as AWQ algorithm depends on it
