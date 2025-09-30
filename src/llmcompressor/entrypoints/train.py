@@ -27,7 +27,7 @@ from .utils import post_process, pre_process
     message=(
         "Training support will be removed in future releases. Please use "
         "the llmcompressor Axolotl integration for fine-tuning "
-        "https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open "  # noqa: E501
+        "https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open"  # noqa: E501
     )
 )
 def train(**kwargs) -> PreTrainedModel:
