@@ -135,7 +135,7 @@ class QuIPModifier(Modifier):
     def _create_v_scheme(self) -> TransformScheme:
         return TransformScheme(
             type=self.transform_type,
-            block_size=self.transform_block_size,
+            head_dim=self.transform_block_size,
             apply=[
                 TransformArgs(
                     targets=self.targets,
@@ -157,7 +157,7 @@ class QuIPModifier(Modifier):
     def _create_u_scheme(self) -> TransformScheme:
         return TransformScheme(
             type=self.transform_type,
-            block_size=self.transform_block_size,
+            head_dim=self.transform_block_size,
             apply=[
                 TransformArgs(
                     targets=self.targets,
