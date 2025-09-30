@@ -150,9 +150,9 @@ def test_perplexity(setup_model_and_config):
         if total_samples >= config["num_eval"]:
             break
         # -100 in labels indicates that the token is not part of the loss calculation
-        pct_labels_in_sample = (sample['labels'] != -100).to(torch.float).mean().item()
+        pct_labels_in_sample = (sample["labels"] != -100).to(torch.float).mean().item()
         if pct_labels_in_sample <= 0.25:
-            # At least 25% of the tokens in the sample must be part of the loss calculation
+            # At least 25% of the tokens in the sample must be part of loss calculation
             # otherwise the perplexity is too volatile and can skew the results
             continue
         output = model(**tensors_to_device(sample, "cuda:0"))
