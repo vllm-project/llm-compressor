@@ -145,15 +145,19 @@ def test_perplexity(setup_model_and_config):
     dispatch_for_generation(model)
 
     total_ppl = 0.0
-    total_non_nan = 0
-    for idx, sample in enumerate(dataloader):
-        if idx >= config["num_eval"]:
+    total_samples = 0
+    for sample in dataloader:
+        if total_samples >= config["num_eval"]:
             break
-        output = model(**tensors_to_device(sample, "cuda:0"))
-        if torch.isnan(output.loss):
+        # -100 in labels indicates that the token is not part of the loss calculation
+        pct_labels_in_sample = (sample["labels"] != -100).to(torch.float).mean().item()
+        if pct_labels_in_sample <= 0.25:
+            # At least 25% of the tokens in the sample must be part of loss calculation
+            # otherwise the perplexity is too volatile and can skew the results
             continue
+        output = model(**tensors_to_device(sample, "cuda:0"))
         total_ppl += torch.exp(output.loss).item()
-        total_non_nan += 1
+        total_samples += 1
 
-    avg_ppl = total_ppl / total_non_nan
+    avg_ppl = total_ppl / total_samples
     assert avg_ppl <= config["ppl_threshold"]
