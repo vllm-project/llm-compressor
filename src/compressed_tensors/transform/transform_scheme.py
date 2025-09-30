@@ -17,7 +17,7 @@ from typing import List, Optional
 import torch
 from compressed_tensors.transform import TransformArgs
 from compressed_tensors.utils import TorchDtype
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 __all__ = ["TransformScheme"]
@@ -36,8 +36,11 @@ class TransformScheme(BaseModel):
     :param randomize: True if uniquely randomized transform weights should be used,
         otherwise use identical transform weights where applicable
     :param requires_grad: True if weights include gradients for training
-    :param block_size: If set, the transform matrix will be block diagonal, with each
-        block being a square matrix of this size.
+    :param head_dim: If set, the transform matrix will be block diagonal with each
+        block being a square matrix of this size. The name head_dim was chosen because
+        some rotations need to be block-diagonal with block size equal to the head_dim,
+        but research has shown value in applying some rotations with smaller block size,
+        irrespective of head_dim.
     :param precision: Precision at which this transform should be applied during online
         rotations. Fused (offline) rotations are always performed in float64
     """
@@ -46,21 +49,7 @@ class TransformScheme(BaseModel):
     apply: List[TransformArgs] = Field(default_factory=list)
     randomize: bool = Field(default=False)
     requires_grad: bool = Field(default=False)
-    block_size: Optional[int] = Field(default=None)
-    head_dim: Optional[int] = Field(
-        default=None, deprecated="head_dim is deprecated, use block_size instead"
-    )
+    head_dim: Optional[int] = Field(default=None)
     precision: TorchDtype = Field(default=torch.float32)
-
-    @model_validator(mode="after")
-    def validate_model_after(model: "TransformScheme") -> "TransformScheme":
-        """
-        If head_dim is used instead of block_size, set block_size to head_dim
-        and remove head_dim
-        """
-        if model.block_size is None and model.head_dim is not None:
-            model.block_size = model.head_dim
-            model.head_dim = None
-        return model
 
     model_config = ConfigDict(extra="forbid")

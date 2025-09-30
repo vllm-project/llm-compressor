@@ -51,7 +51,7 @@ class RandomMatrixFactory(TransformFactory):
         :param args: defines how the transform will be applied to the module
         """
         assert hasattr(module, "weight")
-        size = get_transform_size(module, args.location, self.scheme.block_size)
+        size = get_transform_size(module, args.location, self.scheme.head_dim)
         device = get_offloaded_device(module)
         precision = self.scheme.precision if args.is_online() else torch.float64
 
