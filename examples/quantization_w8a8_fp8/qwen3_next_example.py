@@ -12,7 +12,7 @@ model = AutoModelForCausalLM.from_pretrained(
     torch_dtype="auto",
     device_map="auto",  # Use device_map for large model
     low_cpu_mem_usage=True,
-    trust_remote_code=True
+    trust_remote_code=True,
 )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
@@ -24,8 +24,8 @@ recipe = QuantizationModifier(
         "re:.*mlp.gate$",
         "re:.*mlp.shared_expert_gate$",
         "re:.*linear_attn.*",
-        "re:.*self_attn.*"
-    ]
+        "re:.*self_attn.*",
+    ],
 )
 
 # Apply quantization.
