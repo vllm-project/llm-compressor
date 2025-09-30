@@ -21,7 +21,9 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 #   * apply quip transforms to model in order to make quantization easier
 #   * quantize the weights to 4 bit with a group size 128
 recipe = [
-    QuIPModifier(rotations=["v", "u"], transform_type="random-hadamard"),
+    QuIPModifier(
+        rotations=["v", "u"], transform_block_size=128, transform_type="random-hadamard"
+    ),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]
 
