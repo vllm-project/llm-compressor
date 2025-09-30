@@ -89,7 +89,7 @@ class MovingAverageMSEObserver(Observer):
 
             if (is_fp4(self.quantization_args)) and global_scale is None:
                 # If the quantization scheme is fp4 and global_scale is still None
-                # i.e it has not yet been optimized, then we are should first get
+                # i.e it has not yet been optimized, then we should first get
                 # the global scale and then optimize the local scales.
                 # Local scales are set to by the absolute min and max.
                 iteration_global_scale = generate_gparam(
