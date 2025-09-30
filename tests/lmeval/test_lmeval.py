@@ -170,15 +170,15 @@ class TestLMEval:
             if std_err is None:
                 logger.info(
                     f"Comparing {metric_key}: Expecting {expected_val} "
-                    f"relative tolerance ±5%, Got {actual_val}. "
+                    f"relative tolerance ±3%, Got {actual_val}. "
                     f"Higher is better: {higher_is_better}"
                 )
                 # If higher is better, assert actual val >= expected val * (1 - stderr)
                 if higher_is_better:
-                    assert actual_val >= expected_val * (0.95)
+                    assert actual_val >= expected_val * (0.97)
                 # If higher is worse, assert actual val <= expected val * (1 + stderr)
                 else:
-                    assert actual_val <= expected_val * (1.05)
+                    assert actual_val <= expected_val * (1.03)
 
             else:
                 logger.info(

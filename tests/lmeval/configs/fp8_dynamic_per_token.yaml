@@ -5,3 +5,6 @@ lmeval:
   metrics:
     exact_match,flexible-extract: 0.75
     exact_match,strict-match: 0.75
+    #option 1
+    exact_match_stderr,strict-match: 0.013807775152234192
+    exact_match_stderr,flexible-extract: 0.013807775152234194
