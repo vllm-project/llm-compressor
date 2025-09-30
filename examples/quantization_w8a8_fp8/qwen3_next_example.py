@@ -8,7 +8,7 @@ MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID, 
+    MODEL_ID,
     torch_dtype="auto",
     device_map="auto",  # Use device_map for large model
     low_cpu_mem_usage=True,
@@ -17,12 +17,12 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 recipe = QuantizationModifier(
-    targets=["Linear"], 
-    scheme="FP8_DYNAMIC", 
+    targets=["Linear"],
+    scheme="FP8_DYNAMIC",
     ignore=[
-        "lm_head", 
-        "re:.*mlp.gate$", 
-        "re:.*mlp.shared_expert_gate$", 
+        "lm_head",
+        "re:.*mlp.gate$",
+        "re:.*mlp.shared_expert_gate$",
         "re:.*linear_attn.*",
         "re:.*self_attn.*"
     ]
