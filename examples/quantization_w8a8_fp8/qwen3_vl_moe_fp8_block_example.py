@@ -19,12 +19,9 @@ recipe = QuantizationModifier(
     scheme="FP8_BLOCK",
     ignore=[
         "re:.*lm_head",
-        "re:.*router",
         "re:visual.*",
         "re:model.visual.*",
         're:.*mlp.gate$',
-        're:.*mlp.shared_expert_gate$',
-        "re:multi_modal_projector.*",
     ],
 )
 
