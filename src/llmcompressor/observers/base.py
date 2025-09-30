@@ -1,4 +1,3 @@
-from math import ceil
 from typing import Any, Iterable, Optional, Tuple, Union
 
 import torch
@@ -8,7 +7,7 @@ from compressed_tensors.quantization.quant_args import (
     QuantizationArgs,
     QuantizationStrategy,
 )
-from compressed_tensors.quantization.utils import is_fp4, strict_divide
+from compressed_tensors.quantization.utils import is_fp4, strategy_cdiv
 from compressed_tensors.registry.registry import RegistryMixin
 from loguru import logger
 from torch import FloatTensor, IntTensor, Tensor
@@ -127,12 +126,14 @@ class Observer(InternalModule, RegistryMixin):
         :param global_scale: optional scale to further scale local quantization scales
         :return: tuple of scale and zero point based on last observed value
         """
+        strategy = self.quantization_args.strategy
+
         if observed is not None:
-            if self.quantization_args.strategy == QuantizationStrategy.TENSOR:
+            if strategy == QuantizationStrategy.TENSOR:
                 # re-calculate scale and zero point, update the stored value
                 self._scale, self._zero_point = self.calculate_qparams(observed)
 
-            elif self.quantization_args.strategy in (
+            elif strategy in (
                 QuantizationStrategy.TENSOR_GROUP,
                 QuantizationStrategy.GROUP,
             ):
@@ -143,7 +144,7 @@ class Observer(InternalModule, RegistryMixin):
                 assert observed.ndim >= 2
                 rows, columns = observed.shape[-2:]
                 group_size = self.quantization_args.group_size
-                num_groups = strict_divide(columns, group_size)
+                num_groups = strategy_cdiv(columns, group_size, strategy)
 
                 # FP4: cast zp type
                 if is_fp4(quantization_args=self.quantization_args):
@@ -180,11 +181,11 @@ class Observer(InternalModule, RegistryMixin):
                     self._scale[:, group_index] = scale.squeeze(1)
                     self._zero_point[:, group_index] = zero_point.squeeze(1)
 
-            elif self.quantization_args.strategy == QuantizationStrategy.CHANNEL:
+            elif strategy == QuantizationStrategy.CHANNEL:
                 # all reduce all dims except the second to last one
                 self._scale, self._zero_point = self.get_qparams_along_dim(observed, -2)
 
-            elif self.quantization_args.strategy == QuantizationStrategy.TOKEN:
+            elif strategy == QuantizationStrategy.TOKEN:
                 # use dim 1, assume the obsersed.shape = [batch, token, hidden]
                 # should be batch, token
                 self._scale, self._zero_point = self.get_qparams_along_dim(
@@ -192,7 +193,7 @@ class Observer(InternalModule, RegistryMixin):
                     dim={0, 1},
                 )
 
-            elif self.quantization_args.strategy == QuantizationStrategy.BLOCK:
+            elif strategy == QuantizationStrategy.BLOCK:
                 # Block-wise quantization: one scale/zero_point per block of shape
                 # [block_rows, block_cols]
                 rows, cols = observed.shape[-2:]
@@ -207,8 +208,8 @@ class Observer(InternalModule, RegistryMixin):
                         f"Must be a list of two ints [rows, cols]."
                     )
                 block_rows, block_cols = bs
-                num_br = int(ceil(rows / block_rows))
-                num_bc = int(ceil(cols / block_cols))
+                num_br = strategy_cdiv(rows, block_rows, strategy)
+                num_bc = strategy_cdiv(cols, block_cols, strategy)
 
                 # allocate per-block scale and zero_point
                 self._scale = torch.empty(
