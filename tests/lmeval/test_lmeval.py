@@ -145,6 +145,24 @@ class TestLMEval:
         self.tear_down()
 
     @log_time
+    def _eval_base_model(self):
+        """Evaluate the base (uncompressed) model."""
+        model_args = {"pretrained": self.model}
+        model_args.update(self.lmeval.model_args)
+
+        results = lm_eval.simple_evaluate(
+            model=self.lmeval.model,
+            model_args=model_args,
+            tasks=[self.lmeval.task],
+            num_fewshot=self.lmeval.num_fewshot,
+            limit=self.lmeval.limit,
+            device="cuda:0",
+            batch_size=self.lmeval.batch_size,
+        )
+
+        return results
+
+    @log_time
     def _save_compressed_model(self, oneshot_model, processor):
         oneshot_model.save_pretrained(self.save_dir)
         processor.save_pretrained(self.save_dir)
