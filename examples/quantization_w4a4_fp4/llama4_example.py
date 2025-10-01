@@ -52,9 +52,11 @@ ds = ds.map(preprocess_function, batched=False, remove_columns=ds.column_names)
 def data_collator(batch):
     assert len(batch) == 1
     return {
-        key: torch.tensor(value)
-        if key != "pixel_values"
-        else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+        key: (
+            torch.tensor(value)
+            if key != "pixel_values"
+            else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+        )
         for key, value in batch[0].items()
     }
 
@@ -67,8 +69,8 @@ recipe = QuantizationModifier(
         "re:.*lm_head",
         "re:.*self_attn",
         "re:.*router",
-        "re:vision_model.*",
-        "re:multi_modal_projector.*",
+        "re:.*vision_model.*",
+        "re:.*multi_modal_projector.*",
         "Llama4TextAttention",
     ],
 )

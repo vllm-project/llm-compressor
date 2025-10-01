@@ -30,7 +30,7 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_model.*"],
+        ignore=["re:.*lm_head", "re:.*multi_modal_projector.*", "re:.*vision_model.*"],
     ),
 ]
 
