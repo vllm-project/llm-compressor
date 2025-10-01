@@ -67,6 +67,16 @@ class TestLMEval:
     or another identifier which can be used for the particular test case. If a recipe
     is not provided, it is assumed that the scheme provided is a preset scheme and will
     be used for quantization. Otherwise, the recipe will always be used if given.
+
+    Recovery Testing (DEFAULT):
+    Tests now use recovery-based validation by default, comparing compressed model
+    performance against the base model. Default threshold is 0.95 (≥95% recovery).
+
+    Config options:
+    - recovery_threshold: 0.95 (default if not specified)
+    - recovery_threshold: 0.93 (override default globally)
+    - recovery_threshold: {"metric1": 0.95, "metric2": 0.90} (per-metric)
+    - metrics: {...} (optional - used for warnings only, not failures)
     """  # noqa: E501
 
     def set_up(self, test_data_file: str):
@@ -94,6 +104,11 @@ class TestLMEval:
 
         logger.info("========== RUNNING ==============")
         logger.info(self.scheme)
+        logger.info(
+            f"Recovery threshold: {self.lmeval.recovery_threshold} (default: 0.95)"
+        )
+        if self.lmeval.metrics:
+            logger.info("Absolute metrics provided - will show warnings if outside ±5%")
 
         self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
         self.max_seq_length = 2048
