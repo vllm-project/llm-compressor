@@ -85,8 +85,7 @@ class SequentialPipeline(CalibrationPipeline):
             if not dataset_args.quantization_aware_calibration or disable_qac:
                 stack.enter_context(DisableQuantization(model))
 
-            if dataset_args.calibrate_moe_context:
-                moe_calibration_context(model, stack)
+            stack.enter_context(moe_calibration_context(model))
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)
