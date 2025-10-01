@@ -64,11 +64,12 @@ tokenizer.save_pretrained(SAVE_DIR)
 ```
 
 ### Step 3: Run optimized model in vLLM
-Models optimized with the `hadamard` transform type will be able to leverage the hadacore kernels for accelerated inference.
+Models optimized with the `hadamard` transform type will be able to leverage the hadacore kernels for accelerated inference. Use the [benchmarks/latency.py](https://github.com/vllm-project/vllm/blob/main/vllm/benchmarks/latency.py) script to benchmark latency
 
 ```bash
 python3 benchmarks/benchmark_latency.py --model path/to/Llama-3.2-1B-Instruct-quip-w4a16
 ```
+
 
 #### Dense Model Latency (sec) ####
 | [Base](https://huggingface.co/meta-llama/Llama-3.2-1B-instruct) | Hadacore | GEMM |
