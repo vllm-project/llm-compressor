@@ -11,7 +11,7 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.num_experts = config.num_experts
-        self.gate = original.gate
+        self.gate = wrap_gate(original.gate)
         self.experts = SequentialQwen3VLMoeTextExperts(config, original.experts)
 
 class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
@@ -33,7 +33,19 @@ class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
             self[i].up_proj.weight.data = up_proj.t().clone().contiguous()
             self[i].down_proj.weight.data = down.t().clone().contiguous()
 
-def replace(config, module, calibrate_all_experts):
+
+def wrap_gate(gate):
+    # temporary workaround until ct supports ignores of Linear instances
+    linear_gate = torch.nn.Linear(gate.in_features, gate.out_features)
+    linear_gate.weight.data.copy_(gate.weight.data)
+    setattr(linear_gate, "hidden_size", gate.hidden_size)
+    setattr(linear_gate, "top_k", gate.top_k)
+    setattr(linear_gate, "forward", gate.forward)
+    del gate
+    return linear_gate
+
+
+def replace(config, module, calibrate_all_experts=False):
     return LinearQwen3VLMoeTextSparseMoeBlock(
         config=config.get_text_config(),
         original=module,
