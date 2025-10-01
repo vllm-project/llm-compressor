@@ -204,31 +204,39 @@ class TestLMEval:
         """Validate using recovery testing - compare against base model."""
         base_metrics = self.base_results["results"][self.lmeval.task]
         compressed_metrics = compressed_results["results"][self.lmeval.task]
-        higher_is_better_map = compressed_results["higher_is_better"][self.lmeval.task]
-
-        # Get recovery threshold(s)
-        recovery_threshold = self.lmeval.recovery_threshold
-        is_dict = isinstance(recovery_threshold, dict)
+        higher_is_better_map = compressed_results.get("higher_is_better", {}).get(
+            self.lmeval.task, {}
+        )
 
         logger.info("=" * 80)
         logger.info("RECOVERY TESTING COMPARISON")
         logger.info("=" * 80)
 
+        # Get default threshold from config schema
+        default_threshold = self.lmeval.model_fields["recovery_threshold"].default
+
         failures = []
-        for metric_key, base_val in base_metrics.items():
+        # Iterate over compressed metrics (what we actually got)
+        for metric_key, compressed_val in compressed_metrics.items():
             # Skip stderr and other metadata
             if "stderr" in metric_key or metric_key.startswith("alias"):
                 continue
 
-            compressed_val = compressed_metrics.get(metric_key)
-            if compressed_val is None:
+            base_val = base_metrics.get(metric_key)
+            if base_val is None:
+                logger.warning(
+                    f"Metric {metric_key} in compressed results "
+                    f"not found in base results, skipping"
+                )
                 continue
 
             # Get threshold for this metric
-            if is_dict:
-                threshold = recovery_threshold.get(metric_key, 0.95)
+            if isinstance(self.lmeval.recovery_threshold, dict):
+                threshold = self.lmeval.recovery_threshold.get(
+                    metric_key, default_threshold
+                )
             else:
-                threshold = recovery_threshold
+                threshold = self.lmeval.recovery_threshold
 
             # Get direction
             base_metric_name = metric_key.split(",")[0]
@@ -262,6 +270,15 @@ class TestLMEval:
                     f"(base={base_val:.4f}, compressed={compressed_val:.4f})"
                 )
 
+        # Validate that config thresholds match actual results
+        if isinstance(self.lmeval.recovery_threshold, dict):
+            for config_metric_key in self.lmeval.recovery_threshold.keys():
+                if config_metric_key not in compressed_metrics:
+                    logger.warning(
+                        f"Metric {config_metric_key} in recovery_threshold config "
+                        f"not found in results"
+                    )
+
         logger.info("=" * 80)
 
         if failures:
@@ -285,10 +302,16 @@ class TestLMEval:
 
             actual_val = metrics.get(metric_key)
             if actual_val is None:
+                logger.warning(
+                    f"Metric {metric_key} in config not found in results, "
+                    f"skipping warning check"
+                )
                 continue
 
-            higher_is_better = results["higher_is_better"][self.lmeval.task].get(
-                metric_key.split(",")[0], True
+            higher_is_better = (
+                results.get("higher_is_better", {})
+                .get(self.lmeval.task, {})
+                .get(metric_key.split(",")[0], True)
             )
 
             # Check if within ±5% relative tolerance
