@@ -117,6 +117,10 @@ class TestLMEval:
         # Run vLLM with saved model
         self.set_up(test_data_file)
 
+        # Always evaluate base model for recovery testing
+        logger.info("================= Evaluating BASE model ======================")
+        self.base_results = self._eval_base_model()
+
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, processor = run_oneshot_for_e2e_testing(
@@ -139,7 +143,7 @@ class TestLMEval:
         # Reset session for next test case
         self._handle_recipe()
 
-        logger.info("================= Running LM Eval ======================")
+        logger.info("================= Running LM Eval on COMPRESSED model ==========")
         self._run_lm_eval()
 
         self.tear_down()
