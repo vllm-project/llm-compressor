@@ -15,17 +15,13 @@
 # limitations under the License.
 
 import torch
-from transformers.models import Qwen3NextConfig
-from transformers.models.qwen3_next.modeling_qwen3_next import (
-    Qwen3NextSparseMoeBlock as OriginalQwen3NextMoeSparseMoeBlock,
-)
 
 
 class Qwen3NextSparseMoeBlock(torch.nn.Module):
     def __init__(
         self,
-        config: Qwen3NextConfig,
-        original: OriginalQwen3NextMoeSparseMoeBlock,
+        config,
+        original,
         calibrate_all_experts: bool,
     ):
         super().__init__()
@@ -109,9 +105,9 @@ class Qwen3NextSparseMoeBlock(torch.nn.Module):
 
 
 def replace(
-    config: Qwen3NextConfig,
-    module: OriginalQwen3NextMoeSparseMoeBlock,
-    calibrate_all_experts: bool,
+    config,
+    module,
+    calibrate_all_experts,
 ):
     return Qwen3NextSparseMoeBlock(
         config=config, original=module, calibrate_all_experts=calibrate_all_experts

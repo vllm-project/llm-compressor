@@ -1,7 +1,4 @@
 import torch
-from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
-    Qwen3VLMoeTextMLP,
-)
 
 from llmcompressor.utils.dev import skip_weights_initialize
 
@@ -17,6 +14,10 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
 
 class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
     def __init__(self, config, original):
+        from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
+            Qwen3VLMoeTextMLP,
+        )
+
         self.num_experts = original.gate_up_proj.shape[0]
         with skip_weights_initialize():
             super().__init__(

@@ -1,23 +1,12 @@
 import tqdm
 from compressed_tensors.utils import replace_module
-from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
 from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
-
-try:
-    from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
-    from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
-except ImportError:
-    logger.warning(
-        "Qwen3-VL-MoE and Qwen3-Next support is not available. "
-        "Please ensure that you have the correct version of transformers installed."
-    )
-    replace_Qwen3VLMoE = None
-    replace_Qwen3NextMoE = None
-
+from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
+from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
 from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["replace_modules_for_calibration"]
@@ -26,10 +15,8 @@ __all__ = ["replace_modules_for_calibration"]
 replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
     "Llama4TextMoe": replace_llama4,
+    "Qwen3VLMoeTextSparseMoeBlock": replace_Qwen3VLMoE,
 }
-
-if replace_Qwen3VLMoE is not None:
-    replacements["Qwen3VLMoeTextSparseMoeBlock"] = replace_Qwen3VLMoE
 
 
 def replace_modules_for_calibration(
@@ -92,10 +79,8 @@ def update_qwen3_next_moe(model, module, stack, calibrate_all_experts):
 
 moe_context = {
     "Qwen3MoeForCausalLM": update_qwen3_moe,
+    "Qwen3NextForCausalLM": update_qwen3_next_moe,
 }
-
-if replace_Qwen3NextMoE is not None:
-    moe_context["Qwen3NextForCausalLM"] = update_qwen3_next_moe
 
 
 def moe_calibration_context(
