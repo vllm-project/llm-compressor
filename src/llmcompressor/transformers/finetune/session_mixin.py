@@ -399,13 +399,12 @@ class SessionManagerMixIn:
         # is True by default to avoid high runtime cost
         self.save_state()
         if self.accelerator.is_main_process:
-            processor = getattr(self, "processing_class", self.tokenizer)
             # TODO: need to port over all saving parameters so that all
             # checkpoints are saved in the same way
             save_checkpoint(
                 output_dir,
                 model=self.model,
-                processor=processor,
+                processor=self.processing_class,
                 save_safetensors=self.args.save_safetensors,
                 save_compressed=self.model_args.save_compressed,
                 skip_sparsity_compression_stats=skip_sparsity_compression_stats,
