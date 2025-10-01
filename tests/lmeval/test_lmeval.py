@@ -2,6 +2,7 @@ import os
 import random
 import shutil
 from pathlib import Path
+from typing import Optional, Union
 
 import numpy
 import pandas as pd
@@ -23,8 +24,12 @@ class LmEvalConfig(BaseModel):
     task: str = "gsm8k"
     num_fewshot: int = 5
     limit: int = 1000
-    metrics: dict
     batch_size: int = 100
+    # Recovery testing (default): compare against base model performance
+    # Default threshold is 0.95 (retain ≥95% of base), can be overridden
+    recovery_threshold: Union[float, dict] = 0.95
+    # Optional absolute metrics for warnings (not failures)
+    metrics: Optional[dict] = None
 
 
 try:
