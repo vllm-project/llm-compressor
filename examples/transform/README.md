@@ -49,7 +49,7 @@ Note that `QuIPModifier` can be customized. For a full list of the available arg
 
 ### Step 2: Run Quantization Using Oneshot
 
-The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be sparsified and saved to `Llama-3.1-8B-Instruct-quip-w4a16`. We use the "datafree" pipeline, since our recipe does not require calibration data.
+The `oneshot` method applies the selected recipe to your model and dataset without requiring any fine-tuning. The model will be quantized and saved to `Llama-3.1-8B-Instruct-quip-w4a16`. We use the "datafree" pipeline, since our recipe does not require calibration data.
 
 ```python
 from llmcompressor import oneshot
