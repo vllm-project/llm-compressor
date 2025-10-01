@@ -10,7 +10,6 @@ MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     torch_dtype="auto",
-    device_map="auto",  # Use device_map for large model
     low_cpu_mem_usage=True,
     trust_remote_code=True,
 )
