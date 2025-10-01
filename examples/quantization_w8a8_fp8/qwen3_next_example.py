@@ -23,7 +23,6 @@ recipe = QuantizationModifier(
         "re:.*mlp.gate$",
         "re:.*mlp.shared_expert_gate$",
         "re:.*linear_attn.*",
-        "re:.*self_attn.*",
     ],
 )
 
