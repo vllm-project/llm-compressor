@@ -1,6 +1,6 @@
 # Quantizing Mixtral-8x7B-Instruct-v0.1 Model with FP8
 
-This directory contains a example scripts for quantizing the LLMs using the static per-tensor FP8 quantization scheme.
+This directory contains example scripts for quantizing LLMs using the static per-tensor FP8 quantization scheme.
 
 ## Installation
 
