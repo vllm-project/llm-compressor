@@ -5,7 +5,11 @@ from transformers import PreTrainedModel
 from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
 from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
-from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
+
+try:
+    from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
+except ImportError:
+    replace_Qwen3NextMoE = None
 from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["replace_modules_for_calibration"]
@@ -15,6 +19,8 @@ replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
     "Llama4TextMoe": replace_llama4,
 }
+
+
 
 
 def replace_modules_for_calibration(
@@ -39,7 +45,7 @@ def replace_modules_for_calibration(
 
 def update_qwen3_moe(model, module, stack, calibrate_all_experts):
     cls_name = module.__class__.__name__
-    if cls_name == "Qwen3MoeDecoderLayer" and module.mlp.__class__.__name__ == "Qwen3MoeSparseMoeBlock":
+    if (cls_name == "Qwen3MoeDecoderLayer" and module.mlp.__class__.__name__ == "Qwen3MoeSparseMoeBlock"):
         stack.enter_context(
             patch_attr(
                 module,
@@ -53,7 +59,7 @@ def update_qwen3_moe(model, module, stack, calibrate_all_experts):
 
 def update_qwen3_next_moe(model, module, stack, calibrate_all_experts):
     cls_name = module.__class__.__name__
-    if cls_name == "Qwen3NextDecoderLayer" and module.mlp.__class__.__name__ == "Qwen3NextSparseMoeBlock":
+    if (cls_name == "Qwen3NextDecoderLayer" and module.mlp.__class__.__name__ == "Qwen3NextSparseMoeBlock"):
         stack.enter_context(
             patch_attr(
                 module,
@@ -68,8 +74,10 @@ def update_qwen3_next_moe(model, module, stack, calibrate_all_experts):
 
 moe_context = {
     "Qwen3MoeForCausalLM": update_qwen3_moe,
-    "Qwen3NextForCausalLM": update_qwen3_next_moe,
 }
+
+if replace_Qwen3NextMoE is not None:
+    moe_context["Qwen3NextForCausalLM"] = update_qwen3_next_moe
 
 
 def moe_calibration_context(
@@ -82,4 +90,4 @@ def moe_calibration_context(
     model_name = model.__class__.__name__
     if model_name in moe_context:
         for module in model.modules():
-            moe_context(model_name)(model, module, stack, calibrate_all_experts)
+            moe_context[model_name](model, module, stack, calibrate_all_experts)

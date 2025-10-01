@@ -55,7 +55,13 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * calibrate a global_scale for activations, which will be used to
 #       quantize activations to fp4 on the fly
 recipe = QuantizationModifier(
-    targets="Linear", scheme="NVFP4", ignore=['lm_head', 're:.*mlp.gate$', 're:.*mlp.shared_expert_gate$', 're:.*linear_attn.*']
+    targets="Linear",
+    scheme="NVFP4",
+    ignore=['lm_head',
+        're:.*mlp.gate$',
+        're:.*mlp.shared_expert_gate$',
+        're:.*linear_attn.*'
+    ]
 )
 
 # Apply quantization.
