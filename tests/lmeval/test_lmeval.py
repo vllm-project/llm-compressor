@@ -274,46 +274,44 @@ class TestLMEval:
 
     def _check_absolute_warnings(self, results):
         """Check absolute metrics and warn if outside ±5% tolerance (not a failure)."""
+        logger.info("=" * 80)
+        logger.info("ABSOLUTE METRICS CHECK (warnings only, not failures)")
+        logger.info("=" * 80)
+
         metrics: dict = results["results"][self.lmeval.task]
         for metric_key, expected_val in self.lmeval.metrics.items():
-            # stderr metrics are only used as absolute tolerance
-            # checks for actual values
+            # Skip stderr metrics
             if "stderr" in metric_key:
                 continue
+
             actual_val = metrics.get(metric_key)
+            if actual_val is None:
+                continue
+
             higher_is_better = results["higher_is_better"][self.lmeval.task].get(
                 metric_key.split(",")[0], True
             )
-            stderr_key = metric_key.replace(",", "_stderr,")
-            std_err = self.lmeval.metrics.get(stderr_key)
 
-            # If stderr is provided, use it as absolute tolerance
-            # Otherwise, default to a 5% relative tolerance
-            if std_err is None:
-                logger.info(
-                    f"Comparing {metric_key}: Expecting {expected_val} "
-                    f"relative tolerance ±5%, Got {actual_val}. "
-                    f"Higher is better: {higher_is_better}"
-                )
-                # If higher is better, assert actual val >= expected val * (1 - stderr)
-                if higher_is_better:
-                    assert actual_val >= expected_val * (0.95)
-                # If higher is worse, assert actual val <= expected val * (1 + stderr)
-                else:
-                    assert actual_val <= expected_val * (1.05)
+            # Check if within ±5% relative tolerance
+            lower_bound = expected_val * 0.95
+            upper_bound = expected_val * 1.05
 
+            if higher_is_better:
+                # For higher is better, we care about lower bound
+                if actual_val < lower_bound:
+                    logger.warning(
+                        f"⚠ {metric_key:40} | Expected: {expected_val:.4f} (±5%) | "
+                        f"Got: {actual_val:.4f} | Below expected range"
+                    )
             else:
-                logger.info(
-                    f"Comparing {metric_key}: Expecting {expected_val} "
-                    f"absolute tolerance ±{std_err*100}%, Got {actual_val}. "
-                    f"Higher is better: {higher_is_better}"
-                )
-                # If higher is better, assert actual val >= expected val - stderr
-                if higher_is_better:
-                    assert actual_val >= expected_val - std_err
-                # If higher is worse, assert actual val <= expected val + stderr
-                else:
-                    assert actual_val <= expected_val + std_err
+                # For lower is better, we care about upper bound
+                if actual_val > upper_bound:
+                    logger.warning(
+                        f"⚠ {metric_key:40} | Expected: {expected_val:.4f} (±5%) | "
+                        f"Got: {actual_val:.4f} | Above expected range"
+                    )
+
+        logger.info("=" * 80)
 
     def tear_down(self):
         timer = get_singleton_manager()
