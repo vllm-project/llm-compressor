@@ -18,7 +18,9 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 #   * quantize the weights to 4 bit with group size 128
 recipe = [
     SpinQuantModifier(
-        rotations=["R1", "R2", "R4"], transform_block_size=64, transform_type="hadamard"
+        rotations=["R1", "R2", "R4"],
+        transform_block_size=128,
+        transform_type="hadamard",
     ),
     QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
 ]

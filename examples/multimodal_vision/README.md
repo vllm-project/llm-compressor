@@ -37,7 +37,7 @@ recipe = [
         targets="Linear",
         scheme="W4A16",
         sequential_targets=["MistralDecoderLayer"],
-        ignore=["re:.*lm_head", "re:vision_tower.*", "re:multi_modal_projector.*"],
+        ignore=["re:.*lm_head", "re:.*vision_tower.*", "re:.*multi_modal_projector.*"],
     ),
 ]
 ```

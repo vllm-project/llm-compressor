@@ -17,7 +17,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="FP8_DYNAMIC",
-    ignore=["re:.*lm_head", "re:multi_modal_projector.*", "re:vision_tower.*"],
+    ignore=["re:.*lm_head", "re:.*multi_modal_projector.*", "re:.*vision_tower.*"],
 )
 
 # Apply quantization and save to disk in compressed-tensors format.
