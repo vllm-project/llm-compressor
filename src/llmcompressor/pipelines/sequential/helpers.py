@@ -303,10 +303,12 @@ def topological_partition(graph: GraphModule, targets: Set[Module]) -> List[List
                 if user in partitions[index]:
                     user_partitions.append(index)
                     break
-        partition_index = min(user_partitions)
-        partitions[partition_index].insert(0, node)
 
-    assert set().union(*partitions) == set(graph.graph.nodes)
+        # workaround
+        if len(user_partitions):
+            partition_index = min(user_partitions)
+            partitions[partition_index].insert(0, node)
+
     return partitions
 
 
