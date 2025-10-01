@@ -151,8 +151,7 @@ class TestLMEval:
     @log_time
     def _eval_base_model(self):
         """Evaluate the base (uncompressed) model."""
-        model_args = {"pretrained": self.model}
-        model_args.update(self.lmeval.model_args)
+        model_args = {**self.lmeval.model_args, "pretrained": self.model}
 
         results = lm_eval.simple_evaluate(
             model=self.lmeval.model,
