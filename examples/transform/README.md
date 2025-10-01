@@ -1,6 +1,8 @@
 # Applying Transforms to Improve Quantization Accuracy
 
-This directory contains an example scripts for applying transforms to models for the purpose of improving quantization accuracy. For more information on transforms, see [QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs](https://arxiv.org/abs/2404.00456). The two transform styles currently supported are SpinQuant/QuaRot-style (`SpinQuantModifier`), and QuIP-style (`QuIPModifier`).
+This directory contains example scripts for applying transforms to models for the purpose of improving quantization accuracy. For more information on transforms, see [QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs](https://arxiv.org/abs/2404.00456). The two transform styles currently supported are SpinQuant/QuaRot-style (`SpinQuantModifier`), and QuIP-style (`QuIPModifier`).
+
+See also [[vLLM Office Hours #31] vLLM and LLM Compressor Update - August 28, 2025](https://www.youtube.com/watch?v=WVenRmF4dPY&list=PLbMP1JcGBmSHxp4-lubU5WYmJ9YgAQcf3&index=3).
 
 ## Installation
 
