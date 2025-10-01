@@ -14,11 +14,14 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
         self.gate = wrap_gate(original.gate)
         self.experts = SequentialQwen3VLMoeTextExperts(config, original.experts)
 
+
 class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
     def __init__(self, config, original):
         self.num_experts = original.gate_up_proj.shape[0]
         with skip_weights_initialize():
-            super().__init__([Qwen3VLMoeTextMLP(config) for _ in range(self.num_experts)])
+            super().__init__(
+                [Qwen3VLMoeTextMLP(config) for _ in range(self.num_experts)]
+            )
 
         intermediate_size = original.down_proj.shape[1]
 

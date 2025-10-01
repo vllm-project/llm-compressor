@@ -1,4 +1,3 @@
-
 from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
@@ -28,7 +27,7 @@ recipe = QuantizationModifier(
         "re:.*lm_head",
         "re:visual.*",
         "re:model.visual.*",
-        're:.*mlp.gate$',
+        "re:.*mlp.gate$",
     ],
 )
 
