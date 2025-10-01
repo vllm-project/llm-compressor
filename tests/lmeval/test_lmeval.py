@@ -194,6 +194,86 @@ class TestLMEval:
             batch_size=self.lmeval.batch_size,
         )
 
+        # Always use recovery testing
+        self._validate_recovery(results)
+
+        # If absolute metrics provided, show warnings (not failures)
+        if self.lmeval.metrics:
+            self._check_absolute_warnings(results)
+
+    def _validate_recovery(self, compressed_results):
+        """Validate using recovery testing - compare against base model."""
+        base_metrics = self.base_results["results"][self.lmeval.task]
+        compressed_metrics = compressed_results["results"][self.lmeval.task]
+        higher_is_better_map = compressed_results["higher_is_better"][self.lmeval.task]
+
+        # Get recovery threshold(s)
+        recovery_threshold = self.lmeval.recovery_threshold
+        is_dict = isinstance(recovery_threshold, dict)
+
+        logger.info("=" * 80)
+        logger.info("RECOVERY TESTING COMPARISON")
+        logger.info("=" * 80)
+
+        failures = []
+        for metric_key, base_val in base_metrics.items():
+            # Skip stderr and other metadata
+            if "stderr" in metric_key or metric_key.startswith("alias"):
+                continue
+
+            compressed_val = compressed_metrics.get(metric_key)
+            if compressed_val is None:
+                continue
+
+            # Get threshold for this metric
+            if is_dict:
+                threshold = recovery_threshold.get(metric_key, 0.95)
+            else:
+                threshold = recovery_threshold
+
+            # Get direction
+            base_metric_name = metric_key.split(",")[0]
+            higher_is_better = higher_is_better_map.get(base_metric_name, True)
+
+            # Compute recovery
+            if base_val == 0:
+                recovery = 1.0 if compressed_val == 0 else 0.0
+            elif higher_is_better:
+                recovery = compressed_val / base_val
+            else:
+                # For "lower is better", invert ratio
+                recovery = base_val / compressed_val
+
+            # Check threshold
+            passed = recovery >= threshold
+            direction = "↑" if higher_is_better else "↓"
+
+            msg = (
+                f"{metric_key:40} | Base: {base_val:.4f} | "
+                f"Compressed: {compressed_val:.4f} | "
+                f"Recovery: {recovery:6.2%} {direction} | Threshold: ≥{threshold:.2%}"
+            )
+
+            if passed:
+                logger.info(f"✓ {msg}")
+            else:
+                logger.error(f"✗ {msg}")
+                failures.append(
+                    f"{metric_key}: {recovery:.2%} < {threshold:.2%} "
+                    f"(base={base_val:.4f}, compressed={compressed_val:.4f})"
+                )
+
+        logger.info("=" * 80)
+
+        if failures:
+            failure_msg = "\n".join(failures)
+            raise AssertionError(f"Recovery testing failed:\n{failure_msg}")
+
+        logger.info("✓ ALL METRICS PASSED RECOVERY THRESHOLDS")
+        logger.info("=" * 80)
+
+    def _check_absolute_warnings(self, results):
+        """Check absolute metrics and warn if outside ±5% tolerance (not a failure)."""
         metrics: dict = results["results"][self.lmeval.task]
         for metric_key, expected_val in self.lmeval.metrics.items():
             # stderr metrics are only used as absolute tolerance
