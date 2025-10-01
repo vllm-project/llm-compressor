@@ -5,7 +5,10 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "/proving-grounds/engine/hub_cache/models--Qwen--Qwen3-Next-80B-A3B-Instruct/snapshots/609718eef2e2279fd6654e39cec856ec70906535"
+# NOTE: Qwen3-Next-80B-A3B-Instruct support is not in transformers<=4.56.2
+# you may need to install transformers from source
+
+MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -57,11 +60,12 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="NVFP4",
-    ignore=['lm_head',
-        're:.*mlp.gate$',
-        're:.*mlp.shared_expert_gate$',
-        're:.*linear_attn.*'
-    ]
+    ignore=[
+        "lm_head",
+        "re:.*mlp.gate$",
+        "re:.*mlp.shared_expert_gate$",
+        "re:.*linear_attn.*",
+    ],
 )
 
 # Apply quantization.
@@ -92,6 +96,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = "/proving-grounds/engine/hub_cache/Qwen3-Next-80B-A3B-Instruct" + "-NVFP4-Today"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)

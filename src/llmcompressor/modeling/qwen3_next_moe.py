@@ -88,9 +88,7 @@ class Qwen3NextSparseMoeBlock(torch.nn.Module):
             # the output hidden states by `routing_weights` on the
             # corresponding tokens (top-1 and top-2)
             if len(top_x) > 0:
-                current_hidden_states = (
-                    expert_out * routing_weights[top_x, idx, None]
-                )
+                current_hidden_states = expert_out * routing_weights[top_x, idx, None]
                 final_hidden_states.index_add_(
                     0,
                     top_x,
@@ -99,9 +97,7 @@ class Qwen3NextSparseMoeBlock(torch.nn.Module):
 
         shared_expert_output = self.shared_expert(hidden_states)
         shared_expert_output = (
-            torch.nn.functional.sigmoid(
-                self.shared_expert_gate(hidden_states)
-            )
+            torch.nn.functional.sigmoid(self.shared_expert_gate(hidden_states))
             * shared_expert_output
         )
 
@@ -112,6 +108,11 @@ class Qwen3NextSparseMoeBlock(torch.nn.Module):
         return final_hidden_states, router_logits
 
 
-
-def replace(config: Qwen3NextConfig, module: OriginalQwen3NextMoeSparseMoeBlock, calibrate_all_experts: bool):
-    return Qwen3NextSparseMoeBlock(config=config, original=module, calibrate_all_experts=calibrate_all_experts)
+def replace(
+    config: Qwen3NextConfig,
+    module: OriginalQwen3NextMoeSparseMoeBlock,
+    calibrate_all_experts: bool,
+):
+    return Qwen3NextSparseMoeBlock(
+        config=config, original=module, calibrate_all_experts=calibrate_all_experts
+    )

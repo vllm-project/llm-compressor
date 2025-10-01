@@ -21,8 +21,6 @@ replacements = {
 }
 
 
-
-
 def replace_modules_for_calibration(
     model: PreTrainedModel,
     calibrate_all_experts: bool = True,
@@ -45,21 +43,29 @@ def replace_modules_for_calibration(
 
 def update_qwen3_moe(model, module, stack, calibrate_all_experts):
     cls_name = module.__class__.__name__
-    if (cls_name == "Qwen3MoeDecoderLayer" and module.mlp.__class__.__name__ == "Qwen3MoeSparseMoeBlock"):
+    if (
+        cls_name == "Qwen3MoeDecoderLayer"
+        and module.mlp.__class__.__name__ == "Qwen3MoeSparseMoeBlock"
+    ):
         stack.enter_context(
             patch_attr(
                 module,
                 "mlp",
-                replace_Qwen3MoE(config=model.config,
-                                module=module.mlp,
-                                calibrate_all_experts=calibrate_all_experts),
+                replace_Qwen3MoE(
+                    config=model.config,
+                    module=module.mlp,
+                    calibrate_all_experts=calibrate_all_experts,
+                ),
             )
         )
 
 
 def update_qwen3_next_moe(model, module, stack, calibrate_all_experts):
     cls_name = module.__class__.__name__
-    if (cls_name == "Qwen3NextDecoderLayer" and module.mlp.__class__.__name__ == "Qwen3NextSparseMoeBlock"):
+    if (
+        cls_name == "Qwen3NextDecoderLayer"
+        and module.mlp.__class__.__name__ == "Qwen3NextSparseMoeBlock"
+    ):
         stack.enter_context(
             patch_attr(
                 module,
@@ -71,6 +77,7 @@ def update_qwen3_next_moe(model, module, stack, calibrate_all_experts):
                 ),
             )
         )
+
 
 moe_context = {
     "Qwen3MoeForCausalLM": update_qwen3_moe,
