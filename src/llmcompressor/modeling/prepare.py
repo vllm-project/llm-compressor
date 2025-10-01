@@ -9,13 +9,15 @@ from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
 
 try:
     from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
+    from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
 except ImportError:
     logger.warning(
-        "Qwen3-VL-MoE support is not available. "
+        "Qwen3-VL-MoE and Qwen3-Next support is not available. "
         "Please ensure that you have the correct version of transformers installed."
     )
     replace_Qwen3VLMoE = None
-
+    replace_Qwen3NextMoE = None
+    
 from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["replace_modules_for_calibration"]
@@ -50,27 +52,50 @@ def replace_modules_for_calibration(
 # ------------------- module replacements; during calibration --------------------
 
 
-def update_qwen3_moe(model, stack, calibrate_all_experts):
-    for module in model.modules():
-        cls_name = module.__class__.__name__
-        if cls_name == "Qwen3MoeDecoderLayer":
-            # Optionally update the model.config to pass in other arguments
-            stack.enter_context(
-                patch_attr(
-                    module,
-                    "mlp",
-                    replace_Qwen3MoE(
-                        config=model.config,
-                        module=module.mlp,
-                        calibrate_all_experts=calibrate_all_experts,
-                    ),
-                )
+def update_qwen3_moe(model, module, stack, calibrate_all_experts):
+    cls_name = module.__class__.__name__
+    if (
+        cls_name == "Qwen3MoeDecoderLayer"
+        and module.mlp.__class__.__name__ == "Qwen3MoeSparseMoeBlock"
+    ):
+        stack.enter_context(
+            patch_attr(
+                module,
+                "mlp",
+                replace_Qwen3MoE(
+                    config=model.config,
+                    module=module.mlp,
+                    calibrate_all_experts=calibrate_all_experts,
+                ),
             )
+        )
+
+
+def update_qwen3_next_moe(model, module, stack, calibrate_all_experts):
+    cls_name = module.__class__.__name__
+    if (
+        cls_name == "Qwen3NextDecoderLayer"
+        and module.mlp.__class__.__name__ == "Qwen3NextSparseMoeBlock"
+    ):
+        stack.enter_context(
+            patch_attr(
+                module,
+                "mlp",
+                replace_Qwen3NextMoE(
+                    config=model.config,
+                    module=module.mlp,
+                    calibrate_all_experts=calibrate_all_experts,
+                ),
+            )
+        )
 
 
 moe_context = {
     "Qwen3MoeForCausalLM": update_qwen3_moe,
 }
+
+if replace_Qwen3NextMoE is not None:
+    moe_context["Qwen3NextForCausalLM"] = update_qwen3_next_moe
 
 
 def moe_calibration_context(
@@ -80,6 +105,7 @@ def moe_calibration_context(
 ):
     # Temporarily updates the MoE modules within the context
     # Once the context exists, parameter updates persist
-    cls_name = model.__class__.__name__
-    if cls_name in moe_context:
-        moe_context.get(cls_name)(model, stack, calibrate_all_experts)
+    model_name = model.__class__.__name__
+    if model_name in moe_context:
+        for module in model.modules():
+            moe_context[model_name](model, module, stack, calibrate_all_experts)
