@@ -8,8 +8,8 @@ from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
 
 try:
-    from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
     from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
+    from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
 except ImportError:
     logger.warning(
         "Qwen3-VL-MoE and Qwen3-Next support is not available. "
@@ -17,7 +17,7 @@ except ImportError:
     )
     replace_Qwen3VLMoE = None
     replace_Qwen3NextMoE = None
-    
+
 from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["replace_modules_for_calibration"]
