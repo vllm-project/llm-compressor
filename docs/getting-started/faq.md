@@ -14,13 +14,9 @@ There is minimal support for compressed-tensors models in sglang, but it is not 
 
 This involves understanding your hardware availability and inference requirements. Refer to [Compression Schemes Guide](../guides/compression_schemes.md).
 
-**4. How much memory or time will xyz algorithm take with my model?**
+**4. What are the memory requirements for compression?**
 
-Refer to [https://docs.vllm.ai/projects/llm-compressor/en/latest/getting-started/compress/#memory-requirements-for-llm-compressor](Memory Requirements for LLM Compressor).
-
-**5. What are the memory requirements?**
-
-Refer to [https://docs.vllm.ai/projects/llm-compressor/en/latest/getting-started/compress/#memory-requirements-for-llm-compressor](Memory Requirements for LLM Compressor).
+Refer to [Memory Requirements for LLM Compressor](compress.md#memory-requirements-for-llm-compressor).
 
 **6. What layers should be quantized?**
 
