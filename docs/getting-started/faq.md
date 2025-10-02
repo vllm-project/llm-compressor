@@ -1,6 +1,6 @@
 # LLM Compressor Frequently Asked Questions
 
-Below are the most frequently asked questions when using LLM Compressor. If you do not see your question here, please use this page to ask your question: [vLLM Compressor Issues](https://github.com/vllm-project/llm-compressor/issues).
+Below are the most frequently asked questions when using LLM Compressor. If you do not see your question here, please file an issue: [LLM Compressor Issues](https://github.com/vllm-project/llm-compressor/issues).
 
 **1. Why doesn't my model run any faster after I compress it?**
 
