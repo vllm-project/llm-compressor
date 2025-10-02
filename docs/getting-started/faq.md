@@ -12,7 +12,7 @@ There is minimal support for compressed-tensors models in sglang, but it is not 
 
 **3. How do I select the appropriate strategy for compression?**
 
-This involves understanding your hardware availability and inference requirements. Refer to [https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/compression_schemes/](Compression Schemes Guide).
+This involves understanding your hardware availability and inference requirements. Refer to [Compression Schemes Guide](../guides/compression_schemes.md).
 
 **4. How much memory or time will xyz algorithm take with my model?**
 
