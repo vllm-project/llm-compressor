@@ -344,6 +344,55 @@ class ModelCompressor:
                     format, config=quantization_config
                 )
 
+    def get_missing_module_keys(self, model: Module) -> List[str]:
+        """
+        Identifies the expected missing weight keys in the compressed state_dict.
+
+        When a model undergoes sparsity or quantization compression, certain
+        weight tensors may be absent from the checkpoint by virtue of compression.
+        This function determines which weight keys are missing based on the
+        applied compression techniques.
+
+        :param model: The PyTorch model to check for missing keys.
+        :return: A list of missing keys expected in the compressed state_dict.
+        """
+        missing_keys = set()
+
+        # Determine missing keys due to sparsity compression
+        if (
+            self.sparsity_compressor
+            and self.sparsity_config.format != CompressionFormat.dense.value
+        ):
+            sparse_targets = match_named_modules(
+                model=model,
+                targets=self.sparsity_config.targets,
+                ignore=self.sparsity_config.ignore,
+            )
+
+            missing_keys.update(
+                merge_names(target_name, "weight")
+                for target_name, _module in sparse_targets
+            )
+
+        # Determine missing keys due to pack quantization
+        if (
+            self.quantization_compressor
+            and self.quantization_config.format
+            == CompressionFormat.pack_quantized.value
+        ):
+            for scheme in self.quantization_config.config_groups.values():
+                quant_targets = match_named_modules(
+                    model=model,
+                    targets=scheme.targets,
+                    ignore=self.quantization_config.ignore,
+                )
+                missing_keys.update(
+                    merge_names(target_name, "weight")
+                    for target_name, _module in quant_targets
+                )
+
+        return list(missing_keys)
+
     def get_unexpected_file_keys(self, model: Module) -> List[str]:
         """
         Identifies extra keys introduced by the compression process in the

@@ -457,6 +457,26 @@ def test_multiple_quant_compressors():
             TwoLayerModel(),
             get_bitmask_sparsity_config(targets=["re:.*layer1$"]),
             create_quantization_config(bits=8, type="int", strategy="channel"),
+            {"layer1.weight"},
+        )
+    ],
+)
+def test_get_missing_keys(model, sparsity_config, quantization_config, expected):
+    model_compressor = ModelCompressor(
+        sparsity_config=sparsity_config, quantization_config=quantization_config
+    )
+
+    actual = model_compressor.get_missing_module_keys(model)
+    assert len(actual) == len(expected) and all(key in actual for key in expected)
+
+
+@pytest.mark.parametrize(
+    "model, sparsity_config, quantization_config, expected",
+    [
+        (
+            TwoLayerModel(),
+            get_bitmask_sparsity_config(targets=["re:.*layer1$"]),
+            create_quantization_config(bits=8, type="int", strategy="channel"),
             {
                 f"{layer}.{suffix}"
                 for layer, suffixes in {
