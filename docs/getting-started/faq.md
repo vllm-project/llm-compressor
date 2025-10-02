@@ -26,4 +26,4 @@ Refer to [https://docs.vllm.ai/projects/llm-compressor/en/latest/getting-started
 
 All linear layers go through basic quantization except the `lm_head` layer. This is because the `lm_head` layer is the last layer of the model and sensitive to quantization, which will impact the model's accuracy. For example, [https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w8a8_fp8/llama3_example.py#L18](here) is a code snippet of how to ignore the lm_layer.
 
-Mixture of Expert (MoE) models, due to their advanced architecture and some components such as gate and routing layers, are sensitive to quantization as well. For example, [https://github.com/vllm-project/llm-compressor/blob/main/examples/quantizing_moe/qwen_example.py#L60](here) is a code snippet of how to ignore the gates.
+Mixture of Expert (MoE) models, due to their advanced architecture and some components such as gate and routing layers, are sensitive to quantization as well. For example, [this code snippet shows how to ignore the gates](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantizing_moe/qwen_example.py#L60).
