@@ -18,7 +18,7 @@ This involves understanding your hardware availability and inference requirement
 
 Refer to [Memory Requirements for LLM Compressor](compress.md#memory-requirements-for-llm-compressor).
 
-**6. What layers should be quantized?**
+**5. What layers should be quantized?**
 
 All linear layers go through basic quantization except the `lm_head` layer. This is because the `lm_head` layer is the last layer of the model and sensitive to quantization, which will impact the model's accuracy. For example, [this code snippet shows how to ignore the lm_head layer](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w8a8_fp8/llama3_example.py#L18).
 
