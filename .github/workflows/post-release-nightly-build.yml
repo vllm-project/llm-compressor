@@ -1,0 +1,15 @@
+name: Post-release nightly build & release
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  BUILD-TEST-NIGHTLY:
+    name: Post-release nightly build & release
+    uses: ./.github/workflows/trigger-all.yml
+    with:
+      wf_category: NIGHTLY
+      push_to_pypi: true
+      gitref: main
+    secrets: inherit
