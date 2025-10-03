@@ -15,9 +15,9 @@
 from typing import Dict
 
 import torch
-from accelerate.utils import has_offloaded_params
 from compressed_tensors import TRANSFORM_CONFIG_NAME
 from compressed_tensors.transform import TransformConfig, TransformFactory
+from compressed_tensors.utils.offload import has_offloaded_params
 
 
 __all__ = ["apply_transform_config"]
