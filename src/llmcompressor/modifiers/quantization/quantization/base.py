@@ -112,6 +112,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         for module in self._seen_modules:
             update_weight_zp_scale(module)
 
+        self._seen_modules = set()
+
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
             if not self.started_:
