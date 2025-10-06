@@ -109,7 +109,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         self._seen_modules.add(module)
 
     def compress_modules(self):
-        for module in self._seen_modules:
+        for module in tqdm.tqdm(list(self._seen_modules), desc="Calibrating modules"):
             update_weight_zp_scale(module)
 
         self._seen_modules = set()
