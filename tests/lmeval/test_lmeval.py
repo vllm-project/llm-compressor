@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from llmcompressor.core import active_session
 from tests.e2e.e2e_utils import run_oneshot_for_e2e_testing
 from tests.test_timer.timer_utils import get_singleton_manager, log_time
-from tests.testing_utils import cached_lm_eval, get_lmeval_cache_stats, requires_gpu
+from tests.testing_utils import cached_lm_eval_run, requires_gpu
 
 
 class LmEvalConfig(BaseModel):
@@ -110,10 +110,6 @@ class TestLMEval:
         if self.lmeval.metrics:
             logger.info("Absolute metrics provided - will show warnings if outside ±5%")
 
-        # Log cache stats
-        cache_stats = get_lmeval_cache_stats()
-        logger.info(f"LM-Eval cache stats: {cache_stats}")
-
         self.num_calibration_samples = eval_config.get("num_calibration_samples", 512)
         self.max_seq_length = 2048
 
@@ -153,7 +149,7 @@ class TestLMEval:
         self.tear_down()
 
     @log_time
-    @cached_lm_eval
+    @cached_lm_eval_run
     def _eval_base_model(self):
         """Evaluate the base (uncompressed) model with caching."""
         model_args = {**self.lmeval.model_args, "pretrained": self.model}
