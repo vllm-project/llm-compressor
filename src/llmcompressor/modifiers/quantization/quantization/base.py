@@ -1,5 +1,7 @@
 import tqdm
 from compressed_tensors.utils import match_named_modules
+from typing import Set
+import torch
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
@@ -9,6 +11,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.modifiers.utils import update_fused_layer_weight_global_scales
+from compressed_tensors.utils import getattr_chain
 
 __all__ = ["QuantizationModifier"]
 
@@ -44,6 +47,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
+    _seen_modules: Set[torch.nn.Module] = set()
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Prepare to calibrate activations and weights
@@ -70,6 +75,14 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         self.started_ = True
         QuantizationMixin.start_calibration(self, state.model)
 
+        for _, module in match_named_modules(state.model, self.targets, self.ignore):
+            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
+                # HACK: previously, embeddings were not quantized because they were not
+                # accessible by the layer compressor. For now, we manually ignore it,
+                # but in the FUTURE this should be ignored by the user
+                if not isinstance(module, torch.nn.Embedding):
+                    self.register_hook(module, self.calibrate_module, "forward")
+
         named_modules = list(
             match_named_modules(state.model, self.targets, self.ignore)
         )
@@ -87,7 +100,16 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         for module in tqdm.tqdm(state.model.modules(), desc="Fusing global scales"):
             update_fused_layer_weight_global_scales(module)
 
-        for _, module in tqdm.tqdm(named_modules, desc="Calibrating weights"):
+    def calibrate_module(
+        self,
+        module: torch.nn.Module,
+        args,
+        _output: torch.Tensor,
+    ):
+        self._seen_modules.add(module)
+
+    def compress_modules(self):
+        for module in self._seen_modules:
             update_weight_zp_scale(module)
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -95,7 +117,12 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             if not self.started_:
                 self.on_start(state, None)
 
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
+            self.compress_modules()
+
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
+            self.compress_modules()
+
             if not self.ended_:
                 self.on_end(state, None)
 
