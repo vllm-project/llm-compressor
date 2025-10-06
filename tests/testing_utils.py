@@ -4,12 +4,13 @@ import hashlib
 import json
 import logging
 import os
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
 from pathlib import Path
 from subprocess import PIPE, STDOUT, run
-from typing import Any, Callable, List, NamedTuple, Optional, Union
+from typing import Any, Callable, List, Optional, Union
 
 import pytest
 import torch
@@ -24,28 +25,58 @@ DISABLE_LMEVAL_CACHE = os.environ.get("DISABLE_LMEVAL_CACHE", "").lower() in (
     "true",
     "yes",
 )
-
-# Module-level cache - persists for duration of Python process
-_LMEVAL_CACHE: dict = {}
+LMEVAL_CACHE_DIR = Path(os.environ.get("LMEVAL_CACHE_DIR", ".lmeval_cache"))
 
 
-class LMEvalCacheKey(NamedTuple):
-    """Hashable cache key for a base model evaluation.
+def _sha256_hash(text: str, length: Optional[int] = None) -> str:
+    hash_result = hashlib.sha256(text.encode()).hexdigest()
+    return hash_result[:length] if length else hash_result
 
-    :param model: HuggingFace model identifier
-    :param task: LM-Eval task name
-    :param num_fewshot: Number of few-shot examples
-    :param limit: Maximum number of samples to evaluate
-    :param batch_size: Batch size for evaluation
-    :param model_args_hash: SHA256 hash of model_args dict
-    """
 
+@dataclass(frozen=True)
+class LMEvalCacheKey:
     model: str
     task: str
     num_fewshot: int
     limit: int
     batch_size: int
     model_args_hash: str
+
+    @classmethod
+    def from_test_instance(cls, test_instance: Any) -> "LMEvalCacheKey":
+        lmeval = test_instance.lmeval
+        model_args_json = json.dumps(lmeval.model_args, sort_keys=True)
+
+        return cls(
+            model=test_instance.model,
+            task=lmeval.task,
+            num_fewshot=lmeval.num_fewshot,
+            limit=lmeval.limit,
+            batch_size=lmeval.batch_size,
+            model_args_hash=_sha256_hash(model_args_json),
+        )
+
+    @property
+    def cache_filepath(self) -> Path:
+        key_components = (
+            f"{self.model}_{self.task}_{self.num_fewshot}_"
+            f"{self.limit}_{self.batch_size}_{self.model_args_hash}"
+        )
+        return LMEVAL_CACHE_DIR / f"{_sha256_hash(key_components, 16)}.json"
+
+    def get_cached_result(self) -> Optional[dict]:
+        if not self.cache_filepath.exists():
+            return
+
+        with suppress(Exception):
+            with open(self.cache_filepath) as f:
+                return json.load(f)
+
+    def store_result(self, result: dict) -> None:
+        with suppress(Exception):
+            self.cache_filepath.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.cache_filepath, "w") as f:
+                json.dump(result, f)
 
 
 # TODO: maybe test type as decorators?
@@ -333,47 +364,22 @@ def requires_cadence(cadence: Union[str, List[str]]) -> Callable:
     )
 
 
-def _make_lmeval_cache_key(test_instance: Any) -> LMEvalCacheKey:
-    """Create a hashable cache key from a TestLMEval instance.
-
-    :param test_instance: Instance with model, lmeval attributes
-    :return: LMEvalCacheKey for this evaluation configuration
-    :raises AttributeError: If required attributes are missing
-    """
-    model_args = test_instance.lmeval.model_args
-    args_str = json.dumps(model_args, sort_keys=True)
-    args_hash = hashlib.sha256(args_str.encode()).hexdigest()
-
-    return LMEvalCacheKey(
-        model=test_instance.model,
-        task=test_instance.lmeval.task,
-        num_fewshot=test_instance.lmeval.num_fewshot,
-        limit=test_instance.lmeval.limit,
-        batch_size=test_instance.lmeval.batch_size,
-        model_args_hash=args_hash,
-    )
-
-
-
 def cached_lm_eval_run(func: Callable) -> Callable:
-    """Decorator that caches LM-Eval results for instance methods, with optional disabling."""
     @wraps(func)
-    def cached(self, *args, **kwargs):
+    def wrapper(self, *args, **kwargs):
         if DISABLE_LMEVAL_CACHE:
-            logger.info("LM-Eval cache disabled via DISABLE_LMEVAL_CACHE")
+            logger.info("LM-Eval cache disabled")
             return func(self, *args, **kwargs)
 
-        key = _make_lmeval_cache_key(self)
-        cached_result = _LMEVAL_CACHE.get(key)
-        if cached_result is not None:
-            logger.info(f"LM-Eval cache HIT: {key}")
+        cache_key = LMEvalCacheKey.from_test_instance(self)
+
+        if (cached_result := cache_key.get_cached_result()) is not None:
+            logger.info(f"LM-Eval cache HIT: {cache_key}")
             return cached_result
 
-        logger.info(f"LM-Eval cache MISS: {key}")
+        logger.info(f"LM-Eval cache MISS: {cache_key}")
         result = func(self, *args, **kwargs)
-        _LMEVAL_CACHE[key] = result
-        logger.info(f"LM-Eval cache WRITE: {key} ({len(_LMEVAL_CACHE)} entries)")
+        cache_key.store_result(result)
         return result
 
-    return cached
-
+    return wrapper
