@@ -9,7 +9,52 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
         self.hidden_size = config.hidden_size
         self.num_experts = config.num_experts
         self.gate = wrap_gate(original.gate)
+        self.calibrate_all_experts = True
         self.experts = SequentialQwen3VLMoeTextExperts(config, original.experts)
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        batch_size = hidden_states.shape[0]
+        hidden_states = hidden_states.reshape(-1, self.hidden_size)
+
+        router_logits = self.gate(hidden_states)
+        routing_weights = torch.nn.functional.softmax(
+            router_logits, dim=-1, dtype=torch.float
+        )
+        routing_weights, router_indices = torch.topk(
+            routing_weights, self.top_k, dim=-1
+        )
+        routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
+        routing_weights = routing_weights.to(hidden_states.dtype)
+
+        router_weights = torch.zeros_like(router_logits).scatter_(
+            1, router_indices, routing_weights
+        )
+
+        next_states = torch.zeros_like(
+            hidden_states, dtype=hidden_states.dtype, device=hidden_states.device
+        )
+        expert_mask = torch.nn.functional.one_hot(
+            router_indices, num_classes=self.num_experts
+        ).permute(2, 1, 0)
+        for expert_idx, expert_layer in enumerate(self.experts):
+            with torch.no_grad():
+                _, token_idx = torch.where(expert_mask[expert_idx[0]])
+
+            if self.calibrate_all_experts:
+                expert_out = expert_layer(hidden_states)[token_idx]
+            else:
+                expert_out = expert_layer(hidden_states[token_idx])
+
+            if len(token_idx) > 0:
+                weighted_output = (
+                    expert_out[0] * router_weights[token_idx, expert_idx, None]
+                )
+                next_states.index_add_(
+                    0, token_idx, weighted_output.to(hidden_states.dtype)
+                )
+
+        next_states = next_states.view(batch_size, -1, self.hidden_size)
+        return next_states
 
 
 class SequentialQwen3VLMoeTextExperts(torch.nn.ModuleList):
@@ -49,7 +94,7 @@ def wrap_gate(gate):
     return linear_gate
 
 
-def replace(config, module, calibrate_all_experts=False):
+def replace(config, module, calibrate_all_experts):
     return LinearQwen3VLMoeTextSparseMoeBlock(
         config=config.get_text_config(),
         original=module,
