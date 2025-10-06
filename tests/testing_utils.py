@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import os
-from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
@@ -68,15 +67,21 @@ class LMEvalCacheKey:
         if not self.cache_filepath.exists():
             return
 
-        with suppress(Exception):
+        try:
             with open(self.cache_filepath) as f:
                 return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load cache from {self.cache_filepath}: {e}")
+            return
 
     def store_result(self, result: dict) -> None:
-        with suppress(Exception):
+        try:
             self.cache_filepath.parent.mkdir(parents=True, exist_ok=True)
             with open(self.cache_filepath, "w") as f:
-                json.dump(result, f)
+                json.dump(result, f, default=str)
+            logger.info(f"LM-Eval cache WRITE: {self.cache_filepath}")
+        except Exception as e:
+            logger.warning(f"Failed to save cache to {self.cache_filepath}: {e}")
 
 
 # TODO: maybe test type as decorators?
@@ -374,10 +379,10 @@ def cached_lm_eval_run(func: Callable) -> Callable:
         cache_key = LMEvalCacheKey.from_test_instance(self)
 
         if (cached_result := cache_key.get_cached_result()) is not None:
-            logger.info(f"LM-Eval cache HIT: {cache_key}")
+            logger.info(f"LM-Eval cache HIT: {cache_key.cache_filepath}")
             return cached_result
 
-        logger.info(f"LM-Eval cache MISS: {cache_key}")
+        logger.info(f"LM-Eval cache MISS: {cache_key.cache_filepath}")
         result = func(self, *args, **kwargs)
         cache_key.store_result(result)
         return result
