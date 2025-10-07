@@ -13,17 +13,17 @@ from llmcompressor.modifiers.quantization.calibration import initialize_observer
     "shape,group_size,actorder",
     [
         ((1, 1), None, False),
-        ((1, 1), 128, False),
-        ((1, 1), 128, True),
+        ((1, 1), 1, False),
+        ((1, 1), 1, True),
         ((64, 64), None, False),
-        ((64, 64), 128, False),
-        ((64, 64), 128, True),
-        ((1792, 4096), None, False),
-        ((1792, 4096), 128, False),
-        ((1792, 4096), 128, True),
-        ((3420, 64), None, False),
-        ((3420, 64), 128, False),
-        ((3420, 64), 128, True),
+        ((64, 64), 32, False),
+        ((64, 64), 32, True),
+        ((896, 4096), None, False),
+        ((896, 4096), 7, False),
+        ((896, 4096), 7, True),
+        ((512, 64), None, False),
+        ((512, 64), 128, False),
+        ((512, 64), 128, True),
     ],
 )
 def test_observers_update(shape, group_size, actorder):
@@ -49,8 +49,7 @@ def test_observers_update(shape, group_size, actorder):
         ("output", output),
     ):
         observer = getattr(module, f"{location}_observer")
-        g_idx = getattr(module, "g_idx", None)
-        updated_scale, updated_zero_point = observer(value, g_idx=g_idx)
+        updated_scale, updated_zero_point = observer(value)
 
         assert_alike(updated_scale, getattr(module, f"{location}_scale"))
         assert_alike(updated_zero_point, getattr(module, f"{location}_zero_point"))

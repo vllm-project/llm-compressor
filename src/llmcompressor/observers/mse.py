@@ -1,9 +1,12 @@
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.quant_args import (
+    QuantizationArgs,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.utils import calculate_qparams
-from torch import FloatTensor, IntTensor, Tensor
+from compressed_tensors.utils import patch_attr
 
 from llmcompressor.observers.base import Observer
 
@@ -19,53 +22,58 @@ class MovingAverageMSEObserver(Observer):
 
     def __init__(
         self,
-        quantization_args: QuantizationArgs,
-        maxshrink: float = 0.2,
-        patience: int = 5,
-        averaging_constant: float = 0.01,
-        grid: float = 100.0,
-        norm: float = 2.4,
-        **kwargs,
+        base_name: str,
+        args: QuantizationArgs,
+        module: Optional[torch.nn.Module] = None,
+        **observer_kwargs,
     ):
-        super().__init__(quantization_args=quantization_args)
+        super().__init__(base_name, args, module, **observer_kwargs)
 
-        self.min_val = {}
-        self.max_val = {}
-        self.maxshrink = maxshrink
-        self.patience = patience
-        self.averaging_constant = averaging_constant
-        self.grid = grid
-        self.norm = norm
+        observer_kwargs = self.args.observer_kwargs
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.20)
+        self.patience = observer_kwargs.get("patience", 5)
+        self.averaging_constant = observer_kwargs.get("averaging_constant", 0.01)
+        self.grid = observer_kwargs.get("grid", 100.0)
+        self.norm = observer_kwargs.get("norm", 2.4)
 
-    def calculate_mse_min_max(
-        self,
-        observed: Tensor,
-        reduce_dims: Optional[Tuple[int]] = None,
-        global_scale: Optional[torch.Tensor] = None,
-    ):
+    def get_min_max(self, observed: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Computes the mse-clipped min and max values of the observed tensor by
-        optimizing for quantization error
+        Calculates updated scales and zero points from observed value. Minimum and
+        maximum values are chosen by grid searching across min/max values which minimize
+        quantization reconstruction loss.
 
-        :param observed: observed tensor to calculate quantization parameters for
-        :param reduce_dims: optional tuple of dimensions to reduce along,
-            returned values will be shaped (1,) along the reduced dimensions
-        :param global_scale: optional scale to further scale local quantization scales
-        :return: tuple of min and max values derived from the observed tensor
+        :param observed: value being observed whose shape is
+            (num_observations, *qparam_shape, group_size)
+        :return: minimum value and maximum value whose shapes are (*qparam_shape, )
+        """
+        min_vals, max_vals = self._mse_min_max(observed)
+
+        if self.min_vals is not None and self.averaging_constant != 1.0:
+            # FUTURE: consider scaling by num observations (first dim)
+            #         rather than reducing by first dim
+            min_vals = self._lerp(self.min_vals, min_vals, self.averaging_constant)
+            max_vals = self._lerp(self.max_vals, max_vals, self.averaging_constant)
+
+        return min_vals, max_vals
+
+    def _mse_min_max(self, observed: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Grid search for MSE-optimal min and max values
+
+        :param observed: value being observed whose shape is
+            (num_observations, *qparam_shape, group_size)
+        :return: minimum and maximum values which minimize reconstruction error
         """
         from compressed_tensors.quantization.lifecycle import fake_quantize
 
-        if not reduce_dims:
-            absolute_min_val, absolute_max_val = torch.aminmax(observed)
-        else:
-            absolute_min_val = torch.amin(observed, dim=reduce_dims, keepdims=True)
-            absolute_max_val = torch.amax(observed, dim=reduce_dims, keepdims=True)
-
+        absolute_min_val = torch.amin(observed, dim=(0, -1))
+        absolute_max_val = torch.amax(observed, dim=(0, -1))
         best = torch.full_like(
             absolute_min_val, torch.finfo(absolute_min_val.dtype).max
         )
         min_val = torch.ones_like(absolute_min_val)
         max_val = torch.zeros_like(absolute_max_val)
+        global_scale = self._get_module_param("global_scale")
 
         # Early stopping params
         no_improve_count = 0
@@ -78,24 +86,25 @@ class MovingAverageMSEObserver(Observer):
             candidate_scales, candidate_zero_points = calculate_qparams(
                 min_vals=shrinked_min_val,
                 max_vals=shrinked_max_val,
-                quantization_args=self.quantization_args,
+                quantization_args=self.args,
                 global_scale=global_scale,
             )
-            q = fake_quantize(
-                observed,
-                candidate_scales,
-                candidate_zero_points,
-                self.quantization_args,
-                global_scale=global_scale,
-            )
+
+            # Note that observed.shape = (num_observations, *qparams_shape, group_size).
+            # For the purposes of fake quantization, this is equivalent to token quant
+            with patch_attr(self.args, "strategy", QuantizationStrategy.TOKEN):
+                q = fake_quantize(
+                    observed,
+                    candidate_scales.unsqueeze(-1),
+                    candidate_zero_points.unsqueeze(-1),
+                    self.args,
+                    global_scale=global_scale,
+                )
 
             q -= observed
             q.abs_()
             q.pow_(self.norm)
-            if not reduce_dims:
-                err = torch.sum(q)
-            else:
-                err = torch.sum(q, reduce_dims, keepdims=True)
+            err = torch.sum(q, dim=(0, -1))
 
             tmp = err < best
             if torch.any(tmp):
@@ -110,104 +119,8 @@ class MovingAverageMSEObserver(Observer):
 
         return min_val, max_val
 
-    def calculate_updated_min_max(
-        self,
-        observed: Tensor,
-        reduce_dims: Optional[Tuple[int]] = None,
-        tensor_id: Optional[Any] = None,
-        global_scale: Optional[torch.Tensor] = None,
-    ) -> Tuple[FloatTensor, IntTensor]:
-        """
-        Updates the mse-clipped min and max values of the observed tensor using
-        a moving average smoothed by the averaging_constant
-
-        :param observed: observed tensor to calculate quantization parameters for
-        :param reduce_dims: optional tuple of dimensions to reduce along,
-            returned scale and zero point will be shaped (1,) along the
-            reduced dimensions
-        :param tensor_id: Optional id if different ranges of observed tensors are
-            passed, useful for sharding tensors by group_size
-        :param global_scale: optional scale to further scale local quantization scales
-        :return: updated min and max values derived from the observed value
-        """
-        # TODO: will need to be expanded to support fp4 activations;
-        # currently not supported
-        min_val, max_val = self.calculate_mse_min_max(
-            observed, reduce_dims, global_scale=global_scale
-        )
-
-        running_min_val = self.min_val.get(tensor_id, None)
-        running_max_val = self.max_val.get(tensor_id, None)
-
-        if running_min_val is None or running_max_val is None:
-            updated_min_val = min_val
-            updated_max_val = max_val
-        else:
-            updated_min_val = running_min_val + self.averaging_constant * (
-                min_val - running_min_val
-            )
-            updated_max_val = running_max_val + self.averaging_constant * (
-                max_val - running_max_val
-            )
-
-        tensor_id = tensor_id or "default"
-        self.min_val[tensor_id] = updated_min_val
-        self.max_val[tensor_id] = updated_max_val
-        return updated_min_val, updated_max_val
-
-    def calculate_qparams(
-        self,
-        observed: Tensor,
-        reduce_dims: Optional[Tuple[int]] = None,
-        tensor_id: Optional[Any] = None,
-        global_scale: Optional[torch.Tensor] = None,
-    ) -> Tuple[FloatTensor, IntTensor]:
-        """
-        Updates the mse-clipped min and max values of the observed tensor using
-        a moving average smoothed by the averaging_constant
-
-        :param observed: observed tensor to calculate quantization parameters for
-        :param reduce_dims: optional tuple of dimensions to reduce along,
-            returned scale and zero point will be shaped (1,) along the
-            reduced dimensions
-        :param tensor_id: Optional id if different ranges of observed tensors are
-            passed, useful for sharding tensors by group_size
-        :param global_scale: optional scale to further scale local quantization scales
-        :return: tuple of scale and zero point derived from the observed tensor
-        """
-        updated_min_val, updated_max_val = self.calculate_updated_min_max(
-            observed=observed,
-            tensor_id=tensor_id,
-            reduce_dims=reduce_dims,
-            global_scale=global_scale,
-        )
-        scale, zero_point = calculate_qparams(
-            min_vals=updated_min_val,
-            max_vals=updated_max_val,
-            quantization_args=self.quantization_args,
-            global_scale=global_scale,
-        )
-        return scale, zero_point
-
-    def get_qparams_along_dim(
-        self,
-        observed,
-        dim: int,
-        tensor_id: Optional[Any] = None,
-        global_scale: Optional[torch.Tensor] = None,
-    ):
-        reduce_dims = tuple(idx for idx in range(observed.ndim) if idx != dim)
-        return self.calculate_qparams(
-            observed,
-            reduce_dims=reduce_dims,
-            tensor_id=tensor_id,
-            global_scale=global_scale,
-        )
-
-    def reset(self):
-        """
-        Reset the state of the observer, including min and maximum values
-        """
-        super().reset()
-        self.min_val = {}
-        self.max_val = {}
+    def _lerp(
+        self, input: torch.Tensor, end: torch.Tensor, weight: float
+    ) -> torch.Tensor:
+        """torch lerp_kernel is not implemeneted for all data types"""
+        return (input * (1.0 - weight)) + (end * weight)

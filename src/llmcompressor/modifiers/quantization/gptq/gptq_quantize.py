@@ -95,8 +95,10 @@ def quantize_weight(
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
-        quant_args.observer,
-        quantization_args=quant_args,
+        "minmax",
+        base_name="weight",
+        args=quant_args,
+        module=module,
         averaging_constant=1.0,  # ignore moving average
     )
 
