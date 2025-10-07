@@ -48,7 +48,7 @@ def _files_size_mb(path_list: List[str]) -> int:
 
 @pytest.fixture(scope="session", autouse=True)
 def check_for_created_files():
-    ignore_dirs = ["__pycache__", "sparse_logs"]
+    ignore_dirs = ["__pycache__", "sparse_logs", "torchinductor"]
     start_files_root = _get_files(directory=r".", ignore_dirs=ignore_dirs)
     start_files_temp = _get_files(
         directory=tempfile.gettempdir(), ignore_dirs=["pytest-of"]
