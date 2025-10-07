@@ -149,16 +149,17 @@ def copy_python_files_from_model_cache(model, save_path: str):
         import shutil
 
         from huggingface_hub import hf_hub_download
-        from transformers import TRANSFORMERS_CACHE
         from transformers.utils import http_user_agent
 
         cache_path = config._name_or_path
         if not os.path.exists(cache_path):
             user_agent = http_user_agent()
+            # Use cache_dir=None to respect HF_HOME, HF_HUB_CACHE, and other
+            # environment variables for cache location
             config_file_path = hf_hub_download(
                 repo_id=cache_path,
                 filename="config.json",
-                cache_dir=TRANSFORMERS_CACHE,
+                cache_dir=None,
                 force_download=False,
                 user_agent=user_agent,
             )
