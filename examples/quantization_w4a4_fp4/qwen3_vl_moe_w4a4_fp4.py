@@ -98,6 +98,6 @@ print("==========================================")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = "/proving-grounds/engine/hub_cache/Qwen3-VL-235B-A22B-Instruct" + "-NVFP4"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
