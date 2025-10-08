@@ -70,3 +70,22 @@ def test_mse_observer_symmetric_scale_range():
     # if symmetric, max symmetric_range = abs(-128) / 255
     assert round(scale.item(), 4) <= 1.0039
     assert round(zero_point.item(), 4) == 0
+
+
+def test_mse_fp4():
+    tensor = torch.arange(24, dtype=torch.bfloat16).reshape((4, 6)) / 24
+
+    weights = QuantizationArgs(
+        num_bits=4,
+        type="float",  # must be fp4
+        symmetric=True,
+        strategy="tensor_group",
+        group_size=3,
+    )
+
+    observer = weights.observer
+    observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
+    scale, zero_point = observer(tensor)
+
+    qdq_tensor = fake_quantize(tensor, scale, zero_point, weights)
+    assert torch.nn.functional.mse_loss(qdq_tensor, tensor) <= 0.002
