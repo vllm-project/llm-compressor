@@ -2,8 +2,10 @@ import torch
 
 from llmcompressor.modeling.qwen3_vl_moe import LinearQwen3VLMoeTextSparseMoeBlock
 from llmcompressor.utils.helpers import calibration_forward_context
+from tests.testing_utils import requires_gpu
 
 
+@requires_gpu
 def test_calib_qwen3_vl_moe_module():
     from transformers import Qwen3VLMoeTextConfig
     from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (

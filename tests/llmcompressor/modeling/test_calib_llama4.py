@@ -69,9 +69,8 @@ def test_calib_llama4_module():
     with torch.device("cuda"):
         original = Llama4TextMoe(config)
         # these are initialized as empty / all 0s which results in output
-        # from the experts being all 0 and
-        # incorrectly makes it seem like identical outputs with our definition
-        # update to use a small random value
+        # from the experts being all 0 and incorrectly makes it seem like identical
+        # outputs with our definition update to use a small random value
         original.experts.gate_up_proj.data.copy_(
             torch.rand(original.experts.gate_up_proj.data.shape, device="cuda") * 0.01
         )
