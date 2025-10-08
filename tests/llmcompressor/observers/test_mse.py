@@ -73,7 +73,8 @@ def test_mse_observer_symmetric_scale_range():
 
 
 def test_mse_fp4():
-    tensor = torch.arange(24, dtype=torch.bfloat16).reshape((4, 6)) / 24
+    module = torch.nn.Linear(6, 4)
+    module.weight.data = torch.arange(24, dtype=torch.bfloat16).reshape((4, 6)) / 24
 
     weights = QuantizationArgs(
         num_bits=4,
@@ -84,8 +85,15 @@ def test_mse_fp4():
     )
 
     observer = weights.observer
-    observer = Observer.load_from_registry(observer, base_name="weight", args=weights)
-    scale, zero_point = observer(tensor)
+    observer = Observer.load_from_registry(
+        observer, base_name="weight", args=weights, module=module
+    )
 
-    qdq_tensor = fake_quantize(tensor, scale, zero_point, weights)
-    assert torch.nn.functional.mse_loss(qdq_tensor, tensor) <= 0.002
+    global_scale = observer.get_global_scale(module.weight)
+    module.weight_global_scale = global_scale
+    scale, zero_point = observer(module.weight)
+
+    qdq_tensor = fake_quantize(
+        module.weight, scale, zero_point, weights, global_scale=global_scale
+    )
+    assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.002

@@ -9,6 +9,7 @@ from compressed_tensors.quantization.quant_args import (
 )
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
+from compressed_tensors.utils import patch_attr
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
@@ -82,9 +83,11 @@ class Observer(InternalModule, RegistryMixin):
         :param observed: value being observed
         :return: calibrated global parameter
         """
-        observed = observed.reshape((1, 1, -1))  # per tensor reshape
-        min_vals, max_vals = self.get_min_max(observed)
-        return generate_gparam(min_vals, max_vals)
+        # avoid updating running min/max for global scales
+        with patch_attr(self, "min_vals", None), patch_attr(self, "max_vals", None):
+            observed = observed.reshape((1, 1, -1))  # per tensor reshape
+            min_vals, max_vals = self.get_min_max(observed)
+            return generate_gparam(min_vals, max_vals)
 
     def _get_module_param(self, name: str) -> Optional[torch.nn.Parameter]:
         if self.module is None:
