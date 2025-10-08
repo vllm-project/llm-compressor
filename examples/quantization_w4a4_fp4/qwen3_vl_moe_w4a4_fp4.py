@@ -7,10 +7,6 @@ from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-# NOTE: Qwen3-VL-MoE support is not in transformers<=4.56.2
-# you may need to install transformers from source
-
-
 MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
 
 # Load model.
