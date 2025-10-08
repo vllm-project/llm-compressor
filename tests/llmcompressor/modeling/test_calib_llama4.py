@@ -68,12 +68,8 @@ def test_calib_llama4_module():
     config = Llama4TextConfig()
     with torch.device("cuda"):
         original = Llama4TextMoe(config)
-        original.experts.gate_up_proj.data.copy_(
-            torch.rand(original.experts.gate_up_proj.data.shape, device="cuda") * 0.01
-        )
-        original.experts.down_proj.data.copy_(
-            torch.rand(original.experts.down_proj.data.shape, device="cuda") * 0.01
-        )
+        original.experts.gate_up_proj.data.normal_(mean=0.0, std=0.01)
+        original.experts.down_proj.data.normal_(mean=0.0, std=0.01)
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
