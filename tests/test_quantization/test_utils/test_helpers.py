@@ -32,36 +32,42 @@ from compressed_tensors.quantization.utils import (
     [
         (
             False,
-            QuantizationStrategy.TENSOR,
+            "tensor",
             torch.Size(
                 [
                     1,
                 ]
             ),
         ),
-        (True, QuantizationStrategy.CHANNEL, torch.Size([1, 1])),
-        (True, QuantizationStrategy.GROUP, torch.Size([1, 1])),
+        (True, "channel", torch.Size([1, 1])),
+        (True, "group", torch.Size([1, 1])),
         (
             False,
-            QuantizationStrategy.BLOCK,
+            "block",
             torch.Size(
                 [
                     1,
                 ]
             ),
         ),
-        (True, QuantizationStrategy.TOKEN, torch.Size([1, 1])),
+        (True, "token", torch.Size([1, 1])),
     ],
 )
 def test_calculate_qparams(keepdims, strategy, exp_shape):
-    value = torch.randn(14, 5)
+    value = torch.empty(5, 6)
     min_val = torch.amin(value, dim=tuple(), keepdims=keepdims)
     max_val = torch.amax(value, dim=tuple(), keepdims=keepdims)
 
     if strategy == QuantizationStrategy.GROUP:
         args = QuantizationArgs(strategy=strategy, group_size=2)
+    elif strategy == QuantizationStrategy.BLOCK:
+        args = QuantizationArgs(strategy=strategy, block_structure=[1, 3])
     else:
-        args = QuantizationArgs(strategy=strategy)
+        args = QuantizationArgs(
+            strategy=strategy,
+            group_size=(2 if strategy == "group" else None),
+            block_structure=([1, 3] if strategy == "block" else None),
+        )
         scale, zp = calculate_qparams(min_val, max_val, args)
         assert scale.shape == exp_shape
         assert zp.shape == exp_shape

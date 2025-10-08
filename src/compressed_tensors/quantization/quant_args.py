@@ -259,6 +259,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         # extract user-passed values from dictionary
         strategy = model.strategy
         group_size = model.group_size
+        block_structure = model.block_structure
         actorder = model.actorder
         dynamic = model.dynamic
         observer = model.observer
@@ -277,7 +278,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                     "strategy='group' and group_size = -1 for 'channel'"
                 )
 
-        # validate strategy and group
+        # validate group strategy
         if strategy == QuantizationStrategy.GROUP:
             if group_size is None or group_size <= 0:
                 raise ValueError(
@@ -291,6 +292,14 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             not in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
         ):
             raise ValueError("group_size requires strategy to be set to 'group'")
+
+        # validate block strategy
+        has_block_strategy = strategy == QuantizationStrategy.BLOCK
+        has_block_structure = block_structure is not None
+        if has_block_strategy and not has_block_structure:
+            raise ValueError(f"Block strategy requires block structure\n{model}")
+        if has_block_structure and not has_block_strategy:
+            raise ValueError(f"Block structure requires block strategy\n{model}")
 
         # validate activation ordering and strategy
         if actorder is not None and strategy != QuantizationStrategy.GROUP:
