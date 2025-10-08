@@ -65,6 +65,10 @@ class SequentialLlama4TextMoe(torch.nn.Module):
                 expert_score = router_scores[top_token_mask, expert_index].unsqueeze(-1)
                 out[top_token_mask] += expert_out * expert_score
 
+        # support transformers 4.53 and greater
+        if isinstance(router_outputs, tuple):
+            return out, router_logits
+        # support old transformers
         return out, router_scores
 
 
