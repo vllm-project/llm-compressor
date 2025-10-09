@@ -178,7 +178,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # register gptq hooks
         added_hook = False
-        for _, module in match_named_modules(state.model, self.targets, self.ignore):
+        for _, module in match_named_modules(
+            state.model, self.resolved_targets, self.ignore
+        ):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
