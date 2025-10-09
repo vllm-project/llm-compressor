@@ -140,9 +140,9 @@ setup(
         ),
         ("pillow>=10.4.0,<=11.3.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.12.1"
+            "compressed-tensors==0.12.2"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.12.2a2"
+            else "compressed-tensors>=0.12.3a2"
         ),
     ],
     extras_require={
@@ -160,7 +160,7 @@ setup(
             "torchvision",
             "librosa==0.11.0",
             "soundfile",
-            #"torchcodec",
+            "torchcodec",
             # linting, formatting, and type checking
             "mypy~=1.10.0",
             "ruff~=0.4.8",
