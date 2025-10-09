@@ -19,10 +19,14 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states = hidden_states.reshape(-1, hidden_dim)
 
+        # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate(hidden_states)
         routing_weights = torch.nn.functional.softmax(
             router_logits, dim=1, dtype=torch.float
         )
+        # get topk experts per token
+        # routing_weight: (num_tokens, top_k)
+        # routing_indices: (num_tokens, top_k)
         routing_weights, router_indices = torch.topk(
             routing_weights, self.top_k, dim=-1
         )
@@ -35,6 +39,8 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
             device=hidden_states.device,
         )
 
+        # convert router indices into OHE list
+        # reshape to be (num_experts, top_k, batch_size * sequence_length)
         expert_mask = torch.nn.functional.one_hot(
             router_indices, num_classes=self.num_experts
         ).permute(2, 1, 0)
@@ -48,6 +54,8 @@ class LinearQwen3VLMoeTextSparseMoeBlock(torch.nn.Module):
                 expert_out = expert_layer(hidden_states[token_idx])
 
             if len(token_idx) > 0:
+                # if there are tokens meant for this expert, further scale the expert
+                # output by the score
                 weighted_output = expert_out * routing_weights[token_idx, idx, None]
                 next_states.index_add_(
                     0, token_idx, weighted_output.to(hidden_states.dtype)

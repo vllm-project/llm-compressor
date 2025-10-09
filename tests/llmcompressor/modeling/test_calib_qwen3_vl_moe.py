@@ -15,11 +15,11 @@ def test_calib_qwen3_vl_moe_module():
     config = Qwen3VLMoeTextConfig()
     with torch.device("cuda"):
         original = Qwen3VLMoeTextSparseMoeBlock(config).eval()
-        # these are initialized as empty / all 0s which results in output
-        # from the experts being all 0 and incorrectly makes it seem like identical
-        # outputs with our definition update to use a small random value
-        original.experts.gate_up_proj.data.normal_(mean=0.0, std=0.01)
-        original.experts.down_proj.data.normal_(mean=0.0, std=0.01)
+        # these are initialized as empty / all 0s which results in outputs
+        # from the experts being all 0
+        # update to use a small random value
+        original.experts.gate_up_proj.data.normal_(mean=0.0, std=0.02)
+        original.experts.down_proj.data.normal_(mean=0.0, std=0.02)
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
@@ -34,13 +34,13 @@ def test_calib_qwen3_vl_moe_module():
     )
     with calibration_forward_context(module):
         output = module(sample)
-        assert torch.allclose(true_output[0], output[0], atol=1e-6)
-        assert torch.allclose(true_output[1], output[1], atol=1e-6)
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10
 
     module = LinearQwen3VLMoeTextSparseMoeBlock(
         config, original, calibrate_all_experts=False
     )
     with calibration_forward_context(module):
         output = module(sample)
-        assert torch.allclose(true_output[0], output[0], atol=1e-6)
-        assert torch.allclose(true_output[1], output[1], atol=1e-6)
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10

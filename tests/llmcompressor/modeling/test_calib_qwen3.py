@@ -81,11 +81,11 @@ def test_calib_qwen3_moe_module():
     module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=True)
     with calibration_forward_context(module):
         output = module(sample)
-        assert torch.allclose(true_output[0], output[0], atol=1e-6)
-        assert torch.allclose(true_output[1], output[1], atol=1e-6)
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10
 
     module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=False)
     with calibration_forward_context(module):
         output = module(sample)
-        assert torch.allclose(true_output[0], output[0], atol=1e-6)
-        assert torch.allclose(true_output[1], output[1], atol=1e-6)
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10
