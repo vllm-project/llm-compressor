@@ -184,7 +184,7 @@ setup(
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",
