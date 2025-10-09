@@ -140,7 +140,7 @@ class QuantizationMixin(HooksMixin):
         """
         if self._resolved_targets is None:
             targets = []
-            for config_group in self.resolved_config.config_groups.items():
+            for config_group in self.resolved_config.config_groups.values():
                 for target in config_group.targets:
                     if target not in targets:
                         targets.append(target)
