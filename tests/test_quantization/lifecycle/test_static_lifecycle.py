@@ -287,45 +287,82 @@ class MockAttention(torch.nn.Module):
                 strategy="tensor",
             ),
             torch.tensor([0.0]),
-            torch.tensor([11.0]),
+            torch.tensor([23.0]),
             torch.tensor(
                 [
                     [
-                        [[0.0000, 1.4688, 1.4688], [2.9375, 4.4062, 4.4062]],
-                        [[5.8750, 7.3438, 7.3438], [8.8125, 10.2500, 10.2500]],
+                        [
+                            [0.0000, 0.0000, 3.0625, 3.0625],
+                            [3.0625, 6.1250, 6.1250, 6.1250],
+                            [9.1875, 9.1875, 9.1875, 12.2500],
+                        ],
+                        [
+                            [12.2500, 12.2500, 15.3125, 15.3125],
+                            [15.3125, 18.3750, 18.3750, 18.3750],
+                            [21.5000, 21.5000, 21.5000, 21.5000],
+                        ],
                     ]
                 ]
             ),
-            0.19,
+            0.81,
         ),
         # static token is not supported
         # channel is not supported
         # group is not supported
         # tensor group is not supported
         # block is not supported
+        (
+            QuantizationArgs(
+                num_bits=4,
+                type="int",
+                symmetric=True,
+                strategy="attn_head",
+            ),
+            torch.tensor([[[0.0]], [[12.0]]]),
+            torch.tensor([[[11.0]], [[23.0]]]),
+            torch.tensor(
+                [
+                    [
+                        [
+                            [0.0000, 1.4688, 1.4688, 2.9375],
+                            [4.4062, 4.4062, 5.8750, 7.3438],
+                            [7.3438, 8.8125, 10.2500, 10.2500],
+                        ],
+                        [
+                            [12.2500, 12.2500, 15.3125, 15.3125],
+                            [15.3125, 18.3750, 18.3750, 18.3750],
+                            [21.5000, 21.5000, 21.5000, 21.5000],
+                        ],
+                    ]
+                ]
+            ),
+            0.55,
+        ),
     ],
 )
 def test_static_attention_quantization(
     args, exp_min_val, exp_max_val, exp_quant, exp_loss
 ):
     """
-    input = tensor([[[[ 0.,  1.,  2.],
-                      [ 3.,  4.,  5.]],
+    input = tensor([[[[ 0.,  1.,  2.,  3.],
+                      [ 4.,  5.,  6.,  7.],
+                      [ 8.,  9., 10., 11.]],
 
-                      [[ 6.,  7.,  8.],
-                      [ 9., 10., 11.]]]])
+                     [[12., 13., 14., 15.],
+                      [16., 17., 18., 19.],
+                      [20., 21., 22., 23.]]]])
     """
-    # set up activation (and identity weight)
-    batch_size, seq_len, num_heads, head_dim = 1, 2, 2, 3
+    # set up attention
+    batch_size, num_heads, seq_len, head_dim = 1, 2, 3, 4
     input = torch.arange(
-        (batch_size * seq_len * num_heads * head_dim), dtype=torch.bfloat16
-    ).reshape((batch_size, seq_len, num_heads, head_dim))
+        (batch_size * num_heads * seq_len * head_dim), dtype=torch.bfloat16
+    ).reshape((batch_size, num_heads, seq_len, head_dim))
     attention = MockAttention()
 
     # initialize quantization parameters
     scheme = QuantizationScheme(targets=[], input_activations=args)
     initialize_qparams(
-        attention, "k", args, (num_heads, head_dim), observed_dtype=torch.bfloat16
+        attention, "k", args, (num_heads, None, head_dim), observed_dtype=torch.bfloat16
     )
     attention.quantization_scheme = scheme
     attention.quantization_status = QuantizationStatus.INITIALIZED

@@ -65,6 +65,7 @@ class QuantizationScheme(BaseModel):
                 QuantizationStrategy.TENSOR,
                 QuantizationStrategy.GROUP,
                 QuantizationStrategy.TENSOR_GROUP,
+                QuantizationStrategy.ATTN_HEAD,
             ):
                 if (
                     inputs.strategy == QuantizationStrategy.GROUP

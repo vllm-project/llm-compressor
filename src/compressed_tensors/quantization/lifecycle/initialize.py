@@ -14,7 +14,7 @@
 
 
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
@@ -152,7 +152,7 @@ def initialize_qparams(
     module: Module,
     base_name: str,
     quantization_args: QuantizationArgs,
-    observed_shape: Tuple[int],
+    observed_shape: Tuple[Union[int, None]],
     observed_dtype: torch.dtype,
     force_zero_point: bool = True,
 ):
@@ -233,6 +233,13 @@ def initialize_qparams(
         num_rows = strategy_cdiv(observed_shape[-2], block_structure[-2], strategy)
         num_cols = strategy_cdiv(observed_shape[-1], block_structure[-1], strategy)
         expected_shape = (num_rows, num_cols)
+
+    elif strategy == QuantizationStrategy.ATTN_HEAD:
+        # (batch_size, num_attention_heads, seq_len, head_dim)
+        if len(observed_shape) < 3:
+            raise ValueError("Attention quant requires at least 3 observed dimensions")
+
+        expected_shape = (observed_shape[-3], 1, 1)
 
     else:
         assert False, f"Unknown strategy {strategy}"

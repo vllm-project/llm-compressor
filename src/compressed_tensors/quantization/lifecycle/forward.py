@@ -330,7 +330,7 @@ def _process_quantization(
             inv_perm = torch.argsort(perm)
             output = output.index_select(-1, inv_perm)
 
-    else:  # covers channel, token and tensor strategies
+    else:  # covers tensor, channel, token, and attn_head strategies
         if do_quantize:
             output = _quantize(
                 x=x,

@@ -101,6 +101,7 @@ class QuantizationStrategy(str, Enum):
     BLOCK = "block"
     TOKEN = "token"
     TENSOR_GROUP = "tensor_group"
+    ATTN_HEAD = "attn_head"
 
 
 class DynamicType(str, Enum):
