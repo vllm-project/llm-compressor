@@ -1,7 +1,6 @@
 import contextlib
-from copy import deepcopy
 from functools import wraps
-from typing import Any, Callable, ClassVar, Dict, Optional, Set, Union
+from typing import Any, Callable, ClassVar, Optional, Set, Union
 
 import torch
 from loguru import logger
@@ -40,7 +39,6 @@ class HooksMixin(BaseModel):
     # attached to global HooksMixin class
     _HOOKS_DISABLED: ClassVar[bool] = False
     _HOOKS_KEEP_ENABLED: ClassVar[Set[RemovableHandle]] = set()
-    _HOOKS_TO_MODIFIER: ClassVar[Dict[RemovableHandle, "HooksMixin"]] = dict()
 
     # attached to local subclasses
     _hooks: Set[RemovableHandle] = set()
@@ -97,7 +95,6 @@ class HooksMixin(BaseModel):
         register_function = getattr(target, f"register_{hook_type}_hook")
         handle = register_function(wrapped_hook, **kwargs)
         self._hooks.add(handle)
-        self._HOOKS_TO_MODIFIER[handle] = self
         logger.debug(f"{self} added {handle}")
 
         return handle
@@ -116,13 +113,3 @@ class HooksMixin(BaseModel):
             hook.remove()
 
         self._hooks -= handles
-        for handle in handles:
-            self._HOOKS_TO_MODIFIER.pop(handle, None)
-
-    @classmethod
-    def remove_hooks_by_id(cls, ids: Set[int]):
-        handles = deepcopy(cls._HOOKS_TO_MODIFIER)
-        for handle in handles:
-            if handle.id in ids:
-                modifier = cls._HOOKS_TO_MODIFIER[handle]
-                modifier.remove_hooks(set(handle))
