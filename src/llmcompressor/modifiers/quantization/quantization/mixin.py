@@ -1,6 +1,13 @@
 from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
+from compressed_tensors.modeling import (
+    IMPL_ATTR,
+    KV_CACHE_ATTR,
+    register_key_hook,
+    register_query_hook,
+    register_value_hook,
+)
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -21,12 +28,12 @@ from torch.utils.hooks import RemovableHandle
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     calibrate_input_hook,
-    calibrate_kv_cache_input_hook,
-    calibrate_kv_cache_output_hook,
+    calibrate_key_hook,
     calibrate_output_hook,
+    calibrate_query_hook,
+    calibrate_value_hook,
     freeze_module_quantization,
     initialize_observer,
-    initialize_quantized_kv_cache,
     reset_quantization_status,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -253,19 +260,21 @@ class QuantizationMixin(HooksMixin):
 
         # input activations
         if input:
-            initialize_observer(module, base_name="input")
+            if not is_attention:
+                initialize_observer(module, base_name="input")
+            else:
+                if hasattr(module, IMPL_ATTR):
+                    initialize_observer(module, base_name="q")
+                if hasattr(module, KV_CACHE_ATTR):
+                    initialize_observer(module, base_name="k")
+                    initialize_observer(module, base_name="v")
 
         # weight observers (used by `update_weight_zp_scale` or child modifier)
         if weight:
             initialize_observer(module, base_name="weight")
 
-        # kv_cache activations. Within `apply_quantization_config`, the config is
-        # modified to use attention output quantization if a kv_cache_scheme exists
-        if is_attention and output:
-            initialize_quantized_kv_cache(module)
-
         # output activations
-        elif output:
+        if output:
             initialize_observer(module, base_name="output")
 
     def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
@@ -284,29 +293,19 @@ class QuantizationMixin(HooksMixin):
 
             # input activations
             if input:
-                hooks.add(
-                    self.register_hook(module, calibrate_input_hook, "forward_pre")
-                )
-
-            # kv_cache activations. Within `apply_quantization_config`, the config is
-            # modified to use attention output quantization if a kv_cache_scheme exists
-            if is_attention and output:
-                hooks.add(
-                    self.register_hook(
-                        module,
-                        calibrate_kv_cache_input_hook,
-                        "forward_pre",
-                        with_kwargs=True,
+                if not is_attention:
+                    hooks.add(
+                        self.register_hook(module, calibrate_input_hook, "forward_pre")
                     )
-                )
-                hooks.add(
-                    self.register_hook(
-                        module, calibrate_kv_cache_output_hook, "forward"
-                    )
-                )
+                else:
+                    if hasattr(module, IMPL_ATTR):
+                        hooks.add(register_query_hook(module, calibrate_query_hook))
+                    if hasattr(module, KV_CACHE_ATTR):
+                        hooks.add(register_key_hook(module, calibrate_key_hook))
+                        hooks.add(register_value_hook(module, calibrate_value_hook))
 
             # output activations
-            elif output:
+            if output:
                 hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks

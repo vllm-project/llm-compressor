@@ -160,7 +160,7 @@ setup(
             "torchvision",
             "librosa==0.11.0",
             "soundfile",
-            "torchcodec",
+            #"torchcodec",
             # linting, formatting, and type checking
             "mypy~=1.10.0",
             "ruff~=0.4.8",
