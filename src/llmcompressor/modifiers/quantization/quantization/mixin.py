@@ -15,7 +15,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.utils import match_named_modules
-from pydantic import Field, PrivateAttr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.quantization.calibration import (
