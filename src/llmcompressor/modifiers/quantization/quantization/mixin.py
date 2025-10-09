@@ -62,6 +62,8 @@ class QuantizationMixin(HooksMixin):
     :param targets: list of layer names to quantize if a scheme is provided. If unset,
         will contain all targets listed in config_groups. If config_groups is also
         unset, will default to ["Linear"] (i.e. all Linear layers will be targeted).
+        This field is not the source of truth for all targets, it must be resolved
+        with config_groups. Use resolved_targets instead.
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
     :param scheme: a single quantization scheme to apply to the model. This is a
@@ -83,12 +85,14 @@ class QuantizationMixin(HooksMixin):
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
-    targets: Union[str, List[str]] = Field(default_factory=list)
+    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
 
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
+    _resolved_targets: Optional[List[str]] = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
@@ -116,27 +120,33 @@ class QuantizationMixin(HooksMixin):
 
         return value
 
-    @model_validator(mode="after")
-    def validate_model_after(model: "QuantizationMixin") -> "QuantizationMixin":
+    @property
+    def resolved_config(self):
         """
-        - If targets have not been set, aggregate targets from config_groups
-          into a single unique list
-        - If targets have still not been found, default to targets=["Linear"]
+        Quantization config needs to be resolved just once based on
+        scheme and config_groups inputs.
         """
+        if self._resolved_config is None:
+            self._resolved_config = self.resolve_quantization_config()
+        return self._resolved_config
 
-        if len(model.targets) > 0 and model.config_groups is not None:
-            raise ValueError("Please specify either `targets` or `config_groups`")
-
-        if len(model.targets) == 0 and model.config_groups is not None:
-            for config_group in model.config_groups.values():
+    @property
+    def resolved_targets(self):
+        """
+        List of all resolved targets, i.e. all unique targets listed
+        in resolved quantization config.
+        Use this property instead of the targets field, as targets can
+        also come from config_groups depending on how recipe is configured.
+        """
+        if self._resolved_targets is None:
+            targets = []
+            for config_group in self.resolved_config.config_groups.items():
                 for target in config_group.targets:
-                    if target not in model.targets:
-                        model.targets.append(target)
+                    if target not in targets:
+                        targets.append(target)
+            self._resolved_targets = targets
 
-        if len(model.targets) == 0:
-            model.targets.append("Linear")
-
-        return model
+        return self._resolved_targets
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
@@ -145,13 +155,11 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to attach schemes and observers to
         """
-        # apply scheme and status to model
-        config = self.resolve_quantization_config()
 
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, config)
+        apply_quantization_config(model, self.resolved_config)
 
         # disable quantization until calibration
         model.apply(disable_quantization)
@@ -164,7 +172,7 @@ class QuantizationMixin(HooksMixin):
         :param model: model to prepare for calibration
         """
         self._calibration_hooks = self._initialize_hooks(model)
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
             apply_calibration_status(module)
 
@@ -178,7 +186,7 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
@@ -270,7 +278,7 @@ class QuantizationMixin(HooksMixin):
 
     def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             if not hasattr(module, "quantization_scheme"):
                 continue
 

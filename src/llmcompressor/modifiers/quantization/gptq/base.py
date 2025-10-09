@@ -162,7 +162,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # prepare module names
         self._module_names = {
             m: name
-            for name, m in match_named_modules(state.model, self.targets, self.ignore)
+            for name, m in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
         }
 
         return True
