@@ -76,14 +76,16 @@ def test_calib_qwen3_moe_module():
     sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 
     with calibration_forward_context(original):
-        true_output = original(sample)[0]
+        true_output = original(sample)
 
     module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=True)
     with calibration_forward_context(module):
-        output = module(sample)[0]
-        assert torch.allclose(true_output, output, atol=1e-6)
+        output = module(sample)
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10
 
     module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=False)
     with calibration_forward_context(module):
-        output = module(sample)[0]
-        assert torch.allclose(true_output, output, atol=1e-6)
+        output = module(sample)
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10

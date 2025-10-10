@@ -5,7 +5,9 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "Qwen/Qwen3-30B-A3B"
+# NOTE: Requires a minimum of transformers 4.57.0
+
+MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -55,7 +57,14 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 #   * calibrate a global_scale for activations, which will be used to
 #       quantize activations to fp4 on the fly
 recipe = QuantizationModifier(
-    targets="Linear", scheme="NVFP4", ignore=["lm_head", "re:.*mlp.gate$"]
+    targets="Linear",
+    scheme="NVFP4",
+    ignore=[
+        "lm_head",
+        "re:.*mlp.gate$",
+        "re:.*mlp.shared_expert_gate$",
+        "re:.*linear_attn.*",
+    ],
 )
 
 # Apply quantization.
@@ -83,6 +92,7 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
+
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"

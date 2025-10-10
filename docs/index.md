@@ -13,6 +13,29 @@
    <img alt="LLM Compressor Flow" src="assets/llmcompressor-user-flows.png" width="100%" style="max-width: 100%;"/>
 </p>
 
+## New in this release
+
+Review the [LLM Compressor v0.8.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.8.0) for details about new features. Highlights include:
+
+!!! info "Support for multiple modifiers in oneshot compression runs"
+    LLM Compressor now supports using multiple modifiers in oneshot compression runs such as applying both AWQ and GPTQ in a single model. 
+
+    Using multiple modifiers is an advanced usage of LLM Compressor and an active area of research. See [Non-uniform Quantization](examples/quantization_non_uniform/) for more detail and example usage.
+
+!!! info "Quantization and calibration support for Qwen3 models"
+    Quantization and calibration support for Qwen3 Next models has been added to LLM Compressor.
+
+    LLM Compressor now supports quantization for Qwen3 Next and Qwen3 VL MoE models. You can now use data-free pathways such as FP8 channel-wise and block-wise quantization. Pathways requiring data such W4A16 and NVFP4 are planned for a future release.
+
+    Examples for NVFP4 and FP8 quantization have been added for the Qwen3-Next-80B-A3B-Instruct model. 
+
+    For the Qwen3 VL MoE model, support has been added for the data-free pathway. The data-free pathway applies FP8 quantization, for example, channel-wise and block-wise quantization. 
+
+    **NOTE**: These models are not supported in tranformers<=4.56.2. You may need to install transformers from source.
+
+!!! info "Transforms support for non-full-size rotation sizes"
+    You can now set a `transform_block_size` field in the Transform-based modifier classes `SpinQuantModifier` and `QuIPModifier`. You can configure transforms of variable size with this field, and you don't need to restrict hadamards to match the size of the weight.
+
 ## Recent Updates
 
 !!! info "QuIP and SpinQuant-style Transforms" 
@@ -26,12 +49,6 @@
 
 !!! info "Llama4 Quantization Support"
     Quantize a Llama4 model to [W4A16](examples/quantization_w4a16.md) or [NVFP4](examples/quantization_w4a16.md). The checkpoint produced can seamlessly run in vLLM.
-
-!!! info "Large Model Support with Sequential Onloading"
-    As of llm-compressor>=0.6.0, you can now quantize very large language models on a single GPU. Models are broken into disjoint layers which are then onloaded to the GPU one layer at a time. For more information on sequential onloading, see [Big Modeling with Sequential Onloading](examples/big_models_with_sequential_onloading.md) as well as the [DeepSeek-R1 Example](examples/quantizing_moe.md).
-
-!!! info "Axolotl Sparse Finetuning Integration"
-    Seamlessly finetune sparse LLMs with our Axolotl integration. Learn how to create [fast sparse open-source models with Axolotl and LLM Compressor](https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open). See also the [Axolotl integration docs](https://docs.axolotl.ai/docs/custom_integrations.html#llmcompressor).
 
 For more information, check out the [latest release on GitHub](https://github.com/vllm-project/llm-compressor/releases/latest).
 
