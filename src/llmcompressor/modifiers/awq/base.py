@@ -268,7 +268,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         self.ended_ = True
 
         for _, module in tqdm(
-            match_named_modules(state.model, self.targets, self.ignore),
+            match_named_modules(state.model, self.resolved_targets, self.ignore),
             desc="Calibrating weights",
         ):
             update_weight_zp_scale(module)
