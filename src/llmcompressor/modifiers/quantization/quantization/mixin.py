@@ -92,7 +92,6 @@ class QuantizationMixin(HooksMixin):
 
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
-    _resolved_targets: Optional[List[str]] = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
@@ -121,7 +120,7 @@ class QuantizationMixin(HooksMixin):
         return value
 
     @property
-    def resolved_config(self):
+    def resolved_config(self) -> QuantizationConfig:
         """
         Quantization config needs to be resolved just once based on
         scheme and config_groups inputs.
@@ -131,22 +130,18 @@ class QuantizationMixin(HooksMixin):
         return self._resolved_config
 
     @property
-    def resolved_targets(self):
+    def resolved_targets(self) -> Set[str]:
         """
-        List of all resolved targets, i.e. all unique targets listed
+        Set of all resolved targets, i.e. all unique targets listed
         in resolved quantization config.
         Use this property instead of the targets field, as targets can
         also come from config_groups depending on how recipe is configured.
         """
-        if self._resolved_targets is None:
-            targets = []
-            for config_group in self.resolved_config.config_groups.values():
-                for target in config_group.targets:
-                    if target not in targets:
-                        targets.append(target)
-            self._resolved_targets = targets
-
-        return self._resolved_targets
+        targets = set()
+        for config_group in self.resolved_config.config_groups.values():
+            for target in config_group.targets:
+                targets.add(target)
+        return targets
 
     def initialize_quantization(self, model: torch.nn.Module):
         """
