@@ -5,8 +5,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-# NOTE: Qwen3-Next-80B-A3B-Instruct support is not in transformers<=4.56.2
-# you may need to install transformers from source
+# NOTE: Requires a minimum of transformers 4.57.0
 
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
