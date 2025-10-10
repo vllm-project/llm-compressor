@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
+from compressed_tensors.utils import update_offload_parameter
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
@@ -95,8 +96,10 @@ def quantize_weight(
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
-        quant_args.observer,
-        quantization_args=quant_args,
+        "minmax",
+        base_name="weight",
+        args=quant_args,
+        module=module,
         averaging_constant=1.0,  # ignore moving average
     )
 
@@ -119,22 +122,23 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            scale, zero_point = observer(W, g_idx=None)
+            update_offload_parameter(module, "weight_g_idx", g_idx)
+            scale, zero_point = observer(W)
 
             # use identity g_idx (invert permutation later)
 
         elif actorder == ActivationOrdering.WEIGHT:
             # update groups first, then permute by activation order
-            scale, zero_point = observer(W, g_idx=None)
+            scale, zero_point = observer(W)
             W, H, perm = _apply_activation_ordering(W, H)
 
             # permute g_idx to maintain identity mapping after unpermutation
             g_idx = g_idx[perm]
 
         else:
-            scale, zero_point = observer(W, g_idx=None)
+            scale, zero_point = observer(W)
     else:
-        scale, zero_point = observer(W, g_idx=None)
+        scale, zero_point = observer(W)
 
     # sparsity mask
     sparsity = tensor_sparsity(W)
