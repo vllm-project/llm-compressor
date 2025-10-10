@@ -74,6 +74,8 @@ class StaticMSEObserver(StaticObserverBase):
                     self.args,
                     global_scale=global_scale,
                 ).to(observed.dtype)
+                # Note that due to forward quantization implementation, token quant,
+                # unlike tensor_group, requires extra dtype cast
 
             q -= observed
             q.abs_()
