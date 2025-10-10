@@ -82,7 +82,7 @@ jobs:
 
             - name: set python
               id: set_python
-              uses: actions/setup-python@v5
+              uses: actions/setup-python@v6
               with:
                   python-version: ${{ inputs.python }}
 
