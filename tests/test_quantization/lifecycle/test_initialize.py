@@ -176,10 +176,6 @@ def test_initialize_module_for_quantization_offloaded(
             QuantizationArgs(strategy="block", block_structure=[2, 4]),
             None,
         ),
-        (
-            QuantizationArgs(strategy="token"),
-            QuantizationArgs(strategy="token"),
-        ),
     ],
 )
 def test_initialize_quantization_parameters(weights, input_activations):
@@ -237,9 +233,6 @@ def test_initialize_quantization_parameters(weights, input_activations):
             else:
                 # For activations or when block_structure is None
                 expected_shape = (1,)
-
-        elif args.strategy == QuantizationStrategy.TOKEN:
-            expected_shape = (1, 1)
 
         if not args.dynamic:
             assert getattr(layer, f"{q_param_name}_scale").shape == expected_shape

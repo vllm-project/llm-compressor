@@ -50,7 +50,6 @@ from compressed_tensors.quantization.utils import (
                 ]
             ),
         ),
-        (True, "token", torch.Size([1, 1])),
     ],
 )
 def test_calculate_qparams(keepdims, strategy, exp_shape):

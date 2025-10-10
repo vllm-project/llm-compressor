@@ -30,27 +30,6 @@ def _get_dim(dim: int, value: torch.Tensor):
 
 
 @pytest.fixture
-def mock_per_token_calibration():
-    def update_scale_zp(module: torch.nn.Module, base_name: str, value: torch.Tensor):
-        quantization_scheme = getattr(module, "quantization_scheme", None)
-        if not quantization_scheme:
-            # no quantization scheme nothing to do
-            return
-
-        arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
-        args = getattr(quantization_scheme, arg_name, None)
-
-        dim = _get_dim({0, 1}, value)
-        min_val = torch.amin(value, dim=dim, keepdims=True)
-        max_val = torch.amax(value, dim=dim, keepdims=True)
-        scale, zp = calculate_qparams(min_val, max_val, args)
-        update_parameter_data(module, scale, f"{base_name}_scale")
-        update_parameter_data(module, zp, f"{base_name}_zero_point")
-
-    return update_scale_zp
-
-
-@pytest.fixture
 def mock_per_group_calibration():
     def update_scale_zp(
         module: torch.nn.Module, base_name: str, value: torch.Tensor, group_size: int

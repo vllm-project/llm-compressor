@@ -264,6 +264,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
         actorder = model.actorder
         dynamic = model.dynamic
         observer = model.observer
+        dynamic = model.dynamic
 
         # infer strategy
         if strategy is None:
@@ -278,6 +279,12 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
                     f"Invalid group size {group_size}. Use group_size > 0 for "
                     "strategy='group' and group_size = -1 for 'channel'"
                 )
+
+        # validate token strategy
+        if strategy == QuantizationStrategy.TOKEN and not dynamic:
+            raise ValueError(
+                "Cannot perform static token quantization, please use `dynamic=True`"
+            )
 
         # validate group strategy
         if strategy == QuantizationStrategy.GROUP:

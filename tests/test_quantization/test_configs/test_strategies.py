@@ -105,34 +105,3 @@ def test_group(
         model_shape[1],
         int(model_shape[0] / group_size),
     )
-
-
-@torch.no_grad
-@pytest.mark.parametrize("input_symmetry", [True, False])
-@pytest.mark.parametrize("weight_symmetry", [True, False])
-@pytest.mark.parametrize("input_shape", [(32, 256), (300, 200), (400, 400)])
-def test_token(
-    mock_per_channel_calibration,
-    mock_per_token_calibration,
-    input_symmetry,
-    weight_symmetry,
-    input_shape,
-):
-    model = Linear(input_shape[1], 256)
-    quant_config = create_config(
-        input_symmetry,
-        weight_symmetry,
-        w_strategy=QuantizationStrategy.CHANNEL,
-        i_strategy=QuantizationStrategy.TOKEN,
-    )
-    apply_quantization_config(model, quant_config)
-
-    inputs = torch.randn(input_shape)
-    mock_per_channel_calibration(model, base_name="weight", value=model.weight)
-    mock_per_token_calibration(model, base_name="input", value=inputs)
-
-    assert model.input_scale.shape == (1, 1)
-    assert model.input_zero_point.shape == (1, 1)
-
-    assert model.weight_scale.shape == (256, 1)
-    assert model.weight_zero_point.shape == (256, 1)
