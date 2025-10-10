@@ -131,6 +131,13 @@ def call_observer(
             update_offload_parameter(module, scale_name, updated_scale)
             update_offload_parameter(module, zp_name, updated_zero_point)
 
+        if base_name == "weight":
+            # HACK: free memory from using a QAT observer on weights
+            del observer.min_val
+            del observer.max_val
+            del observer._scale
+            del observer._zero_point
+
 
 def update_weight_global_scale(module: Module):
     if getattr_chain(module, "quantization_scheme.weights", None) is None:
