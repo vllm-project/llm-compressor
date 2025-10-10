@@ -12,7 +12,7 @@ def q_config_kwargs(config_0, config_1):
         config_groups=dict(
             group_0=dict(
                 targets=["Linear"],
-                input_activations=dict(num_bits=8, symmetric=False, strategy="token"),
+                input_activations=dict(num_bits=8, symmetric=False, strategy="tensor"),
                 weights=dict(
                     num_bits=4,
                     symmetric=True,
@@ -23,7 +23,7 @@ def q_config_kwargs(config_0, config_1):
             ),
             group_1=dict(
                 targets=["Linear"],
-                input_activations=dict(num_bits=8, symmetric=False, strategy="token"),
+                input_activations=dict(num_bits=8, symmetric=False, strategy="tensor"),
                 weights=dict(
                     num_bits=4,
                     symmetric=True,

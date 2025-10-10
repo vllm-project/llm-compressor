@@ -68,6 +68,8 @@ def test_calib_llama4_module():
     config = Llama4TextConfig()
     with torch.device("cuda"):
         original = Llama4TextMoe(config)
+        for param in original.parameters():
+            param.data.normal_(mean=0.0, std=0.02)
 
     # Create dummy input tensor that simulates hidden_states
     hidden_dim = config.hidden_size
@@ -75,14 +77,16 @@ def test_calib_llama4_module():
     sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 
     with calibration_forward_context(original):
-        true_output = original(sample)[0]
+        true_out, true_router_logits = original(sample)
 
     module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=True)
     with calibration_forward_context(module):
-        output = module(sample)[0]
-        assert torch.allclose(true_output, output, atol=1e-6)
+        out, router_logits = module(sample)
+        assert torch.nn.functional.mse_loss(true_out, out) < 1e-10
+        assert torch.nn.functional.mse_loss(true_router_logits, router_logits) < 1e-10
 
     module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=False)
     with calibration_forward_context(module):
-        output = module(sample)[0]
-        assert torch.allclose(true_output, output, atol=1e-6)
+        out, router_logits = module(sample)
+        assert torch.nn.functional.mse_loss(true_out, out) < 1e-10
+        assert torch.nn.functional.mse_loss(true_router_logits, router_logits) < 1e-10
