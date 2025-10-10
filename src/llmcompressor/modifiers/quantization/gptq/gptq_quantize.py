@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
+from compressed_tensors.utils import update_offload_parameter
 from loguru import logger
 
 from llmcompressor.modifiers.utils import SPARSITY_THRESHOLD
@@ -121,7 +122,7 @@ def quantize_weight(
         if actorder == ActivationOrdering.GROUP:
             # permute by activation order first, then update groups
             W, H, perm = _apply_activation_ordering(W, H)
-            module.weight_g_idx = g_idx
+            update_offload_parameter(module, "weight_g_idx", g_idx)
             scale, zero_point = observer(W)
 
             # use identity g_idx (invert permutation later)
