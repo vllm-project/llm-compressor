@@ -154,7 +154,7 @@ setup(
             "lm_eval==0.4.5",
             # test dependencies
             "beautifulsoup4~=4.12.3",
-            "cmarkgfm~=2024.1.14",
+            "cmarkgfm>=2024.1.14",
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
