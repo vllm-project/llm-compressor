@@ -84,9 +84,8 @@ def test_mse_fp4():
         group_size=3,
     )
 
-    observer = weights.observer
     observer = Observer.load_from_registry(
-        observer, base_name="weight", args=weights, module=module
+        "mse", base_name="weight", args=weights, module=module
     )
 
     global_scale = observer.get_global_scale(module.weight)
@@ -96,4 +95,15 @@ def test_mse_fp4():
     qdq_tensor = fake_quantize(
         module.weight, scale, zero_point, weights, global_scale=global_scale
     )
-    assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.002
+    assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.0015  # 0.0013
+
+    # sanity check: scales calibrated without global scales are worse
+    observer = Observer.load_from_registry(
+        "mse", base_name="weight", args=weights, module=module
+    )
+    global_scale = observer.get_global_scale(module.weight)
+    scale, zero_point = observer(module.weight)  # no global scale
+    qdq_tensor = fake_quantize(
+        module.weight, scale, zero_point, weights, global_scale=global_scale
+    )
+    assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) >= 0.0035  # 0.0036

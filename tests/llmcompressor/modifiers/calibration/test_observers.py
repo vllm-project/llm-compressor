@@ -7,6 +7,7 @@ from compressed_tensors.quantization import (
 )
 
 from llmcompressor.modifiers.quantization.calibration import initialize_observer
+from llmcompressor.observers import Observer
 
 
 @pytest.mark.parametrize(
@@ -58,3 +59,61 @@ def test_observers_update(shape, group_size, actorder):
 def assert_alike(a, b):
     assert a.dtype == b.dtype
     assert a.shape == b.shape
+
+
+@pytest.mark.parametrize("is_global", [False, True])
+@pytest.mark.parametrize(
+    "name,kwargs,observed,exp_min_vals,exp_max_vals",
+    (
+        (
+            "static_minmax",
+            {},
+            torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
+            torch.tensor([[0.0], [-3.0], [-3.0]]),
+            torch.tensor([[0.0], [1.0], [3.0]]),
+        ),
+        (
+            "static_mse",
+            {},
+            torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
+            torch.tensor([[0.0], [-3.0], [-3.0]]),
+            torch.tensor([[0.0], [1.0], [3.0]]),
+        ),
+        (
+            "minmax",  # moving average
+            {"averaging_constant": 0.1},
+            torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
+            torch.tensor([[0.0], [-0.3], [-0.37]]),
+            torch.tensor([[0.0], [0.1], [0.39]]),
+        ),
+        (
+            "mse",  # moving average
+            {"averaging_constant": 0.1},
+            torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
+            torch.tensor([[0.0], [-0.3], [-0.37]]),
+            torch.tensor([[0.0], [0.1], [0.39]]),
+        ),
+    ),
+)
+def test_observer_moving_static(
+    name, kwargs, observed, exp_min_vals, exp_max_vals, is_global
+):
+    observer = Observer.load_from_registry(
+        name, base_name="input", args=QuantizationArgs(strategy="tensor"), **kwargs
+    )
+
+    min_vals, max_vals = [], []
+    for _observed in observed:
+        if not is_global:
+            observer(_observed)
+            min_vals.append(observer.min_vals)
+            max_vals.append(observer.max_vals)
+        else:
+            observer.get_global_scale(_observed)
+            min_vals.append(observer.global_min_vals)
+            max_vals.append(observer.global_max_vals)
+
+    min_vals = torch.stack(min_vals)
+    max_vals = torch.stack(max_vals)
+    assert torch.allclose(min_vals, exp_min_vals)
+    assert torch.allclose(max_vals, exp_max_vals)
