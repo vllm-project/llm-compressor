@@ -1,3 +1,13 @@
+"""
+Dataset utility functions for LLM compression workflows.
+
+Provides helper functions for loading, processing, and formatting datasets used
+in model compression pipelines. Handles dataset splitting, tokenization,
+calibration data preparation, and dataloader creation for both training and
+one-shot calibration workflows.
+"""
+
+import multiprocessing
 import re
 from typing import Any, Callable, Dict, List, Optional
 
@@ -138,6 +148,14 @@ def format_calibration_data(
         tokenized_dataset = tokenized_dataset.shuffle()
     tokenized_calibration = tokenized_dataset.select(range(safe_calibration_samples))
 
+    MAX_DATALOADER_WORKERS = 8
+    try:
+        num_workers = min(MAX_DATALOADER_WORKERS, multiprocessing.cpu_count() // 2)
+    except NotImplementedError:
+        logger.warning(
+            "Could not determine number of CPUs, defaulting to 0 dataloader workers."
+        )
+        num_workers = 0
     dataloader_params = {
         "batch_size": 1,
         "sampler": RandomSampler(tokenized_calibration)
@@ -145,6 +163,7 @@ def format_calibration_data(
         else SequentialSampler(tokenized_calibration),
         "collate_fn": collate_fn,
         "pin_memory": True,
+        "num_workers": num_workers,
     }
 
     calibration_dataloader = DataLoader(tokenized_calibration, **dataloader_params)

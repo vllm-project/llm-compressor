@@ -11,7 +11,7 @@ LLM Compressor can be installed using several methods depending on your requirem
 Before installing LLM Compressor, ensure you have the following prerequisites:
 
 - **Operating System:** Linux (recommended for GPU support)
-- **Python Version:** 3.9 or newer
+- **Python Version:** 3.10 or newer
 - **Pip Version:** Ensure you have the latest version of pip installed. You can upgrade pip using the following command:
 
   ```bash
@@ -38,7 +38,7 @@ If you need a specific version of LLM Compressor, you can specify the version nu
 pip install llmcompressor==0.5.1
 ```
 
-Replace `0.1.0` with your desired version number.
+Replace `0.5.1` with your desired version number.
 
 ### Install from Source
 

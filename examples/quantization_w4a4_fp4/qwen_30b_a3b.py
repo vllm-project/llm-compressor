@@ -16,7 +16,7 @@ DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
 
 # Select number of samples
-NUM_CALIBRATION_SAMPLES = 200
+NUM_CALIBRATION_SAMPLES = 20
 MAX_SEQUENCE_LENGTH = 2048
 
 # Load dataset and preprocess.
@@ -83,7 +83,6 @@ input_ids = tokenizer("Hello my name is", return_tensors="pt").input_ids.to(
 output = model.generate(input_ids, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
-
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"

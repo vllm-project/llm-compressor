@@ -69,7 +69,7 @@ If you need more control, you can wrap `save_pretrained` manually:
 
 ```python
 from transformers import AutoModelForCausalLM
-from llmcompressor.transformers.sparsification import modify_save_pretrained
+from llmcompressor.transformers.compression.compressed_tensors_utils import modify_save_pretrained
 
 # Load model
 model = AutoModelForCausalLM.from_pretrained("your-model")
@@ -88,7 +88,11 @@ model.save_pretrained(
 ### Saving with Custom Sparsity Configuration
 
 ```python
-from compressed_tensors.sparsification import SparsityCompressionConfig
+from transformers import AutoModelForCausalLM
+from compressed_tensors import SparsityCompressionConfig
+
+# Load model
+model = AutoModelForCausalLM.from_pretrained("your-model")
 
 # Create custom sparsity config
 custom_config = SparsityCompressionConfig(

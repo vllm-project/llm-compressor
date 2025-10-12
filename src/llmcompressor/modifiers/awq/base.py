@@ -139,8 +139,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         default_factory=dict
     )
 
+    # NOTE: different name chosen to avoid collision with
+    # QuantizationMixin.validate_model_after, which must be called first
     @model_validator(mode="after")
-    def validate_model_after(model: "AWQModifier") -> "AWQModifier":
+    def validate_awq_after(model: "AWQModifier") -> "AWQModifier":
         """
         Confirm only one configuration for group_size, symmetric, and num_bits,
         as AWQ algorithm depends on it
@@ -265,8 +267,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         self.ended_ = True
 
-        modules = list(state.model.modules())
-        for module in tqdm(modules, desc="Calibrating weights"):
+        for _, module in tqdm(
+            match_named_modules(state.model, self.targets, self.ignore),
+            desc="Calibrating weights",
+        ):
             update_weight_zp_scale(module)
 
         QuantizationMixin.end_calibration(self, state.model)
@@ -397,7 +401,7 @@ class AWQModifier(Modifier, QuantizationMixin):
             ):
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
                     # Assume that first argument is the input
-                    args[0].cpu().detach().squeeze(),
+                    args[0].cpu().abs().detach().squeeze(),
                     self._smooth_activation_means.get(smooth_name, None),
                 )
 

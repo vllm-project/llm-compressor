@@ -1,3 +1,12 @@
+"""
+Dataset argument classes for LLM compression workflows.
+
+This module defines dataclass-based argument containers for configuring dataset
+loading, preprocessing, and calibration parameters across different dataset
+sources and processing pipelines. Supports various input formats including
+HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
+"""
+
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -192,6 +201,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_4d_causal_attention_mask",
             "_prepare_fsmt_decoder_inputs",
             "_prepare_4d_causal_attention_mask_with_cache_position",
+            "_update_linear_attn_mask",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "
@@ -217,3 +227,6 @@ class DatasetArguments(CustomDatasetArguments):
             "Default is set to True."
         },
     )
+
+    def is_dataset_provided(self) -> bool:
+        return self.dataset is not None or self.dataset_path is not None

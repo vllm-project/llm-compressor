@@ -12,8 +12,8 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 # Select calibration dataset.
-DATASET_ID = "mit-han-lab/pile-val-backup"
-DATASET_SPLIT = "validation"
+DATASET_ID = "HuggingFaceH4/ultrachat_200k"
+DATASET_SPLIT = "train_sft"
 
 # Select number of samples. 256 samples is a good place to start.
 # Increasing the number of samples can improve accuracy.
@@ -28,7 +28,7 @@ ds = ds.shuffle(seed=42)
 def preprocess(example):
     return {
         "text": tokenizer.apply_chat_template(
-            [{"role": "user", "content": example["text"]}],
+            example["messages"],
             tokenize=False,
         )
     }

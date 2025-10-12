@@ -1,8 +1,8 @@
 """
-General utility functions used throughout llmcompressor
+General utility functions used throughout LLM Compressor.
 """
 
-# flake8: noqa
+# ruff: noqa
 
 from .dev import *
 from .helpers import *

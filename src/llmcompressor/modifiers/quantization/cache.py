@@ -1,7 +1,15 @@
+"""
+Quantized key-value cache implementation for efficient inference.
+
+Provides quantized KV cache classes extending HuggingFace's
+DynamicCache with quantization support. Enables memory-efficient attention
+mechanisms by quantizing cached key and value tensors during model
+inference with configurable quantization strategies.
+"""
+
 from typing import Any, Dict, List, Optional, Tuple
 
-from compressed_tensors.quantization.lifecycle import KVCacheScaleType
-from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization import KVCacheScaleType, QuantizationArgs
 from torch import Tensor
 from transformers import DynamicCache
 

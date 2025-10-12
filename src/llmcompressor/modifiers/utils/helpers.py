@@ -1,3 +1,12 @@
+"""
+Helper functions for modifier operations and weight management.
+
+Provides utility functions for updating layer weights, managing
+global scales for quantization, and handling fused layer operations in
+neural network compression workflows. Supports specialized quantization
+strategies like NVFP4.
+"""
+
 from typing import List
 
 import torch
@@ -29,7 +38,7 @@ def update_fused_layer_weight_global_scales(submodule: torch.nn.Module):
 
     def _is_mlp_module(module: Module):
         return "mlp" in module.__class__.__name__.lower() and (
-            hasattr(module, "gate_proj") or hasattr(module, "up_proj")
+            hasattr(module, "gate_proj") and hasattr(module, "up_proj")
         )
 
     def _valid_tensor_group_quant(layer_list: List[Linear]):

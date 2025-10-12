@@ -22,18 +22,27 @@
    <img alt="LLM Compressor Flow" src="https://github.com/user-attachments/assets/adf07594-6487-48ae-af62-d9555046d51b" width="80%" />
 </p>
 
+---
+
+💬 Join us on the [vLLM Community Slack](https://communityinviter.com/apps/vllm-dev/join-vllm-developers-slack) and share your questions, thoughts, or ideas in:
+
+- `#sig-quantization`
+- `#llm-compressor`
+
+---
+
 ## 🚀 What's New!
 
 Big updates have landed in LLM Compressor! To get a more in-depth look, check out the [deep-dive](https://x.com/RedHat_AI/status/1937865425687093554).
 
 Some of the exciting new features include:
 
+* **Qwen3 Next and Qwen3 VL MoE Quantization Support**: Quantize the Qwen3 Next and Qwen3 VL MoE models and seamlessly run the models in vLLM. Examples for [NVFP4](examples/quantization_w4a4_fp4/qwen3_next_example.py) and [FP8](examples/quantization_w8a8_fp8/qwen3_next_example.py) Quantization have been added for the Qwen3-Next-80B-A3B-Instruct. For the Qwen3 VL MoE, support has been added for the datafree pathway, specifically [FP8 Quantization](examples/quantization_w8a8_fp8/qwen3_vl_moe_fp8_example.py) (e.g channel-wise and block-wise quantization). NOTE: these models are not supported in tranformers<=4.56.2. You may need to install transformers from source.
+* **Quantization with Multiple Modifiers**: Multiple quantization modifiers can now be applied to the same model for mixed-precision quantization, for example applying AWQ W4A16 to a model's `self_attn` layers and GPTQ W8A8 to its `mlp` layers. This is an advanced usage of `llm-compressor` and an active area of research. See the [non-uniform quantization support](examples/quantization_non_uniform) section for more detail and [example usage](examples/quantization_non_uniform/quantization_multiple_modifiers.py).
 * **QuIP and SpinQuant-style Transforms**: The newly added [`QuIPModifier`](examples/transform/quip_example.py) and [`SpinQuantModifier`](examples/transform/spinquant_example.py) allow users to quantize their models after injecting hadamard weights into the computation graph, reducing quantization error and greatly improving accuracy recovery for low bit weight and activation quantization.
 * **DeepSeekV3-style Block Quantization Support**:  This allows for more efficient compression of large language models without needing a calibration dataset. Quantize a Qwen3 model to [W8A8](examples/quantization_w8a8_fp8/fp8_block_example.py). 
 * **Llama4 Quantization Support**: Quantize a Llama4 model to [W4A16](examples/multimodal_vision/llama4_example.py) or [NVFP4](examples/quantization_w4a4_fp4/llama4_example.py). The checkpoint produced can seamlessly run in vLLM.
 * **FP4 Quantization - now with MoE and non-uniform support:** Quantize weights and activations to FP4 and seamlessly run the compressed model in vLLM. Model weights and activations are quantized following the NVFP4 [configuration](https://github.com/neuralmagic/compressed-tensors/blob/f5dbfc336b9c9c361b9fe7ae085d5cb0673e56eb/src/compressed_tensors/quantization/quant_scheme.py#L104). See examples of [fp4 activation support](examples/quantization_w4a4_fp4/llama3_example.py), [MoE support](examples/quantization_w4a4_fp4/qwen_30b_a3b.py), and [Non-uniform quantization support](examples/quantization_non_uniform) where some layers are selectively quantized to fp8 for better recovery. You can also mix other quantization schemes, such as int8 and int4.
-* **Large Model Support with Sequential Onloading**: As of llm-compressor>=0.6.0, you can now quantize very large language models on a single GPU. Models are broken into disjoint layers which are then onloaded to the GPU one layer at a time. For more information on sequential onloading, see [Big Modeling with Sequential Onloading](examples/big_models_with_sequential_onloading/README.md) as well as the [DeepSeek-R1 Example](examples/quantizing_moe/deepseek_r1_example.py).
-* **Axolotl Sparse Finetuning Integration:** Seamlessly finetune sparse LLMs with our Axolotl integration. Learn how to create [fast sparse open-source models with Axolotl and LLM Compressor](https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open). See also the [Axolotl integration docs](https://docs.axolotl.ai/docs/custom_integrations.html#llmcompressor).
 
 ### Supported Formats
 * Activation Quantization: W8A8 (int8 and fp8)
