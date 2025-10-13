@@ -85,7 +85,7 @@ Applying quantization with `llmcompressor`:
 
 ### User Guides
 Deep dives into advanced usage of `llmcompressor`:
-* [Quantizing with large models with the help of `accelerate`](examples/big_models_with_accelerate/README.md)
+* [Quantizing with large models with the help of sequential onloading](examples/big_models_with_sequential_onloading/README.md)
 
 
 ## Quick Tour

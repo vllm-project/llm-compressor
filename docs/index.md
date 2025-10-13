@@ -39,16 +39,16 @@ Review the [LLM Compressor v0.8.0 release notes](https://github.com/vllm-project
 ## Recent Updates
 
 !!! info "QuIP and SpinQuant-style Transforms" 
-    The newly added [`QuIPModifier`](examples/transform/quip_example.py) and [`SpinQuantModifier`](examples/transform/spinquant_example.py) allow you to quantize models after injecting hadamard weights into the computation graph, reducing quantization error and greatly improving accuracy recovery for low bit-weight and activation quantization.
+    The newly added [`QuIPModifier`](../examples/transform/quip_example.py) and [`SpinQuantModifier`](../examples/transform/spinquant_example.py) allow you to quantize models after injecting hadamard weights into the computation graph, reducing quantization error and greatly improving accuracy recovery for low bit-weight and activation quantization.
 
 !!! info "DeepSeekV3-style Block Quantization Support" 
-    Allows for more efficient compression of large language models without needing a calibration dataset. Quantize a Qwen3 model to [W8A8](examples/quantization_w8a8_fp8.md).
+    Allows for more efficient compression of large language models without needing a calibration dataset. Quantize a Qwen3 model to [W8A8](../examples/quantization_w8a8_fp8/fp8_block_example.py).
 
 !!! info "FP4 Quantization - now with MoE and non-uniform support" 
-    Quantize weights and activations to FP4 and seamlessly run the compressed model in vLLM. Model weights and activations are quantized following the [NVFP4 configuration](https://github.com/neuralmagic/compressed-tensors/blob/f5dbfc336b9c9c361b9fe7ae085d5cb0673e56eb/src/compressed_tensors/quantization/quant_scheme.py#L104). See examples of [FP4 activation support](examples/quantization_w4a4_fp4/llama3_example.py), [MoE support](examples/quantization_w4a4_fp4/qwen_30b_a3b.py), and [Non-uniform quantization support](examples/quantization_non_uniform) where some layers are selectively quantized to FP8 for better recovery. You can also mix other quantization schemes, such as INT8 and INT4.
+    Quantize weights and activations to FP4 and seamlessly run the compressed model in vLLM. Model weights and activations are quantized following the [NVFP4 configuration](https://github.com/neuralmagic/compressed-tensors/blob/f5dbfc336b9c9c361b9fe7ae085d5cb0673e56eb/src/compressed_tensors/quantization/quant_scheme.py#L104). See examples of [FP4 activation support](../examples/quantization_w4a4_fp4/llama3_example.py), [MoE support](../examples/quantization_w4a4_fp4/qwen_30b_a3b.py), and [Non-uniform quantization support](../examples/quantization_non_uniform/README.md) where some layers are selectively quantized to FP8 for better recovery. You can also mix other quantization schemes, such as INT8 and INT4.
 
 !!! info "Llama4 Quantization Support"
-    Quantize a Llama4 model to [W4A16](examples/quantization_w4a16.md) or [NVFP4](examples/quantization_w4a16.md). The checkpoint produced can seamlessly run in vLLM.
+    Quantize a Llama4 model to [W4A16](../examples/quantization_w4a16/README.md) or [NVFP4](../examples/quantization_w4a4_fp4/llama4_example.py). The checkpoint produced can seamlessly run in vLLM.
 
 For more information, check out the [latest release on GitHub](https://github.com/vllm-project/llm-compressor/releases/latest).
 
