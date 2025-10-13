@@ -100,7 +100,6 @@ def quantize_weight(
         base_name="weight",
         args=quant_args,
         module=module,
-        averaging_constant=1.0,  # ignore moving average
     )
 
     # standardize shape and dtype
