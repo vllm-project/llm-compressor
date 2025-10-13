@@ -23,7 +23,6 @@ class StaticMSEObserver(StaticObserverBase):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
         observer_kwargs = self.args.observer_kwargs
         self.maxshrink = observer_kwargs.get("maxshrink", 0.20)
         self.patience = observer_kwargs.get("patience", 5)
