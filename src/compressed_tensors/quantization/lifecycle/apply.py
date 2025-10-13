@@ -15,7 +15,7 @@
 import logging
 from collections import OrderedDict
 from copy import deepcopy
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Optional
 from typing import OrderedDict as OrderedDictType
 from typing import Union
 
@@ -34,7 +34,7 @@ from compressed_tensors.quantization.utils import (
     KV_CACHE_TARGETS,
     is_kv_cache_quant_scheme,
 )
-from compressed_tensors.utils.helpers import deprecated, replace_module
+from compressed_tensors.utils.helpers import replace_module
 from compressed_tensors.utils.match import match_named_modules, match_targets
 from compressed_tensors.utils.offload import update_parameter_data
 from compressed_tensors.utils.safetensors_load import get_safetensors_folder
@@ -45,7 +45,6 @@ from torch.nn import Module
 __all__ = [
     "load_pretrained_quantization_parameters",
     "apply_quantization_config",
-    "find_name_or_class_matches",
 ]
 
 from compressed_tensors.quantization.utils.helpers import is_module_quantized
@@ -206,31 +205,6 @@ def process_kv_cache_config(
     kv_cache_group = dict(kv_cache=kv_cache_scheme)
     config.config_groups.update(kv_cache_group)
     return config
-
-
-@deprecated(
-    message="This function is deprecated and will be removed in a future release."
-    "Please use `match_targets` from `compressed_tensors.utils.match` instead."
-)
-def find_name_or_class_matches(
-    name: str, module: Module, targets: Iterable[str], check_contains: bool = False
-) -> List[str]:
-    """
-    Returns all targets that match the given name or the class name.
-    Returns empty list otherwise.
-    The order of the output `matches` list matters.
-    The entries are sorted in the following order:
-        1. matches on exact strings
-        2. matches on regex patterns
-        3. matches on module names
-    """
-    if check_contains:
-        raise NotImplementedError(
-            "This function is deprecated, and the check_contains=True option has been"
-            " removed."
-        )
-
-    return match_targets(name, module, targets)
 
 
 def _load_quant_args_from_mapping(
