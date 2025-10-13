@@ -62,8 +62,9 @@ class QuantizationMixin(HooksMixin):
     :param targets: list of layer names to quantize if a scheme is provided. If unset,
         will contain all targets listed in config_groups. If config_groups is also
         unset, will default to ["Linear"] (i.e. all Linear layers will be targeted).
-        This field is not the source of truth for all targets, it must be resolved
-        with config_groups. Use resolved_targets instead.
+        This field is not the source of truth for finding all matching target layers
+        in a model. Additional information can be stored in `config_groups`. Use
+        self.resolved_targets instead.
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
     :param scheme: a single quantization scheme to apply to the model. This is a
@@ -85,6 +86,9 @@ class QuantizationMixin(HooksMixin):
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
+    # NOTE: targets is not the sole source of truth for finding all matching target
+    # layers in a model. Additional information can be stored in `config_groups`
+    # Use self.resolved_targets as source of truth.
     targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
