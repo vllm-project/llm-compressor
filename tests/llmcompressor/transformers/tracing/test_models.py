@@ -94,7 +94,8 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
             ["Cohere2DecoderLayer"],
             "vision",
             [],
-        )(
+        ),
+        (
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,
             ["Qwen2VLDecoderLayer"],
