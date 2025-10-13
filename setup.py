@@ -111,7 +111,7 @@ setup(
     ),
     install_requires=[
         ("loguru>=0.7.2,<=0.7.3" if BUILD_TYPE == "release" else "loguru>=0.7.2"),
-        ("pyyaml>=6.0.1,<=6.0.2" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
+        ("pyyaml>=6.0.1,<=6.0.3" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
         # librosa dependency numba is currently not compatible with numpy>=2.3
         # https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information
         ("numpy>=2.0.0,<=2.3.3" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
@@ -123,11 +123,11 @@ setup(
         ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.7.0,<=2.8.0" if BUILD_TYPE == "release" else "torch>=2.7.0"),
         (
-            "transformers>=4.53.0,<=4.56.1"
+            "transformers>=4.54.0,<=4.56.2"
             if BUILD_TYPE == "release"
-            else "transformers>=4.53.0"
+            else "transformers>=4.54.0"
         ),
-        ("datasets>=4.0.0,<=4.1.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        ("datasets>=4.0.0,<=4.1.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
             "accelerate>=1.6.0,<=1.10.1"
             if BUILD_TYPE == "release"
@@ -140,9 +140,9 @@ setup(
         ),
         ("pillow>=10.4.0,<=11.3.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.11.0"
+            "compressed-tensors==0.12.2"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.11.1a2"
+            else "compressed-tensors>=0.12.3a2"
         ),
     ],
     extras_require={
@@ -154,7 +154,7 @@ setup(
             "lm_eval>=0.4.5",
             # test dependencies
             "beautifulsoup4~=4.12.3",
-            "cmarkgfm~=2024.1.14",
+            "cmarkgfm>=2024.1.14",
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
@@ -184,7 +184,7 @@ setup(
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",
