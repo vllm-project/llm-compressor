@@ -7,6 +7,7 @@ from compressed_tensors import InternalModule
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
+from compressed_tensors.utils import align_module_device
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
@@ -18,9 +19,22 @@ ScaleZpTuple = Tuple[torch.Tensor, torch.Tensor]
 
 class Observer(InternalModule, RegistryMixin):
     """
-    Base Observer class to be subclassed for specific implementation.
-    Subclasses should override `calculate_qparams` to return a scale, zero_point
-    pair
+    Base class for observers which compute quantization parameters given observerations
+    of weights, activations, or attention states.
+
+    Example:
+    ```python
+    module = ...
+    observer = Observer.load_from_registry(observer, base_name="weight", args=...)
+    module.global_scale = observer.get_global_scale(module.weight)
+    scales, zero_points = observer(module.weight)
+    ```
+
+    :param base_name: str used to name the observer attribute
+    :param args: quantization args used to calibrate and quantize the observed value
+    :param module: optional module with attached quantization parameters. This argument
+        is required to utilize existing qparams such as global_scale or g_idx
+    :param **observer_kwargs: keyword arguments for observer initialization
     """
 
     def __init__(
@@ -111,10 +125,11 @@ class Observer(InternalModule, RegistryMixin):
         return global_scale, global_min_vals, global_max_vals
 
     def _get_module_param(self, name: str) -> Optional[torch.nn.Parameter]:
-        if self.module is None:
+        if self.module is None or (module := self.module()) is None:
             return None
 
-        return getattr(self.module(), f"{self.base_name}_{name}", None)
+        with align_module_device(module):
+            return getattr(module, f"{self.base_name}_{name}", None)
 
     def _check_has_global_scale(self, global_scale: Optional[torch.nn.Parameter]):
         if (

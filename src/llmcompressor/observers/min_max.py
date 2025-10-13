@@ -9,7 +9,13 @@ __all__ = ["MemorylessMinMaxObserver", "StaticMinMaxObserver", "MinMaxObserver"]
 @Observer.register("memoryless_minmax")
 class MemorylessMinMaxObserver(Observer):
     """
-    TODO
+    Compute quantization parameters by taking the min/max of the observed value
+
+    :param base_name: str used to name the observer attribute
+    :param args: quantization args used to calibrate and quantize the observed value
+    :param module: optional module with attached quantization parameters. This argument
+        is required to utilize existing qparams such as global_scale or g_idx
+    :param **observer_kwargs: keyword arguments for observer initialization
     """
 
     def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
@@ -22,7 +28,13 @@ class MemorylessMinMaxObserver(Observer):
 @Observer.register("static_minmax")
 class StaticMinMaxObserver(Observer):
     """
-    TODO
+    Compute quantization parameters by taking the min/max of all observed values
+
+    :param base_name: str used to name the observer attribute
+    :param args: quantization args used to calibrate and quantize the observed value
+    :param module: optional module with attached quantization parameters. This argument
+        is required to utilize existing qparams such as global_scale or g_idx
+    :param **observer_kwargs: keyword arguments for observer initialization
     """
 
     def __init__(self, *args, **kwargs):
@@ -60,7 +72,13 @@ class StaticMinMaxObserver(Observer):
 @Observer.register("minmax")
 class MinMaxObserver(MovingAverageObserverBase):
     """
-    TODO
+    Compute quantization parameters by taking the moving average of all min/max values
+
+    :param base_name: str used to name the observer attribute
+    :param args: quantization args used to calibrate and quantize the observed value
+    :param module: optional module with attached quantization parameters. This argument
+        is required to utilize existing qparams such as global_scale or g_idx
+    :param **observer_kwargs: keyword arguments for observer initialization
     """
 
     def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:

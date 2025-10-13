@@ -11,7 +11,13 @@ __all__ = ["MovingAverageObserverBase"]
 
 class MovingAverageObserverBase(Observer):
     """
-    TODO
+    Compute quantization parameters by taking the moving average of min/max values
+
+    :param base_name: str used to name the observer attribute
+    :param args: quantization args used to calibrate and quantize the observed value
+    :param module: optional module with attached quantization parameters. This argument
+        is required to utilize existing qparams such as global_scale or g_idx
+    :param **observer_kwargs: keyword arguments for observer initialization
     """
 
     def __init__(
@@ -40,6 +46,7 @@ class MovingAverageObserverBase(Observer):
     def get_current_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
         Calculate the min and max value of the observed value (without moving average)
+        for the purposes of global scale calculation
         """
         raise NotImplementedError()
 
@@ -66,8 +73,8 @@ class MovingAverageObserverBase(Observer):
 
     def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
-        Calculate moving average of min and max values from observed value for the
-        purposes of global scale calculation
+        Calculate moving average of min and max values from observed value
+        for the purposes of global scale calculation
 
         :param observed: value being observed whose shape is
             (num_observations, 1, group_size)

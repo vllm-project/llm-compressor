@@ -66,6 +66,13 @@ def assert_alike(a, b):
     "name,kwargs,observed,exp_min_vals,exp_max_vals",
     (
         (
+            "memoryless_minmax",
+            {},
+            torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
+            torch.tensor([[0.0], [-3.0], [-1.0]]),
+            torch.tensor([[0.0], [1.0], [3.0]]),
+        ),
+        (
             "static_minmax",
             {},
             torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
@@ -80,6 +87,13 @@ def assert_alike(a, b):
             torch.tensor([[0.0], [0.1], [0.39]]),
         ),
         (
+            "memoryless_mse",
+            {},
+            torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
+            torch.tensor([[0.0], [-3.0], [-1.0]]),
+            torch.tensor([[0.0], [1.0], [3.0]]),
+        ),
+        (
             "mse",  # moving average
             {"averaging_constant": 0.1},
             torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
@@ -88,7 +102,7 @@ def assert_alike(a, b):
         ),
     ),
 )
-def test_observer_moving_static(
+def test_observer_min_max_vals(
     name, kwargs, observed, exp_min_vals, exp_max_vals, is_global
 ):
     observer = Observer.load_from_registry(
