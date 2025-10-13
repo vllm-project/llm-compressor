@@ -96,7 +96,7 @@ def quantize_weight(
 
     # create observer for calculating quantization parameters
     observer = Observer.load_from_registry(
-        "minmax",
+        "memoryless_minmax",
         base_name="weight",
         args=quant_args,
         module=module,

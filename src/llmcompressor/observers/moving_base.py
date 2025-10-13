@@ -1,19 +1,17 @@
 from abc import abstractmethod
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 
-from llmcompressor.observers.base import Observer
+from llmcompressor.observers.base import MinMaxTuple, Observer
 
 __all__ = ["MovingAverageObserverBase"]
 
 
 class MovingAverageObserverBase(Observer):
     """
-    Implements a quantization observer that calculates scale and zero point based on the
-    minimum and maximum values of the tensor being observed. If averaging_constant is
-    specified, then the scales are updated using a moving average
+    TODO
     """
 
     def __init__(
@@ -26,16 +24,26 @@ class MovingAverageObserverBase(Observer):
         super().__init__(base_name, args, module, **observer_kwargs)
         self.avg_constant = self.args.observer_kwargs.get("averaging_constant", 0.01)
 
+        self.past_min_vals = None
+        self.past_max_vals = None
+        self.past_global_min_vals = None
+        self.past_global_max_vals = None
+
     @abstractmethod
-    def get_current_min_max(
-        self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_current_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
         Calculate the min and max value of the observed value (without moving average)
         """
         raise NotImplementedError()
 
-    def get_min_max(self, observed: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    @abstractmethod
+    def get_current_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
+        """
+        Calculate the min and max value of the observed value (without moving average)
+        """
+        raise NotImplementedError()
+
+    def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
         Calculate moving average of min and max values from observed value
 
@@ -45,17 +53,18 @@ class MovingAverageObserverBase(Observer):
         """
         min_vals, max_vals = self.get_current_min_max(observed)
 
-        if self.min_vals is not None and self.avg_constant != 1.0:
+        if self.past_min_vals is not None and self.avg_constant != 1.0:
             # FUTURE: consider scaling by num observations (first dim)
             #         rather than reducing by first dim
-            min_vals = self._lerp(self.min_vals, min_vals, self.avg_constant)
-            max_vals = self._lerp(self.max_vals, max_vals, self.avg_constant)
+            min_vals = self._lerp(self.past_min_vals, min_vals, self.avg_constant)
+            max_vals = self._lerp(self.past_max_vals, max_vals, self.avg_constant)
+
+        self.past_min_vals = min_vals
+        self.past_max_vals = max_vals
 
         return min_vals, max_vals
 
-    def get_global_min_max(
-        self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
         Calculate moving average of min and max values from observed value for the
         purposes of global scale calculation
@@ -64,13 +73,20 @@ class MovingAverageObserverBase(Observer):
             (num_observations, 1, group_size)
         :return: minimum value and maximum value whose shapes are (1, )
         """
-        min_vals, max_vals = self.get_current_min_max(observed)
+        min_vals, max_vals = self.get_current_global_min_max(observed)
 
-        if self.global_min_vals is not None and self.avg_constant != 1.0:
+        if self.past_global_min_vals is not None and self.avg_constant != 1.0:
             # FUTURE: consider scaling by num observations (first dim)
             #         rather than reducing by first dim
-            min_vals = self._lerp(self.global_min_vals, min_vals, self.avg_constant)
-            max_vals = self._lerp(self.global_max_vals, max_vals, self.avg_constant)
+            min_vals = self._lerp(
+                self.past_global_min_vals, min_vals, self.avg_constant
+            )
+            max_vals = self._lerp(
+                self.past_global_max_vals, max_vals, self.avg_constant
+            )
+
+        self.past_global_min_vals = min_vals
+        self.past_global_max_vals = max_vals
 
         return min_vals, max_vals
 

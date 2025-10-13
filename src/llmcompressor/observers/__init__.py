@@ -12,6 +12,5 @@ and other compression techniques.
 from .helpers import *
 from .base import *
 from .moving_base import *
-from .static_base import *
 from .min_max import *
 from .mse import *

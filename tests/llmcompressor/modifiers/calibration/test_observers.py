@@ -73,13 +73,6 @@ def assert_alike(a, b):
             torch.tensor([[0.0], [1.0], [3.0]]),
         ),
         (
-            "static_mse",
-            {},
-            torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
-            torch.tensor([[0.0], [-3.0], [-3.0]]),
-            torch.tensor([[0.0], [1.0], [3.0]]),
-        ),
-        (
             "minmax",  # moving average
             {"averaging_constant": 0.1},
             torch.tensor([[0.0, 0.0], [-3.0, 1.0], [-1.0, 3.0]]),
@@ -105,13 +98,12 @@ def test_observer_moving_static(
     min_vals, max_vals = [], []
     for _observed in observed:
         if not is_global:
-            observer(_observed)
-            min_vals.append(observer.min_vals)
-            max_vals.append(observer.max_vals)
+            _, _, _min_vals, _max_vals = observer._forward_with_minmax(_observed)
         else:
-            observer.get_global_scale(_observed)
-            min_vals.append(observer.global_min_vals)
-            max_vals.append(observer.global_max_vals)
+            _, _min_vals, _max_vals = observer._get_global_scale_with_minmax(_observed)
+
+        min_vals.append(_min_vals)
+        max_vals.append(_max_vals)
 
     min_vals = torch.stack(min_vals)
     max_vals = torch.stack(max_vals)

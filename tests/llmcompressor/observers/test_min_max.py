@@ -90,9 +90,9 @@ def test_min_max_observer_value_update():
     curr_max = 1
     curr_min = 1
     for i, tensor in enumerate(tensors):
-        observer(tensor)
-        curr_max = max(observer.max_vals[0], curr_max)
-        curr_min = min(observer.min_vals[0], curr_min)
+        _, _, min_vals, max_vals = observer._forward_with_minmax(tensor)
+        curr_max = max(max_vals[0], curr_max)
+        curr_min = min(min_vals[0], curr_min)
 
         if i < 2:
             assert curr_max == 1

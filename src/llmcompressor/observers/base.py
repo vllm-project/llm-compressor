@@ -4,15 +4,16 @@ from weakref import ref
 
 import torch
 from compressed_tensors import InternalModule
-from compressed_tensors.quantization.quant_args import (
-    QuantizationArgs,
-)
+from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 
 from llmcompressor.observers.helpers import flatten_for_calibration
 
-__all__ = ["Observer"]
+__all__ = ["Observer", "MinMaxTuple", "ScaleZpTuple"]
+
+MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
+ScaleZpTuple = Tuple[torch.Tensor, torch.Tensor]
 
 
 class Observer(InternalModule, RegistryMixin):
@@ -38,38 +39,28 @@ class Observer(InternalModule, RegistryMixin):
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)
 
-        # used for moving averages and testing
-        self.min_vals = None
-        self.max_vals = None
-        self.global_min_vals = None
-        self.global_max_vals = None
-
     @abstractmethod
-    def get_min_max(self, observed: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
         Calculate min and max values from observed value
 
-        :param observed: value being observed whose shape is
-            (num_observations, *qparam_shape, group_size)
+        :param observed: value of shape (num_observations, *qparam_shape, group_size)
         :return: minimum value and maximum value whose shapes are (*qparam_shape, )
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def get_global_min_max(
-        self, observed: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_global_min_max(self, observed: torch.Tensor) -> MinMaxTuple:
         """
         Calculate min and max values from observed value for the purposes of
         global scale calculation
 
-        :param observed: value being observed whose shape is
-            (num_observations, 1, group_size)
+        :param observed: value of shape (num_observations, 1, group_size)
         :return: minimum value and maximum value whose shapes are (1, )
         """
         raise NotImplementedError()
 
-    def forward(self, observed: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, observed: torch.Tensor) -> ScaleZpTuple:
         """
         Calculate updated scales and zero points from observed value
         (weight, activation, or attention state).
@@ -77,33 +68,60 @@ class Observer(InternalModule, RegistryMixin):
         :param observed: value being observed
         :return: calibrated scale and zero point
         """
-        g_idx = self._get_module_param("g_idx")
-        global_scale = self._get_module_param("global_scale")
+        scales, zero_points, _min, _max = self._forward_with_minmax(observed)
+        return (scales, zero_points)
 
-        observed = flatten_for_calibration(observed, self.base_name, self.args, g_idx)
-        self.min_vals, self.max_vals = self.get_min_max(observed)
-
-        return calculate_qparams(
-            min_vals=self.min_vals,
-            max_vals=self.max_vals,
-            quantization_args=self.args,
-            global_scale=global_scale,
-        )
-
-    def get_global_scale(self, observed: torch.Tensor) -> torch.nn.Parameter:
+    def get_global_scale(self, observed: torch.Tensor) -> torch.Tensor:
         """
         Calculate updated global scale from observed value
+        (weight, activation, or attention state).
 
         :param observed: value being observed
         :return: calibrated global parameter
         """
-        # avoid updating running min/max for global scales
+        global_scale, _min, _max = self._get_global_scale_with_minmax(observed)
+        return global_scale
+
+    def _forward_with_minmax(
+        self, observed: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        g_idx = self._get_module_param("g_idx")
+        global_scale = self._get_module_param("global_scale")
+        self._check_has_global_scale(global_scale)
+
+        observed = flatten_for_calibration(observed, self.base_name, self.args, g_idx)
+        min_vals, max_vals = self.get_min_max(observed)
+
+        scales, zero_points = calculate_qparams(
+            min_vals=min_vals,
+            max_vals=max_vals,
+            quantization_args=self.args,
+            global_scale=global_scale,
+        )
+        return scales, zero_points, min_vals, max_vals
+
+    def _get_global_scale_with_minmax(
+        self, observed: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         observed = observed.reshape((1, 1, -1))  # per tensor reshape
-        self.global_min_vals, self.global_max_vals = self.get_global_min_max(observed)
-        return generate_gparam(self.global_min_vals, self.global_max_vals)
+
+        global_min_vals, global_max_vals = self.get_global_min_max(observed)
+        global_scale = generate_gparam(global_min_vals, global_max_vals)
+
+        return global_scale, global_min_vals, global_max_vals
 
     def _get_module_param(self, name: str) -> Optional[torch.nn.Parameter]:
         if self.module is None:
             return None
 
         return getattr(self.module(), f"{self.base_name}_{name}", None)
+
+    def _check_has_global_scale(self, global_scale: Optional[torch.nn.Parameter]):
+        if (
+            self.args.strategy == QuantizationStrategy.TENSOR_GROUP
+            and global_scale is None
+        ):
+            raise ValueError(
+                "Cannot compute scale and zero points "
+                "without first computing global scale"
+            )
