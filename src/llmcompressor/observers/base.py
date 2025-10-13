@@ -74,6 +74,7 @@ class Observer(InternalModule, RegistryMixin):
         """
         raise NotImplementedError()
 
+    @torch.no_grad
     def forward(self, observed: torch.Tensor) -> ScaleZpTuple:
         """
         Calculate updated scales and zero points from observed value
@@ -85,6 +86,7 @@ class Observer(InternalModule, RegistryMixin):
         scales, zero_points, _min, _max = self._forward_with_minmax(observed)
         return (scales, zero_points)
 
+    @torch.no_grad
     def get_global_scale(self, observed: torch.Tensor) -> torch.Tensor:
         """
         Calculate updated global scale from observed value
