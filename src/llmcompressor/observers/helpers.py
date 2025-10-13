@@ -85,6 +85,9 @@ def _flatten_weight(
             .unsqueeze(0)
         )
 
+    if args.strategy == QuantizationStrategy.ATTN_HEAD:
+        raise ValueError("Attention head quantization cannot be applied to weights")
+
     assert False, f"Unknown strategy {args.strategy}"
 
 
@@ -111,6 +114,9 @@ def _flatten_activation(value: torch.Tensor, args: QuantizationArgs):
     if args.strategy == QuantizationStrategy.BLOCK:
         raise ValueError("Block quantization cannot be applied to activations")
 
+    if args.strategy == QuantizationStrategy.ATTN_HEAD:
+        raise ValueError("Attention head quantization cannot be applied to activations")
+
     assert False, f"Unknown strategy {args.strategy}"
 
 
@@ -132,5 +138,9 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
 
     if args.strategy == QuantizationStrategy.BLOCK:
         raise ValueError("Block quantization cannot be applied to attention")
+
+    if args.strategy == QuantizationStrategy.ATTN_HEAD:
+        # (batch_size * seq_len, num_heads, 1, 1, head_dim)
+        return value.transpose(1, 2).flatten(0, 1).unsqueeze(-2).unsqueeze(-2)
 
     assert False, f"Unknown strategy {args.strategy}"
