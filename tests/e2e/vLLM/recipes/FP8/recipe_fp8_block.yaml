@@ -1,6 +1,0 @@
-quant_stage:
-  quant_modifiers:
-    QuantizationModifier:
-      targets: "Linear"
-      scheme: "FP8_BLOCK"
-      ignore: ["lm_head", "re:.*mlp.gate$"]
