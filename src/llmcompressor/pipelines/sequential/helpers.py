@@ -98,20 +98,20 @@ class Subgraph:
                     # Integer dtypes can't require grad, convert to buffer
                     int_dtypes = (torch.int32, torch.int64, torch.int8, torch.uint8)
                     if param.dtype in int_dtypes:
+                        # Remove parameter first, then add as buffer
+                        del module._parameters[name]
                         module.register_buffer(name, materialized)
-                        # Remove from parameters
-                        delattr(module, name)
                     else:
                         new_param = torch.nn.Parameter(
                             materialized, requires_grad=param.requires_grad
                         )
-                        module.register_parameter(name, new_param)
+                        module._parameters[name] = new_param
 
             # Materialize buffers
             for name, buffer in list(module.named_buffers(recurse=False)):
                 if buffer is not None and buffer.is_meta:
                     materialized = torch.zeros_like(buffer, device=device)
-                    module.register_buffer(name, materialized)
+                    module._buffers[name] = materialized
 
 
 def trace_subgraphs(
