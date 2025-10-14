@@ -134,7 +134,7 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
         raise ValueError("Channel quantization cannot be applied to attention")
 
     if args.strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
-        # batch_size * num_heads * seq_len, num_groups, group_size)
+        # (batch_size * num_heads * seq_len, num_groups, group_size)
         return value.flatten(0, 2).unflatten(-1, (-1, args.group_size))
 
     if args.strategy == QuantizationStrategy.BLOCK:
