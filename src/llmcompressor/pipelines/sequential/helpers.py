@@ -93,8 +93,19 @@ class Subgraph:
             # Materialize parameters
             for name, param in list(module.named_parameters(recurse=False)):
                 if param is not None and param.is_meta:
+                    # Create materialized tensor on target device
                     materialized = torch.zeros_like(param, device=device)
-                    module.register_parameter(name, torch.nn.Parameter(materialized))
+                    # Integer dtypes can't require grad, convert to buffer
+                    int_dtypes = (torch.int32, torch.int64, torch.int8, torch.uint8)
+                    if param.dtype in int_dtypes:
+                        module.register_buffer(name, materialized)
+                        # Remove from parameters
+                        delattr(module, name)
+                    else:
+                        new_param = torch.nn.Parameter(
+                            materialized, requires_grad=param.requires_grad
+                        )
+                        module.register_parameter(name, new_param)
 
             # Materialize buffers
             for name, buffer in list(module.named_buffers(recurse=False)):
