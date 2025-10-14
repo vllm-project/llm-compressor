@@ -154,7 +154,7 @@ setup(
             "lm_eval==0.4.5",
             # test dependencies
             "beautifulsoup4~=4.12.3",
-            "cmarkgfm~=2024.1.14",
+            "cmarkgfm>=2024.1.14",
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
@@ -184,7 +184,7 @@ setup(
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",
