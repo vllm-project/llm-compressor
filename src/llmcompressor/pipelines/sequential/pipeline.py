@@ -91,6 +91,22 @@ class SequentialPipeline(CalibrationPipeline):
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)
 
+            # Define helper function to materialize meta tensors once
+            # Fixes "Tensor.item() on meta tensors" error when using device offloading
+            def _materialize_meta_tensors(obj):
+                if isinstance(obj, torch.Tensor) and obj.is_meta:
+                    return torch.zeros_like(obj, device=model_device)
+                elif isinstance(obj, dict):
+                    return {
+                        k: _materialize_meta_tensors(v)
+                        for k, v in obj.items()
+                    }
+                elif isinstance(obj, (list, tuple)):
+                    return type(obj)(
+                        [_materialize_meta_tensors(x) for x in obj]
+                    )
+                return obj
+
             for subgraph_index, subgraph in enumerate(subgraphs):
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
@@ -101,26 +117,6 @@ class SequentialPipeline(CalibrationPipeline):
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx in tqdm(range(len(dataloader)), desc=calib_desc):
                         inputs = activations.fetch(batch_idx, subgraph.input_names)
-
-                        # PATCH: Materialize meta tensors before traced code
-                        # Fixes "Tensor.item() on meta tensors" error
-                        def _materialize_meta_tensors(obj):
-                            if isinstance(obj, torch.Tensor) and obj.is_meta:
-                                device = torch.device(
-                                    "cuda:0" if torch.cuda.is_available() else "cpu"
-                                )
-                                return torch.zeros_like(obj, device=device)
-                            elif isinstance(obj, dict):
-                                return {
-                                    k: _materialize_meta_tensors(v)
-                                    for k, v in obj.items()
-                                }
-                            elif isinstance(obj, (list, tuple)):
-                                return type(obj)(
-                                    [_materialize_meta_tensors(x) for x in obj]
-                                )
-                            return obj
-
                         inputs = _materialize_meta_tensors(inputs)
                         subgraph.forward(model, **inputs)
 
@@ -131,25 +127,6 @@ class SequentialPipeline(CalibrationPipeline):
                     with HooksMixin.disable_hooks():
                         for batch_idx in tqdm(range(len(dataloader)), desc=prop_desc):
                             inputs = activations.fetch(batch_idx, subgraph.input_names)
-
-                            # PATCH: Materialize meta tensors (same as above)
-                            def _materialize_meta_tensors(obj):
-                                if isinstance(obj, torch.Tensor) and obj.is_meta:
-                                    device = torch.device(
-                                        "cuda:0" if torch.cuda.is_available() else "cpu"
-                                    )
-                                    return torch.zeros_like(obj, device=device)
-                                elif isinstance(obj, dict):
-                                    return {
-                                        k: _materialize_meta_tensors(v)
-                                        for k, v in obj.items()
-                                    }
-                                elif isinstance(obj, (list, tuple)):
-                                    return type(obj)(
-                                        [_materialize_meta_tensors(x) for x in obj]
-                                    )
-                                return obj
-
                             inputs = _materialize_meta_tensors(inputs)
                             output = subgraph.forward(model, **inputs)
 
