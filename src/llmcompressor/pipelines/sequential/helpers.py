@@ -70,6 +70,9 @@ class Subgraph:
         forward_fn = self._code.globals.get("forward")
 
         try:
+            # PATCH: Materialize meta tensors in model before execution
+            # Prevents "Tensor.item() on meta tensors" from offloaded modules
+            self._materialize_model_meta_tensors(args[0] if args else None)
             outputs = forward_fn(*args, **kwargs)
         except Exception as exception:
             raise RuntimeError(
@@ -78,6 +81,26 @@ class Subgraph:
             ) from exception
 
         return outputs
+
+    def _materialize_model_meta_tensors(self, model: Optional[Module]) -> None:
+        """Materialize meta tensors in model parameters and buffers"""
+        if model is None:
+            return
+
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+        for module in model.modules():
+            # Materialize parameters
+            for name, param in list(module.named_parameters(recurse=False)):
+                if param is not None and param.is_meta:
+                    materialized = torch.zeros_like(param, device=device)
+                    module.register_parameter(name, torch.nn.Parameter(materialized))
+
+            # Materialize buffers
+            for name, buffer in list(module.named_buffers(recurse=False)):
+                if buffer is not None and buffer.is_meta:
+                    materialized = torch.zeros_like(buffer, device=device)
+                    module.register_buffer(name, materialized)
 
 
 def trace_subgraphs(
