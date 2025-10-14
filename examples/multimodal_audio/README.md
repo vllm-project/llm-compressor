@@ -32,7 +32,6 @@ recipe = [
     GPTQModifier(
         targets="Linear",
         scheme="W4A16",
-        sequential_targets=["WhisperEncoderLayer", "WhisperDecoderLayer"],
         ignore=["lm_head"],
     )
 ]

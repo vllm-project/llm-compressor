@@ -12,7 +12,6 @@ from compressed_tensors import InternalModule
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.nn import Linear, Module, Parameter
 from torch.nn.modules.conv import _ConvNd
-from transformers import PreTrainedModel
 
 from llmcompressor.core import ModelParameterizedLayer
 from llmcompressor.utils.fsdp.context import (
@@ -335,6 +334,7 @@ def get_matching_layer(
             largest_substring = match_length
 
     return match
+
 
 # https://discuss.pytorch.org/t/how-to-access-to-a-layer-by-module-name/83797/8
 def get_layer_by_name(layer_name: str, module: Module) -> Module:

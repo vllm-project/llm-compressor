@@ -1,6 +1,5 @@
 import contextlib
-import warnings
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
@@ -17,7 +16,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr, field_validator
+from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier

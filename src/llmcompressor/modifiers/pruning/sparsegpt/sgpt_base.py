@@ -1,4 +1,3 @@
-import warnings
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
@@ -8,18 +7,16 @@ import numpy
 import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
+from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.pytorch.module import (
     get_layers,
     get_prunable_layers,
     match_targets,
 )
-
-from transformers import PreTrainedModel
 
 
 class SparsityModifierBase(Modifier):
