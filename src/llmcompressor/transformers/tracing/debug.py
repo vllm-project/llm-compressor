@@ -7,8 +7,7 @@ import torch
 import transformers
 from transformers import AutoProcessor, PreTrainedModel
 
-from llmcompressor.utils.pytorch.module import get_no_split_params
-from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph, get_sequential_targets
 from llmcompressor.transformers import TextGenerationDataset
 from llmcompressor.args import DatasetArguments
 
@@ -74,7 +73,9 @@ def trace(
     print("Loaded model")
 
     # Prepare sample data
-    dataset_args = DatasetArguments(**get_dataset_kwargs(modality, ignore))
+    dataset_args = DatasetArguments(
+        **get_dataset_kwargs(modality, sequential_targets, ignore)
+    )
     dataset = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
@@ -86,10 +87,7 @@ def trace(
     print("Loaded sample data")
 
     # infer sequential targets
-    if sequential_targets is None:
-        sequential_targets = get_no_split_params(model)
-    if isinstance(sequential_targets, str):
-        sequential_targets = [sequential_targets]
+    sequential_targets = get_sequential_targets(model, dataset_args)
 
     # Attempt trace
     print(
@@ -110,7 +108,7 @@ def trace(
     return model, subgraphs, sample
 
 
-def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
+def get_dataset_kwargs(modality: str, sequential_targets: Optional[Union[List[str], str]], ignore: List[str]) -> Dict[str, str]:
     dataset_kwargs = {
         "text": {
             "dataset": "ultrachat-200k",
@@ -130,6 +128,7 @@ def get_dataset_kwargs(modality: str, ignore: List[str]) -> Dict[str, str]:
     }
     common_kwargs = {
         "max_seq_length": 4096,
+        "sequential_targets": sequential_targets,
         "tracing_ignore": ignore,
     }
 

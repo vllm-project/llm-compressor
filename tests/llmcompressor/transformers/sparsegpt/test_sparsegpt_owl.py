@@ -28,7 +28,7 @@ def test_infer_owl_layer_sparsity():
         )
         dataloader = format_calibration_data(dataset)
 
-        sequential_targets = modifier._infer_sequential_targets(model)
+        sequential_targets = model._get_no_split_modules("auto")
         layers = get_layers(sequential_targets, model)
         sparsities = modifier._infer_owl_layer_sparsity(model, layers, dataloader)
         assert sparsities.keys() == layers.keys()

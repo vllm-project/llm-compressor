@@ -36,14 +36,15 @@ class WandaPruningModifier(SparsityModifierBase):
     Lifecycle:
         - on_initialize
             - register_hook(module, calibrate_module, "forward")
-            - run_sequential / run_layer_sequential / run_basic
-                - make_empty_row_scalars
-                - accumulate_row_scalars
         - on_sequential_batch_end
             - sparsify_weight
         - on_finalize
             - remove_hooks()
 
+    :param targets: list of module names to quantize if a scheme is provided. Defaults
+        to Linear layers
+    :param ignore: optional list of module class names or submodule names to not
+        quantize even if they match a target. Defaults to empty list.
     :param sparsity: Sparsity to compress model to
     :param sparsity_profile: Can be set to 'owl' to use Outlier Weighed
         Layerwise Sparsity (OWL), more information can be found
@@ -53,12 +54,6 @@ class WandaPruningModifier(SparsityModifierBase):
         shape. Defaults to 0:0 which represents an unstructured mask.
     :param owl_m: Number of outliers to use for OWL
     :param owl_lmbda: Lambda value to use for OWL
-    :param sequential_targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model. Alias for `targets`
-    :param targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model. Alias for `sequential_targets`
-    :param ignore: optional list of module class names or submodule names to not
-        quantize even if they match a target. Defaults to empty list.
     """
 
     # private variables
