@@ -7,7 +7,6 @@ sources and processing pipelines. Supports various input formats including
 HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
-import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
@@ -172,14 +171,15 @@ class DatasetArguments(CustomDatasetArguments):
             ),
         },
     )
-    calibrate_moe_context: Optional[bool] = field(
-        default=None,
+    moe_calibrate_all_experts: bool = field(
+        default=True,
         metadata={
             "help": (
-                "DEPRECATED: This parameter is deprecated and will be \
-                    removed in a future version. "
-                "MoE calibration context is now handled automatically by the pipeline. "
-                "This parameter is ignored and will not affect the calibration process."
+                "Whether to calibrate all experts during MoE model calibration. "
+                "When True, all experts will see all tokens during calibration, "
+                "ensuring proper quantization statistics for all experts. "
+                "When False, only routed experts will be used. "
+                "Only relevant for MoE models. Default is True."
             ),
         },
     )
@@ -231,16 +231,3 @@ class DatasetArguments(CustomDatasetArguments):
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None
-
-    def __post_init__(self):
-        """Post-initialization hook to issue deprecation warnings."""
-        if self.calibrate_moe_context is not None:
-            warnings.warn(
-                "The 'calibrate_moe_context' parameter is deprecated\
-                     and will be removed in a future version. "
-                "MoE calibration context is now handled automatically by the pipeline. "
-                "This parameter is ignored and will not affect\
-                     the calibration process.",
-                DeprecationWarning,
-                stacklevel=2,
-            )

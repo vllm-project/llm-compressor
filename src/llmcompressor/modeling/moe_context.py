@@ -14,7 +14,7 @@ Key components:
 
 import contextlib
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Type
+from typing import Any, Dict, Type
 
 import torch
 from loguru import logger
@@ -31,10 +31,10 @@ __all__ = [
 class MoECalibrationModule(ABC, torch.nn.Module):
     """
     Abstract base class for MoE calibration modules.
-    
+
     Calibration modules replace original MoE modules during the calibration
     phase to ensure all experts receive data for proper quantization statistics.
-    
+
     Subclasses must:
     1. Implement `from_original()` to create calibration module from original
     2. Set `is_permanent` to indicate if module should stay in calibration form
@@ -68,9 +68,9 @@ class MoECalibrationModule(ABC, torch.nn.Module):
     def restore(self) -> torch.nn.Module:
         """
         Restore the original module structure.
-        
+
         Only needed if is_permanent=False. For permanent modules, this is a no-op.
-        
+
         Returns:
             The original module (or self if permanent)
         """
@@ -89,21 +89,19 @@ MOE_CALIBRATION_MODULES: Dict[str, Type[MoECalibrationModule]] = {}
 def register_moe_calibration(module_class_name: str):
     """
     Decorator to register a MoE calibration module.
-    
+
     Usage:
         @register_moe_calibration("DeepseekV3MoE")
         class CalibrationDeepseekV3MoE(MoECalibrationModule):
             ...
-    
+
     Args:
         module_class_name: The class name of the original module to replace
     """
 
     def decorator(cls: Type[MoECalibrationModule]) -> Type[MoECalibrationModule]:
         if not issubclass(cls, MoECalibrationModule):
-            raise TypeError(
-                f"{cls.__name__} must inherit from MoECalibrationModule"
-            )
+            raise TypeError(f"{cls.__name__} must inherit from MoECalibrationModule")
         MOE_CALIBRATION_MODULES[module_class_name] = cls
         return cls
 
@@ -117,19 +115,19 @@ def moe_calibration_context(
 ):
     """
     Context manager that applies MoE calibration to a model.
-    
+
     This scans all modules in the model and replaces any MoE modules with their
     calibration equivalents. After the context exits, non-permanent modules are
     restored to their original form.
-    
+
+    The model is modified in-place, so the same model object should be used
+    within the context.
+
     Args:
-        model: The model to apply MoE calibration to
+        model: The model to apply MoE calibration to (modified in-place)
         calibrate_all_experts: If True, all experts see all tokens during calibration.
                                If False, use normal routing (useful for some techniques)
-    
-    Yields:
-        The model with MoE calibration applied
-        
+
     Example:
         with moe_calibration_context(model):
             # Run calibration - all experts will see data
@@ -170,7 +168,7 @@ def moe_calibration_context(
             )
 
     try:
-        yield model
+        yield
     finally:
         # Step 2: Restore non-permanent modules
         for name, (original, replacement) in replaced.items():
