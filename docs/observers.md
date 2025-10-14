@@ -65,7 +65,11 @@ from llmcompressor.observers import Observer
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 args = QuantizationArgs(num_bits=4, strategy="group", group_size=128)
-observer = Observer.load_from_registry("minmax", quantization_args=args)
+observer = Observer.load_from_registry(
+    "minmax",
+    base_name="weight",
+    quantization_args=args,
+)
 
 x = torch.randn(64, 512)
 scale, zero_point = observer(x)
