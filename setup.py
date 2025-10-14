@@ -123,9 +123,9 @@ setup(
         ("tqdm>=4.66.3,<=4.67.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.7.0,<=2.8.0" if BUILD_TYPE == "release" else "torch>=2.7.0"),
         (
-            "transformers>=4.53.0,<=4.56.2"
+            "transformers>=4.54.0,<=4.56.2"
             if BUILD_TYPE == "release"
-            else "transformers>=4.53.0"
+            else "transformers>=4.54.0"
         ),
         ("datasets>=4.0.0,<=4.1.1" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
@@ -154,7 +154,7 @@ setup(
             "lm_eval==0.4.5",
             # test dependencies
             "beautifulsoup4~=4.12.3",
-            "cmarkgfm~=2024.1.14",
+            "cmarkgfm>=2024.1.14",
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
@@ -184,7 +184,7 @@ setup(
             "llmcompressor.trace=llmcompressor.transformers.tracing.debug:main",
         ]
     },
-    python_requires=">=3.9",
+    python_requires=">=3.10",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Programming Language :: Python :: 3",
