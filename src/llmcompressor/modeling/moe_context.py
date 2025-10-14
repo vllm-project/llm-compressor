@@ -1,304 +1,179 @@
 """
-Standardized interface for MoE model calibration.
-MoE calibration context is used to apply MoE calibration modifications to the model.
-There are two types of MoE calibration contexts:
-1. ContextualMoECalibration: uses context managers for temporary modifications
-    and restores the model to its original state after pipeline execution
-2. PermanentMoECalibration: permanently modifies the model and stays in its modified
-    form after pipeline execution
+Simplified interface for MoE model calibration.
+
+MoE (Mixture of Experts) models route tokens to different expert networks.
+During calibration for quantization/compression, we need to ensure ALL experts
+see data, not just the ones selected by the router. This module provides the
+infrastructure to temporarily modify MoE modules for proper calibration.
+
+Key components:
+- MoECalibrationModule: Abstract base class for calibration modules
+- MOE_CALIBRATION_MODULES: Registry mapping module class names to calibration classes
+- moe_calibration_context: Context manager that applies calibration to a model
 """
 
 import contextlib
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from enum import Enum
-from typing import Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Dict, Optional, Type
 
-import tqdm
-from compressed_tensors.utils import replace_module
+import torch
+from loguru import logger
 from transformers import PreTrainedModel
 
-from llmcompressor.utils.helpers import patch_attr
-
-T = TypeVar("T", bound="MoECalibrationContext")
-
-
-class MoECalibrationType(Enum):
-    """Enumeration of supported MoE calibration types."""
-
-    PERMANENT = "permanent"
-    CONTEXTUAL = "contextual"
+__all__ = [
+    "MoECalibrationModule",
+    "MOE_CALIBRATION_MODULES",
+    "register_moe_calibration",
+    "moe_calibration_context",
+]
 
 
-@dataclass
-class MoEModelConfig:
+class MoECalibrationModule(ABC, torch.nn.Module):
     """
-    Configuration for MoE model calibration.
-
-    This dataclass defines the parameters needed to configure MoE calibration
-    for a specific model architecture. It follows the same pattern used by
-    other model configuration systems in the project (e.g., SmoothQuant, AWQ).
-
-    Attributes:
-        calibration_type: Type of calibration - MoECalibrationType.PERMANENT or
-            MoECalibrationType.CONTEXTUAL
-        target_class_name: The class name of the MoE module to replace
-        replace_function: Function that creates the replacement module
-            generally defined in modeling/model_name.py
-        target_attribute: For contextual calibration, the attribute to replace
-        description: Optional description of the model configuration
+    Abstract base class for MoE calibration modules.
+    
+    Calibration modules replace original MoE modules during the calibration
+    phase to ensure all experts receive data for proper quantization statistics.
+    
+    Subclasses must:
+    1. Implement `from_original()` to create calibration module from original
+    2. Set `is_permanent` to indicate if module should stay in calibration form
+    3. Optionally implement `restore()` if is_permanent=False
     """
 
-    calibration_type: MoECalibrationType
-    target_class_name: str
-    replace_function: Callable
-    target_attribute: Optional[str] = None
-    description: Optional[str] = None
+    is_permanent: bool = False
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
-        if (
-            self.calibration_type == MoECalibrationType.CONTEXTUAL
-            and self.target_attribute is None
-        ):
-            raise ValueError("target_attribute is required for contextual calibration")
-
-        if (
-            self.calibration_type == MoECalibrationType.PERMANENT
-            and self.target_attribute is not None
-        ):
-            raise ValueError(
-                "target_attribute should not be set for permanent calibration"
-            )
-
-
-# Registry of MoE model configurations
-# Add new MoE models here following the same pattern as MAPPINGS_REGISTRY
-MOE_MODEL_REGISTRY: Dict[str, MoEModelConfig] = {}
-
-
-class MoECalibrationContext(ABC):
-    """
-    Abstract base class for MoE calibration.
-    This provides a standardized interface for MoE model calibration.
-    """
-
+    @classmethod
     @abstractmethod
-    def apply(self, model: PreTrainedModel, calibrate_all_experts: bool = True) -> None:
+    def from_original(
+        cls,
+        original: torch.nn.Module,
+        config: Any,
+        calibrate_all_experts: bool = True,
+    ) -> "MoECalibrationModule":
         """
-        Apply MoE calibration modifications to the model.
-        :param model: The model to modify
-        :param calibrate_all_experts: Whether to calibrate all
-        experts or only routed ones
+        Create a calibration module from the original MoE module.
+
+        Args:
+            original: The original MoE module to convert
+            config: Model configuration (contains num_experts, etc.)
+            calibrate_all_experts: If True, send all tokens to all experts.
+                                   If False, use normal routing.
+
+        Returns:
+            Instance of the calibration module
         """
         pass
 
-    @abstractmethod
-    def restore(self, model: PreTrainedModel) -> None:
+    def restore(self) -> torch.nn.Module:
         """
-        Restore the model to its original state.
-        :param model: The model to restore
+        Restore the original module structure.
+        
+        Only needed if is_permanent=False. For permanent modules, this is a no-op.
+        
+        Returns:
+            The original module (or self if permanent)
         """
-        pass
+        if self.is_permanent:
+            return self
+        raise NotImplementedError(
+            f"{self.__class__.__name__} has is_permanent=False but doesn't "
+            "implement restore()"
+        )
 
 
-class ContextualMoECalibration(MoECalibrationContext):
+# Registry: module class name -> calibration module class
+MOE_CALIBRATION_MODULES: Dict[str, Type[MoECalibrationModule]] = {}
+
+
+def register_moe_calibration(module_class_name: str):
     """
-    MoE calibration that uses context managers for temporary modifications.
-    This is suitable for models that need to be restored after calibration.
-    """
-
-    def __init__(self, model_class_name: str, update_function):
-        """
-        Initialize the context manager-based MoE calibration.
-        :param model_class_name: The class name of the model this context applies to
-        :param update_function: Function that applies the MoE modifications
-        """
-        self.model_class_name = model_class_name
-        self.update_function = update_function
-        self._stack = None
-
-    def apply(self, model: PreTrainedModel, calibrate_all_experts: bool = True) -> None:
-        """Apply MoE calibration modifications using context managers."""
-        if self._stack is None:
-            self._stack = contextlib.ExitStack()
-            self._stack.__enter__()
-
-        self.update_function(model, self._stack, calibrate_all_experts)
-
-    def restore(self, model: PreTrainedModel) -> None:
-        """Restore the model by exiting the context stack."""
-        if self._stack is not None:
-            self._stack.__exit__(None, None, None)
-            self._stack = None
-
-
-class PermanentMoECalibration(MoECalibrationContext):
-    """
-    MoE calibration context that permanently modifies the model.
-    This is suitable for models that can be loaded in their modified form
-    (e.g., Llama4 in vLLM).
-    """
-
-    def __init__(self, model_class_name: str, replacement_function):
-        """
-        Initialize the permanent MoE calibration.
-        :param model_class_name: The class name of the model this context applies to
-        :param replacement_function: Function that permanently replaces MoE modules
-        """
-        self.model_class_name = model_class_name
-        self.replacement_function = replacement_function
-        self._original_modules = {}
-
-    def apply(self, model: PreTrainedModel, calibrate_all_experts: bool = True) -> None:
-        """Apply permanent MoE calibration modifications."""
-        # Store original modules for potential restoration
-        for name, module in model.named_modules():
-            if module.__class__.__name__ == self.model_class_name:
-                self._original_modules[name] = module
-
-        # Apply the replacement
-        self.replacement_function(model, calibrate_all_experts)
-
-    def restore(self, model: PreTrainedModel) -> None:
-        """Restore original modules (if needed)."""
-        # For permanent MoE calibrations, restoration is typically not needed
-        # as the model is meant to stay in its modified form
-        pass
-
-
-# Registry for MoE calibrations
-_MOE_CONTEXTS: Dict[str, MoECalibrationContext] = {}
-
-
-def register_moe_context(model_class_name: str, context: MoECalibrationContext) -> None:
-    """
-    Register a MoE calibration context for a model class.
-    :param model_class_name: The class name of the model
-    :param context: The MoE calibration context to register
-    """
-    _MOE_CONTEXTS[model_class_name] = context
-
-
-def get_moe_context(model_class_name: str) -> Union[MoECalibrationContext, None]:
-    """
-    Get the registered MoE calibration context for a model class.
-    :param model_class_name: The class name of the model
-    :return: The MoE calibration context or None if not found
-    """
-    return _MOE_CONTEXTS.get(model_class_name)
-
-
-def list_supported_models() -> list:
-    """
-    List all model classes that have registered MoE calibration contexts.
-    :return: List of supported model class names
-    """
-    return list(_MOE_CONTEXTS.keys())
-
-
-# Generic factory functions for creating MoE updaters
-def create_permanent_moe_updater(target_class_name: str, replace_function: Callable):
-    """
-    Create a permanent MoE updater function for the given target class.
-
+    Decorator to register a MoE calibration module.
+    
+    Usage:
+        @register_moe_calibration("DeepseekV3MoE")
+        class CalibrationDeepseekV3MoE(MoECalibrationModule):
+            ...
+    
     Args:
-        target_class_name: The class name to look for in the model
-        replace_function: Function that creates the replacement module
-
-    Returns:
-        A function that can be used with PermanentMoECalibration
+        module_class_name: The class name of the original module to replace
     """
 
-    def update_function(model: PreTrainedModel, calibrate_all_experts: bool):
-        """Update MoE modules for calibration."""
-        for name, module in tqdm.tqdm(list(model.named_modules())):
-            if module.__class__.__name__ == target_class_name:
-                new_module = replace_function(
-                    config=model.config,
-                    module=module,
-                    calibrate_all_experts=calibrate_all_experts,
-                )
-                replace_module(model, name, new_module)
+    def decorator(cls: Type[MoECalibrationModule]) -> Type[MoECalibrationModule]:
+        if not issubclass(cls, MoECalibrationModule):
+            raise TypeError(
+                f"{cls.__name__} must inherit from MoECalibrationModule"
+            )
+        MOE_CALIBRATION_MODULES[module_class_name] = cls
+        return cls
 
-    return update_function
+    return decorator
 
 
-def create_contextual_moe_updater(
-    target_class_name: str, target_attr: str, replace_function: Callable
+@contextlib.contextmanager
+def moe_calibration_context(
+    model: PreTrainedModel,
+    calibrate_all_experts: bool = True,
 ):
     """
-    Create a contextual MoE updater function for the given target class and attribute.
-
+    Context manager that applies MoE calibration to a model.
+    
+    This scans all modules in the model and replaces any MoE modules with their
+    calibration equivalents. After the context exits, non-permanent modules are
+    restored to their original form.
+    
     Args:
-        target_class_name: The class name to look for in the model
-        target_attr: The attribute name to replace within the target class
-        replace_function: Function that creates the replacement module
-
-    Returns:
-        A function that can be used with ContextualMoECalibration
+        model: The model to apply MoE calibration to
+        calibrate_all_experts: If True, all experts see all tokens during calibration.
+                               If False, use normal routing (useful for some techniques)
+    
+    Yields:
+        The model with MoE calibration applied
+        
+    Example:
+        with moe_calibration_context(model):
+            # Run calibration - all experts will see data
+            for batch in dataloader:
+                model(**batch)
+        # Model is now restored (unless permanent)
     """
+    replaced = {}
 
-    def update_function(
-        model: PreTrainedModel, stack: contextlib.ExitStack, calibrate_all_experts: bool
-    ):
-        """Update MoE modules for calibration using context managers."""
-        for module in model.modules():
-            if module.__class__.__name__ == target_class_name:
-                stack.enter_context(
-                    patch_attr(
-                        module,
-                        target_attr,
-                        replace_function(
-                            config=model.config,
-                            module=getattr(module, target_attr),
-                            calibrate_all_experts=calibrate_all_experts,
-                        ),
-                    )
-                )
+    # Step 1: Find and replace MoE modules
+    for name, module in model.named_modules():
+        class_name = module.__class__.__name__
+        if class_name in MOE_CALIBRATION_MODULES:
+            calibration_cls = MOE_CALIBRATION_MODULES[class_name]
+            replacement = calibration_cls.from_original(
+                module,
+                model.config,
+                calibrate_all_experts,
+            )
+            model.set_submodule(name, replacement)
+            replaced[name] = (module, replacement)
 
-    return update_function
-
-
-def register_moe_model(model_class_name: str, config: MoEModelConfig):
-    """
-    Register a MoE model with its configuration.
-
-    Args:
-        model_class_name: The model class name
-        config: MoEModelConfig dataclass instance with calibration parameters
-    """
-    if config.calibration_type == MoECalibrationType.PERMANENT:
-        updater = create_permanent_moe_updater(
-            config.target_class_name, config.replace_function
+    # Log what was replaced
+    if replaced:
+        logger.info(f"Replaced {len(replaced)} MoE modules for calibration")
+        permanent_count = sum(
+            1 for _, (_, repl) in replaced.items() if repl.is_permanent
         )
-        context = PermanentMoECalibration(config.target_class_name, updater)
-    elif config.calibration_type == MoECalibrationType.CONTEXTUAL:
-        updater = create_contextual_moe_updater(
-            config.target_class_name, config.target_attribute, config.replace_function
-        )
-        context = ContextualMoECalibration(model_class_name, updater)
-    else:
-        raise ValueError(f"Unknown MoE type: {config.calibration_type}")
+        if permanent_count > 0:
+            logger.info(
+                f"{permanent_count}/{len(replaced)} modules will remain in "
+                "calibration form (permanent)"
+            )
+        if permanent_count < len(replaced):
+            logger.info(
+                f"{len(replaced) - permanent_count}/{len(replaced)} modules will "
+                "be restored after calibration"
+            )
 
-    register_moe_context(model_class_name, context)
-
-
-def register_moe_model_from_dict(model_class_name: str, config_dict: dict):
-    """
-    Register a MoE model from a dictionary configuration (backward compatibility).
-
-    Args:
-        model_class_name: The model class name
-        config_dict: Dictionary with calibration parameters
-    """
-    # Convert string calibration_type to enum
-    if "calibration_type" in config_dict and isinstance(
-        config_dict["calibration_type"], str
-    ):
-        config_dict["calibration_type"] = MoECalibrationType(
-            config_dict["calibration_type"]
-        )
-
-    config = MoEModelConfig(**config_dict)
-    register_moe_model(model_class_name, config)
+    try:
+        yield model
+    finally:
+        # Step 2: Restore non-permanent modules
+        for name, (original, replacement) in replaced.items():
+            if not replacement.is_permanent:
+                restored = replacement.restore()
+                model.set_submodule(name, restored)
