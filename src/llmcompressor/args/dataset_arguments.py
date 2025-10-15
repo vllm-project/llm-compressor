@@ -194,6 +194,7 @@ class DatasetArguments(CustomDatasetArguments):
         default_factory=lambda: [
             "_update_causal_mask",
             "create_causal_mask",
+            "_update_mamba_mask",
             "make_causal_mask",
             "get_causal_mask",
             "mask_interface",
