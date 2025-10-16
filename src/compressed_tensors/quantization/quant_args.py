@@ -287,7 +287,7 @@ class QuantizationArgs(BaseModel, use_enum_values=True):
             )
 
         # validate group strategy
-        if strategy == QuantizationStrategy.GROUP:
+        if strategy in (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP):
             if group_size is None or group_size <= 0:
                 raise ValueError(
                     f"strategy {strategy} requires group_size to be "
