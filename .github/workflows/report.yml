@@ -108,7 +108,7 @@ jobs:
                   "hostname": "${{ secrets.REPORTPORTAL_HOST }}",
                   "project": "compressed-tensors",
                   "name": "${{ inputs.run_name }}",
-                  "description": "GitHub run: https://github.com/neuralmagic/compressed-tensors/actions/runs/${{ inputs.run_id }}",
+                  "description": "GitHub run: https://github.com/vllm-project/compressed-tensors/actions/runs/${{ inputs.run_id }}",
                   "attributes": [
                     {"key": "wheel", "value": "${{ inputs.wheel }}"},
                     {"key": "gitref", "value": "${{ inputs.gitref }}"},

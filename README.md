@@ -37,7 +37,7 @@ pip install --pre compressed-tensors
 ### From Source
 
 ```bash
-git clone https://github.com/neuralmagic/compressed-tensors
+git clone https://github.com/vllm-project/compressed-tensors
 cd compressed-tensors
 pip install -e .
 ```
@@ -78,7 +78,7 @@ We can apply bitmask compression to a whole model. For more detailed example see
 from compressed_tensors import save_compressed_model, load_compressed, BitmaskConfig
 from transformers import AutoModelForCausalLM
 
-model_name = "neuralmagic/llama2.c-stories110M-pruned50"
+model_name = "RedHatAI/llama2.c-stories110M-pruned50"
 model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="auto")
 
 original_state_dict = model.state_dict()
@@ -92,7 +92,7 @@ save_compressed_model(model, "compressed_model.safetensors", compression_format=
 state_dict = dict(load_compressed("compressed_model.safetensors", compression_config))
 ```
 
-For more in-depth tutorial on bitmask compression, refer to the [notebook](https://github.com/neuralmagic/compressed-tensors/blob/d707c5b84bc3fef164aebdcd97cb6eaa571982f8/examples/bitmask_compression.ipynb).
+For more in-depth tutorial on bitmask compression, refer to the [notebook](https://github.com/vllm-project/compressed-tensors/blob/d707c5b84bc3fef164aebdcd97cb6eaa571982f8/examples/bitmask_compression.ipynb).
 
 
 ## Saving a Compressed Model with PTQ
