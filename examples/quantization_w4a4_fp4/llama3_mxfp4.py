@@ -4,7 +4,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
-MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
 # Load model.
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
@@ -13,7 +13,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize the weights to fp4 with per group 16 via ptq
-recipe = QuantizationModifier(targets="Linear", scheme="MXFP4A16", ignore=["lm_head"])
+recipe = QuantizationModifier(targets="Linear", scheme="MXFP4", ignore=["lm_head"])
 
 # Apply quantization.
 oneshot(model=model, recipe=recipe)
@@ -30,6 +30,6 @@ print("==========================================\n\n")
 
 
 # Save to disk in compressed-tensors format.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP4A16"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
