@@ -18,6 +18,7 @@ from typing import Any, Dict, Type
 
 import torch
 from loguru import logger
+from tqdm import tqdm
 from transformers import PreTrainedModel
 
 __all__ = [
@@ -137,10 +138,20 @@ def moe_calibration_context(
     """
     replaced = {}
 
-    # Step 1: Find and replace MoE modules
+    # Step 1: Collect all MoE modules that need replacement
+    logger.info("Entering MoE calibration context")
+    modules_to_replace = []
     for name, module in model.named_modules():
         class_name = module.__class__.__name__
         if class_name in MOE_CALIBRATION_MODULES:
+            modules_to_replace.append((name, module, class_name))
+
+    # Step 2: Replace modules with progress bar
+    if modules_to_replace:
+        logger.info(f"Found {len(modules_to_replace)} MoE modules to replace")
+        for name, module, class_name in tqdm(
+            modules_to_replace, desc="Replacing MoE modules for calibration"
+        ):
             calibration_cls = MOE_CALIBRATION_MODULES[class_name]
             replacement = calibration_cls.from_original(
                 module,
