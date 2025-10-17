@@ -11,10 +11,26 @@ from transformers.models.llama4.modeling_llama4 import (
     Llama4TextMoe,
 )
 
+from llmcompressor.modeling.moe_context import (
+    MoECalibrationModule,
+    register_moe_calibration,
+)
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
-class SequentialLlama4TextMoe(torch.nn.Module):
+@register_moe_calibration("Llama4TextMoe")
+class SequentialLlama4TextMoe(MoECalibrationModule):
+    """
+    Calibration version of Llama4TextMoe that unpacks experts for sequential processing.
+
+    This module:
+    1. Unpacks the packed expert weights (3D -> 2D) for calibration
+    2. Optionally sends all tokens to all experts during calibration
+    3. Stays in unpacked form (permanent) for vLLM compatibility
+    """
+
+    is_permanent = True
+
     def __init__(
         self,
         config: Llama4TextConfig,
@@ -31,7 +47,25 @@ class SequentialLlama4TextMoe(torch.nn.Module):
         self.shared_expert = original.shared_expert
         self.calibrate_all_experts = calibrate_all_experts
 
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
+    @classmethod
+    def from_original(
+        cls,
+        original: Llama4TextMoe,
+        config: Llama4Config,
+        calibrate_all_experts: bool = True,
+    ) -> "SequentialLlama4TextMoe":
+        """Create calibration module from original Llama4TextMoe."""
+        # Extract text config from multimodal config if needed
+        text_config = (
+            config.get_text_config() if hasattr(config, "get_text_config") else config
+        )
+        return cls(
+            config=text_config,
+            original=original,
+            calibrate_all_experts=calibrate_all_experts,
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
         router_outputs = self.router(hidden_states)
 
@@ -88,9 +122,14 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
             self[i].down_proj.weight.data = down.t().clone().contiguous()
 
 
+# Legacy function for backward compatibility
 def replace(config: Llama4Config, module: Llama4TextMoe, calibrate_all_experts: bool):
-    return SequentialLlama4TextMoe(
-        config=config.get_text_config(),
+    """
+    Legacy replacement function.
+    Use SequentialLlama4TextMoe.from_original() instead.
+    """
+    return SequentialLlama4TextMoe.from_original(
         original=module,
+        config=config,
         calibrate_all_experts=calibrate_all_experts,
     )

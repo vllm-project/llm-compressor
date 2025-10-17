@@ -5,13 +5,11 @@ from functools import partial
 import pytest
 import torch
 from transformers import Llama4ForConditionalGeneration
+from transformers.models.llama4.configuration_llama4 import Llama4TextConfig
+from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 
-from llmcompressor.modeling.llama4 import (
-    Llama4TextConfig,
-    Llama4TextMoe,
-    SequentialLlama4TextMoe,
-)
-from llmcompressor.modeling.prepare import moe_calibration_context
+from llmcompressor.modeling.llama4 import SequentialLlama4TextMoe
+from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import calibration_forward_context
 from tests.testing_utils import requires_cadence, requires_gpu
@@ -82,12 +80,16 @@ def test_calib_llama4_module():
     with calibration_forward_context(original):
         true_output = original(sample)[0]
 
-    module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=True)
+    module = SequentialLlama4TextMoe.from_original(
+        original, config, calibrate_all_experts=True
+    )
     with calibration_forward_context(module):
         output = module(sample)[0]
         assert torch.allclose(true_output, output, atol=1e-6)
 
-    module = SequentialLlama4TextMoe(config, original, calibrate_all_experts=False)
+    module = SequentialLlama4TextMoe.from_original(
+        original, config, calibrate_all_experts=False
+    )
     with calibration_forward_context(module):
         output = module(sample)[0]
         assert torch.allclose(true_output, output, atol=1e-6)

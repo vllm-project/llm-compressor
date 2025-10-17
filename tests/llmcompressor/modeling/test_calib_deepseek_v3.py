@@ -4,13 +4,13 @@ from functools import partial
 import pytest
 import torch
 from transformers import AutoModelForCausalLM
-
-from llmcompressor.modeling.deepseek_v3 import (
-    DeepseekV3Config,
-    DeepseekV3MoECalibrate,
-    OriginalDeepseekV3MoE,
+from transformers.models.deepseek_v3.configuration_deepseek_v3 import DeepseekV3Config
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
+    DeepseekV3MoE as OriginalDeepseekV3MoE,
 )
-from llmcompressor.modeling.prepare import moe_calibration_context
+
+from llmcompressor.modeling.deepseek_v3 import CalibrationDeepseekV3MoE
+from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import calibration_forward_context
 from tests.testing_utils import requires_cadence, requires_gpu
@@ -29,7 +29,7 @@ def test_calib_replace_deepseekv3moe_all_experts(model_stub):
         # Find a Deepseek MoE layer
         moe_layer = None
         for _, module in model.named_modules():
-            if isinstance(module, DeepseekV3MoECalibrate):
+            if isinstance(module, CalibrationDeepseekV3MoE):
                 moe_layer = module
                 break
 
@@ -75,12 +75,16 @@ def test_calib_deepseekv3_module():
     with calibration_forward_context(original):
         true_output = original(sample)[0]
 
-    module = DeepseekV3MoECalibrate(config, original, calibrate_all_experts=True)
+    module = CalibrationDeepseekV3MoE.from_original(
+        original, config, calibrate_all_experts=True
+    )
     with calibration_forward_context(module):
         output = module(sample)[0]
         assert torch.allclose(true_output, output, atol=1e-6)
 
-    module = DeepseekV3MoECalibrate(config, original, calibrate_all_experts=False)
+    module = CalibrationDeepseekV3MoE.from_original(
+        original, config, calibrate_all_experts=False
+    )
     with calibration_forward_context(module):
         output = module(sample)[0]
         assert torch.allclose(true_output, output, atol=1e-6)

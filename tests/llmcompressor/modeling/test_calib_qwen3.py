@@ -4,13 +4,13 @@ from functools import partial
 import pytest
 import torch
 from transformers import AutoModelForCausalLM
-
-from llmcompressor.modeling.prepare import moe_calibration_context
-from llmcompressor.modeling.qwen3_moe import (
-    OriginalQwen3MoeSparseMoeBlock,
-    Qwen3MoeConfig,
-    Qwen3MoeSparseMoeBlock,
+from transformers.models import Qwen3MoeConfig
+from transformers.models.qwen3_moe.modeling_qwen3_moe import (
+    Qwen3MoeSparseMoeBlock as OriginalQwen3MoeSparseMoeBlock,
 )
+
+from llmcompressor.modeling.moe_context import moe_calibration_context
+from llmcompressor.modeling.qwen3_moe import CalibrationQwen3MoeSparseMoeBlock
 from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from tests.testing_utils import requires_cadence, requires_gpu
@@ -31,7 +31,7 @@ def test_calib_replace_qwen3moe_all_experts(model_stub):
         # Find one MoE layer
         moe_layer = None
         for name, module in model.named_modules():
-            if isinstance(module, Qwen3MoeSparseMoeBlock):
+            if isinstance(module, CalibrationQwen3MoeSparseMoeBlock):
                 moe_layer = module
                 break
 
@@ -77,12 +77,16 @@ def test_calib_qwen3_moe_module():
     with calibration_forward_context(original):
         true_output = original(sample)[0]
 
-    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=True)
+    module = CalibrationQwen3MoeSparseMoeBlock.from_original(
+        original, config, calibrate_all_experts=True
+    )
     with calibration_forward_context(module):
         output = module(sample)[0]
         assert torch.allclose(true_output, output, atol=1e-6)
 
-    module = Qwen3MoeSparseMoeBlock(config, original, calibrate_all_experts=False)
+    module = CalibrationQwen3MoeSparseMoeBlock.from_original(
+        original, config, calibrate_all_experts=False
+    )
     with calibration_forward_context(module):
         output = module(sample)[0]
         assert torch.allclose(true_output, output, atol=1e-6)
