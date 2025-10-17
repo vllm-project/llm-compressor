@@ -83,9 +83,4 @@ def parse_args(
     # silently assign tokenizer to processor
     resolve_processor_from_model_args(model_args)
 
-    # copy cache_dir from model_args to dataset_args to support offline mode
-    # with a single unified cache directory. This allows both models and datasets
-    # to use the same cache when cache_dir is specified
-    dataset_args.cache_dir = model_args.cache_dir
-
     return model_args, dataset_args, recipe_args, training_args, output_dir

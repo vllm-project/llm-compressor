@@ -175,7 +175,7 @@ def initialize_model_from_path(
     model_path = model_args.model
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_path,
-        cache_dir=model_args.cache_dir,
+        cache_dir=None,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         trust_remote_code=model_args.trust_remote_code_model,
@@ -211,7 +211,7 @@ def initialize_model_from_path(
             )
             teacher_kwargs = {
                 "config": teacher_config,
-                "cache_dir": model_args.cache_dir,
+                "cache_dir": None,
                 "use_auth_token": True if model_args.use_auth_token else None,
                 "torch_dtype": parse_dtype(model_args.precision),
                 "device_map": teacher_device_map,
@@ -233,7 +233,7 @@ def initialize_model_from_path(
 
     model_kwargs = {
         "config": config,
-        "cache_dir": model_args.cache_dir,
+        "cache_dir": None,
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
         "torch_dtype": parse_dtype(model_args.precision),
@@ -266,7 +266,7 @@ def initialize_processor_from_path(
     try:
         processor = AutoProcessor.from_pretrained(
             processor_src,
-            cache_dir=model_args.cache_dir,
+            cache_dir=None,
             use_fast=True,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
@@ -285,7 +285,7 @@ def initialize_processor_from_path(
         logger.debug("Could not load fast processor, loading slow processor instead")
         processor = AutoProcessor.from_pretrained(
             processor_src,
-            cache_dir=model_args.cache_dir,
+            cache_dir=None,
             use_fast=False,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
