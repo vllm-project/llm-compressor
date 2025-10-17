@@ -36,6 +36,7 @@ __all__ = ["moe_calibration_context", "replace_modules_for_calibration"]
 replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
     "Llama4TextMoe": replace_llama4,
+    "Qwen3VLMoeTextSparseMoeBlock": replace_Qwen3VLMoE,
 }
 
 

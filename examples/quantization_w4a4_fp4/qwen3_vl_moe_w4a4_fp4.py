@@ -1,17 +1,21 @@
 import torch
 from datasets import load_dataset
-from transformers import Llama4ForConditionalGeneration, Llama4Processor
+from transformers import AutoProcessor, Qwen3VLMoeForConditionalGeneration
 
 from llmcompressor import oneshot
+from llmcompressor.modeling import replace_modules_for_calibration
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import dispatch_for_generation
 
-# Select model and load it.
-model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
-model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
-processor = Llama4Processor.from_pretrained(model_id)
-# MoE calibration is now handled automatically by the pipeline.
-# The `SequentialLlama4TextMoe` modules will be applied during calibration
-# to enable proper expert calibration and vLLM compatibility.
+# NOTE: Requires a minimum of transformers 4.57.0
+
+MODEL_ID = "Qwen/Qwen3-VL-235B-A22B-Instruct"
+
+
+# Load model.
+model = Qwen3VLMoeForConditionalGeneration.from_pretrained(MODEL_ID, torch_dtype="auto")
+processor = AutoProcessor.from_pretrained(MODEL_ID)
+model = replace_modules_for_calibration(model)
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 20
@@ -58,35 +62,41 @@ def data_collator(batch):
     }
 
 
-# Configure the quantization algorithm to run.
+# Configure the quantization algorithm and scheme.
+# In this case, we:
+#   * quantize the weights to fp8 with channel-wise quantization
+#   * quantize the activations to fp8 with dynamic token activations
+# NOTE: only datafree quantization is supported for Qwen3-VL-MoE currently
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="NVFP4",
     ignore=[
         "re:.*lm_head",
-        "re:.*self_attn",
-        "re:.*router",
-        "re:.*vision_model.*",
-        "re:.*multi_modal_projector.*",
-        "Llama4TextAttention",
+        "re:visual.*",
+        "re:model.visual.*",
+        "re:.*mlp.gate$",
     ],
 )
 
-# Apply algorithms.
-# due to the large size of Llama4, we specify sequential targets such that
-# only one MLP is loaded into GPU memory at a time
+# Apply quantization.
 oneshot(
     model=model,
-    dataset=ds,
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    sequential_targets=["Llama4TextMLP"],
+    dataset=ds,
     data_collator=data_collator,
 )
 
+print("========== SAMPLE GENERATION ==============")
+dispatch_for_generation(model)
+input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
+output = model.generate(input_ids, max_new_tokens=20)
+print(processor.decode(output[0]))
+print("==========================================")
 
-# Save to disk compressed.
-SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-NVFP4"
+
+# Save to disk in compressed-tensors format.
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)

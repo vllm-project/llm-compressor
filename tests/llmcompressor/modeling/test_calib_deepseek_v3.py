@@ -73,18 +73,18 @@ def test_calib_deepseekv3_module():
     sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 
     with calibration_forward_context(original):
-        true_output = original(sample)[0]
+        true_output = original(sample)
 
     module = CalibrationDeepseekV3MoE.from_original(
         original, config, calibrate_all_experts=True
     )
     with calibration_forward_context(module):
-        output = module(sample)[0]
+        output = module(sample)
         assert torch.allclose(true_output, output, atol=1e-6)
 
     module = CalibrationDeepseekV3MoE.from_original(
         original, config, calibrate_all_experts=False
     )
     with calibration_forward_context(module):
-        output = module(sample)[0]
+        output = module(sample)
         assert torch.allclose(true_output, output, atol=1e-6)

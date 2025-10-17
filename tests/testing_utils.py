@@ -285,18 +285,6 @@ def process_dataset(
                 "images": sample["image"],
             }
 
-    elif ds_name == "pile-val-backup":
-
-        def preprocess(example):
-            return {
-                "input_ids": processor.encode(example["text"].strip())[:max_seq_length]
-            }
-
-        ds = ds.map(preprocess, remove_columns=ds.column_names)
-        # Note: potentially swap filtering to pad for AWQ
-        ds = ds.filter(lambda example: len(example["input_ids"]) >= max_seq_length)
-        return ds
-
     else:
         raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
 
