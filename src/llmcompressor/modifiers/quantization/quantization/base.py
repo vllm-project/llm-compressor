@@ -71,7 +71,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         QuantizationMixin.start_calibration(self, state.model)
 
         named_modules = list(
-            match_named_modules(state.model, self.targets, self.ignore)
+            match_named_modules(state.model, self.resolved_targets, self.ignore)
         )
         # TODO: this step can be combined with update_weight_zp_scale
         # once update_fused_layer_weight_global_scales is removed
