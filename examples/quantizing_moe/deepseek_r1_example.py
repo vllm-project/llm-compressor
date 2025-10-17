@@ -20,7 +20,7 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.
-# The `DeepseekV3MoECalibrate` modules will be applied during calibration
+# The `CalibrationDeepseekV3MoE` modules will be applied during calibration
 # to enable proper expert calibration.
 
 # Select calibration dataset.
