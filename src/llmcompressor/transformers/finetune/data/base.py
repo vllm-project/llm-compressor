@@ -195,7 +195,7 @@ class TextGenerationDataset(RegistryMixin):
         logger.debug(f"Loading dataset {self.dataset_args.dataset}")
         return get_raw_dataset(
             self.dataset_args,
-            None,
+            cache_dir=None,
             split=self.split,
             streaming=self.dataset_args.streaming,
             **self.dataset_args.raw_kwargs,
