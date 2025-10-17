@@ -150,14 +150,6 @@ class DatasetArguments(CustomDatasetArguments):
         default=False,
         metadata={"help": "Overwrite the cached preprocessed datasets or not."},
     )
-    cache_dir: Optional[str] = field(
-        init=False,
-        default=None,
-        metadata={
-            "help": "Where to store the pretrained datasets from huggingface.co. "
-            "This field is set from model_args.cache_dir to enable unified caching."
-        },
-    )
     preprocessing_num_workers: Optional[int] = field(
         default=None,
         metadata={"help": "The number of processes to use for the preprocessing."},
