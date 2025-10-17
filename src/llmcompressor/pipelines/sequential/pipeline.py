@@ -7,7 +7,6 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.prepare import moe_calibration_context
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -84,9 +83,6 @@ class SequentialPipeline(CalibrationPipeline):
             # Optionally disable quantization
             if not dataset_args.quantization_aware_calibration or disable_qac:
                 stack.enter_context(DisableQuantization(model))
-
-            if dataset_args.calibrate_moe_context:
-                moe_calibration_context(model, stack)
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(dataloader, model_device)
