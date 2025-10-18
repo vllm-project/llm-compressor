@@ -464,11 +464,12 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # The weights are reshaped to be organised by quantization group
                 if self._group_size > 0:
                     weight = weight.view(-1, self._group_size)
-                    # Calculates the relative magnitude of the weights within
-                    # each of the quantization groups, and rescales each group
-                    # individually so that each group has weights on a 0-1 scale.
-                    weight.abs_()
-                    weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+                # Calculates the relative magnitude of the weights within
+                # each of the quantization groups, and rescales each group
+                # individually so that each group has weights on a 0-1 scale.
+                weight.abs_()
+                weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
+                if self._group_size >0:
                     # Resizes the rescaled weight matrix back up to
                     # its original dimensions
                     weight = weight.view(org_shape)
