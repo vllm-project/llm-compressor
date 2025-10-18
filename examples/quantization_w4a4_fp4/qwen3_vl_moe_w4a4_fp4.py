@@ -64,9 +64,8 @@ def data_collator(batch):
 
 # Configure the quantization algorithm and scheme.
 # In this case, we:
-#   * quantize the weights to fp8 with channel-wise quantization
-#   * quantize the activations to fp8 with dynamic token activations
-# NOTE: only datafree quantization is supported for Qwen3-VL-MoE currently
+#   * quantize the weights to fp4 with group-wise quantization
+#   * quantize the activations to fp4 with dynamic group activations
 recipe = QuantizationModifier(
     targets="Linear",
     scheme="NVFP4",
