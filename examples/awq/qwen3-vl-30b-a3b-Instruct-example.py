@@ -13,10 +13,7 @@ MODEL_ID = "Qwen/Qwen3-VL-30B-A3B-Instruct"
 
 # Load model.
 model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
-    MODEL_ID,
-    torch_dtype=torch.bfloat16,
-    device_map=None,
-    trust_remote_code=True
+    MODEL_ID, torch_dtype=torch.bfloat16, device_map=None, trust_remote_code=True
 )
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 model = replace_modules_for_calibration(model)
@@ -71,32 +68,27 @@ def data_collator(batch):
 # Configure AWQ quantization with smoothing and balancing
 recipe = AWQModifier(
     ignore=[
-        're:.*embed_tokens',
-        're:.*input_layernorm$',
-        're:.*mlp[.]gate$',
-        're:.*post_attention_layernorm$',
-        're:.*norm$',
-        're:model[.]visual.*',
-        're:visual.*',
-        'lm_head'
+        "re:.*embed_tokens",
+        "re:.*input_layernorm$",
+        "re:.*mlp[.]gate$",
+        "re:.*post_attention_layernorm$",
+        "re:.*norm$",
+        "re:model[.]visual.*",
+        "re:visual.*",
+        "lm_head",
     ],
     mappings=[
         {
             "smooth_layer": "re:.*input_layernorm$",
-            "balance_layers": ['re:.*q_proj$', 're:.*k_proj$', 're:.*v_proj$']
+            "balance_layers": ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
         },
-        {
-            "smooth_layer": "re:.*v_proj$",
-            "balance_layers": ['re:.*o_proj$']
-        },
+        {"smooth_layer": "re:.*v_proj$", "balance_layers": ["re:.*o_proj$"]},
         {
             "smooth_layer": "re:.*post_attention_layernorm$",
-            "balance_layers": ['re:.*gate_proj$', 're:.*up_proj$']
+            "balance_layers": ["re:.*gate_proj$", "re:.*up_proj$"],
         },
-        {
-            "smooth_layer": "re:.*up_proj$",
-            "balance_layers": ['re:.*down_proj$']
-        }
+        {"smooth_layer": "re:.*up_proj$",
+            "balance_layers": ["re:.*down_proj$"]},
     ],
     duo_scaling=True,
     config_groups={
@@ -112,13 +104,13 @@ recipe = AWQModifier(
                 "dynamic": False,
                 "actorder": None,
                 "observer": "mse",
-                "observer_kwargs": {}
+                "observer_kwargs": {},
             },
             "input_activations": None,
             "output_activations": None,
-            "format": None
+            "format": None,
         }
-    }
+    },
 )
 
 # Apply AWQ quantization.
@@ -130,7 +122,6 @@ oneshot(
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
     data_collator=data_collator,
-
 )
 
 print("========== SAMPLE GENERATION ==============")
