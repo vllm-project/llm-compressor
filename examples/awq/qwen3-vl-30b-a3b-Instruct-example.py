@@ -22,8 +22,7 @@ DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 256
 MAX_SEQUENCE_LENGTH = 8192
 
-ds = load_dataset(DATASET_ID, name="LLM",
-                  split=f"train[:{NUM_CALIBRATION_SAMPLES}]")
+ds = load_dataset(DATASET_ID, name="LLM", split=f"train[:{NUM_CALIBRATION_SAMPLES}]")
 ds = ds.shuffle(seed=42)
 
 
@@ -87,8 +86,7 @@ recipe = AWQModifier(
             "smooth_layer": "re:.*post_attention_layernorm$",
             "balance_layers": ["re:.*gate_proj$", "re:.*up_proj$"],
         },
-        {"smooth_layer": "re:.*up_proj$",
-            "balance_layers": ["re:.*down_proj$"]},
+        {"smooth_layer": "re:.*up_proj$", "balance_layers": ["re:.*down_proj$"]},
     ],
     duo_scaling=True,
     config_groups={
@@ -126,8 +124,7 @@ oneshot(
 
 print("========== SAMPLE GENERATION ==============")
 dispatch_for_generation(model)
-input_ids = processor(text="Hello my name is",
-                      return_tensors="pt").input_ids.to("cuda")
+input_ids = processor(text="Hello my name is", return_tensors="pt").input_ids.to("cuda")
 output = model.generate(input_ids, max_new_tokens=20)
 print(processor.decode(output[0]))
 print("==========================================")
