@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from accelerate import init_empty_weights
-from compressed_tensors.quantization import KVCacheScaleType, is_attention_module
+from compressed_tensors.quantization import is_attention_module
 from datasets import load_dataset
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
@@ -14,7 +14,7 @@ from llmcompressor.core import reset_session
 NUM_CALIBRATION_SAMPLES = 16
 MAX_SEQUENCE_LENGTH = 512
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
+DATASET_SPLIT = f"train_sft[:{NUM_CALIBRATION_SAMPLES}]"
 
 MODEL_IDS = [
     "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
@@ -49,9 +49,11 @@ def oneshot_fixture():
             symmetric=symmetric,
         )
         oneshot_args = dict(
-            dataset="open_platypus",
             recipe=recipe,
-            num_calibration_samples=16,
+            dataset="open_platypus",
+            splits={"calibration": f"train[:{NUM_CALIBRATION_SAMPLES}]"},
+            num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+            max_seq_length=MAX_SEQUENCE_LENGTH,
         )
         for model_id in MODEL_IDS:
             oneshot_args["output_dir"] = os.path.join(tmp_path, model_id)
@@ -161,8 +163,8 @@ def test_kv_cache_model_state_dict_attr(oneshot_fixture, tmp_path):
     for name, submodule in model.named_modules():
         if is_attention_module(submodule):
             counts += 1
-            assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-            assert hasattr(submodule, KVCacheScaleType.KEY.value)
+            assert hasattr(submodule, "v_scale")
+            assert hasattr(submodule, "k_scale")
     assert counts > 0
 
 
@@ -200,8 +202,8 @@ def test_kv_cache_gptq_config_format(kv_cache_fixture, tmp_path):
     for name, submodule in model.named_modules():
         if is_attention_module(submodule):
             counts += 1
-            assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-            assert hasattr(submodule, KVCacheScaleType.KEY.value)
+            assert hasattr(submodule, "v_scale")
+            assert hasattr(submodule, "k_scale")
 
     assert counts > 0
 
@@ -240,7 +242,7 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
     for name, submodule in model.named_modules():
         if is_attention_module(submodule):
             counts += 1
-            assert hasattr(submodule, KVCacheScaleType.VALUE.value)
-            assert hasattr(submodule, KVCacheScaleType.KEY.value)
+            assert hasattr(submodule, "v_scale")
+            assert hasattr(submodule, "k_scale")
 
     assert counts > 0
