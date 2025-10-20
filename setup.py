@@ -154,7 +154,9 @@ setup(
             "lm_eval==0.4.5",
             # test dependencies
             "beautifulsoup4~=4.12.3",
-            "cmarkgfm>=2024.1.14",
+            # Pin cmarkgfm until issue resolved
+            # https://github.com/theacodes/cmarkgfm/issues/83
+            "cmarkgfm>=2024.1.14,<2025.10.20",
             "trl>=0.10.1",
             "pandas<2.3.0",
             "torchvision",
