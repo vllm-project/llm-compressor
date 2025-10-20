@@ -76,18 +76,6 @@ recipe = AWQModifier(
         "re:visual.*",
         "lm_head",
     ],
-    mappings=[
-        {
-            "smooth_layer": "re:.*input_layernorm$",
-            "balance_layers": ["re:.*q_proj$", "re:.*k_proj$", "re:.*v_proj$"],
-        },
-        {"smooth_layer": "re:.*v_proj$", "balance_layers": ["re:.*o_proj$"]},
-        {
-            "smooth_layer": "re:.*post_attention_layernorm$",
-            "balance_layers": ["re:.*gate_proj$", "re:.*up_proj$"],
-        },
-        {"smooth_layer": "re:.*up_proj$", "balance_layers": ["re:.*down_proj$"]},
-    ],
     duo_scaling=True,
     config_groups={
         "group_0": {
