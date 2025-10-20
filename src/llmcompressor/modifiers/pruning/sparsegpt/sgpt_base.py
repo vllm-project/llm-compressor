@@ -1,4 +1,3 @@
-import warnings
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
@@ -8,13 +7,13 @@ import numpy
 import torch
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
+from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.pytorch.module import (
     get_layers,
-    get_no_split_params,
     get_prunable_layers,
     match_targets,
 )
@@ -34,8 +33,6 @@ class SparsityModifierBase(Modifier):
     owl_lmbda: Optional[float] = None
 
     # data pipeline arguments
-    sequential_update: Optional[bool] = False  # deprecated
-    sequential_targets: Union[str, List[str], None] = None
     targets: Union[str, List[str]] = ["Linear"]
     ignore: List[str] = Field(default_factory=list)
 
@@ -45,17 +42,6 @@ class SparsityModifierBase(Modifier):
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _target_layers: Dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
     _module_sparsities: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-
-    @field_validator("sequential_update", mode="before")
-    def validate_sequential_update(cls, value: bool) -> bool:
-        if not value:
-            warnings.warn(
-                "`sequential_update=False` is no longer supported, setting "
-                "sequential_update=True",
-                DeprecationWarning,
-            )
-
-        return True
 
     @field_validator("sparsity_profile", mode="before")
     def validate_sparsity_profile(cls, value: Optional[str]) -> bool:
@@ -109,12 +95,12 @@ class SparsityModifierBase(Modifier):
 
         :param state: session state storing input model and calibration data
         """
-        model: torch.nn.Module = state.model
+        model: PreTrainedModel = state.model
         dataloader: torch.utils.data.DataLoader = state.data.calib
 
         # infer module and sequential targets
-        self.sequential_targets = self._infer_sequential_targets(model)
-        layers = get_layers(self.sequential_targets, model)
+        sequential_targets = model._get_no_split_modules("auto")
+        layers = get_layers(sequential_targets, model)
         self._target_layers = get_layers(
             self.targets, model
         )  # layers containing targets
@@ -190,15 +176,6 @@ class SparsityModifierBase(Modifier):
     def on_end(self, state: State, event: Event, **kwargs):
         self.ended_ = True
         self.remove_hooks()
-
-    def _infer_sequential_targets(
-        self, model: torch.nn.Module
-    ) -> Union[str, List[str]]:
-        if self.sequential_targets is None:
-            return get_no_split_params(model)
-        if isinstance(self.sequential_targets, str):
-            return [self.sequential_targets]
-        return self.sequential_targets
 
     def _infer_owl_layer_sparsity(
         self,

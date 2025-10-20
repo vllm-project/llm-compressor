@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -94,8 +94,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         - on_finalize
             - clear resolved mappings and captured activations
 
-    :param sequential_targets: list of module names to compress in
-        the same calibration pass
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -114,11 +112,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         and weights to determine the scaling factor
     """
 
-    # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
-    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
-
     # User-provided vars (in addition to QuantizationMixin args)
-    sequential_targets: Union[str, List[str], None] = None
     mappings: Optional[List[AWQMapping]] = None
     offload_device: Optional[torch.device] = None
     duo_scaling: bool = True
@@ -138,6 +132,9 @@ class AWQModifier(Modifier, QuantizationMixin):
     _smooth_activation_means: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
+
+    # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     # NOTE: different name chosen to avoid collision with
     # QuantizationMixin.validate_model_after, which must be called first

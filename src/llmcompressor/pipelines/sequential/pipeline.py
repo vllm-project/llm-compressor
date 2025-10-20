@@ -61,9 +61,7 @@ class SequentialPipeline(CalibrationPipeline):
         model_device = get_execution_device(model)
 
         # prepare to trace subgraphs
-        modifiers = session.lifecycle.recipe.modifiers
-        sequential_targets = get_sequential_targets(modifiers, model, dataset_args)
-
+        sequential_targets = get_sequential_targets(model, dataset_args)
         ignore = dataset_args.tracing_ignore
 
         # trace subgraphs
