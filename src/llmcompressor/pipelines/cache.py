@@ -203,13 +203,13 @@ class IntermediatesCache:
             case dict():
                 return {k: self._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
-                # handles primitive values that should be returned as is.
-                # without this, values trigger a MatchError exception.
                 for field in fields(value):
                     v = getattr(value, field.name)
                     setattr(value, field.name, self._onload_value(v))
                 return value
             case _:
+                # handles primitive values that should be returned as is.
+                # without this, a MatchError would be raised for unhandled types.
                 return value
 
     def _offload_value(self, value: Any) -> IntermediateValue:
