@@ -88,7 +88,8 @@ def call_observer(
         if should_calculate_qparams:
             scale, zero_point = observer(value)
             update_offload_parameter(module, f"{base_name}_scale", scale)
-            update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
+            if hasattr(module, f"{base_name}_zero_point"):
+                update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
 
 
 def update_weight_global_scale(module: Module):

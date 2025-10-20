@@ -152,6 +152,10 @@ class QuantizationMixin(HooksMixin):
         for config_group in self.resolved_config.config_groups.values():
             for target in config_group.targets:
                 targets.add(target)
+
+        if self.resolved_config.kv_cache_scheme is not None:
+            targets.add("re:.*self_attn$")
+
         return targets
 
     def initialize_quantization(self, model: torch.nn.Module):
@@ -177,9 +181,9 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        self._calibration_hooks = self._initialize_hooks(model)
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
+            self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
@@ -284,35 +288,34 @@ class QuantizationMixin(HooksMixin):
         if output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
+    def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            if not hasattr(module, "quantization_scheme"):
-                continue
+        if not hasattr(module, "quantization_scheme"):
+            hooks
 
-            scheme: QuantizationScheme = module.quantization_scheme
-            input = scheme.input_activations and scheme.input_activations.dynamic in (
-                False,
-                DynamicType.LOCAL,
-            )
-            output = scheme.output_activations and not scheme.output_activations.dynamic
-            is_attention = is_attention_module(module)
+        scheme: QuantizationScheme = module.quantization_scheme
+        input = scheme.input_activations and scheme.input_activations.dynamic in (
+            False,
+            DynamicType.LOCAL,
+        )
+        output = scheme.output_activations and not scheme.output_activations.dynamic
+        is_attention = is_attention_module(module)
 
-            # input activations
-            if input:
-                if not is_attention:
-                    hooks.add(
-                        self.register_hook(module, calibrate_input_hook, "forward_pre")
-                    )
-                else:
-                    if hasattr(module, IMPL_ATTR):
-                        hooks.add(register_query_hook(module, calibrate_query_hook))
-                    if hasattr(module, KV_CACHE_ATTR):
-                        hooks.add(register_key_hook(module, calibrate_key_hook))
-                        hooks.add(register_value_hook(module, calibrate_value_hook))
+        # input activations
+        if input:
+            if not is_attention:
+                hooks.add(
+                    self.register_hook(module, calibrate_input_hook, "forward_pre")
+                )
+            else:
+                if hasattr(module, IMPL_ATTR):
+                    hooks.add(register_query_hook(module, calibrate_query_hook))
+                if hasattr(module, KV_CACHE_ATTR):
+                    hooks.add(register_key_hook(module, calibrate_key_hook))
+                    hooks.add(register_value_hook(module, calibrate_value_hook))
 
-            # output activations
-            if output:
-                hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
+        # output activations
+        if output:
+            hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks
