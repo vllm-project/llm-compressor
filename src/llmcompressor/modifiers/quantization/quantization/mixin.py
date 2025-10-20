@@ -4,9 +4,6 @@ import torch
 from compressed_tensors.modeling import (
     IMPL_ATTR,
     KV_CACHE_ATTR,
-    register_key_hook,
-    register_query_hook,
-    register_value_hook,
 )
 from compressed_tensors.quantization import (
     DynamicType,
@@ -309,10 +306,10 @@ class QuantizationMixin(HooksMixin):
                 )
             else:
                 if hasattr(module, IMPL_ATTR):
-                    hooks.add(register_query_hook(module, calibrate_query_hook))
+                    hooks.add(self.register_hook(module, calibrate_query_hook, "query"))
                 if hasattr(module, KV_CACHE_ATTR):
-                    hooks.add(register_key_hook(module, calibrate_key_hook))
-                    hooks.add(register_value_hook(module, calibrate_value_hook))
+                    hooks.add(self.register_hook(module, calibrate_key_hook, "key"))
+                    hooks.add(self.register_hook(module, calibrate_value_hook, "value"))
 
         # output activations
         if output:
