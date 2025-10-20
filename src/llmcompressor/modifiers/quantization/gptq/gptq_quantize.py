@@ -47,8 +47,6 @@ def accumulate_hessian(
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
             inp = inp.t()
-
-    match module:
         case torch.nn.Conv2d():
             unfold = torch.nn.Unfold(
                 module.kernel_size,
