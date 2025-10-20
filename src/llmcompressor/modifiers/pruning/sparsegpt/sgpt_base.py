@@ -128,12 +128,13 @@ class SparsityModifierBase(Modifier):
             self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
 
         # get layers and validate sparsity
-        match self.sparsity:
-            case list() | dict() if len(self._target_layers) != len(self.sparsity):
-                raise ValueError(
-                    f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
-                    f"sparsities values, but model has {len(layers)} target layers"
-                )
+        if isinstance(self.sparsity, (list, dict)) and len(self._target_layers) != len(
+            self.sparsity
+        ):
+            raise ValueError(
+                f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
+                f"sparsities values, but model has {len(layers)} target layers"
+            )
 
         return True
 
@@ -256,9 +257,8 @@ class SparsityModifierBase(Modifier):
 
         def save_acts(_module, input: tuple[Any, ...] | torch.Tensor, name: str):
             nonlocal acts
-            match input:
-                case tuple():
-                    input = input[0]
+            if isinstance(input, tuple):
+                input = input[0]
             acts[name] += 1.0 / nsamples * input.pow(2).sum(dim=(0, 1)).sqrt()
 
         hooks = set(

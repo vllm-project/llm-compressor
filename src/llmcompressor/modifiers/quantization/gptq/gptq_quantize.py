@@ -270,9 +270,8 @@ def quantize_weight(
     if not has_gidx:
         g_idx = None
 
-    match module:
-        case transformers.Conv1D():
-            W.transpose_(0, 1)
+    if isinstance(module, transformers.Conv1D):
+        W.transpose_(0, 1)
     W = W.reshape(final_shape).to(final_dtype)
 
     loss = torch.sum(losses).item()
