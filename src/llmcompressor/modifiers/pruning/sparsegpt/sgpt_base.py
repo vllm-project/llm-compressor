@@ -2,7 +2,7 @@ import warnings
 from abc import abstractmethod
 from collections import defaultdict
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy
 import torch
@@ -27,24 +27,24 @@ class SparsityModifierBase(Modifier):
     """
 
     # modifier arguments
-    sparsity: Optional[Union[float, List[float]]]
-    sparsity_profile: Optional[str] = None
+    sparsity: float | list[float] | None
+    sparsity_profile: str | None = None
     mask_structure: str = "0:0"
-    owl_m: Optional[int] = None
-    owl_lmbda: Optional[float] = None
+    owl_m: int | None = None
+    owl_lmbda: float | None = None
 
     # data pipeline arguments
-    sequential_update: Optional[bool] = False  # deprecated
-    sequential_targets: Union[str, List[str], None] = None
-    targets: Union[str, List[str]] = ["Linear"]
-    ignore: List[str] = Field(default_factory=list)
+    sequential_update: bool | None = False  # deprecated
+    sequential_targets: str | list[str] | None = None
+    targets: str | list[str] = ["Linear"]
+    ignore: list[str] = Field(default_factory=list)
 
     # private variables
-    _prune_n: Optional[int] = PrivateAttr(default=None)
-    _prune_m: Optional[int] = PrivateAttr(default=None)
-    _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _target_layers: Dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
-    _module_sparsities: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _prune_n: int | None = PrivateAttr(default=None)
+    _prune_m: int | None = PrivateAttr(default=None)
+    _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _target_layers: dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
+    _module_sparsities: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -58,7 +58,7 @@ class SparsityModifierBase(Modifier):
         return True
 
     @field_validator("sparsity_profile", mode="before")
-    def validate_sparsity_profile(cls, value: Optional[str]) -> bool:
+    def validate_sparsity_profile(cls, value: str | None) -> bool:
         if value is None:
             return value
 
@@ -94,7 +94,7 @@ class SparsityModifierBase(Modifier):
     def calibrate_module(
         self,
         module: torch.nn.Module,
-        args: Tuple[torch.Tensor, ...],
+        args: tuple[torch.Tensor, ...],
         _output: torch.Tensor,
     ):
         raise NotImplementedError()
@@ -128,13 +128,12 @@ class SparsityModifierBase(Modifier):
             self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
 
         # get layers and validate sparsity
-        if isinstance(self.sparsity, (list, dict)) and len(self._target_layers) != len(
-            self.sparsity
-        ):
-            raise ValueError(
-                f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
-                f"sparsities values, but model has {len(layers)} target layers"
-            )
+        match self.sparsity:
+            case list() | dict() if len(self._target_layers) != len(self.sparsity):
+                raise ValueError(
+                    f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
+                    f"sparsities values, but model has {len(layers)} target layers"
+                )
 
         return True
 
@@ -143,12 +142,13 @@ class SparsityModifierBase(Modifier):
 
         # register hooks
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
-            if isinstance(self.sparsity, dict):
-                layer_sparsity = self.sparsity[layer_name]
-            elif isinstance(self.sparsity, list):
-                layer_sparsity = self.sparsity[index]
-            else:
-                layer_sparsity = self.sparsity
+            match self.sparsity:
+                case dict():
+                    layer_sparsity = self.sparsity[layer_name]
+                case list():
+                    layer_sparsity = self.sparsity[index]
+                case _:
+                    layer_sparsity = self.sparsity
 
             for name, module in get_prunable_layers(layer).items():
                 name = f"{layer_name}.{name}"
@@ -159,8 +159,9 @@ class SparsityModifierBase(Modifier):
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
                 # but in the FUTURE this should be ignored by the user
-                if isinstance(module, torch.nn.Embedding):
-                    continue
+                match module:
+                    case torch.nn.Embedding():
+                        continue
 
                 if name.endswith("lm_head"):
                     logger.warning(
@@ -191,21 +192,21 @@ class SparsityModifierBase(Modifier):
         self.ended_ = True
         self.remove_hooks()
 
-    def _infer_sequential_targets(
-        self, model: torch.nn.Module
-    ) -> Union[str, List[str]]:
+    def _infer_sequential_targets(self, model: torch.nn.Module) -> str | list[str]:
         if self.sequential_targets is None:
             return get_no_split_params(model)
-        if isinstance(self.sequential_targets, str):
-            return [self.sequential_targets]
-        return self.sequential_targets
+        match self.sequential_targets:
+            case str():
+                return [self.sequential_targets]
+            case _:
+                return self.sequential_targets
 
     def _infer_owl_layer_sparsity(
         self,
         model: torch.nn.Module,
-        layers: Dict[str, torch.nn.Module],
+        layers: dict[str, torch.nn.Module],
         dataloader: torch.utils.data.DataLoader,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         activations = self._get_activations(model, dataloader)
 
         groups = {}
@@ -248,15 +249,16 @@ class SparsityModifierBase(Modifier):
             logger.info(f"Sparsity for {k}: {sparsities[k]}")
         return sparsities
 
-    def _get_activations(self, model, dataloader, nsamples=128) -> Dict[str, int]:
+    def _get_activations(self, model, dataloader, nsamples=128) -> dict[str, int]:
         from llmcompressor.pipelines.basic import run_calibration
 
         acts = defaultdict(int)
 
-        def save_acts(_module, input: Union[Tuple[Any, ...], torch.Tensor], name: str):
+        def save_acts(_module, input: tuple[Any, ...] | torch.Tensor, name: str):
             nonlocal acts
-            if isinstance(input, tuple):
-                input = input[0]
+            match input:
+                case tuple():
+                    input = input[0]
             acts[name] += 1.0 / nsamples * input.pow(2).sum(dim=(0, 1)).sqrt()
 
         hooks = set(
@@ -270,6 +272,6 @@ class SparsityModifierBase(Modifier):
 
         return acts
 
-    def _split_mask_structure(self, mask_structure: str) -> Tuple[int, int]:
+    def _split_mask_structure(self, mask_structure: str) -> tuple[int, int]:
         n, m = mask_structure.split(":")
         return int(n), int(m)

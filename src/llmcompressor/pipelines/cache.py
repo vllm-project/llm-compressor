@@ -155,23 +155,21 @@ class IntermediatesCache:
         def _size_helper(intermediate: IntermediateValue) -> int:
             value = intermediate.value
 
-            if isinstance(value, torch.Tensor):
-                sizes[value.device] += value.nbytes
-
-            elif is_dataclass(value):
-                for field in fields(value):
-                    _size_helper(getattr(value, field.name))
-
-            elif isinstance(value, (tuple, list)):
-                for v in value:
-                    _size_helper(v)
-
-            elif isinstance(value, dict):
-                for v in value.values():
-                    _size_helper(v)
-
-            else:
-                sizes[torch.device("cpu")] += sys.getsizeof(value, 0)
+            match value:
+                case torch.Tensor():
+                    sizes[value.device] += value.nbytes
+                case list() | tuple():
+                    for v in value:
+                        _size_helper(v)
+                case dict():
+                    for v in value.values():
+                        _size_helper(v)
+                case _ if is_dataclass(value):
+                    for field in fields(value):
+                        _size_helper(getattr(value, field.name))
+                case _:
+                    # this handles primitive values that don't match any other cases
+                    sizes[torch.device("cpu")] += sys.getsizeof(value, 0)
 
         for intermediates in self.batch_intermediates:
             for value in intermediates.values():
@@ -195,66 +193,65 @@ class IntermediatesCache:
         value = intermediate.value
         device = intermediate.device
 
-        if isinstance(value, torch.Tensor):
-            return value.to(device=device)
-
-        if is_dataclass(value):
-            for field in fields(value):  # `asdict` is recursive, not applicable here
-                v = getattr(value, field.name)
-                setattr(value, field.name, self._onload_value(v))
-
-            return value
-
-        if isinstance(value, list):
-            return list(self._onload_value(v) for v in value)
-
-        if isinstance(value, tuple):
-            return tuple(self._onload_value(v) for v in value)
-
-        if isinstance(value, dict):
-            return {k: self._onload_value(v) for k, v in value.items()}
-
-        return value
+        match value:
+            case torch.Tensor():
+                return value.to(device=device)
+            case list():
+                return [self._onload_value(v) for v in value]
+            case tuple():
+                return tuple(self._onload_value(v) for v in value)
+            case dict():
+                return {k: self._onload_value(v) for k, v in value.items()}
+            case _ if is_dataclass(value):
+                # handles primitive values that should be returned as is.
+                # without this, values trigger a MatchError exception.
+                for field in fields(value):
+                    v = getattr(value, field.name)
+                    setattr(value, field.name, self._onload_value(v))
+                return value
+            case _:
+                return value
 
     def _offload_value(self, value: Any) -> IntermediateValue:
-        if isinstance(value, torch.Tensor):
-            return IntermediateValue(
-                value=(
-                    value
-                    if self.offload_device is None
-                    else value.to(device=self.offload_device)
-                ),
-                device=value.device,
-            )
-
-        if is_dataclass(value):
-            for field in fields(value):  # `asdict` is recursive, not applicable here
-                v = getattr(value, field.name)
-                setattr(value, field.name, self._offload_value(v))
-
-            return IntermediateValue(value=value, device=None)
-
-        if isinstance(value, list):
-            return IntermediateValue(
-                value=list(self._offload_value(v) for v in value), device=None
-            )
-
-        if isinstance(value, tuple):
-            return IntermediateValue(
-                value=tuple(self._offload_value(v) for v in value), device=None
-            )
-
-        if isinstance(value, dict):
-            return IntermediateValue(
-                value={k: self._offload_value(v) for k, v in value.items()}, device=None
-            )
-
-        if not isinstance(
-            value, (int, str, float, bool, torch.dtype, torch.device, type(None))
-        ):
-            warnings.warn(f"Offloading not implemented for type {type(value)}.")
-
-        return IntermediateValue(value=value, device=None)
+        match value:
+            case torch.Tensor():
+                return IntermediateValue(
+                    value=(
+                        value
+                        if self.offload_device is None
+                        else value.to(device=self.offload_device)
+                    ),
+                    device=value.device,
+                )
+            case list():
+                return IntermediateValue(
+                    value=[self._offload_value(v) for v in value],
+                    device=None,
+                )
+            case tuple():
+                return IntermediateValue(
+                    value=tuple(self._offload_value(v) for v in value),
+                    device=None,
+                )
+            case dict():
+                return IntermediateValue(
+                    value={k: self._offload_value(v) for k, v in value.items()},
+                    device=None,
+                )
+            case _ if is_dataclass(value):
+                for field in fields(value):
+                    v = getattr(value, field.name)
+                    setattr(value, field.name, self._offload_value(v))
+                return IntermediateValue(value=value, device=None)
+            case _:
+                # handles primitive values and provides a warning for unsupported types.
+                # without this, values trigger a MatchError exception.
+                if not isinstance(
+                    value,
+                    (int, str, float, bool, torch.dtype, torch.device, type(None)),
+                ):
+                    warnings.warn(f"Offloading not implemented for type {type(value)}.")
+                return IntermediateValue(value=value, device=None)
 
     @staticmethod
     def _mask_padding(
