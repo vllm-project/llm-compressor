@@ -160,9 +160,8 @@ class SparsityModifierBase(Modifier):
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
                 # but in the FUTURE this should be ignored by the user
-                match module:
-                    case torch.nn.Embedding():
-                        continue
+                if isinstance(module, torch.nn.Embedding):
+                    continue
 
                 if name.endswith("lm_head"):
                     logger.warning(
