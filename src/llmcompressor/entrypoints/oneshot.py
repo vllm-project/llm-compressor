@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -260,8 +260,16 @@ def oneshot(
     preprocessing_num_workers: int | None = None,
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
+    pipeline: str = "independent",
+    tracing_ignore: list[str] | None = None,
+    raw_kwargs: dict[str, Any] | None = None,
+    preprocessing_func: Callable | None = None,
+    max_train_samples: int | None = None,
+    remove_columns: list[str] | None = None,
+    dvc_data_repository: str | None  = None,
     quantization_aware_calibration: bool = True,
-    # Miscellaneous arguments
+    sequential_targets: list[str] | None = None,
+     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
     **kwargs,
@@ -331,6 +339,16 @@ def oneshot(
         during forward pass in calibration. When False, quantization is disabled
         during forward pass in calibration. Default is set to True.
 
+    :param pipeline: The pipeline configuration to use for calibration. Options include
+        'independent', 'sequential', or 'layer_sequential'.
+    :param tracing_ignore: List of module names to ignore during tracing.
+    :param raw_kwargs: Dictionary of raw keyword arguments passed to the function.
+    :param preprocessing_func: Optional callable for preprocessing the dataset.
+    :param max_train_samples: Maximum number of training samples to use.
+    :param remove_columns: List of column names to remove from the dataset.
+    :param dvc_data_repository: Path to the DVC data repository, if applicable.
+    :param sequential_targets: List of sequential targets for calibration.
+
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.
@@ -340,10 +358,18 @@ def oneshot(
     :return: The calibrated PreTrainedModel
     """
 
-    # pass all args directly into Oneshot
+    if sequential_targets and pipeline == "independent":
+        raise ValueError(
+            "Invalid configuration: "
+            "sequential_targets' cannot be used with 'independent' pipeline. "
+            "Please use 'sequential' or 'layer_sequential' pipeline when specifying "
+            "sequential_targets."
+        )
+
     local_args = {
         k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
     }
+
     one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 
