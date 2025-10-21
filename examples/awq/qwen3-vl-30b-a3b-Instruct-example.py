@@ -88,15 +88,10 @@ recipe = AWQModifier(
                 "symmetric": True,
                 "group_size": 32,
                 "strategy": "group",
-                "block_structure": None,
                 "dynamic": False,
                 "actorder": None,
                 "observer": "mse",
-                "observer_kwargs": {},
-            },
-            "input_activations": None,
-            "output_activations": None,
-            "format": None,
+            }
         }
     },
 )
