@@ -91,7 +91,7 @@ recipe = AWQModifier(
                 "dynamic": False,
                 "actorder": None,
                 "observer": "mse",
-            }
+            },
         }
     },
 )
