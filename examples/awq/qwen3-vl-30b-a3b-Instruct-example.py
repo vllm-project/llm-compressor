@@ -65,8 +65,8 @@ def data_collator(batch):
 
 
 # Configure AWQ quantization with smoothing and balancing
-# NOTE: Using W4A16 quantization with group_size=32 
-# (default W4A16 preset uses 128)
+# NOTE: This recipe uses W4A16 quantization with group_size=32
+# rather than the default preset with group_size=128
 recipe = AWQModifier(
     ignore=[
         "re:.*embed_tokens",
