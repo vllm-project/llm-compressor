@@ -1,5 +1,10 @@
 import pytest
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from llmcompressor import oneshot
 from tests.llmcompressor.transformers.oneshot.dataset_processing import get_data_utils
@@ -46,7 +51,7 @@ def one_shot_args(request):
     args["sequential_targets"] = config.get("sequential_targets", None)
     args["tracing_ignore"] = config.get("tracing_ignore", [])
     args["raw_kwargs"] = config.get("raw_kwargs", {})
-    args["preprocessing_func"] = (config.get("preprocessing_func", lambda x: x),)
+    args["preprocessing_func"] = config.get("preprocessing_func", lambda x: x)
     args["max_train_samples"] = config.get("max_train_samples", 50)
     args["remove_columns"] = config.get("remove_columns", None)
     args["dvc_data_repository"] = config.get("dvc_data_repository", None)
@@ -59,10 +64,10 @@ def one_shot_args(request):
 @pytest.mark.smoke
 @pytest.mark.integration
 def test_one_shot_inputs(one_shot_args, tmp_path):
-    print(f"Dataset type: {type(one_shot_args.get('dataset'))}")
+    logger.info(f"Dataset type: {type(one_shot_args.get('dataset'))}")
     if isinstance(one_shot_args.get("dataset"), str):
-        print(f"Dataset name: {one_shot_args.get('dataset')}")
-        print(f"Dataset config: {one_shot_args.get('dataset_config_name')}")
+        logger.info(f"Dataset name: {one_shot_args.get('dataset')}")
+        logger.info(f"Dataset config: {one_shot_args.get('dataset_config_name')}")
     try:
         # Call oneshot with all parameters as flat arguments
         oneshot(
@@ -76,18 +81,8 @@ def test_one_shot_inputs(one_shot_args, tmp_path):
         if "num_samples should be a positive integer value" in str(
             e
         ) or "Dataset is empty. Cannot create a calibration dataloader" in str(e):
-            print(f"Dataset is empty: {one_shot_args.get('dataset')}")
+            logger.warning(f"Dataset is empty: {one_shot_args.get('dataset')}")
             pytest.skip(f"Dataset is empty: {one_shot_args.get('dataset')}")
         else:
             raise  # Re-raise other ValueError exceptions
-    finally:
-        # Clean up temporary files to avoid the "megabytes of temp files" error
-        import os
-
-        # Clean up the output directory
-        if os.path.exists(tmp_path):
-            print(f"Cleaning up temp directory: {tmp_path}")
-            # Remove files but keep the directory structure
-            for root, dirs, files in os.walk(tmp_path):
-                for file in files:
-                    os.remove(os.path.join(root, file))
+            

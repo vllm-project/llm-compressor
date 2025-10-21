@@ -243,8 +243,8 @@ def oneshot(
     min_tokens_per_module: Optional[float] = None,
     calibrate_moe_context: bool = False,
     pipeline: str = "independent",
-    tracing_ignore: List[str] = None,
-    raw_kwargs: Dict[str, Any] = None,
+    tracing_ignore: Optional[List[str]] = None,
+    raw_kwargs: Optional[Dict[str, Any]] = None,
     preprocessing_func: Optional[Callable] = None,
     max_train_samples: Optional[int] = None,
     remove_columns: Optional[List[str]] = None,
@@ -320,6 +320,16 @@ def oneshot(
         during forward pass in calibration. When False, quantization is disabled
         during forward pass in calibration. Default is set to True.
 
+    :param pipeline: The pipeline configuration to use for calibration. Options include
+        'independent', 'sequential', or 'layer_sequential'.
+    :param tracing_ignore: List of module names to ignore during tracing.
+    :param raw_kwargs: Dictionary of raw keyword arguments passed to the function.
+    :param preprocessing_func: Optional callable for preprocessing the dataset.
+    :param max_train_samples: Maximum number of training samples to use.
+    :param remove_columns: List of column names to remove from the dataset.
+    :param dvc_data_repository: Path to the DVC data repository, if applicable.
+    :param sequential_targets: List of sequential targets for calibration.
+
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.
@@ -333,11 +343,17 @@ def oneshot(
         raise ValueError(
             "Invalid configuration: "
             "sequential_targets' cannot be used with 'independent' pipeline. "
-            "Please use 'sequential' or 'layer_sequential' pipeline when specifying"
+            "Please use 'sequential' or 'layer_sequential' pipeline when specifying "
             "sequential_targets."
         )
 
     # pass all args directly into Oneshot
+    if raw_kwargs is None:
+        raw_kwargs = {}
+
+    local_args = {
+        k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
+    }
     local_args = {
         k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
     }
