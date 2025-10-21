@@ -52,12 +52,12 @@ class CustomDatasetArguments(DVCDatasetArguments):
         },
     )
 
-    remove_columns: str | list[str] | None = field(
+    remove_columns: None | str | list[str] = field(
         default=None,
         metadata={"help": "Column names to remove after preprocessing (deprecated)"},
     )
 
-    preprocessing_func: str | Callable | None = field(
+    preprocessing_func: None | str | Callable = field(
         default=None,
         metadata={
             "help": (
@@ -118,7 +118,7 @@ class DatasetArguments(CustomDatasetArguments):
         default_factory=dict,
         metadata={"help": "Additional keyboard args to pass to datasets load_data"},
     )
-    splits: str | list[str] | dict[str, str] | None = field(
+    splits: None | str | list[str] | dict[str, str] = field(
         default=None,
         metadata={"help": "Optional percentages of each split to download"},
     )
