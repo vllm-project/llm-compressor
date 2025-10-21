@@ -9,7 +9,7 @@ with various pipeline configurations for efficient model optimization.
 
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -242,8 +242,15 @@ def oneshot(
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
     calibrate_moe_context: bool = False,
+    pipeline: str = "independent",
+    tracing_ignore: List[str] = None,
+    raw_kwargs: Dict[str, Any] = None,
+    preprocessing_func: Optional[Callable] = None,
+    max_train_samples: Optional[int] = None,
+    remove_columns: Optional[List[str]] = None,
+    dvc_data_repository: Optional[str] = None,
     quantization_aware_calibration: bool = True,
-    # Miscellaneous arguments
+    sequential_targets: Optional[List[str]] = None,
     output_dir: Optional[str] = None,
     log_dir: Optional[str] = "sparse_logs",
     **kwargs,
@@ -322,10 +329,19 @@ def oneshot(
     :return: The calibrated PreTrainedModel
     """
 
+    if sequential_targets and pipeline == "independent":
+        raise ValueError(
+            "Invalid configuration: "
+            "sequential_targets' cannot be used with 'independent' pipeline. "
+            "Please use 'sequential' or 'layer_sequential' pipeline when specifying"
+            "sequential_targets."
+        )
+
     # pass all args directly into Oneshot
     local_args = {
         k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
     }
+
     one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 
