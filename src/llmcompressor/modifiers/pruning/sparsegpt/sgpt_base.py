@@ -193,9 +193,9 @@ class SparsityModifierBase(Modifier):
         self.remove_hooks()
 
     def _infer_sequential_targets(self, model: torch.nn.Module) -> str | list[str]:
-        if self.sequential_targets is None:
-            return get_no_split_params(model)
         match self.sequential_targets:
+            case None:
+                return get_no_split_params(model)
             case str():
                 return [self.sequential_targets]
             case _:
