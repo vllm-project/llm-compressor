@@ -8,10 +8,16 @@ lmeval:
   model_args:
     dtype: bfloat16
     convert_img_format: True
-  task: mmmu_val_literature
+  task: chartqa
   apply_chat_template: True
   num_fewshot: 0
-  batch_size: 8
-  # dense model achieves accuracy of 0.833
+  batch_size: 100
+  limit: 100
+  # test runs in 26m
+  # dense model achieves exact_match accuracy of 0.530
+  # dense model achieves relaxed_accuracy of 0.780
+  # dense model achieves anywhere_accuracy of 0.800
   metrics:
-    acc,none: 0.833
+    exact_match,none: 0.530
+    relaxed_accuracy,none: 0.780
+    anywhere_accuracy,none: 0.810
