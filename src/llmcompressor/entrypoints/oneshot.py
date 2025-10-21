@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -281,25 +281,15 @@ def oneshot(
     dataloader_num_workers: int = 0,
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
-    pipeline: str | None = "independent",
-    tracing_ignore: list[str] = [
-        "_update_causal_mask",
-        "create_causal_mask",
-        "_update_mamba_mask",
-        "make_causal_mask",
-        "get_causal_mask",
-        "mask_interface",
-        "mask_function",
-        "_prepare_4d_causal_attention_mask",
-        "_prepare_fsmt_decoder_inputs",
-        "_prepare_4d_causal_attention_mask_with_cache_position",
-        "_update_linear_attn_mask",
-        "project_per_layer_inputs",
-    ],
-    sequential_targets: list[str] | None = None,
-    sequential_offload_device: str = "cpu",
+    pipeline: str = "independent",
+    tracing_ignore: list[str] | None = None,
+    raw_kwargs: dict[str, Any] | None = None,
+    preprocessing_func: Callable | None = None,
+    remove_columns: list[str] | None = None,
+    dvc_data_repository: str | None  = None,
     quantization_aware_calibration: bool = True,
-    # Miscellaneous arguments
+    sequential_targets: list[str] | None = None,
+     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
     **kwargs,
@@ -398,10 +388,18 @@ def oneshot(
     :return: The calibrated PreTrainedModel
     """
 
-    # pass all args directly into Oneshot
+    if sequential_targets and pipeline == "independent":
+        raise ValueError(
+            "Invalid configuration: "
+            "'sequential_targets' cannot be used with 'independent' pipeline. "
+            "Please use 'sequential' or 'layer_sequential' pipeline when specifying "
+            "sequential_targets."
+        )
+
     local_args = {
         k: v for k, v in locals().items() if k not in ("local_args", "kwargs")
     }
+
     one_shot = Oneshot(**local_args, **kwargs)
     one_shot()
 
