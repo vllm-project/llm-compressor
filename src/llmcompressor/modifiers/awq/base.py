@@ -25,6 +25,7 @@ from llmcompressor.modifiers.awq.mappings import (
     ResolvedMapping,
     get_layer_mappings_from_architecture,
 )
+from llmcompressor.observers.helpers import _flatten_weight
 from llmcompressor.modifiers.quantization.calibration import call_observer, update_weight_zp_scale
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -596,6 +597,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         
     def _compute_duo_scaling_means(self, mapping: ResolvedMapping):
         balance_layers = mapping.balance_layers
+
+        # TODO: validate that all layers have the same quantization_scheme.weights
+        # either generalize this to compute means with different strategy shapes
+        # or throw error if strategy is not channel/group
 
         # [STEP 1]: Compute per-channel mean of normalised weights
         # All layer weights are concatted together
