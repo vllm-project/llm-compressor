@@ -4,6 +4,8 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import dispatch_for_generation
 
+# NOTE: Requires a minimum of transformers 4.57.0
+
 MODEL_ID = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
 # Load model.
