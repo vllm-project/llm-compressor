@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
-from accelerate.hooks import remove_hook_from_module
 from compressed_tensors.utils import (
     has_offloaded_params,
     offloaded_dispatch,
@@ -15,11 +14,8 @@ from compressed_tensors.utils.match import match_targets
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
-from torch.fx.proxy import Argument
 from torch.nn import Module
 from transformers import PreTrainedModel
-from transformers.configuration_utils import PretrainedConfig
-from transformers.utils.fx import HFTracer
 
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -100,37 +96,54 @@ def trace_subgraphs(
     """
     # find modules
     targets = match_modules(model, sequential_targets)
-    ancestors = get_sequential_ancestors(model, targets)
-    offloaded = set(m for m in model.modules() if has_offloaded_params(m))
-
-    # initialize arguments
-    tracer = SequentialTracer(ancestors, offloaded)
-    concrete_args = populate_concrete_args(model, sample_input)
 
     with contextlib.ExitStack() as stack:
         # calibration context
         stack.enter_context(calibration_forward_context(model))
         stack.enter_context(HooksMixin.disable_hooks())
 
-        # flags useful for tracing
-        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
-        stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
+        from torch.fx.experimental.proxy_tensor import make_fx
+        from torch.compiler import allow_in_graph
+        from torch._dynamo import nonstrict_trace, register_backend
 
-        # autowrap forwards
-        stack.enter_context(autowrap_forwards(ancestors, ignore))
-        stack.enter_context(patch_attr(type(model), "forward", model.forward.__func__))
+        # # allow targets
+        # # for module in model.modules():
+        # #     has_hooks = module._forward_pre_hooks != module._forward_pre_hooks_with_kwargs != []
+        # #     has_offload = has_offloaded_params(module)
+        # #     is_target = module in targets
+        # #     if has_hooks or has_offload or is_target:
+        # #         torch.compiler.allow_in_graph(module.forward)
 
-        graph = GraphModule(
-            model,
-            tracer.trace(
-                model,
-                dummy_inputs=sample_input,
-                concrete_args=concrete_args,
-                complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
-                # bug in trace throws an error for variadic
-                # args and kwargs in function signature
-            ),
-        )
+        # # allow ignore functions
+        # # allow_in_graph
+
+        # from transformers.masking_utils import create_causal_mask
+        # #allow_in_graph(create_causal_mask)
+        # from torch.fx.node import _side_effectful_need_to_be_preserved_pre_dispatch
+        # _side_effectful_need_to_be_preserved_pre_dispatch.append(create_causal_mask)
+
+        # sample_args = get_sample_args(model.forward, sample_input)
+        # print(sample_args)
+
+        # graph: GraphModule = make_fx(model, tracing_mode="fake", _allow_non_fake_inputs=True, stack_trace=True)(*sample_args)
+        # #nonstrict_trace
+
+        model.to("cuda")
+        sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+
+        graph = None
+
+        def custom_backend(gm, example_inputs):
+            nonlocal graph
+            graph = gm
+            # maybe return an empty callable
+            return graph.forward
+        
+        fn = model.forward
+        # fn = nonstrict_trace(model.forward)  # for some reason, causes error
+
+        torch.compile(fullgraph=True, backend=custom_backend)(fn)(**sample_input)
+        breakpoint()
 
     # copy metadata
     graph.config = model.config
@@ -153,49 +166,31 @@ def trace_subgraphs(
 
     return subgraphs
 
-
-class SequentialTracer(HFTracer):
+def get_sample_args(fn, kwargs):
     """
-    Get a tracer specialized for the given model. The resulting tracer will not trace
-    inside of sequential targets, nor any modules which are not call graph ancestors of
-    sequential targets
+    Convert kwargs into a list of positional arguments matching the function signature.
 
-    Tracing within sequential targets is unnecessary, and tracing within offloaded
-    modules may result in meta tensors being added to the model graph
-
-    :param ancestors: modules which are ancestors of sequential targets
-    :param offloaded: modules which have offloaded params and should not be traced
+    :param fn: The target function whose signature should be followed.
+    :param kwargs: Dictionary of keyword arguments.
+    :return: List of arguments ordered according to fn's signature.
     """
-
-    def __init__(self, ancestors: Set[Module], offloaded: Set[Module]):
-        self.ancestors = ancestors
-        self.offloaded = offloaded
-
-        # skip any mask creation functions not already caught by the autowrapper
-        super().__init__(autowrap_functions=_get_autowrap_functions())
-
-        # check unlikely case that ancestors have direct params which are offloaded
-        offloaded_ancestors = offloaded & ancestors
-        for ancestor in offloaded_ancestors:
-            remove_hook_from_module(ancestor, recurse=False)
-            self.offloaded.remove(ancestor)
-            logger.warning(
-                f"Direct parameters attached to {ancestor.__class__.__name__} have "
-                "been onloaded in order to ensure safe graph capture and execution"
-            )
-
-    def create_arg(self, a: Any) -> Argument:
-        # special extension allows models which depend on config values to be traced
-        if isinstance(a, PretrainedConfig):
-            kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
-            return self.create_node("call_function", a.__class__, (), kwargs)
-
+    sig = inspect.signature(fn)
+    args = []
+    for name, param in sig.parameters.items():
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            # *args or **kwargs are not directly mappable to positional args
+            continue
+        if name in kwargs:
+            args.append(kwargs[name])
+        elif param.default is not inspect.Parameter.empty:
+            args.append(param.default)
         else:
-            return super().create_arg(a)
-
-    def is_leaf_module(self, module: Module, module_qualified_name: str) -> bool:
-        # do not trace non-ancestors or modules with offloaded params
-        return module not in self.ancestors or module in self.offloaded
+            raise TypeError(f"Missing required argument: {name}")
+    return args
+    
 
 
 def populate_concrete_args(model: Module, sample_input: Dict) -> Dict:
@@ -489,31 +484,6 @@ def add_line_numbers(text: str) -> str:
     lines = text.splitlines()
     numbered_lines = [f"{i + 1} {line}" for i, line in enumerate(lines)]
     return "\n".join(numbered_lines)
-
-
-def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]:
-    """
-    Find modules which are call graph ancestors of the given sequential targets
-
-    :param model: model containing sequential targets
-    :param targets: sequential targets to find ancestors of
-    :return: call graph ancestors of sequential targets
-    """
-    ancestors = set()
-
-    def is_ancestor(module: Module) -> bool:
-        if module in ancestors or module in targets:
-            return True
-
-        # eagerly compute list in order to avoid early stopping and :. missing ancestors
-        _is_ancestor = any([is_ancestor(child) for child in module.children()])
-        if _is_ancestor:
-            ancestors.add(module)
-
-        return _is_ancestor
-
-    is_ancestor(model)
-    return ancestors
 
 
 def dispatch_for_sequential(model: PreTrainedModel) -> PreTrainedModel:
