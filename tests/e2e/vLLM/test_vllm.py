@@ -59,8 +59,8 @@ class TestvLLM:
     def set_up(self, test_data_file: str):
         eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
-        if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
-            pytest.skip("Skipping test; cadence mismatch")
+        # if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
+            # pytest.skip("Skipping test; cadence mismatch")
 
         self.model = eval_config["model"]
         self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
