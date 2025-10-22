@@ -62,6 +62,21 @@ def run_oneshot_for_e2e_testing(
 
             oneshot_kwargs["data_collator"] = data_collator
 
+        elif "calibration" in dataset_id:
+
+            def data_collator(batch):
+                assert len(batch) == 1
+                return {
+                    key: (
+                        torch.tensor(value)
+                        if key != "pixel_values"
+                        else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+                    )
+                    for key, value in batch[0].items()
+                }
+
+            oneshot_kwargs["data_collator"] = data_collator
+
     oneshot_kwargs["model"] = loaded_model
     if recipe:
         oneshot_kwargs["recipe"] = recipe

@@ -285,6 +285,31 @@ def process_dataset(
                 "images": sample["image"],
             }
 
+    # "neuralmagic/calibration"
+    elif ds_name == "calibration":
+
+        def process(example):
+            messages = []
+            for message in example["messages"]:
+                messages.append(
+                    {
+                        "role": message["role"],
+                        "content": [{"type": "text", "text": message["content"]}],
+                    }
+                )
+
+            return processor.apply_chat_template(
+                messages,
+                return_tensors="pt",
+                padding=False,
+                truncation=True,
+                max_length=max_seq_length,
+                tokenize=True,
+                add_special_tokens=False,
+                return_dict=True,
+                add_generation_prompt=False,
+            )
+
     else:
         raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
 
