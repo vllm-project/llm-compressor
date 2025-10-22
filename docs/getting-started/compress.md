@@ -10,7 +10,7 @@ LLM Compressor provides a straightforward way to compress your models using vari
 
 Before you begin, ensure that your environment meets the following prerequisites:
 - **Operating System:** Linux (recommended for GPU support)
-- **Python Version:** 3.9 or newer
+- **Python Version:** 3.10 or newer
 - **Available GPU:** For optimal performance, it's recommended to use a GPU. LLM Compressor supports the latest PyTorch and CUDA versions for compatibility with NVIDIA GPUs.
 
 ## Select a Model and Dataset
