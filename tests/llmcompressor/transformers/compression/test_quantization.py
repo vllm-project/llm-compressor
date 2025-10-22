@@ -1,12 +1,6 @@
-import os
-import shutil
-import tempfile
-import unittest
-
 import pytest
 import torch
 from compressed_tensors.quantization.utils import is_module_quantized
-from parameterized import parameterized_class
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
 
@@ -20,150 +14,150 @@ from tests.testing_utils import parse_params, requires_gpu
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/compression/configs"
 
 
-@requires_gpu
-@pytest.mark.integration
-@parameterized_class(parse_params(CONFIGS_DIRECTORY))
-class TestQuantizationMatches(unittest.TestCase):
-    new_recipe = None
-    ppl_threshold = None
-    model_stub = None
-    dataset = "ultrachat-200k"
-    output = "tiny_llama_out"
-    max_seq_length = 512
-    weight_dtype = torch.float16
-    num_eval = 64
+def _get_dataloader(dataset_args, tokenizer):
+    dataset_manager = TextGenerationDataset.load_from_registry(
+        dataset_args.dataset,
+        dataset_args=dataset_args,
+        split="train_gen[:5%]",
+        processor=tokenizer,
+    )
+    calib_dataset = dataset_manager()
+    data_loader = DataLoader(
+        calib_dataset,
+        batch_size=1,
+        collate_fn=DefaultDataCollator(),
+        sampler=torch.utils.data.RandomSampler(calib_dataset),
+    )
 
-    @classmethod
-    def setUpClass(cls):
-        cls.test_dir = tempfile.mkdtemp()
+    return data_loader
 
-        cls.model = AutoModelForCausalLM.from_pretrained(
-            cls.model_stub, torch_dtype=cls.weight_dtype
-        )
-        model = cls._run_oneshot(
-            cls.model,
-            cls.new_recipe,
-            cls.dataset,
-            os.path.join(cls.test_dir, cls.output),
-        )
-        cls.session_model = model
 
-    @classmethod
-    def tearDownClass(cls):
-        if os.path.isdir(cls.test_dir):
-            shutil.rmtree(cls.test_dir)
-        del cls.model
-        torch.cuda.empty_cache()
+def _get_quant_info(model):
+    quant_info_weights = {}
+    quant_info_inputs = {}
+    for name, module in model.named_modules():
+        if is_module_quantized(module):
+            if module.quantization_scheme.weights is not None:
+                quant_info_weights[name] = (
+                    module.weight_scale,
+                    module.weight_zero_point,
+                    module.weight,
+                )
 
-    @staticmethod
-    def _run_oneshot(model, recipe, dataset, output_dir):
-        num_calibration_samples = 64
-        max_seq_length = 512
-        pad_to_max_length = False
-
-        model = oneshot(
-            model=model,
-            dataset=dataset,
-            output_dir=output_dir,
-            max_seq_length=max_seq_length,
-            num_calibration_samples=num_calibration_samples,
-            recipe=recipe,
-            pad_to_max_length=pad_to_max_length,
-            splits={"calibration": "train_gen[:1%]"},
-            save_compressed=False,
-        )
-        return model
-
-    def _get_quant_info(self, model):
-        quant_info_weights = {}
-        quant_info_inputs = {}
-        for name, module in model.named_modules():
-            if is_module_quantized(module):
-                if module.quantization_scheme.weights is not None:
-                    quant_info_weights[name] = (
-                        module.weight_scale,
-                        module.weight_zero_point,
-                        module.weight,
+            if module.quantization_scheme.input_activations is not None:
+                is_dynamic = module.quantization_scheme.input_activations.dynamic
+                if not is_dynamic:
+                    quant_info_inputs[name] = (
+                        module.input_scale,
+                        module.input_zero_point,
                     )
 
-                if module.quantization_scheme.input_activations is not None:
-                    is_dynamic = module.quantization_scheme.input_activations.dynamic
-                    if not is_dynamic:
-                        quant_info_inputs[name] = (
-                            module.input_scale,
-                            module.input_zero_point,
-                        )
+    return quant_info_weights, quant_info_inputs
 
-        return quant_info_weights, quant_info_inputs
 
-    def test_quantization_reload(self):
-        model_reloaded = AutoModelForCausalLM.from_pretrained(
-            os.path.join(self.test_dir, self.output),
-            torch_dtype="auto",
-        )
+@pytest.fixture(params=parse_params(CONFIGS_DIRECTORY), scope="module")
+def setup_model_and_config(request, tmpdir_factory):
+    base_config = {
+        "new_recipe": None,
+        "ppl_threshold": None,
+        "model_stub": None,
+        "dataset": "ultrachat-200k",
+        "output": "tiny_llama_out",
+        "max_seq_length": 512,
+        "weight_dtype": torch.float16,
+        "num_eval": 64,
+    }
+    config = {**base_config, **request.param}
 
-        og_weights, og_inputs = self._get_quant_info(self.model)
-        reloaded_weights, reloaded_inputs = self._get_quant_info(model_reloaded)
-        # TODO: can remove `to` calls after
-        # https://github.com/neuralmagic/compressed-tensors/pull/427
+    num_calibration_samples = 64
+    max_seq_length = 512
+    pad_to_max_length = False
 
-        for name, (o_scale, o_zp, o_weight) in og_weights.items():
-            n_scale, n_zp, n_weight = reloaded_weights[name]
-            assert o_scale.dtype == n_scale.dtype == self.weight_dtype
-            assert torch.equal(o_scale, n_scale.to(o_scale.device))
-            assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp.to(o_zp.device))
+    output_dir = tmpdir_factory.mktemp("setup_model_and_config") / config["output"]
+    model = AutoModelForCausalLM.from_pretrained(
+        config["model_stub"], torch_dtype=config["weight_dtype"]
+    )
+    model = oneshot(
+        model=model,
+        dataset=config["dataset"],
+        output_dir=output_dir,
+        max_seq_length=max_seq_length,
+        num_calibration_samples=num_calibration_samples,
+        recipe=config["new_recipe"],
+        pad_to_max_length=pad_to_max_length,
+        splits={"calibration": "train_gen[:1%]"},
+        save_compressed=False,
+    )
 
-            # we don't expect an exact match here because o_weight still has the
-            # original weight and n_weight has been fake_quantized
-            assert n_weight.dtype == o_weight.dtype == self.weight_dtype
+    yield model, config, output_dir
 
-        for name, (o_scale, o_zp) in og_inputs.items():
-            n_scale, n_zp = reloaded_inputs[name]
-            assert o_scale.dtype == n_scale.dtype == self.weight_dtype
-            assert torch.equal(o_scale, n_scale.to(o_scale.device))
-            assert o_zp.dtype == n_zp.dtype
-            assert torch.equal(o_zp, n_zp.to(o_zp.device))
+    del model
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
 
-    def _get_dataloader(self, dataset_args, tokenizer):
-        dataset_manager = TextGenerationDataset.load_from_registry(
-            dataset_args.dataset,
-            dataset_args=dataset_args,
-            split="train_gen[:5%]",
-            processor=tokenizer,
-        )
-        calib_dataset = dataset_manager()
-        data_loader = DataLoader(
-            calib_dataset,
-            batch_size=1,
-            collate_fn=DefaultDataCollator(),
-            sampler=torch.utils.data.RandomSampler(calib_dataset),
-        )
 
-        return data_loader
+@requires_gpu
+@pytest.mark.integration
+def test_quantization_reload(setup_model_and_config):
+    model, config, output_dir = setup_model_and_config
 
-    @torch.no_grad()
-    def test_perplexity(self):
-        if self.ppl_threshold is None:
-            pytest.skip("Skipping perplexity calculation.")
-        tokenizer = AutoTokenizer.from_pretrained(self.model_stub)
-        dataset_args = DatasetArguments(
-            dataset="ultrachat-200k",
-            max_seq_length=self.max_seq_length,
-        )
-        dataloader = self._get_dataloader(dataset_args, tokenizer)
-        dispatch_for_generation(self.model)
+    model_reloaded = AutoModelForCausalLM.from_pretrained(
+        output_dir, torch_dtype="auto"
+    )
 
-        total_ppl = 0.0
-        total_non_nan = 0
-        for idx, sample in enumerate(dataloader):
-            if idx >= self.num_eval:
-                break
-            output = self.model(**tensors_to_device(sample, "cuda:0"))
-            if torch.isnan(output.loss):
-                continue
-            total_ppl += torch.exp(output.loss).item()
-            total_non_nan += 1
+    og_weights, og_inputs = _get_quant_info(model)
+    reloaded_weights, reloaded_inputs = _get_quant_info(model_reloaded)
+    # TODO: can remove `to` calls after
+    # https://github.com/neuralmagic/compressed-tensors/pull/427
 
-        avg_ppl = total_ppl / total_non_nan
-        assert avg_ppl <= self.ppl_threshold
+    for name, (o_scale, o_zp, o_weight) in og_weights.items():
+        n_scale, n_zp, n_weight = reloaded_weights[name]
+        assert o_scale.dtype == n_scale.dtype == config["weight_dtype"]
+        assert torch.equal(o_scale, n_scale.to(o_scale.device))
+        assert o_zp.dtype == n_zp.dtype
+        assert torch.equal(o_zp, n_zp.to(o_zp.device))
+
+        # we don't expect an exact match here because o_weight still has the
+        # original weight and n_weight has been fake_quantized
+        assert n_weight.dtype == o_weight.dtype == config["weight_dtype"]
+
+    for name, (o_scale, o_zp) in og_inputs.items():
+        n_scale, n_zp = reloaded_inputs[name]
+        assert o_scale.dtype == n_scale.dtype == config["weight_dtype"]
+        assert torch.equal(o_scale, n_scale.to(o_scale.device))
+        assert o_zp.dtype == n_zp.dtype
+        assert torch.equal(o_zp, n_zp.to(o_zp.device))
+
+
+@requires_gpu
+@pytest.mark.integration
+@torch.no_grad()
+def test_perplexity(setup_model_and_config):
+    model, config, output_dir = setup_model_and_config
+    if config["ppl_threshold"] is None:
+        pytest.skip("Skipping perplexity calculation.")
+    tokenizer = AutoTokenizer.from_pretrained(config["model_stub"])
+    dataset_args = DatasetArguments(
+        dataset="ultrachat-200k",
+        max_seq_length=config["max_seq_length"],
+    )
+    dataloader = _get_dataloader(dataset_args, tokenizer)
+    dispatch_for_generation(model)
+
+    total_ppl = 0.0
+    total_samples = 0
+    for sample in dataloader:
+        if total_samples >= config["num_eval"]:
+            break
+        # -100 in labels indicates that the token is not part of the loss calculation
+        pct_labels_in_sample = (sample["labels"] != -100).to(torch.float).mean().item()
+        if pct_labels_in_sample <= 0.25:
+            # At least 25% of the tokens in the sample must be part of loss calculation
+            # otherwise the perplexity is too volatile and can skew the results
+            continue
+        output = model(**tensors_to_device(sample, "cuda:0"))
+        total_ppl += torch.exp(output.loss).item()
+        total_samples += 1
+
+    avg_ppl = total_ppl / total_samples
+    assert avg_ppl <= config["ppl_threshold"]

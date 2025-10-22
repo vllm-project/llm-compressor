@@ -29,7 +29,7 @@ def test_is_quantized_cache_singleton():
     args = QuantizationArgs()
     cache = QuantizedKVParameterCache(args)
     observer = args.observer
-    observer = Observer.load_from_registry(observer, quantization_args=args)
+    observer = Observer.load_from_registry(observer, base_name="k", args=args)
 
     tensor = torch.tensor([1, 2, 3])
     cache.k_scales.append(tensor)

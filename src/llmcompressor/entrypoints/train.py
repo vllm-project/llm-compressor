@@ -10,6 +10,7 @@ and quantization during the training process.
 import math
 import os
 
+from compressed_tensors.utils import deprecated
 from loguru import logger
 from transformers import PreTrainedModel
 
@@ -22,6 +23,13 @@ from llmcompressor.utils.dev import dispatch_for_generation
 from .utils import post_process, pre_process
 
 
+@deprecated(
+    message=(
+        "Training support will be removed in future releases. Please use "
+        "the llmcompressor Axolotl integration for fine-tuning "
+        "https://developers.redhat.com/articles/2025/06/17/axolotl-meets-llm-compressor-fast-sparse-open"  # noqa: E501
+    )
+)
 def train(**kwargs) -> PreTrainedModel:
     """
     Fine-tuning entrypoint that supports vanilla fine-tuning and

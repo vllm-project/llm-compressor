@@ -60,7 +60,7 @@ jobs:
     steps:
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -101,10 +101,10 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
           pytest -v tests/llmcompressor/transformers/oneshot
-      - name: Running OBCQ Tests
+      - name: Running SparseGPT Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |
-          pytest -v tests/llmcompressor/transformers/obcq
+          pytest -v tests/llmcompressor/transformers/sparsegpt
       - name: Running Tracing Tests
         if: (success() || failure()) && steps.install.outcome == 'success'
         run: |

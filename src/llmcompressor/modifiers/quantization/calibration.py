@@ -5,6 +5,7 @@ import torch
 from compressed_tensors.quantization import (
     DynamicType,
     KVCacheScaleType,
+    QuantizationArgs,
     QuantizationScheme,
     QuantizationStatus,
     QuantizationStrategy,
@@ -18,12 +19,6 @@ from torch.nn import Module
 from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 from llmcompressor.utils.helpers import getattr_chain
-
-DEFAULT_MAXSHRINK = 0.20
-DEFAULT_PATIENCE = 5
-DEFAULT_AVERAGING_CONSTANT = 0.01
-DEFAULT_GRID = 100.0
-DEFAULT_NORM = 2.4
 
 __all__ = [
     "initialize_observer",
@@ -54,31 +49,19 @@ def initialize_observer(
     :param base_name: str used to name the observer attribute
 
     """
+    if base_name == "weight":
+        arg_name = "weights"
+    elif base_name == "output":
+        arg_name = "output_activations"
+    else:  # input, q, k, v
+        arg_name = "input_activations"
 
-    arg_name = "weights" if base_name == "weight" else f"{base_name}_activations"
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    if not quantization_scheme:
-        # no quantization scheme nothing to do
-        return
-
-    quantization_args = getattr(quantization_scheme, arg_name, None)
-    # dont need observers for dynamic
-    if quantization_args is not None and quantization_args.dynamic in (
-        False,
-        DynamicType.LOCAL,
-    ):
-        observer_kwargs = quantization_args.observer_kwargs or {}
+    args: QuantizationArgs = getattr_chain(
+        module, f"quantization_scheme.{arg_name}", None
+    )
+    if args is not None and args.dynamic is not True:
         observer = Observer.load_from_registry(
-            quantization_args.observer,
-            quantization_args=quantization_args,
-            averaging_constant=observer_kwargs.get(
-                "averaging_constant", DEFAULT_AVERAGING_CONSTANT
-            ),
-            # used by mse observer only, will be ignored by minmax observer
-            maxshrink=observer_kwargs.get("maxshrink", DEFAULT_MAXSHRINK),
-            patience=observer_kwargs.get("patience", DEFAULT_PATIENCE),
-            grid=observer_kwargs.get("grid", DEFAULT_GRID),
-            norm=observer_kwargs.get("norm", DEFAULT_NORM),
+            args.observer, base_name=base_name, args=args, module=module
         )
         module.register_module(f"{base_name}_observer", observer)
 
@@ -100,36 +83,17 @@ def call_observer(
         base_name is "weight", then the module's weight tensor will be used
     """
     with align_module_device(module):
-        if base_name == "weight":
-            value = module.weight
-            g_idx = getattr(module, "weight_g_idx", None)
-        elif value is not None:
-            g_idx = None
-        else:
-            raise ValueError(
-                "Must provide a value to observe if not using weight observer"
-            )
-
-        observer = getattr(module, f"{base_name}_observer")
+        value = module.weight if base_name == "weight" else value
+        observer: Observer = getattr(module, f"{base_name}_observer")
 
         if should_calculate_gparam:
-            global_scale = observer(
-                value,
-                should_calculate_gparam=True,
-            )
+            global_scale = observer.get_global_scale(value)
             update_offload_parameter(module, f"{base_name}_global_scale", global_scale)
-        else:
-            global_scale = getattr(module, f"{base_name}_global_scale", None)
 
         if should_calculate_qparams:
-            updated_scale, updated_zero_point = observer(
-                value, g_idx=g_idx, global_scale=global_scale
-            )
-            # register or update scale & zero_point parameters (supports block shapes)
-            scale_name = f"{base_name}_scale"
-            zp_name = f"{base_name}_zero_point"
-            update_offload_parameter(module, scale_name, updated_scale)
-            update_offload_parameter(module, zp_name, updated_zero_point)
+            scale, zero_point = observer(value)
+            update_offload_parameter(module, f"{base_name}_scale", scale)
+            update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
 
 
 def update_weight_global_scale(module: Module):
@@ -148,7 +112,6 @@ def update_weight_global_scale(module: Module):
         should_calculate_gparam=True,
         should_calculate_qparams=False,
     )
-    module.weight_observer.reset()
 
 
 def update_weight_zp_scale(module: Module):

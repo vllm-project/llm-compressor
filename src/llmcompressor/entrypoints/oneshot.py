@@ -9,7 +9,8 @@ with various pipeline configurations for efficient model optimization.
 
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -97,7 +98,7 @@ class Oneshot:
 
     def __init__(
         self,
-        log_dir: Optional[str] = "sparse_logs",
+        log_dir: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -117,8 +118,18 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
-        # Set up logging
-        if log_dir:
+        # Set up file logging (no default files):
+        # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.
+        # 2) Else, if an explicit log_dir is provided, create a timestamped file there.
+        log_file = os.environ.get("LLM_COMPRESSOR_LOG_FILE", "").strip()
+        if log_file:
+            p = Path(log_file).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            logger.add(
+                str(p),
+                level="DEBUG",
+            )
+        elif log_dir:
             os.makedirs(log_dir, exist_ok=True)
             date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             logger.add(
@@ -230,6 +241,7 @@ def oneshot(
     dataset: Optional[Union[str, "Dataset", "DatasetDict"]] = None,
     dataset_config_name: Optional[str] = None,
     dataset_path: Optional[str] = None,
+    splits: Optional[Union[str, List, Dict]] = None,
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
     max_seq_length: int = 384,
@@ -244,7 +256,7 @@ def oneshot(
     quantization_aware_calibration: bool = True,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
-    log_dir: Optional[str] = "sparse_logs",
+    log_dir: Optional[str] = None,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -288,6 +300,7 @@ def oneshot(
     :param dataset_config_name: The configuration name of the dataset
         to use.
     :param dataset_path: Path to a custom dataset. Supports json, csv, dvc.
+    :param splits: Optional percentages of each split to download.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before

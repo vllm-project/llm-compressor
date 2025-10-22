@@ -8,7 +8,6 @@ stage-based execution.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from transformers import TrainingArguments as HFTrainingArgs
 
@@ -25,11 +24,11 @@ class TrainingArguments(HFTrainingArgs):
 
     """
 
-    do_oneshot: Optional[bool] = field(
+    do_oneshot: bool | None = field(
         default=False,
         metadata={"help": "Whether to run one-shot calibration in stages"},
     )
-    run_stages: Optional[bool] = field(
+    run_stages: bool | None = field(
         default=False, metadata={"help": "Whether to trigger recipe stage by stage"}
     )
     output_dir: str = field(

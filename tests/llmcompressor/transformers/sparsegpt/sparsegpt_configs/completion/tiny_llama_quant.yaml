@@ -1,0 +1,7 @@
+cadence: "nightly"
+test_type: "sanity"
+model: "nm-testing/tinysmokellama-3.2"
+dataset: open_platypus
+recipe: "tests/llmcompressor/transformers/sparsegpt/recipes/quant.yaml"
+num_samples: 32
+perplexity: 5000

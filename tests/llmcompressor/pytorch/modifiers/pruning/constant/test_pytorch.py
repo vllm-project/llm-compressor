@@ -4,10 +4,10 @@ import pytest
 import torch
 
 from llmcompressor.core import Event, EventType, State
+from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.constant import ConstantPruningModifier
 from llmcompressor.modifiers.pruning.utils.pytorch.layer_mask import param_mask_name
 from llmcompressor.pytorch.utils import tensor_sparsity
-from tests.llmcompressor.modifiers.conf import setup_modifier_factory
 from tests.llmcompressor.pytorch.helpers import ConvNet, LinearNet
 
 
@@ -140,16 +140,13 @@ def test_constant_pruning_modifier_e2e(model, optimizer):
     os.getenv("NM_ML_SKIP_PYTORCH_TESTS", False),
     reason="Skipping pytorch tests",
 )
+@pytest.mark.usefixtures("setup_modifier_factory")
 def test_constant_pruning_pytorch_is_registered():
-    from llmcompressor.modifiers.factory import ModifierFactory
-    from llmcompressor.modifiers.pruning.constant import ConstantPruningModifier
-
     kwargs = dict(
         start=5.0,
         end=15.0,
         targets="__ALL_PRUNABLE__",
     )
-    setup_modifier_factory()
     type_ = ModifierFactory.create(
         type_="ConstantPruningModifier",
         allow_experimental=False,

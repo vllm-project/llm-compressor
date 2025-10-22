@@ -1,0 +1,6 @@
+cadence: "commit"
+test_type: "smoke"
+tokenize: False
+model: "nm-testing/tinysmokellama-3.2"
+dataset: open_platypus
+recipe: "tests/llmcompressor/transformers/oneshot/oneshot_configs/recipes/recipe.yaml"

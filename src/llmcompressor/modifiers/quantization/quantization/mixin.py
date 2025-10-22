@@ -14,6 +14,7 @@ from compressed_tensors.quantization import (
     is_preset_scheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.utils import match_named_modules
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
@@ -58,8 +59,12 @@ class QuantizationMixin(HooksMixin):
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
-    :param targets: list of layer names to quantize if a scheme is provided. Defaults
-        to Linear layers
+    :param targets: list of layer names to quantize if a scheme is provided. If unset,
+        will contain all targets listed in config_groups. If config_groups is also
+        unset, will default to ["Linear"] (i.e. all Linear layers will be targeted).
+        This field is not the source of truth for finding all matching target layers
+        in a model. Additional information can be stored in `config_groups`. Use
+        self.resolved_targets instead.
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target in config_groups. Defaults to empty list.
     :param scheme: a single quantization scheme to apply to the model. This is a
@@ -81,12 +86,16 @@ class QuantizationMixin(HooksMixin):
     """
 
     config_groups: Optional[Dict[str, QuantizationScheme]] = None
+    # NOTE: targets is not the sole source of truth for finding all matching target
+    # layers in a model. Additional information can be stored in `config_groups`
+    # Use self.resolved_targets as source of truth.
     targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
     ignore: List[str] = Field(default_factory=list)
     scheme: Optional[Union[str, Dict[str, Any]]] = None
     kv_cache_scheme: Optional[QuantizationArgs] = None
 
     _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
@@ -114,43 +123,71 @@ class QuantizationMixin(HooksMixin):
 
         return value
 
+    @property
+    def resolved_config(self) -> QuantizationConfig:
+        """
+        Quantization config needs to be resolved just once based on
+        scheme and config_groups inputs.
+        """
+        if self._resolved_config is None:
+            self._resolved_config = self.resolve_quantization_config()
+        return self._resolved_config
+
+    @property
+    def resolved_targets(self) -> Set[str]:
+        """
+        Set of all resolved targets, i.e. all unique targets listed
+        in resolved quantization config.
+        Use this property instead of the targets field, as targets can
+        also come from config_groups depending on how recipe is configured.
+        """
+        targets = set()
+        for config_group in self.resolved_config.config_groups.values():
+            for target in config_group.targets:
+                targets.add(target)
+        return targets
+
     def initialize_quantization(self, model: torch.nn.Module):
         """
-        Attach quantization schemes and observers to modules in the model according to
+        Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
         """
-        reset_quantization_status(model)  # reset any previously applied qconfigs
 
-        # apply scheme and status to model
-        config = self.resolve_quantization_config()
-        apply_quantization_config(model, config)
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+            reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        # apply observers, disable quantization until calibration
-        model.apply(self._initialize_observers)
+        apply_quantization_config(model, self.resolved_config)
+
+        # disable quantization until calibration
         model.apply(disable_quantization)
 
     def start_calibration(self, model: torch.nn.Module):
         """
-        Register activation calibration hooks (including kv_cache quantization) and
-        enable quantization as we calibrate
+        Attach observers, register activation calibration hooks (including
+        kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
         self._calibration_hooks = self._initialize_hooks(model)
-        model.apply(apply_calibration_status)
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+            self._initialize_observers(module)
+            apply_calibration_status(module)
+
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def end_calibration(self, model: torch.nn.Module):
         """
-        Remove calibration hooks and set the model status to frozen. Keep quantization
-        enabled for future operations
+        Remove calibration hooks and observers, and set the model status to frozen.
+        Keep quantization enabled for future operations
 
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        model.apply(freeze_module_quantization)  # remove observers
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+            freeze_module_quantization(module)  # remove observers
+
         model.apply(enable_quantization)  # keep quantization enabled
 
     def has_config(self) -> bool:
@@ -240,7 +277,7 @@ class QuantizationMixin(HooksMixin):
 
     def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
-        for module in model.modules():
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             if not hasattr(module, "quantization_scheme"):
                 continue
 
