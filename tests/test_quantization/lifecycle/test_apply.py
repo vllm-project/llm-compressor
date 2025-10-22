@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import re
+import shutil
 from typing import Optional
 from unittest.mock import MagicMock
 
@@ -32,6 +33,16 @@ from compressed_tensors.quantization.lifecycle import apply_quantization_config
 from compressed_tensors.utils import is_match, match_named_modules
 from tests.testing_utils import requires_accelerate
 from transformers import AutoModelForCausalLM
+
+
+@pytest.fixture(scope="module", autouse=True)
+def cleanup_model_cache():
+    """Clean up the test model cache directory after all tests complete."""
+    yield
+    try:
+        shutil.rmtree("test-apply-model-cache", ignore_errors=True)
+    except Exception:
+        pass
 
 
 @pytest.fixture
@@ -55,6 +66,7 @@ def llama_stories_model():
     return AutoModelForCausalLM.from_pretrained(
         "Xenova/llama2.c-stories15M",
         torch_dtype="auto",
+        cache_dir="test-apply-model-cache",
     )
 
 
@@ -87,7 +99,9 @@ def test_target_prioritization(mock_frozen):
     }
 
     model = AutoModelForCausalLM.from_pretrained(
-        "HuggingFaceM4/tiny-random-LlamaForCausalLM", torch_dtype="auto"
+        "HuggingFaceM4/tiny-random-LlamaForCausalLM",
+        torch_dtype="auto",
+        cache_dir="test-apply-model-cache",
     )
     model.eval()
 
@@ -185,6 +199,7 @@ def get_tinyllama_model():
     return AutoModelForCausalLM.from_pretrained(
         "TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T",
         torch_dtype="auto",
+        cache_dir="test-apply-model-cache",
     )
 
 
