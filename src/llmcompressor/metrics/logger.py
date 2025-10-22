@@ -352,7 +352,7 @@ class PythonLogger(LambdaLogger):
             return
 
         # Preserve test behavior: in NM_TEST_MODE, write a timestamped file
-        # under NM_TEST_LOG_DIR. In regular runs (no env var), do nothig.
+        # under NM_TEST_LOG_DIR. In regular runs (no env var), do nothing.
         if PythonLogger._global_file_sink_id is None and os.environ.get("NM_TEST_MODE"):
             base_log_path = os.environ.get("NM_TEST_LOG_DIR")
             now = datetime.now()
