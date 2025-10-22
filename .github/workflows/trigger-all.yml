@@ -11,10 +11,6 @@ on:
                 description: "workflow category, must be 'NIGHTLY' or 'RELEASE' (default: NIGHTLY)"
                 type: string
                 default: NIGHTLY
-            push_to_pypi:
-                description: "when set and tests pass, then '.whl' & '.tar.gz' will be pushed to public pypi"
-                type: boolean
-                default: false
             gitref:
                 description: "git commit hash or tag name"
                 type: string
@@ -29,10 +25,6 @@ on:
                     - NIGHTLY
                     - RELEASE
                 default: NIGHTLY
-            push_to_pypi:
-                description: "when set and tests pass, then '.whl' & '.tar.gz' will be pushed to public pypi"
-                type: boolean
-                default: false
             gitref:
                 description: "git commit hash or tag name"
                 type: string
@@ -46,9 +38,8 @@ jobs:
         with:
             wf_category: ${{ inputs.wf_category || 'NIGHTLY' }}
             gitref: ${{ inputs.gitref || 'main' }}
-            push_to_pypi: ${{ (github.event.schedule == '30 0 * * *') || inputs.push_to_pypi || false }}
-            test_configs: '[{"python":"3.11.4","label":"gcp-k8s-vllm-util","timeout":"40","code_coverage":true},
-                            {"python":"3.10.12","label":"gcp-k8s-vllm-util","timeout":"40"},
-                            {"python":"3.13","label":"gcp-k8s-vllm-l4-solo","timeout":"40"},
-                            {"python":"3.12.6","label":"gcp-k8s-vllm-l4-duo","timeout":"40"}]'
+            test_configs: '[{"python":"3.11.4","label":"ubuntu-latest","timeout":"40","code_coverage":true},
+                            {"python":"3.10.12","label":"ubuntu-latest","timeout":"40"},
+                            {"python":"3.13","label":"ubuntu-24.04","timeout":"40"},
+                            {"python":"3.12.6","label":"ubuntu-22.04","timeout":"40"}]'
         secrets: inherit
