@@ -3,8 +3,9 @@ model: Qwen/Qwen3-VL-8B-Instruct
 model_class: Qwen3VLForConditionalGeneration
 scheme: INT8_dyn_per_token
 recipe: tests/e2e/vLLM/recipes/INT8/recipe_int8_channel_weight_dynamic_per_token.yaml
-dataset_id: lmms-lab/flickr30k
-dataset_split: "test[:512]"
+dataset_id: neuralmagic/calibration
+dataset_config: LLM
+dataset_split: "train[:512]"
 lmeval:
   model: "hf-multimodal"
   model_args:
@@ -15,11 +16,10 @@ lmeval:
   num_fewshot: 0
   batch_size: 100
   limit: 100
-  # test runs in m
-  # dense model achieves exact_match accuracy of 0.
-  # dense model achieves relaxed_accuracy of 0.
-  # dense model achieves anywhere_accuracy of 0.
+  # dense model achieves exact_match accuracy of 0.520
+  # dense model achieves relaxed_accuracy of 0.780
+  # dense model achieves anywhere_accuracy of 0.800
   metrics:
-    exact_match,none: 0.
-    relaxed_accuracy,none: 0.
-    anywhere_accuracy,none: 0.
+    exact_match,none: 0.550
+    relaxed_accuracy,none: 0.770
+    anywhere_accuracy,none: 0.770
