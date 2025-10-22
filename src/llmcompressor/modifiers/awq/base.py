@@ -469,7 +469,7 @@ class AWQModifier(Modifier, QuantizationMixin):
                 # individually so that each group has weights on a 0-1 scale.
                 weight.abs_()
                 weight.div_(weight.amax(dim=1, keepdim=True) + 1e-6)
-                if self._group_size >0:
+                if self._group_size > 0:
                     # Resizes the rescaled weight matrix back up to
                     # its original dimensions
                     weight = weight.view(org_shape)
