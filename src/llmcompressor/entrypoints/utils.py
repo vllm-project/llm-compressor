@@ -59,7 +59,6 @@ def pre_process(
     Raises:
         FileNotFoundError: If the model or processor path is invalid.
     """
-    _warn_tied_embeddings(model_args.tie_word_embeddings)
 
     # Initialize model
     if isinstance(model_args.model, (str, PosixPath)):
@@ -93,10 +92,6 @@ def pre_process(
                     "create and pass in a processor directly to "
                     f"`oneshot`/`train`.\nInitialization Error: {e}"
                 )
-
-    # untie tie_word_embeddings weights
-    if not model_args.tie_word_embeddings:
-        untie_word_embeddings(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
@@ -148,21 +143,6 @@ def post_process(
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
         reset_session()
-
-
-def _warn_tied_embeddings(tie_word_embeddings: bool = False):
-    """
-    Logs a warning if the model has tied word embeddings.
-    The `tie_word_embeddings` flag may cause issues during saving in the one-shot
-    calibration workflow due to shared tensor addresses.
-    """
-    if tie_word_embeddings:
-        logger.debug(
-            "The tie_word_embeddings flag is by default set to False. "
-            "This guarantees that the one-shot algorithm saves the final "
-            "weights without errors. Detected tie_word_embeddings=True. "
-            "This may cause issues with the one-shot algorithm on save."
-        )
 
 
 def initialize_model_from_path(
