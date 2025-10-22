@@ -82,15 +82,15 @@ def generate_pruned_semi_structured_mat(M, K, dtype) -> "torch.Tensor":
     :return: random matrix of shape (M, K) with 2:4 sparsity pattern
     """
     import torch
-    from compressed_tensors.quantization import FP8_DTYPE
+    from compressed_tensors.quantization import FP8_E4M3_DATA
 
     mask = torch.Tensor([0, 0, 1, 1]).tile((M, K // 4)).bool()
     rand_tensor_dtype = dtype
-    if dtype in [torch.int8, FP8_DTYPE]:
+    if dtype in [torch.int8, FP8_E4M3_DATA.dtype]:
         rand_tensor_dtype = torch.float16
     mat = torch.rand(M, K, dtype=rand_tensor_dtype)
     mat = mat.masked_fill_(mat == 0, 1)
-    if dtype == FP8_DTYPE:
+    if dtype == FP8_E4M3_DATA.dtype:
         # some float8_e4m3fn operations are not supported on CPU
         mat = mat.cuda()
         mask = mask.cuda()
