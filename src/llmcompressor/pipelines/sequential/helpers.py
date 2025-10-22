@@ -102,47 +102,77 @@ def trace_subgraphs(
         stack.enter_context(calibration_forward_context(model))
         stack.enter_context(HooksMixin.disable_hooks())
 
-        from torch.fx.experimental.proxy_tensor import make_fx
-        from torch.compiler import allow_in_graph
+        from torch.fx.experimental.proxy_tensor import make_fx, get_isolated_graphmodule
+        from torch.compiler import allow_in_graph, disable
         from torch._dynamo import nonstrict_trace, register_backend
+        from transformers.masking_utils import create_causal_mask
 
-        # # allow targets
-        # # for module in model.modules():
-        # #     has_hooks = module._forward_pre_hooks != module._forward_pre_hooks_with_kwargs != []
-        # #     has_offload = has_offloaded_params(module)
-        # #     is_target = module in targets
-        # #     if has_hooks or has_offload or is_target:
-        # #         torch.compiler.allow_in_graph(module.forward)
+        from torch.export import export
 
-        # # allow ignore functions
-        # # allow_in_graph
+        ## MAKE_FX
+        # Annoying! "real" tracing is required, but _create_wrapped_func only wraps functions if the values are "symbolic" (proxies)
+        # it seems to be that the "autowrapping" and do-not-trace-internals requirements that we have have not been properly
+        # implemented with "real" and more non-strict tracing
 
-        # from transformers.masking_utils import create_causal_mask
-        # #allow_in_graph(create_causal_mask)
-        # from torch.fx.node import _side_effectful_need_to_be_preserved_pre_dispatch
-        # _side_effectful_need_to_be_preserved_pre_dispatch.append(create_causal_mask)
+        graph: GraphModule = get_isolated_graphmodule(model.forward, tuple(), sample_input, tracing_mode="symbolic")
 
-        # sample_args = get_sample_args(model.forward, sample_input)
-        # print(sample_args)
+        #graph: GraphModule = make_fx(model, tracing_mode="fake", _allow_non_fake_inputs=True, stack_trace=True)(*sample_args)
 
-        # graph: GraphModule = make_fx(model, tracing_mode="fake", _allow_non_fake_inputs=True, stack_trace=True)(*sample_args)
-        # #nonstrict_trace
+        ## MAKE_FX
 
-        model.to("cuda")
-        sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+        ## EXPORT
+        # for some reason, it ignores torch.fx.wrap, and still tries to wrap create_causal_mask
+        # pretty similar to regular tracing anyways
 
-        graph = None
+        # from compressed_tensors.utils.match import match_named_modules
 
-        def custom_backend(gm, example_inputs):
-            nonlocal graph
-            graph = gm
-            # maybe return an empty callable
-            return graph.forward
+        # module_names = tuple(name for name, _ in match_named_modules(model, sequential_targets))
+        # print(module_names)
+
+        # program = export(
+        #     model, tuple(), sample_input, preserve_module_call_signature=module_names, strict=False
+        # )
+        # breakpoint()
+
+        ## EXPORT
+
+        ## COMPILE
+        # usually works, but we can't really control the granularity of tracking
+        # attempting to use disable/allow in graph only works at the definition file
+        # disable is designed to trigger an error
+        # allow_in_graph fails for create_causal_mask because it cannot serialize the input arg (model.config)
+        # Seems like preserving call_module was never intended https://github.com/pytorch/pytorch/issues/126566
+
+        # model.to("cuda")
+        # sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+
+        # graph: GraphModule = None
+
+
+        # def custom_backend(gm, example_inputs):
+        #     nonlocal graph
+        #     graph = gm
+        #     # maybe return an empty callable
+        #     return graph.forward
         
-        fn = model.forward
-        # fn = nonstrict_trace(model.forward)  # for some reason, causes error
+        # fn = model.forward
+        # # fn = nonstrict_trace(model.forward)  # for some reason, causes error
 
-        torch.compile(fullgraph=True, backend=custom_backend)(fn)(**sample_input)
+        # disable(create_causal_mask)
+        # for module in targets:
+        #     disable(module.forward)
+
+        # torch.compile(fullgraph=True, backend=custom_backend)(fn)(**sample_input)
+
+        # output = graph.print_readable(print_output=False)
+        # with open("output.py", "w") as file:
+        #     file.write(output)
+        # exit(0)
+
+        # ## COMPILE
+
+
+
         breakpoint()
 
     # copy metadata
