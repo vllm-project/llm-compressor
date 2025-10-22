@@ -81,7 +81,7 @@ def call_observer(
         base_name is "weight", then the module's weight tensor will be used
     """
     with align_module_device(module):
-        value = module.weight if base_name == "weight" else value
+        value = value or (module.weight if base_name == "weight" else value)
         observer: Observer = getattr(module, f"{base_name}_observer")
 
         if should_calculate_gparam:
