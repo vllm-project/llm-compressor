@@ -8,7 +8,7 @@ HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable
 
 from transformers import DefaultDataCollator
 
@@ -19,7 +19,7 @@ class DVCDatasetArguments:
     Arguments for training using DVC
     """
 
-    dvc_data_repository: Optional[str] = field(
+    dvc_data_repository: str | None = field(
         default=None,
         metadata={"help": "Path to repository used for dvc_dataset_path"},
     )
@@ -31,7 +31,7 @@ class CustomDatasetArguments(DVCDatasetArguments):
     Arguments for training using custom datasets
     """
 
-    dataset_path: Optional[str] = field(
+    dataset_path: str | None = field(
         default=None,
         metadata={
             "help": (
@@ -52,12 +52,12 @@ class CustomDatasetArguments(DVCDatasetArguments):
         },
     )
 
-    remove_columns: Union[None, str, List] = field(
+    remove_columns: None | str | list[str] = field(
         default=None,
         metadata={"help": "Column names to remove after preprocessing (deprecated)"},
     )
 
-    preprocessing_func: Union[None, str, Callable] = field(
+    preprocessing_func: None | str | Callable = field(
         default=None,
         metadata={
             "help": (
@@ -85,7 +85,7 @@ class DatasetArguments(CustomDatasetArguments):
     arguments to be able to specify them on the command line
     """
 
-    dataset: Optional[str] = field(
+    dataset: str | None = field(
         default=None,
         metadata={
             "help": (
@@ -94,7 +94,7 @@ class DatasetArguments(CustomDatasetArguments):
             )
         },
     )
-    dataset_config_name: Optional[str] = field(
+    dataset_config_name: str | None = field(
         default=None,
         metadata={
             "help": ("The configuration name of the dataset to use"),
@@ -114,15 +114,15 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "Whether or not to concatenate datapoints to fill max_seq_length"
         },
     )
-    raw_kwargs: Dict = field(
+    raw_kwargs: dict = field(
         default_factory=dict,
         metadata={"help": "Additional keyboard args to pass to datasets load_data"},
     )
-    splits: Union[None, str, List, Dict] = field(
+    splits: None | str | list[str] | dict[str, str] = field(
         default=None,
         metadata={"help": "Optional percentages of each split to download"},
     )
-    num_calibration_samples: Optional[int] = field(
+    num_calibration_samples: int | None = field(
         default=512,
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
@@ -136,13 +136,13 @@ class DatasetArguments(CustomDatasetArguments):
             "module definitions"
         },
     )
-    shuffle_calibration_samples: Optional[bool] = field(
+    shuffle_calibration_samples: bool | None = field(
         default=True,
         metadata={
             "help": "whether to shuffle the dataset before selecting calibration data"
         },
     )
-    streaming: Optional[bool] = field(
+    streaming: bool | None = field(
         default=False,
         metadata={"help": "True to stream data from a cloud dataset"},
     )
@@ -150,7 +150,7 @@ class DatasetArguments(CustomDatasetArguments):
         default=False,
         metadata={"help": "Overwrite the cached preprocessed datasets or not."},
     )
-    preprocessing_num_workers: Optional[int] = field(
+    preprocessing_num_workers: int | None = field(
         default=None,
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
@@ -162,14 +162,14 @@ class DatasetArguments(CustomDatasetArguments):
             "in the batch (which can be faster on GPU but will be slower on TPU)."
         },
     )
-    max_train_samples: Optional[int] = field(
+    max_train_samples: int | None = field(
         default=None,
         metadata={
             "help": "For debugging purposes or quicker training, truncate the number "
             "of training examples to this value if set."
         },
     )
-    min_tokens_per_module: Optional[float] = field(
+    min_tokens_per_module: float | None = field(
         default=None,
         metadata={
             "help": (
@@ -182,7 +182,7 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     # --- pipeline arguments --- #
-    pipeline: Optional[str] = field(
+    pipeline: str | None = field(
         default="independent",
         metadata={
             "help": "Calibration pipeline used to calibrate model"
@@ -190,7 +190,7 @@ class DatasetArguments(CustomDatasetArguments):
             "independent]"
         },
     )
-    tracing_ignore: List[str] = field(
+    tracing_ignore: list[str] = field(
         default_factory=lambda: [
             "_update_causal_mask",
             "create_causal_mask",
@@ -209,7 +209,7 @@ class DatasetArguments(CustomDatasetArguments):
             "{module}.{method_name} or {function_name}"
         },
     )
-    sequential_targets: Optional[List[str]] = field(
+    sequential_targets: list[str] | None = field(
         default=None,
         metadata={
             "help": "List of layer targets for the sequential pipeline. "
