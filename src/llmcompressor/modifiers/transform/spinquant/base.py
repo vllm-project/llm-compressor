@@ -188,6 +188,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                 fuse_norm_linears(norm, linears)
 
     def _create_r1_scheme(self) -> TransformScheme:
+        # transform embeddings and lm_heads separately
+        untie_word_embeddings(model)
+
         return TransformScheme(
             type=self.transform_type,
             randomize=self.randomize,

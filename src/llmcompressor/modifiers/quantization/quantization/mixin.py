@@ -170,10 +170,15 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
+        word_embeddings = (model.get_input_word_embeddings(), model.get_output_word_embeddings())
+
         self._calibration_hooks = self._initialize_hooks(model)
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
             apply_calibration_status(module)
+
+            if module in word_embeddings:
+                untie_word_embeddings(model)
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
