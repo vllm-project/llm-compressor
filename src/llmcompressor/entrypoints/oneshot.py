@@ -124,8 +124,7 @@ class Oneshot:
         log_file = os.environ.get("LLM_COMPRESSOR_LOG_FILE", "").strip()
         if log_file:
             p = Path(log_file).expanduser()
-            if p.parent:
-                p.parent.mkdir(parents=True, exist_ok=True)
+            p.parent.mkdir(parents=True, exist_ok=True)
             logger.add(
                 str(p),
                 level="DEBUG",

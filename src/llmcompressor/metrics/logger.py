@@ -344,8 +344,7 @@ class PythonLogger(LambdaLogger):
         if log_file:
             if PythonLogger._global_file_sink_id is None:
                 path = Path(log_file).expanduser()
-                if path.parent:
-                    path.parent.mkdir(parents=True, exist_ok=True)
+                path.parent.mkdir(parents=True, exist_ok=True)
                 PythonLogger._global_file_sink_id = logger.add(
                     str(path), level="DEBUG", delay=True
                 )
