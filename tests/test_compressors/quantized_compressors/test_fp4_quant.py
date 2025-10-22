@@ -14,7 +14,7 @@
 
 import pytest
 import torch
-from compressed_tensors.compressors.quantized_compressors.nvfp4_quantized import (
+from compressed_tensors.compressors.quantized_compressors.fp4_quantized import (
     pack_fp4_to_uint8,
     unpack_fp4_from_uint8,
 )

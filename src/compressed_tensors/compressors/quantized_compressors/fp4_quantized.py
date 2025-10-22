@@ -123,6 +123,15 @@ class NVFP4PackedCompressor(BaseQuantizationCompressor):
         return decompressed_weight
 
 
+@BaseCompressor.register(name=CompressionFormat.mxfp4_pack_quantized.value)
+class MXFP4PackedCompressor(NVFP4PackedCompressor):
+    """
+    Alias for mxfp4 quantized models
+    """
+
+    pass
+
+
 @torch.compile(fullgraph=True, dynamic=True)
 def pack_fp4_to_uint8(x: torch.Tensor) -> torch.Tensor:
     """
