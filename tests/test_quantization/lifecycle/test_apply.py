@@ -145,6 +145,64 @@ def test_apply_quantization_config_tinyllama():
             )
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        QuantizationConfig(
+            config_groups={
+                "linear": QuantizationScheme(
+                    targets=["Linear"],
+                    input_activations=QuantizationArgs(
+                        num_bits=8, type="float", strategy="tensor"
+                    ),
+                )
+            }
+        ),
+        QuantizationConfig(
+            config_groups={
+                "linear": QuantizationScheme(
+                    targets=["Linear"],
+                    input_activations=QuantizationArgs(
+                        num_bits=8, type="float", strategy="tensor"
+                    ),
+                )
+            },
+            ignore=[
+                "model.layers.0.self_attn.q_proj",
+                "model.layers.1.self_attn.k_proj",
+                "model.layers.2.self_attn.v_proj",
+            ],
+        ),
+        QuantizationConfig(
+            config_groups={},
+            kv_cache_scheme=QuantizationArgs(
+                num_bits=8, type="float", strategy="tensor"
+            ),
+        ),
+        QuantizationConfig(
+            config_groups={
+                "attention": QuantizationScheme(
+                    targets=["LlamaAttention"],
+                    input_activations=QuantizationArgs(
+                        num_bits=8, type="float", strategy="tensor"
+                    ),
+                )
+            },
+            kv_cache_scheme=QuantizationArgs(
+                num_bits=8, type="float", strategy="tensor"
+            ),
+        ),
+    ],
+)
+def test_from_pretrained(config: QuantizationConfig):
+    model = AutoModelForCausalLM.from_pretrained("nm-testing/llama2.c-stories15M")
+    apply_quantization_config(model, config)
+    _config = QuantizationConfig.from_pretrained(model)
+    assert list(_config.config_groups.values()) == list(config.config_groups.values())
+    assert _config.kv_cache_scheme == config.kv_cache_scheme
+    assert _config.ignore == config.ignore
+
+
 def test_serialize_config_tinyllama():
     quant_config = get_sample_tinyllama_quant_config()
     model = get_tinyllama_model()
@@ -381,3 +439,43 @@ def test_multi_apply_quantization_config():
                 weight_zero_point is not None
                 and weight_zero_point.shape == torch.Size([1])
             )
+
+
+@requires_accelerate()
+def test_apply_kv_cache():
+    from accelerate import init_empty_weights
+
+    with init_empty_weights():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/llama2.c-stories15M")
+
+    args = QuantizationArgs(num_bits=8, type="float", strategy="tensor")
+    config = QuantizationConfig(config_groups={}, kv_cache_scheme=args)
+
+    apply_quantization_config(model, config)
+
+    for layer in model.model.layers:
+        assert getattr(layer.self_attn, "quantization_scheme").input_activations == args
+        assert hasattr(layer.self_attn, "k_scale")
+        assert hasattr(layer.self_attn, "v_scale")
+
+
+@requires_accelerate()
+def test_apply_attention():
+    from accelerate import init_empty_weights
+
+    with init_empty_weights():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/llama2.c-stories15M")
+
+    scheme = QuantizationScheme(
+        targets=["LlamaAttention"],
+        input_activations=QuantizationArgs(num_bits=8, type="float", strategy="tensor"),
+    )
+    config = QuantizationConfig(config_groups={"attention": scheme})
+
+    apply_quantization_config(model, config)
+
+    for layer in model.model.layers:
+        assert getattr(layer.self_attn, "quantization_scheme") == scheme
+        assert hasattr(layer.self_attn, "q_scale")
+        assert hasattr(layer.self_attn, "k_scale")
+        assert hasattr(layer.self_attn, "v_scale")

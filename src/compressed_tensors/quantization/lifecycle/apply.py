@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 from collections import OrderedDict
 from copy import deepcopy
 from typing import Dict, List, Optional
@@ -21,8 +20,13 @@ from typing import Union
 
 import torch
 from compressed_tensors.config import CompressionFormat
+from compressed_tensors.modeling import (
+    initialize_hooked_attention,
+    initialize_hooked_kv_cache,
+)
 from compressed_tensors.quantization.lifecycle.initialize import (
     initialize_module_for_quantization,
+    is_attention_module,
 )
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.quant_config import (
@@ -30,14 +34,15 @@ from compressed_tensors.quantization.quant_config import (
     QuantizationStatus,
 )
 from compressed_tensors.quantization.quant_scheme import QuantizationScheme
-from compressed_tensors.quantization.utils import (
-    KV_CACHE_TARGETS,
-    is_kv_cache_quant_scheme,
-)
 from compressed_tensors.utils.helpers import replace_module
-from compressed_tensors.utils.match import match_named_modules, match_targets
+from compressed_tensors.utils.match import (
+    is_narrow_match,
+    match_named_modules,
+    match_targets,
+)
 from compressed_tensors.utils.offload import update_parameter_data
 from compressed_tensors.utils.safetensors_load import get_safetensors_folder
+from loguru import logger
 from safetensors import safe_open
 from torch.nn import Module
 
@@ -51,9 +56,6 @@ from compressed_tensors.quantization.utils.helpers import is_module_quantized
 from compressed_tensors.utils.safetensors_load import (
     get_quantization_parameter_to_path_mapping,
 )
-
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def load_pretrained_quantization_parameters(
@@ -125,8 +127,14 @@ def apply_quantization_config(
     if config is None:  # see PR #180
         return dict()
 
-    # preprocess to support kv cache scheme
-    config = process_quantization_config(config)
+    # force zero points during initialization
+    force_zero_point = config.quantization_status != QuantizationStatus.COMPRESSED
+
+    # apply and initialize kv cache quantization
+    if config.kv_cache_scheme is not None:
+        _apply_kv_cache_scheme(
+            model, config.kv_cache_scheme, config.quantization_status
+        )
 
     # build mapping of targets to schemes for easier matching
     # use ordered dict to preserve target ordering in config
@@ -162,49 +170,40 @@ def apply_quantization_config(
             replace_module(model, name, compressed_linear)
 
         else:
+            if is_attention_module(submodule) and is_narrow_match(
+                model, scheme.targets, name
+            ):
+                initialize_hooked_attention(model, submodule)
+
             initialize_module_for_quantization(
                 submodule,
-                force_zero_point=config.quantization_status
-                != QuantizationStatus.COMPRESSED,
+                force_zero_point=force_zero_point,
             )
 
         submodule.quantization_status = config.quantization_status
 
 
-def process_quantization_config(config: QuantizationConfig) -> QuantizationConfig:
-    """
-    Preprocess the raw QuantizationConfig
+def _apply_kv_cache_scheme(
+    model: torch.nn.Module,
+    kv_cache_scheme: QuantizationArgs,
+    status: QuantizationStatus,
+):
+    if not kv_cache_scheme.symmetric:
+        raise logger.warning("vLLM does not support asymmetric kv cache quantization")
 
-    :param config: the raw QuantizationConfig
-    :return: the processed QuantizationConfig
-    """
-    if config.kv_cache_scheme is not None:
-        config = process_kv_cache_config(config)
-
-    return config
-
-
-def process_kv_cache_config(
-    config: QuantizationConfig, targets: Union[List[str], str] = KV_CACHE_TARGETS
-) -> QuantizationConfig:
-    """
-    Reformulate the `config.kv_cache` as a `config_group`
-    and add it to the set of existing `config.groups`
-
-    :param config: the QuantizationConfig
-    :return: the QuantizationConfig with additional "kv_cache" group
-    """
-    if targets == KV_CACHE_TARGETS:
-        _LOGGER.info(f"KV cache targets set to default value of: {KV_CACHE_TARGETS}")
-
-    kv_cache_dict = config.kv_cache_scheme.model_dump()
-    kv_cache_scheme = QuantizationScheme(
-        output_activations=QuantizationArgs(**kv_cache_dict),
-        targets=targets,
+    # applies and initializes kv cache quantization
+    # this step cannot come after attention apply/initialize
+    # otherwise it will override the attention qparams
+    scheme = QuantizationScheme(
+        targets=[".*self_attn$"],  # is never read in practice
+        input_activations=kv_cache_scheme,
     )
-    kv_cache_group = dict(kv_cache=kv_cache_scheme)
-    config.config_groups.update(kv_cache_group)
-    return config
+    for submodule in model.modules():
+        if is_attention_module(submodule):
+            submodule.quantization_scheme = scheme
+            initialize_hooked_kv_cache(model, submodule)
+            initialize_module_for_quantization(submodule, force_zero_point=False)
+            submodule.quantization_status = status
 
 
 def _load_quant_args_from_mapping(
@@ -256,60 +255,6 @@ def _scheme_from_targets(
     targets: List[str],
     name: str,
 ) -> QuantizationScheme:
-    if len(targets) == 1:
-        # if `targets` iterable contains a single element
-        # use it as the key
-        return target_to_scheme[targets[0]]
-
-    # otherwise, we need to merge QuantizationSchemes corresponding
-    # to multiple targets. This is most likely because `name` module
-    # is being target both as an ordinary quantization target, as well
-    # as kv cache quantization target
-    schemes_to_merge = [target_to_scheme[target] for target in targets]
-    return _merge_schemes(schemes_to_merge, name)
-
-
-def _merge_schemes(
-    schemes_to_merge: List[QuantizationScheme], name: str
-) -> QuantizationScheme:
-    kv_cache_quantization_scheme = [
-        scheme for scheme in schemes_to_merge if is_kv_cache_quant_scheme(scheme)
-    ]
-    if not kv_cache_quantization_scheme:
-        # if the schemes_to_merge do not contain any
-        # kv cache QuantizationScheme
-        # return the first scheme (the prioritized one,
-        # since the order of schemes_to_merge matters)
-        return schemes_to_merge[0]
-    else:
-        # fetch the kv cache QuantizationScheme and the highest
-        # priority non-kv cache QuantizationScheme and merge them
-        kv_cache_quantization_scheme = kv_cache_quantization_scheme[0]
-        quantization_scheme = [
-            scheme
-            for scheme in schemes_to_merge
-            if not is_kv_cache_quant_scheme(scheme)
-        ][0]
-        schemes_to_merge = [kv_cache_quantization_scheme, quantization_scheme]
-        merged_scheme = {}
-        for scheme in schemes_to_merge:
-            scheme_dict = {
-                k: v for k, v in scheme.model_dump().items() if v is not None
-            }
-            # when merging multiple schemes, the final target will be
-            # the `name` argument - hence erase the original targets
-            del scheme_dict["targets"]
-            # make sure that schemes do not "clash" with each other
-            overlapping_keys = set(merged_scheme.keys()) & set(scheme_dict.keys())
-            if overlapping_keys:
-                raise ValueError(
-                    f"The module: {name} is being modified by two clashing "
-                    f"quantization schemes, that jointly try to override "
-                    f"properties: {overlapping_keys}. Fix the quantization config "
-                    "so that it is not ambiguous."
-                )
-            merged_scheme.update(scheme_dict)
-
-        merged_scheme.update(targets=[name])
-
-        return QuantizationScheme(**merged_scheme)
+    # return the first scheme (the prioritized one,
+    # since the order of target_to_scheme matters)
+    return target_to_scheme[targets[0]]

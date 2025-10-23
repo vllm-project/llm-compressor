@@ -21,6 +21,7 @@ import torch.nn as nn
 from compressed_tensors.utils import (
     InternalModule,
     is_match,
+    is_narrow_match,
     match_modules_set,
     match_named_modules,
     match_named_parameters,
@@ -498,6 +499,86 @@ class TestMatchModulesSet:
         linear = InternalLinear(10, 20)
         matches = list(match_modules_set(linear, ["re:.*"]))
         assert len(matches) == 0
+
+
+class TestIsNarrowMatch:
+    def test_narrow_match_true_child_only(self):
+        """
+        Target matches the child module name but NOT its parent name.
+        Should return True.
+        """
+        model = DummyModel()
+        name = "transformer.layers.0.self_attn.q_proj"
+        # Matches "...q_proj" but not "...self_attn"
+        target = r"re:.*q_proj$"
+
+        assert is_narrow_match(model, target, name)
+
+    def test_narrow_match_false_when_parent_also_matches(self):
+        """
+        Target matches both the child and its parent name.
+        Should return False because it's not a 'narrow' match.
+        """
+        model = DummyModel()
+        name = "transformer.layers.0.self_attn.q_proj"
+        # Broad target that also matches the parent "transformer.layers.0.self_attn"
+        target = r"re:transformer\.layers\.0\..*"
+
+        assert not is_narrow_match(model, target, name)
+
+    def test_narrow_match_false_when_neither_matches(self):
+        """
+        Target matches neither the child nor the parent.
+        Should return False.
+        """
+        model = DummyModel()
+        name = "transformer.layers.0.self_attn.q_proj"
+        target = r"re:this_does_not_exist$"
+
+        assert not is_narrow_match(model, target, name)
+
+    def test_narrow_match_iterable_targets_any_true(self):
+        """
+        With multiple targets: if any target narrowly matches the child,
+        the function should return True.
+        """
+        model = DummyModel()
+        name = "transformer.layers.0.self_attn.q_proj"
+        # First target is broad (matches both child & parent -> narrow False),
+        # second target is narrow (matches child only -> narrow True).
+        targets = [
+            r"re:transformer\.layers\.0\..*",
+            r"re:.*q_proj$",
+        ]
+
+        assert is_narrow_match(model, targets, name)
+
+    def test_narrow_match_with_explicit_module_argument(self):
+        """
+        Passing the module explicitly should behave the same as when it's
+        retrieved from the model by name.
+        """
+        model = DummyModel()
+        name = "transformer.layers.0.self_attn.q_proj"
+        module = model.get_submodule(name)
+        target = r"re:.*q_proj$"
+
+        # Both ways should be True
+        assert is_narrow_match(model, target, name)
+        assert is_narrow_match(model, target, name, module=module)
+
+    def test_narrow_match_top_level_behavior_documented(self):
+        """
+        (Behavior check) For a top-level module name without a dot, the current
+        implementation derives parent_name == name, so parent==child.
+        Then 'narrow' cannot be True because parent match mirrors child match.
+        This test documents current behavior to guard against regressions.
+        """
+        model = DummyModel()
+        name = "layer1"  # top-level module in DummyModel
+        target = r"re:^layer1$"
+
+        assert not is_narrow_match(model, target, name)
 
 
 class TestIntegration:

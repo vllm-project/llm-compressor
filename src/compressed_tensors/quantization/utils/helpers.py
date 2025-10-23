@@ -14,7 +14,7 @@
 
 import logging
 import math
-from typing import Generator, List, Optional, Tuple
+from typing import Generator, Optional, Tuple
 
 import torch
 from compressed_tensors.quantization.quant_args import (
@@ -38,7 +38,6 @@ __all__ = [
     "module_type",
     "get_torch_bit_depth",
     "can_quantize",
-    "parse_out_kv_cache_args",
     "KV_CACHE_TARGETS",
     "is_kv_cache_quant_scheme",
     "iter_named_leaf_modules",
@@ -391,6 +390,7 @@ def can_quantize(value: torch.Tensor, quant_args: "QuantizationArgs") -> bool:  
     return bit_depth > quant_args.num_bits
 
 
+@deprecated()
 def is_kv_cache_quant_scheme(scheme: QuantizationScheme) -> bool:
     """
     Check whether the QuantizationScheme targets the kv cache.
@@ -409,37 +409,6 @@ def is_kv_cache_quant_scheme(scheme: QuantizationScheme) -> bool:
             return True
 
     return False
-
-
-def parse_out_kv_cache_args(
-    quant_scheme_to_layers: List[QuantizationScheme],
-) -> Tuple[Optional[QuantizationArgs], List[QuantizationScheme]]:
-    """
-    If possible, parse out the kv cache specific QuantizationArgs
-    from the list of the QuantizationSchemes. If no kv cache
-    specific QuantizationArgs available, this function acts
-    as an identity function
-
-    :param quant_scheme_to_layers: list of QuantizationSchemes
-    :return: kv_cache_args (optional) and the (remaining or original)
-        list of the QuantizationSchemes
-    """
-    kv_cache_quant_scheme_to_layers = [
-        scheme for scheme in quant_scheme_to_layers if is_kv_cache_quant_scheme(scheme)
-    ]
-    quant_scheme_to_layers = [
-        scheme
-        for scheme in quant_scheme_to_layers
-        if not is_kv_cache_quant_scheme(scheme)
-    ]
-
-    if kv_cache_quant_scheme_to_layers:
-        kv_cache_quant_scheme_to_layers = kv_cache_quant_scheme_to_layers[0]
-        kv_cache_args = kv_cache_quant_scheme_to_layers.output_activations
-    else:
-        kv_cache_args = None
-
-    return kv_cache_args, quant_scheme_to_layers
 
 
 def generate_gparam(

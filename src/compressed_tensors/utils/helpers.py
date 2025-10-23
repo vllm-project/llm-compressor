@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, 
 
 import numpy
 import torch
-from transformers import AutoConfig
+from transformers import AutoConfig, PretrainedConfig
 
 
 T = TypeVar("T", bound="Callable")  # used by `deprecated`
@@ -45,6 +45,9 @@ __all__ = [
     "unpack_bitmasks",
     "patch_attr",
     "ParameterizedDefaultDict",
+    "get_num_attn_heads",
+    "get_num_kv_heads",
+    "get_head_dim",
 ]
 
 FSDP_WRAPPER_NAME = "_fsdp_wrapped_module"
@@ -396,3 +399,62 @@ class ParameterizedDefaultDict(dict):
         """
         with patch_attr(self, "_factory_kwargs", factory_kwargs):
             return self[args]
+
+
+def get_num_attn_heads(config: PretrainedConfig) -> int:
+    """
+    Get the number of attention heads used by a model
+
+    :param config: model config
+    :return: num_attention_heads of model
+    """
+    if hasattr(config, "num_attention_heads"):
+        return config.num_attention_heads
+
+    elif hasattr(config, "hidden_size") and hasattr(config, "head_dim"):
+        return config.hidden_size // config.head_dim
+
+    else:
+        raise ValueError(
+            "Cannot determine num_attention_heads from config. Config must define "
+            "either `num_attention_heads` or both `hidden_size` and `head_dim`. "
+            f"{config}"
+        )
+
+
+def get_num_kv_heads(config: PretrainedConfig) -> int:
+    """
+    Get the number of key-value attention heads used by a model
+
+    :param config: model config
+    :return: num_key_value_heads of model
+    """
+    if hasattr(config, "num_key_value_heads"):
+        return config.num_key_value_heads
+
+    else:
+        raise ValueError(
+            "Cannot determine num_key_value_heads from config. Config must define "
+            f"`num_key_value_heads`. {config}"
+        )
+
+
+def get_head_dim(config: PretrainedConfig) -> int:
+    """
+    Get the number of dimensions used by the attention heads of a model
+
+    :param config: model config
+    :return: head_dim of model
+    """
+    if hasattr(config, "head_dim"):
+        return config.head_dim
+
+    elif hasattr(config, "hidden_size") and hasattr(config, "num_attention_heads"):
+        return config.hidden_size // config.num_attention_heads
+
+    else:
+        raise ValueError(
+            "Cannot determine head_dim from config. Config must define "
+            "either `head_dim` or both `hidden_size` and `num_attention_heads`. "
+            f"{config}"
+        )

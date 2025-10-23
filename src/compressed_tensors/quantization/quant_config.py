@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Optional, Union
+from typing import Annotated, Any, Dict, List, Optional, Set, Union
 
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.quantization.quant_args import DynamicType, QuantizationArgs
@@ -21,11 +22,7 @@ from compressed_tensors.quantization.quant_scheme import (
     QuantizationScheme,
     preset_name_to_scheme,
 )
-from compressed_tensors.quantization.utils import (
-    is_module_quantized,
-    module_type,
-    parse_out_kv_cache_args,
-)
+from compressed_tensors.quantization.utils import is_module_quantized, module_type
 from pydantic import BaseModel, ConfigDict, Field
 from torch.nn import Module
 
@@ -174,42 +171,64 @@ class QuantizationConfig(BaseModel):
         :param model: model to calculate quantization scheme of
         :return: filled out QuantizationScheme for the input model
         """
-        quant_scheme_to_layers = []
-        quantization_status = None
-        ignore = {}
-        quantization_type_names = set()
+        from compressed_tensors.modeling import IMPL_ATTR
+        from compressed_tensors.quantization.lifecycle.initialize import (
+            is_attention_module,
+        )
+
+        # set of all quantization schemes
+        # TODO: make quant config/scheme/args frozen/hashable and use a set
+        quantization_schemes: List[QuantizationScheme] = list()
+
+        # use any status from modules (in practice, use the last module)
+        model_status = None
+
+        # set of all quantized types
+        # this is later used to create the ignore list
+        quantization_type_names: Set[str] = set()
+
+        # maps types to names which are not quantized
+        # this is later used to create the ignore list
+        ignore: Dict[str, List[str]] = defaultdict(list)
+
+        # this keeps track of any kvcache schemes
+        kv_cache_scheme: Optional[QuantizationArgs] = None
+
         for name, submodule in model.named_modules():
-            layer_type = module_type(submodule)
-            if not is_module_quantized(submodule):
+            layer_type: str = module_type(submodule)
+
+            # add config group if quantized non-attention or attention quant
+            has_config_group = is_module_quantized(submodule) and (
+                not is_attention_module(submodule) or hasattr(submodule, IMPL_ATTR)
+            )
+            # only add kvcache if quant attention (which always implies kvcache)
+            has_kv_cache = is_module_quantized(submodule) and is_attention_module(
+                submodule
+            )
+
+            if has_config_group:
+                # add to running set of schemes/layer_type_names
+                model_status = getattr(submodule, "quantization_status", model_status)
+                quantization_type_names.add(layer_type)
+                if submodule.quantization_scheme not in quantization_schemes:
+                    quantization_schemes.append(submodule.quantization_scheme)
+
+            if has_kv_cache:
+                model_status = getattr(submodule, "quantization_status", model_status)
+                kv_cache_scheme = submodule.quantization_scheme.input_activations
+
+            if not has_config_group:
+                # add non-quantized layers to the ignore list
                 if layer_type not in ignore:
                     ignore[layer_type] = []
                 ignore[layer_type].append(name)
-            else:
-                if hasattr(submodule, "quantization_status"):
-                    quantization_status = submodule.quantization_status
-                scheme = submodule.quantization_scheme
-                quantization_type_names.add(layer_type)
 
-                match_found = False
-                for existing_scheme in quant_scheme_to_layers:
-                    if scheme == existing_scheme:
-                        match_found = True
-                        break
-                if not match_found:
-                    quant_scheme_to_layers.append(scheme)
-
-        if len(quant_scheme_to_layers) == 0:  # No quantized layers
+        if (
+            len(quantization_schemes) == 0 and kv_cache_scheme is None
+        ):  # No quantized layers
             return None
 
-        # kv-cache only, no weight/activation quantization
-        if (
-            len(quantization_type_names) == 1
-            and "attention" in list(quantization_type_names)[0].lower()
-        ):
-            quantization_type_names.add("Linear")
-
-        # clean up ignore list, we can leave out layers types if none of the
-        # instances are quantized
+        # create ignore list, only include layers whose class has ever been targeted
         consolidated_ignore = []
         for layer_type, ignore_names in ignore.items():
             if layer_type in quantization_type_names:
@@ -218,20 +237,15 @@ class QuantizationConfig(BaseModel):
             # else we leave it off the ignore list, doesn't fall under any of the
             # existing quantization schemes so it won't be quantized
 
-        kv_cache_args, quant_scheme_to_layers = parse_out_kv_cache_args(
-            quant_scheme_to_layers
-        )
-        kv_cache_scheme = (
-            kv_cache_args.model_dump() if kv_cache_args is not None else kv_cache_args
-        )
-
+        # create config groups from all unique schemes
         config_groups = {}
-        for idx, scheme in enumerate(quant_scheme_to_layers):
+        for idx, scheme in enumerate(quantization_schemes):
             group_name = "group_" + str(idx)
             config_groups[group_name] = scheme
 
+        # infer format
         if format is None:
-            if quantization_status == QuantizationStatus.COMPRESSED:
+            if model_status == QuantizationStatus.COMPRESSED:
                 format = CompressionFormat.int_quantized.value
             else:
                 format = CompressionFormat.dense.value
@@ -244,7 +258,7 @@ class QuantizationConfig(BaseModel):
 
         return QuantizationConfig(
             config_groups=config_groups,
-            quantization_status=quantization_status,
+            quantization_status=model_status,
             kv_cache_scheme=kv_cache_scheme,
             global_compression_ratio=None,
             format=format,
