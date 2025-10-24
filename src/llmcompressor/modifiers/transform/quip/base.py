@@ -7,11 +7,15 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
-from compressed_tensors.utils import TorchDtype
+from compressed_tensors.utils import TorchDtype, match_named_modules
+from loguru import logger
 from pydantic import Field, ValidationInfo, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    untie_word_embeddings,
+)
 
 __all__ = ["QuIPModifier"]
 
@@ -100,6 +104,9 @@ class QuIPModifier(Modifier):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
+        # Untie embeddings if they will be targeted by transforms
+        self._untie_if_target_shared_embedding(state.model)
+
         apply_transform_config(state.model, self.transform_config)
 
     def on_event(self, state: State, event: Event, **kwargs):
@@ -122,6 +129,46 @@ class QuIPModifier(Modifier):
             self.on_end(state, None)
 
         return True
+
+    def _untie_if_target_shared_embedding(self, model: torch.nn.Module):
+        """
+        Check if any transform will target shared embeddings and untie them if so.
+        This is more surgical than just checking if lm_head is in the ignore list,
+        as it actually verifies that embeddings will be matched by the transform
+        targeting logic (combining both targets and ignore parameters).
+        """
+        try:
+            input_embeddings = model.get_input_embeddings()
+            output_embeddings = model.get_output_embeddings()
+        except NotImplementedError as e:
+            logger.warning(
+                f"{model.__class__} doesn't have get_input_embeddings and "
+                f"get_output_embeddings implemented. This can cause problems when "
+                f"trying to apply transforms to layers with shared weights.\n{e}"
+            )
+            return
+
+        if input_embeddings is None:
+            return
+
+        if input_embeddings.weight is not output_embeddings.weight:
+            return  # Not shared, nothing to untie
+
+        # Check if any TransformArgs will match either embedding
+        for scheme in self.transform_config.config_groups.values():
+            for arg in scheme.apply:
+                matched_modules = list(
+                    map(
+                        lambda x: x[1],
+                        match_named_modules(model, arg.targets, arg.ignore),
+                    )
+                )
+                if (
+                    input_embeddings in matched_modules
+                    or output_embeddings in matched_modules
+                ):
+                    untie_word_embeddings(model)
+                    return
 
     def _create_config(self) -> TransformConfig:
         config_groups = dict()
