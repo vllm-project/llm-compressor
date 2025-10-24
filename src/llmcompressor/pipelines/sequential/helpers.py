@@ -114,6 +114,30 @@ def trace_subgraphs(
         from torch.export import export
         torch.compile
 
+        from torch.fx.experimental.meta_tracer import MetaTracer
+        from typing import Iterator
+
+        ## META TRACER
+
+        class MyTracer(MetaTracer):
+            def iter(self, obj: "Proxy") -> Iterator:
+                breakpoint()
+                return super().iter(obj)
+
+
+        root = model
+
+        meta_args = sample_input
+        concrete_args = None
+
+        tracer = MyTracer()
+        graph = tracer.trace(root, meta_args, concrete_args)  # type: ignore[arg-type]
+        gm = torch.fx.GraphModule(tracer.root, graph)
+        breakpoint()
+        return gm
+
+        ##
+
         ## MAKE_FX
         # Annoying! "real" tracing is required, but _create_wrapped_func only wraps functions if the values are "symbolic" (proxies)
         # it seems to be that the "autowrapping" and do-not-trace-internals requirements that we have have not been properly
@@ -166,76 +190,76 @@ def trace_subgraphs(
         # allow_in_graph fails for create_causal_mask because it cannot serialize the input arg (model.config)
         # Seems like preserving call_module was never intended https://github.com/pytorch/pytorch/issues/126566
 
-        class LCWrap(HigherOrderOperator):
-            def __init__(self) -> None:
-                super().__init__("lcwrap")
+        # class LCWrap(HigherOrderOperator):
+        #     def __init__(self) -> None:
+        #         super().__init__("lcwrap")
 
-            def __call__(self, func):
-                # Dynamo already traces the body of HigherOrderOp beforehand when it
-                # so no need to trace into it.
-                import torch._dynamo  # noqa: F401
-                from torch._dynamo import disable, graph_break
+        #     def __call__(self, func):
+        #         # Dynamo already traces the body of HigherOrderOp beforehand when it
+        #         # so no need to trace into it.
+        #         import torch._dynamo  # noqa: F401
+        #         from torch._dynamo import disable, graph_break
 
-                #@disable
-                def wrapper(*args, **kwargs):
-                    return hop_wrap(func, *args, **kwargs)
-                    graph_break()
-                    result = func(*args, **kwargs)
-                    return result
+        #         #@disable
+        #         def wrapper(*args, **kwargs):
+        #             return hop_wrap(func, *args, **kwargs)
+        #             graph_break()
+        #             result = func(*args, **kwargs)
+        #             return result
 
-                return wrapper
+        #         return wrapper
             
-        lc_wrap = LCWrap()
+        # lc_wrap = LCWrap()
 
-        graph: GraphModule = None
+        # graph: GraphModule = None
 
-        import time
+        # import time
 
 
-        def custom_backend(gm, example_inputs):
-            nonlocal graph
-            graph = gm
-            # maybe return an empty callable
-            return graph.forward
+        # def custom_backend(gm, example_inputs):
+        #     nonlocal graph
+        #     graph = gm
+        #     # maybe return an empty callable
+        #     return graph.forward
         
-        # fn = nonstrict_trace(model.forward)  # for some reason, causes error
+        # # fn = nonstrict_trace(model.forward)  # for some reason, causes error
 
-        #model.to("cuda")
-        #dispatch_for_sequential(model)
-        safe_dispatch(model)
-        #sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+        # #model.to("cuda")
+        # #dispatch_for_sequential(model)
+        # safe_dispatch(model)
+        # #sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
 
-        disable(create_causal_mask)
-        for module in model.modules():
-            if module not in ancestors or module in targets:
-                #module.forward = disable(module.forward)
-                #module.forward = hop_wrap()(module.forward)
-                module.forward = lc_wrap(module.forward)
-                #module.forward = allow_in_graph(module.forward)
-                pass
-
+        # disable(create_causal_mask)
         # for module in model.modules():
-        #     if hasattr(module, "_hf_hook"):
-        #         module._hf_hook.pre_forward = allow_in_graph(module._hf_hook.pre_forward.__func__).__get__(module._hf_hook)
-        #         module._hf_hook.post_forward = allow_in_graph(module._hf_hook.post_forward.__func__).__get__(module._hf_hook)
-        #         print("wrappy")
+        #     if module not in ancestors or module in targets:
+        #         #module.forward = disable(module.forward)
+        #         #module.forward = hop_wrap()(module.forward)
+        #         module.forward = lc_wrap(module.forward)
+        #         #module.forward = allow_in_graph(module.forward)
+        #         pass
 
-        # from accelerate.hooks import AlignDevicesHook
-        # AlignDevicesHook.pre_forward = lc_wrap(AlignDevicesHook.pre_forward)
-        # AlignDevicesHook.post_forward = lc_wrap(AlignDevicesHook.post_forward)
+        # # for module in model.modules():
+        # #     if hasattr(module, "_hf_hook"):
+        # #         module._hf_hook.pre_forward = allow_in_graph(module._hf_hook.pre_forward.__func__).__get__(module._hf_hook)
+        # #         module._hf_hook.post_forward = allow_in_graph(module._hf_hook.post_forward.__func__).__get__(module._hf_hook)
+        # #         print("wrappy")
 
-        start = time.time()
-        torch.compile(fullgraph=True, backend=custom_backend)(model.forward)(**sample_input)
-        #model(**sample_input)
-        end = time.time()
+        # # from accelerate.hooks import AlignDevicesHook
+        # # AlignDevicesHook.pre_forward = lc_wrap(AlignDevicesHook.pre_forward)
+        # # AlignDevicesHook.post_forward = lc_wrap(AlignDevicesHook.post_forward)
 
-        print(end - start)
+        # start = time.time()
+        # torch.compile(fullgraph=True, backend=custom_backend)(model.forward)(**sample_input)
+        # #model(**sample_input)
+        # end = time.time()
+
+        # print(end - start)
 
 
-        output = graph.print_readable(print_output=False)
-        with open("output.py", "w") as file:
-            file.write(output)
-        exit(0)
+        # output = graph.print_readable(print_output=False)
+        # with open("output.py", "w") as file:
+        #     file.write(output)
+        # exit(0)
 
         # ## COMPILE
 
