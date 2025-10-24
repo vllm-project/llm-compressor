@@ -36,7 +36,7 @@ def test_apply_correctness(
     model = AutoModelForCausalLM.from_pretrained(
         "meta-llama/Llama-3.2-1B-Instruct", device_map="cuda", torch_dtype=model_dtype
     )
-    untie_word_embeddings(model)
+    # untie_word_embeddings(model)
 
     state = State(model=model)
     modifier = modifier(

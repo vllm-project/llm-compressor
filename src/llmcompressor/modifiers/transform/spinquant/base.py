@@ -121,6 +121,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        from llmcompressor.transformers.compression.compressed_tensors_utils import (
+            untie_word_embeddings,
+        )
         if self.transform_config is not None:
             return True
 
@@ -129,6 +132,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
+            untie_word_embeddings(state.model)
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:

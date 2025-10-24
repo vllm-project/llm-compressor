@@ -15,6 +15,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.utils import match_named_modules
+from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator
 from torch.utils.hooks import RemovableHandle
 
@@ -171,6 +172,9 @@ class QuantizationMixin(HooksMixin):
         :param model: model to prepare for calibration
         """
         self._calibration_hooks = self._initialize_hooks(model)
+
+        self._untie_if_target_shared_embedding(model)
+
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
             apply_calibration_status(module)
@@ -317,3 +321,38 @@ class QuantizationMixin(HooksMixin):
                 hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks
+
+    def _untie_if_target_shared_embedding(self, model: torch.nn.Module):
+        """
+        Helper method that checks for shared input/output embedding and unties them
+        if either are targeted by quantization. 
+        """
+        from llmcompressor.transformers.compression.compressed_tensors_utils import (
+            untie_word_embeddings,
+        )
+
+        try:
+            input_embeddings, output_embeddings = (
+                model.get_input_embeddings(),
+                model.get_output_embeddings(),
+            )
+        except NotImplementedError:
+            logger.warning(
+                f"{model.__class__} doesn't have get_input_embeddings and "
+                + "get_output_embeddings implmented.\n This can cause problems when "
+                + "trying to quantize layers with shared weights\n{e}"
+            )
+            return
+
+        if input_embeddings is None:
+            return
+        if input_embeddings.weight is not output_embeddings.weight: # if not shared
+            return
+
+        # if shared, check if either is targeted
+        matched_modules = list(
+            match_named_modules(model, self.resolved_targets, self.ignore)
+        )
+        if input_embeddings in matched_modules or output_embeddings in matched_modules:
+            untie_word_embeddings(model)
+
