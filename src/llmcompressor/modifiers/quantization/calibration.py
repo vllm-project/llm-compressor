@@ -1,22 +1,17 @@
-import inspect
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import torch
 from compressed_tensors.quantization import (
     DynamicType,
-    KVCacheScaleType,
     QuantizationArgs,
-    QuantizationScheme,
     QuantizationStatus,
     QuantizationStrategy,
 )
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.quantization.utils import is_kv_cache_quant_scheme
 from compressed_tensors.utils import align_module_device, update_offload_parameter
 from loguru import logger
 from torch.nn import Module
 
-from llmcompressor.modifiers.quantization.cache import QuantizedKVParameterCache
 from llmcompressor.observers import Observer
 from llmcompressor.utils.helpers import getattr_chain
 
@@ -25,13 +20,13 @@ __all__ = [
     "update_weight_zp_scale",
     "calibrate_input_hook",
     "calibrate_output_hook",
-    "calibrate_kv_cache_input_hook",
-    "calibrate_kv_cache_output_hook",
-    "initialize_quantized_kv_cache",
     "freeze_module_quantization",
     "apply_calibration_status",
     "reset_quantization_status",
     "update_weight_global_scale",
+    "calibrate_query_hook",
+    "calibrate_key_hook",
+    "calibrate_value_hook",
 ]
 
 
@@ -93,7 +88,8 @@ def call_observer(
         if should_calculate_qparams:
             scale, zero_point = observer(value)
             update_offload_parameter(module, f"{base_name}_scale", scale)
-            update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
+            if hasattr(module, f"{base_name}_zero_point"):
+                update_offload_parameter(module, f"{base_name}_zero_point", zero_point)
 
 
 def update_weight_global_scale(module: Module):
@@ -151,8 +147,9 @@ def calibrate_activations(module: Module, value: torch.Tensor, base_name: str):
     if value.numel() == 0:
         return
 
-    quantization_scheme = getattr(module, "quantization_scheme", None)
-    quantization_args = getattr(quantization_scheme, f"{base_name}_activations", None)
+    field_name = "input" if base_name != "output" else "output"  # input,q,k,v,output
+    args_attr = f"quantization_scheme.{field_name}_activations"
+    quantization_args = getattr_chain(module, args_attr, None)
 
     calculate_qparams = True
     calculate_gparam = False
@@ -202,60 +199,16 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     return output
 
 
-def calibrate_kv_cache_input_hook(
-    module: Module, args: Any, kwargs: Dict[str, Any]
-) -> Tuple[Tuple[Any, ...], Dict[str, Any]]:
-    """
-    Hook to update inputs to attention layers when running
-    kv_cache quantization. Will update the passed in
-    kv_cache to singleton QuantizedKVParameterCache.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    if not hasattr(module, "_past_kv_name"):
-        # Determine which past KV parameter name to use once and cache it
-        # TODO: Find a better place to cache this
-        module._past_kv_name = (
-            "past_key_value"  # transformers#39956
-            if "past_key_value" in inspect.signature(module.forward).parameters
-            else "past_key_values"
-        )
-
-    kwargs[module._past_kv_name] = kv_cache
-    kwargs["use_cache"] = False
-    return args, kwargs
+def calibrate_query_hook(module: Module, query_states: torch.Tensor):
+    calibrate_activations(module, query_states, base_name="q")
 
 
-def calibrate_kv_cache_output_hook(module: Module, _args: Any, _output: torch.Tensor):
-    """
-    Hook to update k_scale and v_scale parameters when running kv_cache quantization.
-    """
-    kv_cache = getattr(module, "kv_cache")
-    k_scale = kv_cache.k_scales[module.layer_idx]
-    v_scale = kv_cache.v_scales[module.layer_idx]
-    update_offload_parameter(module, KVCacheScaleType.KEY.value, k_scale)
-    update_offload_parameter(module, KVCacheScaleType.VALUE.value, v_scale)
+def calibrate_key_hook(module: Module, key_states: torch.Tensor):
+    calibrate_activations(module, key_states, base_name="k")
 
 
-def initialize_quantized_kv_cache(module: Module):
-    """
-    Initialize a quantized kv_cache on a module (analogous to initializing an observer)
-    When a config specifying kv_cache quantization is applied to a model, the kv_cache
-    args are redefined as the output_activations targeting attention modules.
-
-    This function should be called on attention modules with output_activations
-    """
-    scheme: Optional[QuantizationScheme] = getattr(module, "quantization_scheme", None)
-    existing_kv_cache = getattr(module, "kv_cache", None)
-
-    if (
-        scheme is None
-        or not is_kv_cache_quant_scheme(scheme)
-        or isinstance(existing_kv_cache, QuantizedKVParameterCache)
-    ):
-        return
-
-    quantized_kv_cache = QuantizedKVParameterCache(scheme.output_activations)
-    setattr(module, "kv_cache", quantized_kv_cache)
+def calibrate_value_hook(module: Module, value_states: torch.Tensor):
+    calibrate_activations(module, value_states, base_name="v")
 
 
 def apply_calibration_status(module: Module):
@@ -284,15 +237,10 @@ def freeze_module_quantization(module: Module):
         return
 
     # remove observers
-    for name in ("input", "weight", "output"):
+    for name in ("input", "weight", "output", "q", "k", "v"):
         obs_name = f"{name}_observer"
         if hasattr(module, obs_name):
             delattr(module, obs_name)
-
-    # remove quantized kv_cache
-    kv_cache = getattr(module, "kv_cache", None)
-    if isinstance(kv_cache, QuantizedKVParameterCache):
-        delattr(module, "kv_cache")
 
     module.quantization_status = QuantizationStatus.FROZEN
 
