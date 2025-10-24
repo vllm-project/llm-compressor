@@ -50,10 +50,6 @@ class ModelArguments:
             "help": "Pretrained processor name or path if not the same as model_name"
         },
     )
-    cache_dir: str | None = field(
-        default=None,
-        metadata={"help": "Where to store the pretrained data from huggingface.co"},
-    )
 
     use_auth_token: bool = field(
         default=False,
