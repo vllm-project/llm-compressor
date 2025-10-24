@@ -96,6 +96,7 @@ def trace_subgraphs(
     """
     # find modules
     targets = match_modules(model, sequential_targets)
+    ancestors = get_sequential_ancestors(model, targets)
 
     with contextlib.ExitStack() as stack:
         # calibration context
@@ -137,7 +138,8 @@ def trace_subgraphs(
 
         # graph: GraphModule = get_isolated_graphmodule(model.forward, tuple(), sample_input, tracing_mode="real")
 
-        #graph: GraphModule = make_fx(model, tracing_mode="fake", _allow_non_fake_inputs=True, stack_trace=True)(*sample_args)
+        # sample_args = get_sample_args(model.forward, sample_input)
+        # graph: GraphModule = make_fx(model, tracing_mode="real", _allow_non_fake_inputs=True, stack_trace=True)(*sample_args)
 
         ## MAKE_FX
 
@@ -196,21 +198,34 @@ def trace_subgraphs(
             # maybe return an empty callable
             return graph.forward
         
-        fn = model.forward
         # fn = nonstrict_trace(model.forward)  # for some reason, causes error
 
-        disable(create_causal_mask)
-        for module in targets:
-            #disable(module.forward)
-            #module.forward = hop_wrap()(module.forward)
-            module.forward = lc_wrap(module.forward)
-
-        model.to("cuda")
+        #model.to("cuda")
         #dispatch_for_sequential(model)
-        sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+        safe_dispatch(model)
+        #sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+
+        disable(create_causal_mask)
+        for module in model.modules():
+            if module not in ancestors or module in targets:
+                #module.forward = disable(module.forward)
+                #module.forward = hop_wrap()(module.forward)
+                module.forward = lc_wrap(module.forward)
+                #module.forward = allow_in_graph(module.forward)
+                pass
+
+        # for module in model.modules():
+        #     if hasattr(module, "_hf_hook"):
+        #         module._hf_hook.pre_forward = allow_in_graph(module._hf_hook.pre_forward.__func__).__get__(module._hf_hook)
+        #         module._hf_hook.post_forward = allow_in_graph(module._hf_hook.post_forward.__func__).__get__(module._hf_hook)
+        #         print("wrappy")
+
+        # from accelerate.hooks import AlignDevicesHook
+        # AlignDevicesHook.pre_forward = lc_wrap(AlignDevicesHook.pre_forward)
+        # AlignDevicesHook.post_forward = lc_wrap(AlignDevicesHook.post_forward)
 
         start = time.time()
-        torch.compile(fullgraph=True, backend=custom_backend)(fn)(**sample_input)
+        torch.compile(fullgraph=True, backend=custom_backend)(model.forward)(**sample_input)
         #model(**sample_input)
         end = time.time()
 
@@ -248,6 +263,30 @@ def trace_subgraphs(
         )
 
     return subgraphs
+
+from torch.compiler import allow_in_graph, disable
+
+def safe_dispatch(model: torch.nn.Module):
+    from accelerate.hooks import set_module_tensor_to_device
+
+    def new_forward(*args, **kwargs):
+        for name, param in module.named_parameters(recurse=False):
+            if not torch.compiler.is_compiling():
+                getattr(module, name).data = param.data.to("cuda")
+            #set_module_tensor_to_device(module, name, "cuda")
+
+        ret = module._asdf_forward(*args, **kwargs)
+
+        for name, param in module.named_parameters(recurse=False):
+            if not torch.compiler.is_compiling():
+                getattr(module, name).data = param.data.to("cpu")
+            #set_module_tensor_to_device(module, name, "cpu")
+
+        return ret
+
+    for module in model.modules():
+        module._asdf_forward = module.forward
+        module.forward = new_forward
 
 def get_sample_args(fn, kwargs):
     """
@@ -561,6 +600,31 @@ def get_sequential_targets(
         return [sequential_targets]
     else:
         return sequential_targets
+    
+
+def get_sequential_ancestors(model: Module, targets: Set[Module]) -> Set[Module]:
+    """
+    Find modules which are call graph ancestors of the given sequential targets
+
+    :param model: model containing sequential targets
+    :param targets: sequential targets to find ancestors of
+    :return: call graph ancestors of sequential targets
+    """
+    ancestors = set()
+
+    def is_ancestor(module: Module) -> bool:
+        if module in ancestors or module in targets:
+            return True
+
+        # eagerly compute list in order to avoid early stopping and :. missing ancestors
+        _is_ancestor = any([is_ancestor(child) for child in module.children()])
+        if _is_ancestor:
+            ancestors.add(module)
+
+        return _is_ancestor
+
+    is_ancestor(model)
+    return ancestors
 
 
 def add_line_numbers(text: str) -> str:
