@@ -1,0 +1,178 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.13, pytest-8.4.2, pluggy-1.6.0 -- /home/HDCharles/rhdev/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/HDCharles/repos/llm-compressor
+configfile: pyproject.toml
+plugins: anyio-4.11.0
+collecting ... collected 1 item
+
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp8_dynamic_per_tensor_moe.yaml] 2025-10-24T02:28:38.126651+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-24T02:28:38.126768+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 114.11it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 113.92it/s]
+2025-10-24T02:28:42.118085+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
+2025-10-24T02:28:44.584874+0000 | reset | INFO - Compression lifecycle reset
+2025-10-24T02:28:44.591658+0000 | _create_default_logger | INFO - Logging all LLM Compressor modifier-level logs to sparse_logs/24-10-2025_02.28.44.log
+2025-10-24T02:28:44.592077+0000 | from_modifiers | INFO - Creating recipe from modifiers
+2025-10-24T02:28:44.625401+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
+2025-10-24T02:28:44.625634+0000 | IndependentPipeline | INFO - Inferred `DataFreePipeline` for `QuantizationModifier`
+Updating global scales:   0%|          | 0/356 [00:00<?, ?it/s]Updating global scales: 100%|██████████| 356/356 [00:00<00:00, 716837.36it/s]
+Fusing global scales: 0it [00:00, ?it/s]Fusing global scales: 1333it [00:00, 591453.21it/s]
+Calibrating weights:   0%|          | 0/356 [00:00<?, ?it/s]Calibrating weights:  65%|██████▌   | 233/356 [00:00<00:00, 2328.44it/s]Calibrating weights: 100%|██████████| 356/356 [00:00<00:00, 2891.78it/s]
+2025-10-24T02:28:59.001972+0000 | finalize | INFO - Compression lifecycle finalized for 1 modifiers
+2025-10-24T02:29:13.583921+0000 | post_process | WARNING - Optimized model is not saved. To save, please provide`output_dir` as input arg.Ex. `oneshot(..., output_dir=...)`
+2025-10-24T02:29:13.606836+0000 | test_vllm | INFO - ================= SAVING TO DISK ======================
+2025-10-24T02:29:13.607390+0000 | get_model_compressor | INFO - skip_sparsity_compression_stats set to True. Skipping sparsity compression statistic calculations. No sparsity compressor will be applied.
+Compressing model: 0it [00:00, ?it/s]Compressing model: 1it [00:00,  2.39it/s]Compressing model: 33it [00:00, 83.11it/s]Compressing model: 66it [00:00, 148.59it/s]Compressing model: 103it [00:00, 208.82it/s]Compressing model: 133it [00:00, 212.31it/s]Compressing model: 167it [00:00, 245.32it/s]Compressing model: 202it [00:01, 270.33it/s]Compressing model: 237it [00:01, 289.29it/s]Compressing model: 272it [00:01, 301.92it/s]Compressing model: 307it [00:01, 310.79it/s]Compressing model: 340it [00:01, 315.54it/s]Compressing model: 356it [00:01, 231.87it/s]
+2025-10-24T02:34:43.735488+0000 | reset | INFO - Compression lifecycle reset
+2025-10-24T02:34:43.735697+0000 | _run_vllm | INFO - Run vllm in subprocess.Popen() using python env:
+2025-10-24T02:34:43.735762+0000 | _run_vllm | INFO - /home/HDCharles/rhdev/bin/python3
+2025-10-24T02:34:46.263243+0000 | _run_vllm | INFO - INFO 10-24 02:34:45 [__init__.py:225] Automatically detected platform cuda.
+
+FAILED
+
+=================================== FAILURES ===================================
+_ TestvLLM.test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp8_dynamic_per_tensor_moe.yaml] _
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fdd7886c1d0>
+test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp8_dynamic_per_tensor_moe.yaml'
+
+    def test_vllm(self, test_data_file: str):
+        # Run vLLM with saved model
+    
+        self.set_up(test_data_file)
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+            model=self.model,
+            model_class=self.model_class,
+            num_calibration_samples=self.num_calibration_samples,
+            max_seq_length=self.max_seq_length,
+            scheme=self.scheme,
+            dataset_id=self.dataset_id,
+            dataset_config=self.dataset_config,
+            dataset_split=self.dataset_split,
+            recipe=self.recipe,
+            quant_type=self.quant_type,
+        )
+    
+        # check that session contains recipe
+        self._check_session_contains_recipe()
+    
+        logger.info("================= SAVING TO DISK ======================")
+        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+    
+        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+    
+        # check that expected files exist
+        self._check_save_dir_has_expected_files()
+    
+        # Use the session to fetch the recipe;
+        # Reset session for next test case
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        with open(recipe_path, "w") as fp:
+            fp.write(recipe_yaml_str)
+        session.reset()
+    
+        # if SKIP_HF_UPLOAD.lower() != "yes":
+        #     logger.info("================= UPLOADING TO HUB ======================")
+    
+        #     stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+    
+        #     self.api.create_repo(
+        #         repo_id=stub,
+        #         exist_ok=True,
+        #         repo_type="model",
+        #         private=False,
+        #     )
+    
+        #     self.api.upload_folder(
+        #         repo_id=stub,
+        #         folder_path=self.save_dir,
+        #     )
+    
+        # if VLLM_PYTHON_ENV.lower() == "same":
+        #     logger.info("========== RUNNING vLLM in the same python env ==========")
+        # else:
+        #     logger.info("========== RUNNING vLLM in a separate python env ==========")
+    
+>       self._run_vllm(logger)
+
+tests/e2e/vLLM/test_vllm.py:159: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_timer/timer_utils.py:33: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fdd7886c1d0>
+logger = <loguru.logger handlers=[(id=2, level=20, sink=<stdout>), (id=3, level=10, sink='sparse_logs/oneshot_2025-10-24_02-28-42.log'), (id=4, level=10, sink='sparse_logs/24-10-2025_02.28.44.log')]>
+
+    @log_time
+    def _run_vllm(self, logger):
+        import json
+        import subprocess
+    
+        llm_kwargs = {"model": self.save_dir}
+    
+        if self.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+    
+        json_scheme = json.dumps(self.scheme)
+        json_llm_kwargs = json.dumps(llm_kwargs)
+        json_prompts = json.dumps(self.prompts)
+    
+        test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+    
+        logger.info("Run vllm in subprocess.Popen() using python env:")
+        logger.info(self.vllm_env)
+    
+        result = subprocess.Popen(
+            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
+    
+        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+>       assert result.returncode == 0, error_msg
+E       AssertionError: ERROR: vLLM failed with exit code 1: Traceback (most recent call last):
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 5, in <module>
+E             from vllm import LLM, SamplingParams
+E           File "/home/HDCharles/repos/vllm/vllm/__init__.py", line 74, in __getattr__
+E             module = import_module(module_name, __package__)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/importlib/__init__.py", line 126, in import_module
+E             return _bootstrap._gcd_import(name[level:], package, level)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/entrypoints/llm.py", line 20, in <module>
+E             from vllm.config import (
+E           File "/home/HDCharles/repos/vllm/vllm/config/__init__.py", line 5, in <module>
+E             from vllm.config.compilation import (
+E           File "/home/HDCharles/repos/vllm/vllm/config/compilation.py", line 18, in <module>
+E             from vllm.platforms import current_platform
+E           File "/home/HDCharles/repos/vllm/vllm/platforms/__init__.py", line 255, in __getattr__
+E             _current_platform = resolve_obj_by_qualname(platform_cls_qualname)()
+E                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/utils/import_utils.py", line 46, in resolve_obj_by_qualname
+E             module = importlib.import_module(module_name)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/importlib/__init__.py", line 126, in import_module
+E             return _bootstrap._gcd_import(name[level:], package, level)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/platforms/cuda.py", line 16, in <module>
+E             import vllm._C  # noqa
+E             ^^^^^^^^^^^^^^
+E         ImportError: /home/HDCharles/repos/vllm/vllm/_C.abi3.so: undefined symbol: _ZNK3c106SymInt22maybe_as_int_slow_pathEv
+E         
+E       assert 1 == 0
+E        +  where 1 = <Popen: returncode: 1 args: ['/home/HDCharles/rhdev/bin/python3', '/home/HDC...>.returncode
+
+tests/e2e/vLLM/test_vllm.py:216: AssertionError
+=========================== short test summary info ============================
+FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp8_dynamic_per_tensor_moe.yaml]
+======================== 1 failed in 372.96s (0:06:12) =========================

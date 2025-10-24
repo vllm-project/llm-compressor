@@ -126,8 +126,12 @@ def untie_word_embeddings(model: PreTrainedModel):
 
     :param model: model to fix
     """
-    input_embed = model.get_input_embeddings()
-    output_embed = model.get_output_embeddings()
+    try:
+        input_embed = model.get_input_embeddings()
+        output_embed = model.get_output_embeddings()
+    except NotImplementedError as e:
+        logger.warning(f"cannot untie model of type {model.__class__} which doesn't have get_input_embeddings and get_output_embeddings implmented\n{e}")
+        return
 
     for module in (input_embed, output_embed):
         if module is None or not hasattr(module, "weight"):

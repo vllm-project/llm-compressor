@@ -59,8 +59,8 @@ class TestvLLM:
     def set_up(self, test_data_file: str):
         eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
-        if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
-            pytest.skip("Skipping test; cadence mismatch")
+        # if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
+            # pytest.skip("Skipping test; cadence mismatch")
 
         self.model = eval_config["model"]
         self.model_class = eval_config.get("model_class", "AutoModelForCausalLM")
@@ -134,27 +134,27 @@ class TestvLLM:
             fp.write(recipe_yaml_str)
         session.reset()
 
-        if SKIP_HF_UPLOAD.lower() != "yes":
-            logger.info("================= UPLOADING TO HUB ======================")
+        # if SKIP_HF_UPLOAD.lower() != "yes":
+        #     logger.info("================= UPLOADING TO HUB ======================")
 
-            stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+        #     stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
 
-            self.api.create_repo(
-                repo_id=stub,
-                exist_ok=True,
-                repo_type="model",
-                private=False,
-            )
+        #     self.api.create_repo(
+        #         repo_id=stub,
+        #         exist_ok=True,
+        #         repo_type="model",
+        #         private=False,
+        #     )
 
-            self.api.upload_folder(
-                repo_id=stub,
-                folder_path=self.save_dir,
-            )
+        #     self.api.upload_folder(
+        #         repo_id=stub,
+        #         folder_path=self.save_dir,
+        #     )
 
-        if VLLM_PYTHON_ENV.lower() == "same":
-            logger.info("========== RUNNING vLLM in the same python env ==========")
-        else:
-            logger.info("========== RUNNING vLLM in a separate python env ==========")
+        # if VLLM_PYTHON_ENV.lower() == "same":
+        #     logger.info("========== RUNNING vLLM in the same python env ==========")
+        # else:
+        #     logger.info("========== RUNNING vLLM in a separate python env ==========")
 
         self._run_vllm(logger)
 

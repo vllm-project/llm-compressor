@@ -1,0 +1,376 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.13, pytest-8.4.2, pluggy-1.6.0 -- /home/HDCharles/rhdev/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/HDCharles/repos/llm-compressor
+configfile: pyproject.toml
+plugins: anyio-4.11.0
+collecting ... collected 1 item
+
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] 2025-10-24T02:35:40.486098+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-24T02:35:40.486217+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-NVFP4
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.35it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.18it/s]
+Map:   0%|          | 0/1 [00:00<?, ? examples/s]Map:   0%|          | 0/1 [00:00<?, ? examples/s]
+FAILED
+
+=================================== FAILURES ===================================
+_ TestvLLM.test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] _
+
+image = '<|im_start|>user\nHow does the location of the Sydney Conservatorium of Music impact the academic and professional op...c industry, and offers a range of internship and job placement opportunities to help them achieve success.<|im_end|>\n'
+timeout = None
+
+    def load_image(image: Union[str, "PIL.Image.Image"], timeout: Optional[float] = None) -> "PIL.Image.Image":
+        """
+        Loads `image` to a PIL Image.
+    
+        Args:
+            image (`str` or `PIL.Image.Image`):
+                The image to convert to the PIL Image format.
+            timeout (`float`, *optional*):
+                The timeout value in seconds for the URL request.
+    
+        Returns:
+            `PIL.Image.Image`: A PIL Image.
+        """
+        requires_backends(load_image, ["vision"])
+        if isinstance(image, str):
+            if image.startswith("http://") or image.startswith("https://"):
+                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
+                # like http_huggingface_co.png
+                image = PIL.Image.open(BytesIO(requests.get(image, timeout=timeout).content))
+            elif os.path.isfile(image):
+                image = PIL.Image.open(image)
+            else:
+                if image.startswith("data:image/"):
+                    image = image.split(",")[1]
+    
+                # Try to load as base64
+                try:
+                    b64 = base64.decodebytes(image.encode())
+>                   image = PIL.Image.open(BytesIO(b64))
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+../../rhdev/lib/python3.11/site-packages/transformers/image_utils.py:481: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fp = <_io.BytesIO object at 0x7fed76cbe4d0>, mode = 'r'
+formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG', ...]
+
+    def open(
+        fp: StrOrBytesPath | IO[bytes],
+        mode: Literal["r"] = "r",
+        formats: list[str] | tuple[str, ...] | None = None,
+    ) -> ImageFile.ImageFile:
+        """
+        Opens and identifies the given image file.
+    
+        This is a lazy operation; this function identifies the file, but
+        the file remains open and the actual image data is not read from
+        the file until you try to process the data (or call the
+        :py:meth:`~PIL.Image.Image.load` method).  See
+        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
+    
+        :param fp: A filename (string), os.PathLike object or a file object.
+           The file object must implement ``file.read``,
+           ``file.seek``, and ``file.tell`` methods,
+           and be opened in binary mode. The file object will also seek to zero
+           before reading.
+        :param mode: The mode.  If given, this argument must be "r".
+        :param formats: A list or tuple of formats to attempt to load the file in.
+           This can be used to restrict the set of formats checked.
+           Pass ``None`` to try all supported formats. You can print the set of
+           available formats by running ``python3 -m PIL`` or using
+           the :py:func:`PIL.features.pilinfo` function.
+        :returns: An :py:class:`~PIL.Image.Image` object.
+        :exception FileNotFoundError: If the file cannot be found.
+        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
+           identified.
+        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
+           instance is used for ``fp``.
+        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
+        """
+    
+        if mode != "r":
+            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
+            raise ValueError(msg)
+        elif isinstance(fp, io.StringIO):
+            msg = (  # type: ignore[unreachable]
+                "StringIO cannot be used to open an image. "
+                "Binary data must be used instead."
+            )
+            raise ValueError(msg)
+    
+        if formats is None:
+            formats = ID
+        elif not isinstance(formats, (list, tuple)):
+            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
+            raise TypeError(msg)
+    
+        exclusive_fp = False
+        filename: str | bytes = ""
+        if is_path(fp):
+            filename = os.fspath(fp)
+            fp = builtins.open(filename, "rb")
+            exclusive_fp = True
+        else:
+            fp = cast(IO[bytes], fp)
+    
+        try:
+            fp.seek(0)
+        except (AttributeError, io.UnsupportedOperation):
+            fp = io.BytesIO(fp.read())
+            exclusive_fp = True
+    
+        prefix = fp.read(16)
+    
+        preinit()
+    
+        warning_messages: list[str] = []
+    
+        def _open_core(
+            fp: IO[bytes],
+            filename: str | bytes,
+            prefix: bytes,
+            formats: list[str] | tuple[str, ...],
+        ) -> ImageFile.ImageFile | None:
+            for i in formats:
+                i = i.upper()
+                if i not in OPEN:
+                    init()
+                try:
+                    factory, accept = OPEN[i]
+                    result = not accept or accept(prefix)
+                    if isinstance(result, str):
+                        warning_messages.append(result)
+                    elif result:
+                        fp.seek(0)
+                        im = factory(fp, filename)
+                        _decompression_bomb_check(im.size)
+                        return im
+                except (SyntaxError, IndexError, TypeError, struct.error) as e:
+                    if WARN_POSSIBLE_FORMATS:
+                        warning_messages.append(i + " opening failed. " + str(e))
+                except BaseException:
+                    if exclusive_fp:
+                        fp.close()
+                    raise
+            return None
+    
+        im = _open_core(fp, filename, prefix, formats)
+    
+        if im is None and formats is ID:
+            checked_formats = ID.copy()
+            if init():
+                im = _open_core(
+                    fp,
+                    filename,
+                    prefix,
+                    tuple(format for format in formats if format not in checked_formats),
+                )
+    
+        if im:
+            im._exclusive_fp = exclusive_fp
+            return im
+    
+        if exclusive_fp:
+            fp.close()
+        for message in warning_messages:
+            warnings.warn(message)
+        msg = "cannot identify image file %r" % (filename if filename else fp)
+>       raise UnidentifiedImageError(msg)
+E       PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x7fed76cbe4d0>
+
+../../rhdev/lib/python3.11/site-packages/PIL/Image.py:3560: UnidentifiedImageError
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fed78821290>
+test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml'
+
+    def test_vllm(self, test_data_file: str):
+        # Run vLLM with saved model
+    
+        self.set_up(test_data_file)
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+>       oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+            model=self.model,
+            model_class=self.model_class,
+            num_calibration_samples=self.num_calibration_samples,
+            max_seq_length=self.max_seq_length,
+            scheme=self.scheme,
+            dataset_id=self.dataset_id,
+            dataset_config=self.dataset_config,
+            dataset_split=self.dataset_split,
+            recipe=self.recipe,
+            quant_type=self.quant_type,
+        )
+
+tests/e2e/vLLM/test_vllm.py:105: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/e2e_utils.py:51: in run_oneshot_for_e2e_testing
+    ds = process_dataset(ds, processor, max_seq_length)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/testing_utils.py:291: in process_dataset
+    ds = ds.map(process, remove_columns=ds.column_names)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:562: in wrapper
+    out: Union["Dataset", "DatasetDict"] = func(self, *args, **kwargs)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3324: in map
+    for rank, done, content in Dataset._map_single(**unprocessed_kwargs):
+../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3656: in _map_single
+    for i, example in iter_outputs(shard_iterable):
+../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3630: in iter_outputs
+    yield i, apply_function(example, i, offset=offset)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3553: in apply_function
+    processed_inputs = function(*fn_args, *additional_args, **fn_kwargs)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/testing_utils.py:210: in process
+    return processor(
+../../rhdev/lib/python3.11/site-packages/transformers/models/qwen3_vl/processing_qwen3_vl.py:163: in __call__
+    image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:732: in __call__
+    return self.preprocess(images, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl_fast.py:141: in preprocess
+    return super().preprocess(images, videos, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:757: in preprocess
+    return self._preprocess_image_like_inputs(
+../../rhdev/lib/python3.11/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl_fast.py:160: in _preprocess_image_like_inputs
+    images = self._prepare_image_like_inputs(
+../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:633: in _prepare_image_like_inputs
+    images = self._prepare_images_structure(images, expected_ndims=expected_ndims)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:564: in _prepare_images_structure
+    images = self.fetch_images(images)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/transformers/image_processing_base.py:532: in fetch_images
+    return load_image(image_url_or_urls)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+image = '<|im_start|>user\nHow does the location of the Sydney Conservatorium of Music impact the academic and professional op...c industry, and offers a range of internship and job placement opportunities to help them achieve success.<|im_end|>\n'
+timeout = None
+
+    def load_image(image: Union[str, "PIL.Image.Image"], timeout: Optional[float] = None) -> "PIL.Image.Image":
+        """
+        Loads `image` to a PIL Image.
+    
+        Args:
+            image (`str` or `PIL.Image.Image`):
+                The image to convert to the PIL Image format.
+            timeout (`float`, *optional*):
+                The timeout value in seconds for the URL request.
+    
+        Returns:
+            `PIL.Image.Image`: A PIL Image.
+        """
+        requires_backends(load_image, ["vision"])
+        if isinstance(image, str):
+            if image.startswith("http://") or image.startswith("https://"):
+                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
+                # like http_huggingface_co.png
+                image = PIL.Image.open(BytesIO(requests.get(image, timeout=timeout).content))
+            elif os.path.isfile(image):
+                image = PIL.Image.open(image)
+            else:
+                if image.startswith("data:image/"):
+                    image = image.split(",")[1]
+    
+                # Try to load as base64
+                try:
+                    b64 = base64.decodebytes(image.encode())
+                    image = PIL.Image.open(BytesIO(b64))
+                except Exception as e:
+>                   raise ValueError(
+                        f"Incorrect image source. Must be a valid URL starting with `http://` or `https://`, a valid path to an image file, or a base64 encoded string. Got {image}. Failed with {e}"
+E                       ValueError: Incorrect image source. Must be a valid URL starting with `http://` or `https://`, a valid path to an image file, or a base64 encoded string. Got <|im_start|>user
+E                       How does the location of the Sydney Conservatorium of Music impact the academic and professional opportunities available to music students, and how does the conservatorium support student engagement with the music industry in Australia?<|im_end|>
+E                       <|im_start|>assistant
+E                       The location of the Sydney Conservatorium of Music, which is situated in the heart of Sydney's cultural precinct, impacts both the academic and professional opportunities available to music students. The conservatorium is located near several major performing arts venues and organizations, including the Sydney Opera House, the Australian Broadcasting Corporation, and the Sydney Symphony Orchestra, providing students with easy access to performances, rehearsals, and networking opportunities.
+E                       
+E                       One of the primary ways the conservatorium supports student engagement with the music industry in Australia is through its strong industry connections. The conservatorium has established partnerships with numerous professional music organizations, such as the Australian Chamber Orchestra, Opera Australia, and the Melbourne Symphony Orchestra. These partnerships provide students with the opportunity to work with industry professionals and gain practical experience in their chosen field.
+E                       
+E                       The conservatorium also offers a range of academic and extra-curricular programs that prepare students for careers in the music industry. For example, the Bachelor of Music (Performance) program includes specialized pathways in instrumental/vocal performance, composition, and musicology, while the Artist-In-Residence program allows students to work with internationally renowned musicians.
+E                       
+E                       Additionally, the conservatorium has a dedicated Career Development Office that provides students with assistance in finding employment, internships, and performance opportunities. The office also hosts regular industry events, such as masterclasses and networking sessions, to help students connect with industry professionals and gain a deeper understanding of the music industry in Australia.
+E                       
+E                       Overall, the location of the Sydney Conservatorium of Music and its strong industry connections provide students with a range of academic and professional opportunities that prepare them for successful careers in the music industry.<|im_end|>
+E                       <|im_start|>user
+E                       Can you give me some examples of notable alumni from the Sydney Conservatorium of Music who have gone on to successful careers in the music industry?<|im_end|>
+E                       <|im_start|>assistant
+E                       Certainly! The Sydney Conservatorium of Music has produced many successful alumni that have gone on to have impactful careers in the music industry. Here are a few notable examples:
+E                       
+E                       1. Brett Dean: Dean is an Australian composer and violist who studied at the Sydney Conservatorium of Music in the 1980s. He has since become one of Australia's most prominent living composers, and his works have been performed around the world.
+E                       
+E                       2. Nicole Car: Car is an Australian operatic soprano who studied at the Sydney Conservatorium of Music in the early 2000s. She has since become an internationally renowned singer and has performed in some of the world's most prestigious opera houses.
+E                       
+E                       3. Tim Minchin: Minchin is an Australian comedian, composer, and musician who studied piano and classical music at the Sydney Conservatorium of Music in the 1990s. He has since become a household name in Australia and around the world for his unique brand of musical comedy.
+E                       
+E                       4. Elena Kats-Chernin: Kats-Chernin is an Australian pianist and composer who studied at the Sydney Conservatorium of Music in the 1970s. She has since become one of Australia's most prominent composers, and her music has been performed by some of the world's leading orchestras.
+E                       
+E                       5. Jessica Wells: Wells is an Australian conductor and violinist who studied at the Sydney Conservatorium of Music in the 2000s. She has since become a sought-after conductor, working with a range of orchestras in Australia and around the world.
+E                       
+E                       These are just a few examples of the many successful alumni who have studied at the Sydney Conservatorium of Music.<|im_end|>
+E                       <|im_start|>user
+E                       Can you tell me more about the Artist-In-Residence program at the Sydney Conservatorium of Music? How does it work and what are the benefits for students?<|im_end|>
+E                       <|im_start|>assistant
+E                       The Artist-In-Residence program at the Sydney Conservatorium of Music is a unique opportunity for students to work with internationally renowned musicians, composers, and artists. The program brings in a diverse range of artists from around the world to collaborate with students and faculty for extended periods of time.
+E                       
+E                       The program is designed to provide students with access to world-class artists and allow them to gain valuable experience working with professionals in their field. Typically, the artists-in-residence will give lectures, masterclasses, and workshops, perform with students or faculty members, and collaborate on new works or projects.
+E                       
+E                       The program benefits students in several ways. Firstly, it provides them with exposure to different styles of music and different approaches to performance and composition. This exposure can help to broaden their musical horizons and inspire them to explore new genres or techniques.
+E                       
+E                       Secondly, working with professional artists can provide students with valuable learning opportunities. They can gain insights into the creative process and learn from the experiences of professionals who have had successful careers in the music industry.
+E                       
+E                       Finally, the program can help to build valuable connections and networks for students. By working with visiting artists, students have the opportunity to establish relationships and build networks that may help them in their future careers.
+E                       
+E                       Overall, the Artist-In-Residence program at the Sydney Conservatorium of Music is a valuable opportunity for students to work with world-class artists and gain valuable experience that can help them in their future careers.<|im_end|>
+E                       <|im_start|>user
+E                       Are there any opportunities for students at the Sydney Conservatorium of Music to perform or showcase their talent outside of the campus and in front of a live audience?<|im_end|>
+E                       <|im_start|>assistant
+E                       Yes, there are many opportunities for students at the Sydney Conservatorium of Music to perform or showcase their talent outside of the campus. The conservatorium has strong industry connections throughout Australia, and regularly hosts events and performances that allow students to gain real-world experience and exposure.
+E                       
+E                       One example is the Sydney Conservatorium of Music Symphony Orchestra, which performs regularly at venues including the Sydney Opera House and the City Recital Hall. Students who participate in the orchestra have the opportunity to perform in front of larger audiences and gain experience working with professional conductors and musicians.
+E                       
+E                       Additionally, the conservatorium hosts numerous concerts and recitals throughout the year that feature solo performances and small ensembles. These performances take place both on and off-campus and provide students with the opportunity to showcase their skills in front of a live audience.
+E                       
+E                       The conservatorium also participates in a range of external events and festivals, including the Sydney Festival and the Vivid Sydney Festival of Light, Music, and Ideas. These events provide students with exposure to a wider audience and the opportunity to perform alongside other professional musicians and artists.
+E                       
+E                       Overall, the Sydney Conservatorium of Music provides students with many opportunities to perform and showcase their talent outside of the campus and gain experience working in real-world performance contexts.<|im_end|>
+E                       <|im_start|>user
+E                       Can you tell me more about the specific partnerships the Sydney Conservatorium of Music has with professional music organizations, and how those partnerships benefit the students?<|im_end|>
+E                       <|im_start|>assistant
+E                       Yes, the Sydney Conservatorium of Music has established partnerships with several professional music organizations that provide a range of opportunities for students to gain practical experience and connect with industry professionals. Here are a few examples:
+E                       
+E                       1. Australian Chamber Orchestra (ACO): The Sydney Conservatorium of Music has a longstanding partnership with the ACO, which allows students to participate in masterclasses and workshops with ACO musicians. The partnership also includes the ACO Academy, which provides a range of professional development opportunities for young musicians.
+E                       
+E                       2. Opera Australia: Students at the Sydney Conservatorium of Music can participate in Opera Australia's Youth Opera Program, which includes workshops and performance opportunities with the company's professional singers and musicians. The partnership also includes the Opera Australia Scholarship, which provides financial support and mentorship to young singers.
+E                       
+E                       3. Melbourne Symphony Orchestra (MSO): The Sydney Conservatorium of Music has a partnership with the MSO, which provides students with access to professional development opportunities such as masterclasses and workshops. The partnership also includes the MSO Fellowship Program, which provides young conductors with mentorship and experience working with a professional orchestra.
+E                       
+E                       4. Sydney Symphony Orchestra (SSO): The Sydney Conservatorium of Music has a close relationship with the SSO, with many of the orchestra's members also serving as faculty members at the conservatorium. Students have many opportunities to collaborate with the SSO, including performance opportunities and workshops with orchestra members.
+E                       
+E                       These partnerships benefit students in several ways. Firstly, they provide access to professional musicians and industry leaders who can offer insight into the music industry and provide guidance and support for young musicians. Secondly, they provide practical experience and opportunities for students to perform with professional musicians and gain exposure to real-world performance contexts. Finally, they help to build connections and networks within the industry, which can be valuable for students as they embark on their own careers in music.<|im_end|>
+E                       <|im_start|>user
+E                       Wow, it's great to hear that the Sydney Conservatorium of Music provides so many opportunities for students to connect with professionals in the music industry. Do they also offer any internships or job placements for graduates?<|im_end|>
+E                       <|im_start|>assistant
+E                       Yes, the Sydney Conservatorium of Music offers a range of internship and job placement opportunities for its graduates. The conservatorium has a dedicated Career Development Office that provides resources and support to students and alumni as they transition into the music industry.
+E                       
+E                       The Career Development Office works with a range of industry partners to provide internships and job placements for graduates. These industry partners include major orchestras, opera companies, festivals, and record labels. Internships and job placements can vary widely, depending on the needs of the industry partner and the skills and interests of the graduate.
+E                       
+E                       The conservatorium also hosts regular workshops and events on topics related to career development, such as resume writing, networking, and professional branding. These events are designed to provide students and alumni with practical skills and advice to help them succeed in the music industry.
+E                       
+E                       Additionally, the conservatorium has a strong alumni network, with graduates working in a wide range of musical fields around the world. This network can be a valuable resource for students and alumni as they navigate their careers and seek out new opportunities.
+E                       
+E                       Overall, the Sydney Conservatorium of Music is committed to supporting students and alumni as they transition into the music industry, and offers a range of internship and job placement opportunities to help them achieve success.<|im_end|>
+E                       . Failed with cannot identify image file <_io.BytesIO object at 0x7fed76cbe4d0>
+
+../../rhdev/lib/python3.11/site-packages/transformers/image_utils.py:483: ValueError
+=========================== short test summary info ============================
+FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml]
+============================== 1 failed in 11.76s ==============================
