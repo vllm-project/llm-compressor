@@ -27,7 +27,11 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
     "model_id,model_class,targets,modality,backends",
     [
         # --- text ---
+
+
         ("meta-llama/Meta-Llama-3-8B-Instruct", AutoModelForCausalLM, None, "text", []),
+
+
         # (
         #     "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
         #     AutoModelForCausalLM,
@@ -49,7 +53,11 @@ from llmcompressor.utils.pytorch.module import get_no_split_params
         #     "text",
         #     [],
         # ),
+
+
         # ("unsloth/DeepSeek-R1-0528-BF16", AutoModelForCausalLM, None, "text", []),
+        
+        
         # # --- vision ---
         # (
         #     "HuggingFaceM4/Idefics3-8B-Llama3",
