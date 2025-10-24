@@ -107,6 +107,9 @@ def trace_subgraphs(
         from torch._dynamo import nonstrict_trace, register_backend, optimize
         from transformers.masking_utils import create_causal_mask
 
+        from torch._ops import HigherOrderOperator
+        from torch._higher_order_ops.wrap import wrap as hop_wrap
+
         from torch.export import export
         torch.compile
 
@@ -161,8 +164,26 @@ def trace_subgraphs(
         # allow_in_graph fails for create_causal_mask because it cannot serialize the input arg (model.config)
         # Seems like preserving call_module was never intended https://github.com/pytorch/pytorch/issues/126566
 
-        # model.to("cuda")
-        sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
+        class LCWrap(HigherOrderOperator):
+            def __init__(self) -> None:
+                super().__init__("lcwrap")
+
+            def __call__(self, func):
+                # Dynamo already traces the body of HigherOrderOp beforehand when it
+                # so no need to trace into it.
+                import torch._dynamo  # noqa: F401
+                from torch._dynamo import disable, graph_break
+
+                #@disable
+                def wrapper(*args, **kwargs):
+                    return hop_wrap(func, *args, **kwargs)
+                    graph_break()
+                    result = func(*args, **kwargs)
+                    return result
+
+                return wrapper
+            
+        lc_wrap = LCWrap()
 
         graph: GraphModule = None
 
@@ -180,9 +201,13 @@ def trace_subgraphs(
 
         disable(create_causal_mask)
         for module in targets:
-            disable(module.forward)
+            #disable(module.forward)
+            #module.forward = hop_wrap()(module.forward)
+            module.forward = lc_wrap(module.forward)
 
-        dispatch_for_sequential(model)
+        model.to("cuda")
+        #dispatch_for_sequential(model)
+        sample_input = {k: v.to("cuda") for k, v in sample_input.items()}
 
         start = time.time()
         torch.compile(fullgraph=True, backend=custom_backend)(fn)(**sample_input)
