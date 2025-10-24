@@ -62,6 +62,8 @@ def get_processed_dataset(
             splits = {_get_split_name(splits): splits}
         case list():
             splits = {_get_split_name(s): s for s in splits}
+        case dict():
+            pass
         case _:
             raise ValueError(f"Invalid splits type: {type(splits)}")
 
