@@ -289,7 +289,7 @@ class QuantizationMixin(HooksMixin):
     def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
         if not hasattr(module, "quantization_scheme"):
-            hooks
+            return hooks
 
         scheme: QuantizationScheme = module.quantization_scheme
         input = scheme.input_activations and scheme.input_activations.dynamic in (
