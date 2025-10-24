@@ -6,9 +6,6 @@ from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import State
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    untie_word_embeddings,
-)
 from tests.testing_utils import requires_gpu
 
 
@@ -36,7 +33,6 @@ def test_apply_correctness(
     model = AutoModelForCausalLM.from_pretrained(
         "meta-llama/Llama-3.2-1B-Instruct", device_map="cuda", torch_dtype=model_dtype
     )
-    untie_word_embeddings(model)
 
     state = State(model=model)
     modifier = modifier(

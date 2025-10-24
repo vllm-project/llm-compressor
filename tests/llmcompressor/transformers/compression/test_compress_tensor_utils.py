@@ -229,21 +229,17 @@ def test_quant_model_reload(format, dtype, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device",
+    "offload,torch_dtype,device",
     [
         # dtype
         (False, torch.float16, False, "cpu"),
-        (False, torch.float16, True, "cpu"),
         (False, torch.float32, False, "cpu"),
-        (False, torch.float32, True, "cpu"),
         # offloading
         (True, torch.float16, False, "cpu"),
         (True, torch.float32, False, "cpu"),
-        (True, torch.float16, True, "cpu"),
-        (True, torch.float32, True, "cpu"),
     ],
 )
-def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
+def test_model_reload(offload, torch_dtype, device, tmp_path):
     model_path = "nm-testing/tinysmokellama-3.2"
     save_path = tmp_path / "save_path"
 
@@ -252,9 +248,6 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_pat
         model = dispatch_model(model, {"": device}, force_hooks=True)
     else:
         model = model.to(device)
-
-    if not tie_word_embeddings:
-        untie_word_embeddings(model)
 
     modify_save_pretrained(model)
     model.save_pretrained(save_path, safe_serialization=True)
@@ -270,16 +263,15 @@ def test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_pat
 
 @requires_gpu
 @pytest.mark.parametrize(
-    "offload,torch_dtype,tie_word_embeddings,device",
+    "offload,torch_dtype,device",
     [
-        (False, torch.float32, False, "cuda:0"),
-        (True, torch.float32, False, "cuda:0"),
-        (True, torch.float16, True, "cuda:0"),
-        (True, torch.float32, True, "cuda:0"),
+        (False, torch.float32, "cuda:0"),
+        (True, torch.float32, "cuda:0"),
+        (True, torch.float16, "cuda:0"),
     ],
 )
-def test_model_reload_gpu(offload, torch_dtype, tie_word_embeddings, device, tmp_path):
-    test_model_reload(offload, torch_dtype, tie_word_embeddings, device, tmp_path)
+def test_model_reload_gpu(offload, torch_dtype, device, tmp_path):
+    test_model_reload(offload, torch_dtype, device, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -310,14 +302,13 @@ def test_model_shared_tensors(offload, torch_dtype, tie_word_embeddings, device)
     with torch.no_grad(), align_module_device(model.lm_head):
         update_offload_parameter(model.lm_head, "weight", model.lm_head.weight + 1)
 
-    # check that embed_tokens is not modified
-    model_dict = get_state_dict_offloaded_model(model)
-    lm_head = model_dict["lm_head.weight"]
-    embed_tokens = model_dict["model.embed_tokens.weight"]
-    if tie_word_embeddings:
-        assert torch.equal(lm_head, embed_tokens)
-    else:
-        assert not torch.equal(lm_head, embed_tokens)
+    with align_module_device(model.lm_head), align_module_device(model.embed_tokens):
+        if tie_word_embeddings:
+            assert model.lm_head.weight != model.embed_tokens
+            assert model.config.tie_word_embeddings
+        else:
+            assert model.lm_head.weight == model.embed_tokens
+            assert not model.config.tie_word_embeddings
 
 
 @requires_gpu

@@ -16,6 +16,9 @@ from transformers import PreTrainedModel
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    untie_word_embeddings,
+)
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -129,6 +132,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
+            untie_word_embeddings(state.model)
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:
@@ -175,6 +179,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     def _center_embeddings(self, model: PreTrainedModel):
+        untie_word_embeddings(model)
         for _, embedding in match_named_modules(
             model, [self.mappings.embedding], warn_on_fail=True
         ):
