@@ -1,88 +1,101 @@
 import torch
+import torch.nn as nn
+from transformers.models.granitemoehybrid.configuration_granitemoehybrid import (
+    GraniteMoeHybridConfig,
+)
 from transformers.models.granitemoehybrid.modeling_granitemoehybrid import (
+    GraniteMoeHybridTopKGating,
     GraniteMoeHybridParallelExperts,
+    GraniteMoeHybridMLP,
 )
 
+class SequentialGraniteMoeHybridMoE(nn.Module):
+    """
+    Sparsely gated Mixture-of-Experts (MoE) layer with optional calibration mode.
 
-class GraniteMoeHybridParallelExpertsLinear(torch.nn.Linear):
-    def __init__(self, num_experts: int, input_size: int, output_size: int) -> None:
-        """Use a real Linear so that llmcompressor and vllm can handle it easier.
-        1. Change .weight from 3D [num_experts, output_size, input_size] to 2D
-            [num_experts * output_size, input_size] before calling llm-compressor
-        2. Change it back to 3D before saving ckpt
-        """
-        super().__init__(
-            input_size, output_size * num_experts, bias=False, device="meta"
+    When calibrate_all_experts=True, all experts process every token,
+    but only top-k outputs (with their gates) contribute to the final output.
+    This maintains exact numerical equivalence with the sparse routing result
+    while exposing all experts for calibration (e.g., quantization stats collection).
+    """
+
+    def __init__(
+        self, 
+        config: GraniteMoeHybridConfig, 
+        original: GraniteMoeHybridParallelExperts, 
+        calibrate_all_experts: bool,
+    ):
+        super().__init__()
+        self.input_size = config.hidden_size
+        self.num_experts = config.num_local_experts
+        self.top_k = config.num_experts_per_tok
+        self.calibrate_all_experts = calibrate_all_experts
+
+        # Router determines which experts handle which tokens
+        self.router = GraniteMoeHybridTopKGating(
+            input_size=self.input_size,
+            num_experts=self.num_experts,
+            top_k=self.top_k,
         )
-        self.num_experts = num_experts
-        self.input_size = input_size
-        self.output_size = output_size
-        self.is_2d: bool = True
 
-    @classmethod
-    def from_3d_expert(cls, original: GraniteMoeHybridParallelExperts):
-        """Reshape weights of GraniteMoeHybridParallelExperts module into 2D and store
-        them as weights of this "Linear" module.
-        """
-        newMoeLin = cls(original.num_experts, original.input_size, original.output_size)
-        newMoeLin.weight = torch.nn.Parameter(
-            original.weight.view(-1, original.input_size).clone(),
-            requires_grad=False,
+        # Per-expert MLPs
+        self.experts = nn.ModuleList([GraniteMoeHybridMLP(config) for _ in range(self.num_experts)])
+
+    def forward(self, layer_input: torch.Tensor) -> torch.Tensor:
+        bsz, seq_len, hidden_dim = layer_input.size()
+        num_tokens = bsz * seq_len
+        layer_input = layer_input.reshape(num_tokens, hidden_dim)
+
+        # --- Routing ---
+        _, batch_index, batch_gates, expert_size, logits = self.router(layer_input)
+        layer_output = torch.zeros(
+            (num_tokens, hidden_dim), dtype=layer_input.dtype, device=layer_input.device
         )
-        original.to("cpu")
-        newMoeLin.is_2d = True
-        return newMoeLin
 
-    def to_3d_expert(self) -> None:
-        """Convert weights and quantization parameters from 2D to 3D shape."""
-        dim0_mul = self.num_experts * self.output_size
-        assert (
-            self.weight.shape == torch.Size((dim0_mul, self.input_size))
-            and hasattr(self, "weight_scale")
-            and self.weight_scale.shape == torch.Size((dim0_mul, 1))
-        ), "Shape mismatch, please check."
+        if self.calibrate_all_experts:
+            # ----------------------------------------------------
+            # Calibration mode: all experts process all tokens
+            # ----------------------------------------------------
+            # Compute the top-k mask (same as sparse mode)
+            top_k_logits, top_k_indices = logits.topk(self.top_k, dim=1)
+            top_k_gates = torch.softmax(top_k_logits, dim=1).type_as(layer_input)
 
-        self.weight = torch.nn.Parameter(
-            self.weight.view(
-                self.num_experts, self.output_size, self.input_size
-            ).clone(),
-            requires_grad=False,
-        )
-        self.weight_scale = torch.nn.Parameter(
-            self.weight_scale.view(self.num_experts, self.output_size, 1).clone(),
-            requires_grad=False,
-        )
-        if hasattr(self, "weight_zero_point"):
-            assert self.weight_zero_point.shape == torch.Size((dim0_mul, 1))
-            self.weight_zero_point = torch.nn.Parameter(
-                self.weight_zero_point.view(
-                    self.num_experts, self.output_size, 1
-                ).clone(),
-                requires_grad=False,
-            )
-        self.is_2d = False
+            # Create a dense gating tensor with zeros for non-top-k experts
+            dense_gates = torch.zeros_like(logits, dtype=layer_input.dtype)
+            dense_gates.scatter_(1, top_k_indices, top_k_gates)
 
-    def forward(self, inputs, expert_size):
-        """Modified from original forward()"""
+            # Run all experts on all tokens
+            for i, expert in enumerate(self.experts):
+                outputs = expert(layer_input)                      # [num_tokens, hidden_dim]
+                layer_output += outputs * dense_gates[:, i].unsqueeze(1)
 
-        input_list = inputs.split(expert_size, dim=0)
-
-        weight_3d = self.weight.view(
-            self.num_experts, self.output_size, self.input_size
-        )
-        output_list = []
-        for i in range(self.num_experts):
-            output_list.append(torch.nn.functional.linear(input_list[i], weight_3d[i]))
-
-        results = torch.cat(output_list, dim=0)
-        return results
-
-    def __repr__(self):
-        if self.is_2d:
-            sizes_str = f"(out={self.weight.shape[0]},in={self.weight.shape[1]})"
         else:
-            sizes_str = (
-                f"(exp={self.weight.shape[0]},out={self.weight.shape[1]},"
-                f"in={self.weight.shape[2]})"
-            )
-        return f"{self.__class__.__name__}{sizes_str}"
+            # ----------------------------------------------------
+            # Sparse routing mode (normal inference)
+            # ----------------------------------------------------
+            expert_inputs = layer_input[batch_index]
+            input_splits = expert_inputs.split(expert_size, dim=0)
+            gate_splits = batch_gates.split(expert_size, dim=0)
+            index_splits = batch_index.split(expert_size, dim=0)
+
+            for i, expert in enumerate(self.experts):
+                if expert_size[i] == 0:
+                    continue
+                outputs = expert(input_splits[i])
+                outputs = outputs * gate_splits[i].unsqueeze(1)
+                layer_output.index_add_(0, index_splits[i], outputs)
+
+        # --- Restore shape [B, T, H] ---
+        layer_output = layer_output.view(bsz, seq_len, hidden_dim)
+        return layer_output
+
+def replace(
+    config: GraniteMoeHybridConfig, 
+    module: GraniteMoeHybridParallelExperts, 
+    calibrate_all_experts: bool,
+):
+    return SequentialGraniteMoeHybridMoE(
+        config=config,
+        original=module,
+        calibrate_all_experts=calibrate_all_experts,
+    )

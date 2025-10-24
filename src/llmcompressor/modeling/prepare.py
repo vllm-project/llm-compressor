@@ -7,6 +7,7 @@ from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
 from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
 from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
+from llmcompressor.modeling.granite4 import replace as replace_granite4
 from llmcompressor.utils.helpers import patch_attr
 
 __all__ = ["replace_modules_for_calibration"]
@@ -15,6 +16,7 @@ __all__ = ["replace_modules_for_calibration"]
 replacements = {
     "DeepseekV3MoE": replace_deepseekv3,
     "Llama4TextMoe": replace_llama4,
+    "GraniteMoeHybridParallelExperts": replace_granite4,
     "Qwen3VLMoeTextSparseMoeBlock": replace_Qwen3VLMoE,
 }
 
