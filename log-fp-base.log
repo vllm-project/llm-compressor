@@ -1,0 +1,233 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.13, pytest-8.4.2, pluggy-1.6.0 -- /home/HDCharles/rhdev/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/HDCharles/repos/llm-compressor
+configfile: pyproject.toml
+plugins: anyio-4.11.0
+collecting ... collected 1 item
+
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4.yaml] 2025-10-24T02:35:54.993323+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-24T02:35:54.993445+0000 | set_up | INFO - TinyLlama-1.1B-Chat-v1.0-NVFP4
+`torch_dtype` is deprecated! Use `dtype` instead!
+2025-10-24T02:35:59.549969+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
+2025-10-24T02:36:00.584465+0000 | reset | INFO - Compression lifecycle reset
+2025-10-24T02:36:00.589231+0000 | _create_default_logger | INFO - Logging all LLM Compressor modifier-level logs to sparse_logs/24-10-2025_02.36.00.log
+2025-10-24T02:36:00.589578+0000 | from_modifiers | INFO - Creating recipe from modifiers
+2025-10-24T02:36:00.627125+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
+2025-10-24T02:36:00.627464+0000 | IndependentPipeline | INFO - Inferred `SequentialPipeline` for `QuantizationModifier`
+Updating global scales:   0%|          | 0/154 [00:00<?, ?it/s]Updating global scales:  13%|█▎        | 20/154 [00:00<00:00, 195.82it/s]Updating global scales:  37%|███▋      | 57/154 [00:00<00:00, 295.82it/s]Updating global scales:  62%|██████▏   | 96/154 [00:00<00:00, 336.20it/s]Updating global scales:  86%|████████▋ | 133/154 [00:00<00:00, 345.33it/s]Updating global scales: 100%|██████████| 154/154 [00:00<00:00, 332.17it/s]
+Fusing global scales: 0it [00:00, ?it/s]Fusing global scales: 276it [00:00, 2692.58it/s]Fusing global scales: 559it [00:00, 2721.13it/s]Fusing global scales: 601it [00:00, 2787.77it/s]
+Calibrating weights:   0%|          | 0/154 [00:00<?, ?it/s]Calibrating weights:   5%|▌         | 8/154 [00:00<00:01, 75.55it/s]Calibrating weights:  10%|█         | 16/154 [00:00<00:04, 29.40it/s]Calibrating weights:  19%|█▉        | 30/154 [00:00<00:02, 55.29it/s]Calibrating weights:  30%|██▉       | 46/154 [00:00<00:01, 81.52it/s]Calibrating weights:  40%|████      | 62/154 [00:00<00:00, 100.26it/s]Calibrating weights:  51%|█████     | 78/154 [00:00<00:00, 116.09it/s]Calibrating weights:  62%|██████▏   | 96/154 [00:01<00:00, 130.80it/s]Calibrating weights:  73%|███████▎  | 112/154 [00:01<00:00, 136.16it/s]Calibrating weights:  84%|████████▍ | 130/154 [00:01<00:00, 148.29it/s]Calibrating weights:  95%|█████████▍| 146/154 [00:01<00:00, 147.93it/s]Calibrating weights: 100%|██████████| 154/154 [00:01<00:00, 111.20it/s]
+Preparing cache:   0%|          | 0/20 [00:00<?, ?it/s]Preparing cache:  85%|████████▌ | 17/20 [00:00<00:00, 169.98it/s]Preparing cache: 100%|██████████| 20/20 [00:00<00:00, 166.20it/s]
+(1/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](1/23): Calibrating:   5%|▌         | 1/20 [00:01<00:26,  1.42s/it](1/23): Calibrating:  45%|████▌     | 9/20 [00:01<00:01,  7.96it/s](1/23): Calibrating:  85%|████████▌ | 17/20 [00:01<00:00, 16.22it/s](1/23): Calibrating: 100%|██████████| 20/20 [00:01<00:00, 12.05it/s]
+(1/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](1/23): Propagating:  40%|████      | 8/20 [00:00<00:00, 32.76it/s](1/23): Propagating:  95%|█████████▌| 19/20 [00:00<00:00, 61.27it/s](1/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 56.62it/s]
+(2/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](2/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 85.66it/s](2/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 100.23it/s]
+(2/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](2/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 114.17it/s](2/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 117.66it/s]
+(3/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](3/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 87.36it/s](3/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 101.46it/s]
+(3/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](3/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 111.90it/s](3/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 115.69it/s]
+(4/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](4/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 87.48it/s](4/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 100.87it/s]
+(4/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](4/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 114.89it/s](4/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 119.22it/s]
+(5/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](5/23): Calibrating:   5%|▌         | 1/20 [00:00<00:02,  6.57it/s](5/23): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 59.52it/s](5/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 62.48it/s]
+(5/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](5/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 115.81it/s](5/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 116.88it/s]
+(6/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](6/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 88.44it/s](6/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 102.04it/s]
+(6/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](6/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 113.77it/s](6/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 118.22it/s]
+(7/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](7/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 88.43it/s](7/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 102.08it/s]
+(7/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](7/23): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 121.51it/s](7/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 121.60it/s]
+(8/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](8/23): Calibrating:   5%|▌         | 1/20 [00:00<00:05,  3.27it/s](8/23): Calibrating:  60%|██████    | 12/20 [00:00<00:00, 37.09it/s](8/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 41.90it/s]
+(8/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](8/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 111.61it/s](8/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 115.36it/s]
+(9/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](9/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 89.27it/s](9/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 102.20it/s]
+(9/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](9/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 116.37it/s](9/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 119.00it/s]
+(10/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](10/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 88.72it/s](10/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 101.75it/s]
+(10/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](10/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 116.91it/s](10/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 119.73it/s]
+(11/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](11/23): Calibrating:   5%|▌         | 1/20 [00:00<00:06,  3.09it/s](11/23): Calibrating:  60%|██████    | 12/20 [00:00<00:00, 35.35it/s](11/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 40.32it/s]
+(11/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](11/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 112.89it/s](11/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 117.79it/s]
+(12/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](12/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 88.39it/s](12/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 102.03it/s]
+(12/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](12/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 113.36it/s](12/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 116.00it/s]
+(13/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](13/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 89.53it/s](13/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 102.43it/s]
+(13/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](13/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 114.38it/s](13/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 116.12it/s]
+(14/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](14/23): Calibrating:   5%|▌         | 1/20 [00:00<00:05,  3.24it/s](14/23): Calibrating:  60%|██████    | 12/20 [00:00<00:00, 36.82it/s](14/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 41.66it/s]
+(14/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](14/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 111.34it/s](14/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 116.35it/s]
+(15/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](15/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 86.49it/s](15/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 100.29it/s]
+(15/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](15/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 111.48it/s](15/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 115.55it/s]
+(16/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](16/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 85.87it/s](16/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 98.43it/s]
+(16/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](16/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 112.49it/s](16/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 117.56it/s]
+(17/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](17/23): Calibrating:   5%|▌         | 1/20 [00:00<00:05,  3.19it/s](17/23): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 38.80it/s](17/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 41.43it/s]
+(17/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](17/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 111.20it/s](17/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 115.88it/s]
+(18/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](18/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 86.55it/s](18/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 100.72it/s]
+(18/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](18/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 112.01it/s](18/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 117.17it/s]
+(19/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](19/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 88.32it/s](19/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 101.99it/s]
+(19/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](19/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 114.34it/s](19/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 118.96it/s]
+(20/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](20/23): Calibrating:   5%|▌         | 1/20 [00:00<00:05,  3.25it/s](20/23): Calibrating:  60%|██████    | 12/20 [00:00<00:00, 37.01it/s](20/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 41.90it/s]
+(20/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](20/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 112.79it/s](20/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 117.76it/s]
+(21/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](21/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 88.16it/s](21/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 101.11it/s]
+(21/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](21/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 112.79it/s](21/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 117.72it/s]
+(22/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](22/23): Calibrating:  45%|████▌     | 9/20 [00:00<00:00, 87.97it/s](22/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 101.60it/s]
+(22/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](22/23): Propagating:  60%|██████    | 12/20 [00:00<00:00, 113.11it/s](22/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 116.82it/s]
+(23/23): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](23/23): Calibrating:   5%|▌         | 1/20 [00:00<00:05,  3.45it/s](23/23): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 61.85it/s]
+(23/23): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](23/23): Propagating: 100%|██████████| 20/20 [00:00<00:00, 997.31it/s]
+2025-10-24T02:36:15.617341+0000 | finalize | INFO - Compression lifecycle finalized for 1 modifiers
+2025-10-24T02:36:15.646470+0000 | post_process | WARNING - Optimized model is not saved. To save, please provide`output_dir` as input arg.Ex. `oneshot(..., output_dir=...)`
+2025-10-24T02:36:15.652393+0000 | test_vllm | INFO - ================= SAVING TO DISK ======================
+2025-10-24T02:36:15.652555+0000 | get_model_compressor | INFO - skip_sparsity_compression_stats set to True. Skipping sparsity compression statistic calculations. No sparsity compressor will be applied.
+Compressing model: 0it [00:00, ?it/s]Compressing model: 1it [00:05,  5.55s/it]Compressing model: 2it [00:05,  2.45s/it]Compressing model: 6it [00:05,  1.70it/s]Compressing model: 10it [00:06,  3.40it/s]Compressing model: 13it [00:06,  4.90it/s]Compressing model: 18it [00:06,  8.26it/s]Compressing model: 21it [00:06,  9.74it/s]Compressing model: 26it [00:06, 14.29it/s]Compressing model: 30it [00:06, 16.97it/s]Compressing model: 34it [00:06, 19.53it/s]Compressing model: 39it [00:06, 24.67it/s]Compressing model: 43it [00:07, 23.52it/s]Compressing model: 48it [00:07, 26.58it/s]Compressing model: 53it [00:07, 30.97it/s]Compressing model: 57it [00:07, 27.34it/s]Compressing model: 62it [00:07, 29.61it/s]Compressing model: 67it [00:07, 33.50it/s]Compressing model: 71it [00:08, 28.91it/s]Compressing model: 76it [00:08, 30.76it/s]Compressing model: 81it [00:08, 34.43it/s]Compressing model: 85it [00:08, 29.33it/s]Compressing model: 90it [00:08, 31.17it/s]Compressing model: 95it [00:08, 34.43it/s]Compressing model: 99it [00:08, 29.53it/s]Compressing model: 104it [00:09, 31.30it/s]Compressing model: 109it [00:09, 34.79it/s]Compressing model: 113it [00:09, 29.72it/s]Compressing model: 118it [00:09, 31.37it/s]Compressing model: 123it [00:09, 34.90it/s]Compressing model: 127it [00:09, 29.83it/s]Compressing model: 132it [00:09, 31.58it/s]Compressing model: 137it [00:10, 35.20it/s]Compressing model: 141it [00:10, 29.62it/s]Compressing model: 146it [00:10, 31.40it/s]Compressing model: 151it [00:10, 35.01it/s]Compressing model: 154it [00:10, 14.43it/s]
+2025-10-24T02:36:29.925743+0000 | reset | INFO - Compression lifecycle reset
+2025-10-24T02:36:29.926075+0000 | _run_vllm | INFO - Run vllm in subprocess.Popen() using python env:
+2025-10-24T02:36:29.926147+0000 | _run_vllm | INFO - /home/HDCharles/rhdev/bin/python3
+2025-10-24T02:36:32.057011+0000 | _run_vllm | INFO - INFO 10-24 02:36:31 [__init__.py:225] Automatically detected platform cuda.
+
+FAILED
+
+=================================== FAILURES ===================================
+_ TestvLLM.test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4.yaml] _
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7faa97b2ba10>
+test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4.yaml'
+
+    def test_vllm(self, test_data_file: str):
+        # Run vLLM with saved model
+    
+        self.set_up(test_data_file)
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+            model=self.model,
+            model_class=self.model_class,
+            num_calibration_samples=self.num_calibration_samples,
+            max_seq_length=self.max_seq_length,
+            scheme=self.scheme,
+            dataset_id=self.dataset_id,
+            dataset_config=self.dataset_config,
+            dataset_split=self.dataset_split,
+            recipe=self.recipe,
+            quant_type=self.quant_type,
+        )
+    
+        # check that session contains recipe
+        self._check_session_contains_recipe()
+    
+        logger.info("================= SAVING TO DISK ======================")
+        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+    
+        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+    
+        # check that expected files exist
+        self._check_save_dir_has_expected_files()
+    
+        # Use the session to fetch the recipe;
+        # Reset session for next test case
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        with open(recipe_path, "w") as fp:
+            fp.write(recipe_yaml_str)
+        session.reset()
+    
+        # if SKIP_HF_UPLOAD.lower() != "yes":
+        #     logger.info("================= UPLOADING TO HUB ======================")
+    
+        #     stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+    
+        #     self.api.create_repo(
+        #         repo_id=stub,
+        #         exist_ok=True,
+        #         repo_type="model",
+        #         private=False,
+        #     )
+    
+        #     self.api.upload_folder(
+        #         repo_id=stub,
+        #         folder_path=self.save_dir,
+        #     )
+    
+        # if VLLM_PYTHON_ENV.lower() == "same":
+        #     logger.info("========== RUNNING vLLM in the same python env ==========")
+        # else:
+        #     logger.info("========== RUNNING vLLM in a separate python env ==========")
+    
+>       self._run_vllm(logger)
+
+tests/e2e/vLLM/test_vllm.py:159: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_timer/timer_utils.py:33: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7faa97b2ba10>
+logger = <loguru.logger handlers=[(id=2, level=20, sink=<stdout>), (id=3, level=10, sink='sparse_logs/oneshot_2025-10-24_02-35-59.log'), (id=4, level=10, sink='sparse_logs/24-10-2025_02.36.00.log')]>
+
+    @log_time
+    def _run_vllm(self, logger):
+        import json
+        import subprocess
+    
+        llm_kwargs = {"model": self.save_dir}
+    
+        if self.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+    
+        json_scheme = json.dumps(self.scheme)
+        json_llm_kwargs = json.dumps(llm_kwargs)
+        json_prompts = json.dumps(self.prompts)
+    
+        test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+    
+        logger.info("Run vllm in subprocess.Popen() using python env:")
+        logger.info(self.vllm_env)
+    
+        result = subprocess.Popen(
+            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
+    
+        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+>       assert result.returncode == 0, error_msg
+E       AssertionError: ERROR: vLLM failed with exit code 1: Traceback (most recent call last):
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 5, in <module>
+E             from vllm import LLM, SamplingParams
+E           File "/home/HDCharles/repos/vllm/vllm/__init__.py", line 74, in __getattr__
+E             module = import_module(module_name, __package__)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/importlib/__init__.py", line 126, in import_module
+E             return _bootstrap._gcd_import(name[level:], package, level)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/entrypoints/llm.py", line 20, in <module>
+E             from vllm.config import (
+E           File "/home/HDCharles/repos/vllm/vllm/config/__init__.py", line 5, in <module>
+E             from vllm.config.compilation import (
+E           File "/home/HDCharles/repos/vllm/vllm/config/compilation.py", line 18, in <module>
+E             from vllm.platforms import current_platform
+E           File "/home/HDCharles/repos/vllm/vllm/platforms/__init__.py", line 255, in __getattr__
+E             _current_platform = resolve_obj_by_qualname(platform_cls_qualname)()
+E                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/utils/import_utils.py", line 46, in resolve_obj_by_qualname
+E             module = importlib.import_module(module_name)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/importlib/__init__.py", line 126, in import_module
+E             return _bootstrap._gcd_import(name[level:], package, level)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/platforms/cuda.py", line 16, in <module>
+E             import vllm._C  # noqa
+E             ^^^^^^^^^^^^^^
+E         ImportError: /home/HDCharles/repos/vllm/vllm/_C.abi3.so: undefined symbol: _ZNK3c106SymInt22maybe_as_int_slow_pathEv
+E         
+E       assert 1 == 0
+E        +  where 1 = <Popen: returncode: 1 args: ['/home/HDCharles/rhdev/bin/python3', '/home/HDC...>.returncode
+
+tests/e2e/vLLM/test_vllm.py:216: AssertionError
+=============================== warnings summary ===============================
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4.yaml]
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4.yaml]
+  <frozen importlib._bootstrap>:241: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4.yaml]
+======================== 1 failed, 2 warnings in 42.39s ========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

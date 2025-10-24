@@ -1,0 +1,98 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.13, pytest-8.4.2, pluggy-1.6.0 -- /home/HDCharles/rhdev/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/HDCharles/repos/llm-compressor
+configfile: pyproject.toml
+plugins: anyio-4.11.0
+collecting ... collected 1 item
+
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml] 2025-10-24T02:34:53.788832+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-24T02:34:53.788949+0000 | set_up | INFO - Qwen3-Omni-30B-A3B-Instruct-W4A16
+`torch_dtype` is deprecated! Use `dtype` instead!
+Unrecognized keys in `rope_scaling` for 'rope_type'='default': {'mrope_interleaved', 'interleaved', 'mrope_section'}
+Unrecognized keys in `rope_scaling` for 'rope_type'='default': {'interleaved', 'mrope_section'}
+Loading checkpoint shards:   0%|          | 0/15 [00:00<?, ?it/s]Loading checkpoint shards:   7%|▋         | 1/15 [00:00<00:06,  2.05it/s]Loading checkpoint shards:  13%|█▎        | 2/15 [00:01<00:06,  1.93it/s]Loading checkpoint shards:  20%|██        | 3/15 [00:01<00:06,  1.89it/s]Loading checkpoint shards:  27%|██▋       | 4/15 [00:02<00:05,  1.87it/s]Loading checkpoint shards:  33%|███▎      | 5/15 [00:02<00:05,  1.87it/s]Loading checkpoint shards:  40%|████      | 6/15 [00:03<00:04,  1.85it/s]Loading checkpoint shards:  47%|████▋     | 7/15 [00:03<00:04,  1.85it/s]Loading checkpoint shards:  53%|█████▎    | 8/15 [00:04<00:03,  1.84it/s]Loading checkpoint shards:  60%|██████    | 9/15 [00:04<00:03,  1.84it/s]Loading checkpoint shards:  67%|██████▋   | 10/15 [00:05<00:02,  1.85it/s]Loading checkpoint shards:  73%|███████▎  | 11/15 [00:05<00:02,  1.84it/s]Loading checkpoint shards:  80%|████████  | 12/15 [00:06<00:01,  1.82it/s]Loading checkpoint shards:  87%|████████▋ | 13/15 [00:08<00:01,  1.15it/s]Loading checkpoint shards:  93%|█████████▎| 14/15 [00:15<00:02,  2.93s/it]Loading checkpoint shards: 100%|██████████| 15/15 [00:15<00:00,  1.05s/it]
+The image processor of type `Qwen2VLImageProcessor` is now loaded as a fast processor by default, even if the model checkpoint was saved with a slow processor. This is a breaking change and may produce slightly different outputs. To continue using the slow processor, instantiate this class with `use_fast=False`. Note that this behavior will be extended to all models in a future release.
+2025-10-24T02:35:19.047758+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
+2025-10-24T02:35:21.798866+0000 | untie_word_embeddings | WARNING - cannot untie model of type <class 'transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe.Qwen3OmniMoeForConditionalGeneration'> which doesn't have get_input_embeddings and get_output_embeddings implmented
+`get_input_embeddings` not auto‑handled for Qwen3OmniMoeForConditionalGeneration; please override in the subclass.
+2025-10-24T02:35:21.803447+0000 | reset | INFO - Compression lifecycle reset
+2025-10-24T02:35:21.862006+0000 | _create_default_logger | INFO - Logging all LLM Compressor modifier-level logs to sparse_logs/24-10-2025_02.35.21.log
+2025-10-24T02:35:21.862319+0000 | from_modifiers | INFO - Creating recipe from modifiers
+2025-10-24T02:35:22.077292+0000 | strategy_cdiv | WARNING - group quantization strategy requires strict division of weight/activation size 4304 and group/block size 128. consider reducing the group/block size or ignoring modules with weights not divisible by 128
+2025-10-24T02:35:24.784897+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
+2025-10-24T02:35:24.785059+0000 | IndependentPipeline | INFO - Inferred `SequentialPipeline` for `GPTQModifier`
+FAILED
+
+=================================== FAILURES ===================================
+_ TestvLLM.test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml] _
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fdf9015bbd0>
+test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml'
+
+    def test_vllm(self, test_data_file: str):
+        # Run vLLM with saved model
+    
+        self.set_up(test_data_file)
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+>       oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+            model=self.model,
+            model_class=self.model_class,
+            num_calibration_samples=self.num_calibration_samples,
+            max_seq_length=self.max_seq_length,
+            scheme=self.scheme,
+            dataset_id=self.dataset_id,
+            dataset_config=self.dataset_config,
+            dataset_split=self.dataset_split,
+            recipe=self.recipe,
+            quant_type=self.quant_type,
+        )
+
+tests/e2e/vLLM/test_vllm.py:105: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/e2e/e2e_utils.py:85: in run_oneshot_for_e2e_testing
+    _run_oneshot(**oneshot_kwargs)
+tests/test_timer/timer_utils.py:33: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+tests/e2e/e2e_utils.py:26: in _run_oneshot
+    oneshot(**oneshot_kwargs)
+src/llmcompressor/entrypoints/oneshot.py:330: in oneshot
+    one_shot()
+src/llmcompressor/entrypoints/oneshot.py:158: in __call__
+    self.apply_recipe_modifiers(
+src/llmcompressor/entrypoints/oneshot.py:201: in apply_recipe_modifiers
+    pipeline(
+src/llmcompressor/pipelines/independent/pipeline.py:45: in __call__
+    pipeline(model, dataloader, dataset_args)
+src/llmcompressor/pipelines/sequential/pipeline.py:71: in __call__
+    subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/llmcompressor/pipelines/sequential/helpers.py:120: in trace_subgraphs
+    stack.enter_context(autowrap_forwards(ancestors, ignore))
+../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:517: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+src/llmcompressor/pipelines/sequential/ast_helpers.py:33: in autowrap_forwards
+    stack.enter_context(autowrap_forward(module, ignore))
+../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:517: in enter_context
+    result = _enter(cm)
+             ^^^^^^^^^^
+../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:137: in __enter__
+    return next(self.gen)
+           ^^^^^^^^^^^^^^
+src/llmcompressor/pipelines/sequential/ast_helpers.py:69: in autowrap_forward
+    exec(code, namespace)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   NameError: name 'module' is not defined
+
+Qwen3OmniMoeForConditionalGeneration_8788127665849_autowrapped:1: NameError
+=========================== short test summary info ============================
+FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml]
+============================== 1 failed in 40.33s ==============================
