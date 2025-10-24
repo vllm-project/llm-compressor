@@ -1,6 +1,10 @@
 from typing import Any, Dict, List, Optional, Set, Union
 
 import torch
+from compressed_tensors.modeling import (
+    IMPL_ATTR,
+    KV_CACHE_ATTR,
+)
 from compressed_tensors.quantization import (
     DynamicType,
     QuantizationArgs,
@@ -21,12 +25,12 @@ from torch.utils.hooks import RemovableHandle
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     calibrate_input_hook,
-    calibrate_kv_cache_input_hook,
-    calibrate_kv_cache_output_hook,
+    calibrate_key_hook,
     calibrate_output_hook,
+    calibrate_query_hook,
+    calibrate_value_hook,
     freeze_module_quantization,
     initialize_observer,
-    initialize_quantized_kv_cache,
     reset_quantization_status,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -145,6 +149,11 @@ class QuantizationMixin(HooksMixin):
         for config_group in self.resolved_config.config_groups.values():
             for target in config_group.targets:
                 targets.add(target)
+
+        if self.resolved_config.kv_cache_scheme is not None:
+            # TODO: decouple reliance on this regex for matching attention
+            targets.add("re:.*self_attn$")
+
         return targets
 
     def initialize_quantization(self, model: torch.nn.Module):
@@ -170,9 +179,9 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        self._calibration_hooks = self._initialize_hooks(model)
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
+            self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
@@ -260,60 +269,51 @@ class QuantizationMixin(HooksMixin):
 
         # input activations
         if input:
-            initialize_observer(module, base_name="input")
+            if not is_attention:
+                initialize_observer(module, base_name="input")
+            else:
+                if hasattr(module, IMPL_ATTR):
+                    initialize_observer(module, base_name="q")
+                if hasattr(module, KV_CACHE_ATTR):
+                    initialize_observer(module, base_name="k")
+                    initialize_observer(module, base_name="v")
 
         # weight observers (used by `update_weight_zp_scale` or child modifier)
         if weight:
             initialize_observer(module, base_name="weight")
 
-        # kv_cache activations. Within `apply_quantization_config`, the config is
-        # modified to use attention output quantization if a kv_cache_scheme exists
-        if is_attention and output:
-            initialize_quantized_kv_cache(module)
-
         # output activations
-        elif output:
+        if output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, model: torch.nn.Module) -> Set[RemovableHandle]:
+    def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
         hooks = set()
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
-            if not hasattr(module, "quantization_scheme"):
-                continue
+        if not hasattr(module, "quantization_scheme"):
+            return hooks
 
-            scheme: QuantizationScheme = module.quantization_scheme
-            input = scheme.input_activations and scheme.input_activations.dynamic in (
-                False,
-                DynamicType.LOCAL,
-            )
-            output = scheme.output_activations and not scheme.output_activations.dynamic
-            is_attention = is_attention_module(module)
+        scheme: QuantizationScheme = module.quantization_scheme
+        input = scheme.input_activations and scheme.input_activations.dynamic in (
+            False,
+            DynamicType.LOCAL,
+        )
+        output = scheme.output_activations and not scheme.output_activations.dynamic
+        is_attention = is_attention_module(module)
 
-            # input activations
-            if input:
+        # input activations
+        if input:
+            if not is_attention:
                 hooks.add(
                     self.register_hook(module, calibrate_input_hook, "forward_pre")
                 )
+            else:
+                if hasattr(module, IMPL_ATTR):
+                    hooks.add(self.register_hook(module, calibrate_query_hook, "query"))
+                if hasattr(module, KV_CACHE_ATTR):
+                    hooks.add(self.register_hook(module, calibrate_key_hook, "key"))
+                    hooks.add(self.register_hook(module, calibrate_value_hook, "value"))
 
-            # kv_cache activations. Within `apply_quantization_config`, the config is
-            # modified to use attention output quantization if a kv_cache_scheme exists
-            if is_attention and output:
-                hooks.add(
-                    self.register_hook(
-                        module,
-                        calibrate_kv_cache_input_hook,
-                        "forward_pre",
-                        with_kwargs=True,
-                    )
-                )
-                hooks.add(
-                    self.register_hook(
-                        module, calibrate_kv_cache_output_hook, "forward"
-                    )
-                )
-
-            # output activations
-            elif output:
-                hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
+        # output activations
+        if output:
+            hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks

@@ -52,6 +52,8 @@ def flatten_for_calibration(
 def _flatten_weight(
     value: torch.Tensor, args: QuantizationArgs, g_idx: Optional[torch.Tensor] = None
 ):
+    # value.shape = (num_rows, num_cols)
+
     if args.strategy == QuantizationStrategy.TENSOR:
         # (1, 1, num_weight_elems)
         return value.reshape((1, 1, -1))
@@ -83,10 +85,15 @@ def _flatten_weight(
             .unsqueeze(0)
         )
 
+    if args.strategy == QuantizationStrategy.ATTN_HEAD:
+        raise ValueError("Attention head quantization cannot be applied to weights")
+
     assert False, f"Unknown strategy {args.strategy}"
 
 
 def _flatten_activation(value: torch.Tensor, args: QuantizationArgs):
+    # value.shape = (batch_size, seq_len, hidden_dim)
+
     if args.strategy == QuantizationStrategy.TENSOR:
         # (batch_size * seq_len, 1, hidden_dim)
         return value.reshape((-1, 1, value.size(-1)))
@@ -107,14 +114,18 @@ def _flatten_activation(value: torch.Tensor, args: QuantizationArgs):
     if args.strategy == QuantizationStrategy.BLOCK:
         raise ValueError("Block quantization cannot be applied to activations")
 
+    if args.strategy == QuantizationStrategy.ATTN_HEAD:
+        raise ValueError("Attention head quantization cannot be applied to activations")
+
     assert False, f"Unknown strategy {args.strategy}"
 
 
 def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
+    # value.shape = (batch_size, num_heads, seq_len, head_dim)
+
     if args.strategy == QuantizationStrategy.TENSOR:
-        # (batch_size, seq_len, num_heads, head_dim)
         # (batch_size * seq_len, 1, num_heads * head_dim)
-        return value.flatten(0, 1).flatten(-2, -1).unsqueeze(-2)
+        return value.transpose(1, 2).flatten(0, 1).flatten(-2, -1).unsqueeze(-2)
 
     if args.strategy == QuantizationStrategy.TOKEN:
         raise ValueError("Token quantization cannot be applied to attention")
@@ -127,5 +138,9 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
 
     if args.strategy == QuantizationStrategy.BLOCK:
         raise ValueError("Block quantization cannot be applied to attention")
+
+    if args.strategy == QuantizationStrategy.ATTN_HEAD:
+        # (batch_size * seq_len, num_heads, 1, 1, head_dim)
+        return value.transpose(1, 2).flatten(0, 1).unsqueeze(-2).unsqueeze(-2)
 
     assert False, f"Unknown strategy {args.strategy}"
