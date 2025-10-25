@@ -10,7 +10,6 @@ workflows.
 import inspect
 import os
 from pathlib import PosixPath
-from typing import Optional, Tuple
 
 from compressed_tensors.utils import remove_dispatch
 from loguru import logger
@@ -47,7 +46,7 @@ from llmcompressor.utils.fsdp.helpers import is_fsdp_model
 def pre_process(
     model_args: ModelArguments,
     dataset_args: DatasetArguments,
-    output_dir: Optional[str],
+    output_dir: str | None,
 ):
     """
     Prepares the model and tokenizer/processor for calibration.
@@ -102,9 +101,9 @@ def pre_process(
 
 
 def post_process(
-    model_args: Optional["ModelArguments"] = None,
-    recipe_args: Optional["RecipeArguments"] = None,
-    output_dir: Optional[str] = None,
+    model_args: "ModelArguments" | None = None,
+    recipe_args: "RecipeArguments" | None = None,
+    output_dir: str | None = None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -151,8 +150,8 @@ def post_process(
 
 def initialize_model_from_path(
     model_args: ModelArguments,
-    training_args: Optional[TrainingArguments] = None,
-) -> Tuple[PreTrainedModel, Optional[PreTrainedModel]]:
+    training_args: TrainingArguments | None = None,
+) -> tuple[PreTrainedModel, PreTrainedModel | None]:
     # Load pretrained model
     # The .from_pretrained methods guarantee that only one local process can
     # concurrently download model & vocab.
@@ -240,7 +239,7 @@ def initialize_model_from_path(
 def initialize_processor_from_path(
     model_args: ModelArguments,
     model: PreTrainedModel,
-    teacher: Optional[PreTrainedModel] = None,
+    teacher: PreTrainedModel | None = None,
 ) -> Processor:
     processor_src = model_args.processor or get_processor_name_from_model(
         model, teacher
@@ -279,7 +278,7 @@ def initialize_processor_from_path(
     return processor
 
 
-def get_processor_name_from_model(student: Module, teacher: Optional[Module]) -> str:
+def get_processor_name_from_model(student: Module, teacher: Module | None) -> str:
     """
     Get a processor/tokenizer source used for both student and teacher, assuming
     that they could be shared
