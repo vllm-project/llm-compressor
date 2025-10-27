@@ -55,10 +55,8 @@ class SequentialLlama4TextMoe(MoECalibrationModule):
         calibrate_all_experts: bool = True,
     ) -> "SequentialLlama4TextMoe":
         """Create calibration module from original Llama4TextMoe."""
-        # Extract text config from multimodal config if needed
-        text_config = (
-            config.get_text_config() if hasattr(config, "get_text_config") else config
-        )
+        # Extract text config from multimodal config
+        text_config = config.get_text_config()
         return cls(
             config=text_config,
             original=original,
