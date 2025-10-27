@@ -243,7 +243,7 @@ def oneshot(
     clear_sparse_session: bool = False,
     stage: str | None = None,
     # Dataset arguments
-    dataset: str | "Dataset" | "DatasetDict" | None = None,
+    dataset: "str | Dataset | DatasetDict | None" = None,
     dataset_config_name: str | None = None,
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
@@ -290,8 +290,8 @@ def oneshot(
         tag, or commit id).
 
     # Recipe arguments
-    :param recipe: Path to a LLM Compressor sparsification recipe, or a list of paths
-      to multiple LLM Compressor sparsification recipes.
+    :param recipe: Path to a LLM Compressor recipe, or a list of paths
+      to multiple LLM Compressor recipes.
     :param recipe_args: List of recipe arguments to evaluate, in the
         format "key1=value1", "key2=value2".
     :param clear_sparse_session: Whether to clear CompressionSession/

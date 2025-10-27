@@ -101,8 +101,8 @@ def pre_process(
 
 
 def post_process(
-    model_args: "ModelArguments" | None = None,
-    recipe_args: "RecipeArguments" | None = None,
+    model_args: ModelArguments | None = None,
+    recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
 ):
     """
