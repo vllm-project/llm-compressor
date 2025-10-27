@@ -196,6 +196,7 @@ class DatasetArguments(CustomDatasetArguments):
         default_factory=lambda: [
             "_update_causal_mask",
             "create_causal_mask",
+            "_update_mamba_mask",
             "make_causal_mask",
             "get_causal_mask",
             "mask_interface",
@@ -203,6 +204,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_4d_causal_attention_mask",
             "_prepare_fsmt_decoder_inputs",
             "_prepare_4d_causal_attention_mask_with_cache_position",
+            "_update_linear_attn_mask",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "

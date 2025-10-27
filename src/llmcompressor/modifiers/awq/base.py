@@ -139,8 +139,10 @@ class AWQModifier(Modifier, QuantizationMixin):
         default_factory=dict
     )
 
+    # NOTE: different name chosen to avoid collision with
+    # QuantizationMixin.validate_model_after, which must be called first
     @model_validator(mode="after")
-    def validate_model_after(model: "AWQModifier") -> "AWQModifier":
+    def validate_awq_after(model: "AWQModifier") -> "AWQModifier":
         """
         Confirm only one configuration for group_size, symmetric, and num_bits,
         as AWQ algorithm depends on it
@@ -266,7 +268,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         self.ended_ = True
 
         for _, module in tqdm(
-            match_named_modules(state.model, self.targets, self.ignore),
+            match_named_modules(state.model, self.resolved_targets, self.ignore),
             desc="Calibrating weights",
         ):
             update_weight_zp_scale(module)
