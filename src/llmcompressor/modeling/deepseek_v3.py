@@ -95,9 +95,9 @@ def replace(
 ):
     """
     Legacy replacement function.
-    Use CalibrationDeepseekV3MoE.from_original() instead.
+    Use CalibrationDeepseekV3MoE instead.
     """
-    return CalibrationDeepseekV3MoE.from_original(
+    return CalibrationDeepseekV3MoE(
         original=module,
         config=config,
         calibrate_all_experts=calibrate_all_experts,

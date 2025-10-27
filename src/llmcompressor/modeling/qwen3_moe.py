@@ -121,9 +121,9 @@ def replace(
 ):
     """
     Legacy replacement function.
-    Use CalibrationQwen3MoeSparseMoeBlock.from_original() instead.
+    Use CalibrationQwen3MoeSparseMoeBlock instead.
     """
-    return CalibrationQwen3MoeSparseMoeBlock.from_original(
+    return CalibrationQwen3MoeSparseMoeBlock(
         original=module,
         config=config,
         calibrate_all_experts=calibrate_all_experts,

@@ -126,9 +126,9 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
 def replace(config: Llama4Config, module: Llama4TextMoe, calibrate_all_experts: bool):
     """
     Legacy replacement function.
-    Use SequentialLlama4TextMoe.from_original() instead.
+    Use SequentialLlama4TextMoe instead.
     """
-    return SequentialLlama4TextMoe.from_original(
+    return SequentialLlama4TextMoe(
         original=module,
         config=config,
         calibrate_all_experts=calibrate_all_experts,
