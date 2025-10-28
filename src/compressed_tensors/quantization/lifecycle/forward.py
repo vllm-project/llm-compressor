@@ -277,8 +277,8 @@ def _process_quantization(
         if columns >= group_size:
             if columns % group_size != 0:
                 raise ValueError(
-                    "tensor column shape must be divisble "
-                    f"by the given group_size {group_size}"
+                    f"tensor must have columns divisble"
+                    f"by the given group_size {group_size} but got {columns}"
                 )
 
         # support column-order (default) quantization as well as other orderings
