@@ -7,6 +7,8 @@ models without additional training. Supports calibration-based compression
 with various pipeline configurations for efficient model optimization.
 """
 
+from __future__ import annotations
+
 import os
 from datetime import datetime
 from pathlib import Path
@@ -243,7 +245,7 @@ def oneshot(
     clear_sparse_session: bool = False,
     stage: str | None = None,
     # Dataset arguments
-    dataset: "str | Dataset | DatasetDict | None" = None,
+    dataset: str | Dataset | DatasetDict | None = None,
     dataset_config_name: str | None = None,
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
