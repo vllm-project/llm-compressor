@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any
 
 import torch
 from compressed_tensors.modeling import (
@@ -89,20 +89,26 @@ class QuantizationMixin(HooksMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
-    config_groups: Optional[Dict[str, QuantizationScheme]] = None
+    config_groups: dict[str, QuantizationScheme] | None = None
     # NOTE: targets is not the sole source of truth for finding all matching target
     # layers in a model. Additional information can be stored in `config_groups`
     # Use self.resolved_targets as source of truth.
-    targets: Union[str, List[str]] = Field(default_factory=lambda: ["Linear"])
-    ignore: List[str] = Field(default_factory=list)
-    scheme: Optional[Union[str, Dict[str, Any]]] = None
-    kv_cache_scheme: Optional[QuantizationArgs] = None
+    targets: str | list[str] | None = Field(default_factory=lambda: ["Linear"])
+    ignore: list[str] = Field(default_factory=list)
+    scheme: str | dict[str, Any] | None = None
+    kv_cache_scheme: QuantizationArgs | None = None
 
-    _calibration_hooks: Set[RemovableHandle] = PrivateAttr(default_factory=set)
-    _resolved_config: Optional[QuantizationConfig] = PrivateAttr(None)
+    _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _resolved_config: QuantizationConfig | None = PrivateAttr(None)
+
+    # NOTE: in some cases, we need to allow users to run instances of the
+    # QuantizationMixin without quantizing modules, e.g. when a user wants
+    # to run both AWQ and GPTQ before quantizing. Set this field to True
+    # on classes that subclass QuantiztaionMixin to allow for this.
+    _supports_disabling_quantization: bool = PrivateAttr(False)
 
     @field_validator("targets", mode="before")
-    def validate_targets(cls, value: Union[str, List[str]]) -> List[str]:
+    def validate_targets(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
             return [value]
 
@@ -110,8 +116,8 @@ class QuantizationMixin(HooksMixin):
 
     @field_validator("scheme", mode="before")
     def validate_scheme(
-        cls, value: Optional[Union[str, Dict[str, Any]]]
-    ) -> Optional[Union[str, Dict[str, Any]]]:
+        cls, value: str | dict[str, Any] | None
+    ) -> str | dict[str, Any] | None:
         if isinstance(value, str) and not is_preset_scheme(value):
             raise ValueError(
                 "`scheme` must either be a preset scheme name or a dictionary "
@@ -138,7 +144,7 @@ class QuantizationMixin(HooksMixin):
         return self._resolved_config
 
     @property
-    def resolved_targets(self) -> Set[str]:
+    def resolved_targets(self) -> set[str]:
         """
         Set of all resolved targets, i.e. all unique targets listed
         in resolved quantization config.
@@ -221,6 +227,12 @@ class QuantizationMixin(HooksMixin):
         kv_cache_scheme = self.kv_cache_scheme
         ignore = self.ignore
 
+        # NOTE: this will only happen if user explicitly sets targets=None
+        if targets is None and config_groups is None:
+            if self._supports_disabling_quantization:
+                return QuantizationConfig({})
+            raise ValueError("Please specify either `targets` or `config_groups`")
+
         if scheme is not None and config_groups is not None:
             raise ValueError("Please specify either `scheme` or `config_groups`")
 
@@ -286,7 +298,7 @@ class QuantizationMixin(HooksMixin):
         if output:
             initialize_observer(module, base_name="output")
 
-    def _initialize_hooks(self, module: torch.nn.Module) -> Set[RemovableHandle]:
+    def _initialize_hooks(self, module: torch.nn.Module) -> set[RemovableHandle]:
         hooks = set()
         if not hasattr(module, "quantization_scheme"):
             return hooks

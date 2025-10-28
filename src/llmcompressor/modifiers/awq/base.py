@@ -1,5 +1,4 @@
 import inspect
-from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -94,8 +93,6 @@ class AWQModifier(Modifier, QuantizationMixin):
         - on_finalize
             - clear resolved mappings and captured activations
 
-    :param sequential_targets: list of module names to compress in
-        the same calibration pass
     :param mappings: list activation layers to smooth, and which layers to
         scale the output such that activations are smoothed.
         Each entry of the mapping list should be a list itself, in which the first
@@ -118,26 +115,29 @@ class AWQModifier(Modifier, QuantizationMixin):
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
     # User-provided vars (in addition to QuantizationMixin args)
-    sequential_targets: Union[str, List[str], None] = None
-    mappings: Optional[List[AWQMapping]] = None
-    offload_device: Optional[torch.device] = None
+    mappings: list[AWQMapping] | None = None
+    offload_device: torch.device | None = None
     duo_scaling: bool = True
 
     # Private vars set during validation
-    _num_bits: Optional[int] = PrivateAttr(default=None)
-    _symmetric: Optional[bool] = PrivateAttr(default=None)
-    _group_size: Optional[int] = PrivateAttr(default=None)
+    _num_bits: int | None = PrivateAttr(default=None)
+    _symmetric: bool | None = PrivateAttr(default=None)
+    _group_size: int | None = PrivateAttr(default=None)
 
     # Private vars set during initialization, cleared during finalization
-    _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
+    _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
     # Cache list of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: Dict[Module, IntermediatesCache] = PrivateAttr(
+    _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
     # Dict[smooth layer name, (activation means, activation counts)]
-    _smooth_activation_means: Dict[str, Tuple[torch.FloatTensor, int]] = PrivateAttr(
+    _smooth_activation_means: dict[str, tuple[torch.FloatTensor, int]] = PrivateAttr(
         default_factory=dict
     )
+
+    # NOTE: in case a user wants to run both AWQ and GPTQ before quantizing,
+    # this is set to True
+    _supports_disabling_quantization: bool = PrivateAttr(True)
 
     # NOTE: different name chosen to avoid collision with
     # QuantizationMixin.validate_model_after, which must be called first
@@ -389,7 +389,7 @@ class AWQModifier(Modifier, QuantizationMixin):
 
         def cache_parent_kwargs_hook(
             module: torch.nn.Module,
-            args: Tuple[torch.Tensor, ...],
+            args: tuple[torch.Tensor, ...],
             kwargs,
         ):
             values = inspect.signature(module.forward).bind(*args, **kwargs)
@@ -398,7 +398,7 @@ class AWQModifier(Modifier, QuantizationMixin):
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
                 _module: torch.nn.Module,
-                args: Tuple[torch.Tensor, ...],
+                args: tuple[torch.Tensor, ...],
                 _output: torch.Tensor,
             ):
                 self._smooth_activation_means[smooth_name] = _accumulate_mean(
@@ -559,13 +559,13 @@ class AWQModifier(Modifier, QuantizationMixin):
             v.batch_intermediates.clear()
         self._assert_all_activations_consumed()
 
-    def _run_samples(self, module: Module) -> List[torch.Tensor]:
+    def _run_samples(self, module: Module) -> list[torch.Tensor]:
         outputs = [
             module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
         ]
         return [
             # If Tuple, assume that first argument is the input
-            output[0] if isinstance(output, Tuple) else output
+            output[0] if isinstance(output, tuple) else output
             for output in outputs
         ]
 
@@ -574,8 +574,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         x_mean: torch.Tensor,
         w_mean: torch.Tensor,
         parent_module: torch.nn.Module,
-        linears2scale: List[torch.nn.Linear],
-        fp16_outputs: List[torch.Tensor],
+        linears2scale: list[torch.nn.Linear],
+        fp16_outputs: list[torch.Tensor],
     ) -> torch.Tensor:
         """
         Compute loss and select best scales
@@ -667,8 +667,8 @@ class AWQModifier(Modifier, QuantizationMixin):
     @torch.no_grad()
     def _compute_loss(
         self,
-        fp16_outputs: List[torch.Tensor],
-        int_w_outputs: List[torch.Tensor],
+        fp16_outputs: list[torch.Tensor],
+        int_w_outputs: list[torch.Tensor],
         device: torch.device,
     ) -> torch.Tensor:
         loss = 0.0
@@ -746,8 +746,8 @@ def _pseudo_quantize_tensor(
 
 def _accumulate_mean(
     inp: torch.Tensor,
-    prev_mean_and_count: Optional[Tuple[torch.FloatTensor, int]],
-) -> Tuple[torch.FloatTensor, int]:
+    prev_mean_and_count: tuple[torch.FloatTensor, int] | None,
+) -> tuple[torch.FloatTensor, int]:
     sum_added = inp.sum(dim=0)
     num_added = inp.size(0)
     if prev_mean_and_count is None:
@@ -761,7 +761,7 @@ def _accumulate_mean(
     return (prev_sum + sum_added) / new_count, new_count
 
 
-def get_lowest_common_parent(names: List[str], module: Module) -> Tuple[str, Module]:
+def get_lowest_common_parent(names: list[str], module: Module) -> tuple[str, Module]:
     """
     Given a list of names, returns the lowest-scope common parent.
 
