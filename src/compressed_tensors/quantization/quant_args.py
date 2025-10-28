@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 __all__ = [
     "FP8_E4M3_DATA",
     "FP4_E2M1_DATA",
+    "BFLOAT16_DATA",
     "FloatArgs",
     "QuantizationType",
     "QuantizationStrategy",
@@ -38,9 +39,9 @@ __all__ = [
 class FloatArgs:
     exponent: int
     mantissa: int
-    bits: int
-    max: float
-    min: float
+    bits: Optional[int] = None
+    max: Optional[float] = None
+    min: Optional[float] = None
     dtype: Optional[torch.dtype] = None
 
 
@@ -74,6 +75,11 @@ class FP8_E4M3_DATA(FloatArgs):
     max = torch.finfo(torch.float8_e4m3fn).max
     min = torch.finfo(torch.float8_e4m3fn).min
     dtype = torch.float8_e4m3fn
+
+
+class BFLOAT16_DATA(FloatArgs):
+    exponent = 8
+    mantissa = 7
 
 
 class QuantizationType(str, Enum):
