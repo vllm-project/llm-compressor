@@ -277,7 +277,7 @@ def _process_quantization(
         if columns >= group_size:
             if columns % group_size != 0:
                 raise ValueError(
-                    f"tensor must have columns divisble"
+                    "tensor column shape must be divisble "
                     f"by the given group_size {group_size} but got {columns}"
                 )
 
