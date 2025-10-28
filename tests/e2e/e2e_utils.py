@@ -46,6 +46,7 @@ def run_oneshot_for_e2e_testing(
     )
 
     if dataset_id:
+        print(dataset_id, dataset_config, dataset_split)
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
         ds = ds.shuffle(seed=42).select(range(num_calibration_samples))
         ds = process_dataset(ds, processor, max_seq_length)

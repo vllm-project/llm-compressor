@@ -312,8 +312,11 @@ def process_dataset(
 
     else:
         raise NotImplementedError(f"Cannot preprocess dataset {ds.info.dataset_name}")
-
-    ds = ds.map(process, remove_columns=ds.column_names)
+    try:
+        ds = ds.map(process, remove_columns=ds.column_names)
+    except Exception as e:
+        print(e)
+        
 
     return ds
 

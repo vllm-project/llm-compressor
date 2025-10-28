@@ -4,5 +4,5 @@ model: Qwen/Qwen3-VL-30B-A3B-Instruct
 model_class: "Qwen3VLMoeForConditionalGeneration"
 scheme: NVFP4
 num_calibration_samples: 1
-dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_id: HuggingFaceM4/flickr30k
 dataset_split: train_sft

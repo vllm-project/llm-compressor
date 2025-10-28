@@ -6,10 +6,10 @@ configfile: pyproject.toml
 plugins: anyio-4.11.0
 collecting ... collected 1 item
 
-tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] 2025-10-24T02:35:40.486098+0000 | set_up | INFO - ========== RUNNING ==============
-2025-10-24T02:35:40.486217+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-NVFP4
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] 2025-10-24T16:30:26.528531+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-24T16:30:26.528659+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-NVFP4
 `torch_dtype` is deprecated! Use `dtype` instead!
-Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.35it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.18it/s]
+Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.15it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.01it/s]
 Map:   0%|          | 0/1 [00:00<?, ? examples/s]Map:   0%|          | 0/1 [00:00<?, ? examples/s]
 FAILED
 
@@ -53,7 +53,7 @@ timeout = None
 ../../rhdev/lib/python3.11/site-packages/transformers/image_utils.py:481: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-fp = <_io.BytesIO object at 0x7fed76cbe4d0>, mode = 'r'
+fp = <_io.BytesIO object at 0x7efdfae7a480>, mode = 'r'
 formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG', ...]
 
     def open(
@@ -178,13 +178,13 @@ formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG', ...]
             warnings.warn(message)
         msg = "cannot identify image file %r" % (filename if filename else fp)
 >       raise UnidentifiedImageError(msg)
-E       PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x7fed76cbe4d0>
+E       PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x7efdfae7a480>
 
 ../../rhdev/lib/python3.11/site-packages/PIL/Image.py:3560: UnidentifiedImageError
 
 During handling of the above exception, another exception occurred:
 
-self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fed78821290>
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7efdfb7a5d50>
 test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml'
 
     def test_vllm(self, test_data_file: str):
@@ -368,9 +368,9 @@ E
 E                       Additionally, the conservatorium has a strong alumni network, with graduates working in a wide range of musical fields around the world. This network can be a valuable resource for students and alumni as they navigate their careers and seek out new opportunities.
 E                       
 E                       Overall, the Sydney Conservatorium of Music is committed to supporting students and alumni as they transition into the music industry, and offers a range of internship and job placement opportunities to help them achieve success.<|im_end|>
-E                       . Failed with cannot identify image file <_io.BytesIO object at 0x7fed76cbe4d0>
+E                       . Failed with cannot identify image file <_io.BytesIO object at 0x7efdfae7a480>
 
 ../../rhdev/lib/python3.11/site-packages/transformers/image_utils.py:483: ValueError
 =========================== short test summary info ============================
 FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml]
-============================== 1 failed in 11.76s ==============================
+============================== 1 failed in 10.40s ==============================

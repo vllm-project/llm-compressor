@@ -6,28 +6,16 @@ configfile: pyproject.toml
 plugins: anyio-4.11.0
 collecting ... collected 1 item
 
-tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml] 2025-10-24T02:34:53.788832+0000 | set_up | INFO - ========== RUNNING ==============
-2025-10-24T02:34:53.788949+0000 | set_up | INFO - Qwen3-Omni-30B-A3B-Instruct-W4A16
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml] 2025-10-24T20:38:51.755537+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-24T20:38:51.755703+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-W4A16
 `torch_dtype` is deprecated! Use `dtype` instead!
-Unrecognized keys in `rope_scaling` for 'rope_type'='default': {'mrope_interleaved', 'interleaved', 'mrope_section'}
-Unrecognized keys in `rope_scaling` for 'rope_type'='default': {'interleaved', 'mrope_section'}
-Loading checkpoint shards:   0%|          | 0/15 [00:00<?, ?it/s]Loading checkpoint shards:   7%|▋         | 1/15 [00:00<00:06,  2.05it/s]Loading checkpoint shards:  13%|█▎        | 2/15 [00:01<00:06,  1.93it/s]Loading checkpoint shards:  20%|██        | 3/15 [00:01<00:06,  1.89it/s]Loading checkpoint shards:  27%|██▋       | 4/15 [00:02<00:05,  1.87it/s]Loading checkpoint shards:  33%|███▎      | 5/15 [00:02<00:05,  1.87it/s]Loading checkpoint shards:  40%|████      | 6/15 [00:03<00:04,  1.85it/s]Loading checkpoint shards:  47%|████▋     | 7/15 [00:03<00:04,  1.85it/s]Loading checkpoint shards:  53%|█████▎    | 8/15 [00:04<00:03,  1.84it/s]Loading checkpoint shards:  60%|██████    | 9/15 [00:04<00:03,  1.84it/s]Loading checkpoint shards:  67%|██████▋   | 10/15 [00:05<00:02,  1.85it/s]Loading checkpoint shards:  73%|███████▎  | 11/15 [00:05<00:02,  1.84it/s]Loading checkpoint shards:  80%|████████  | 12/15 [00:06<00:01,  1.82it/s]Loading checkpoint shards:  87%|████████▋ | 13/15 [00:08<00:01,  1.15it/s]Loading checkpoint shards:  93%|█████████▎| 14/15 [00:15<00:02,  2.93s/it]Loading checkpoint shards: 100%|██████████| 15/15 [00:15<00:00,  1.05s/it]
-The image processor of type `Qwen2VLImageProcessor` is now loaded as a fast processor by default, even if the model checkpoint was saved with a slow processor. This is a breaking change and may produce slightly different outputs. To continue using the slow processor, instantiate this class with `use_fast=False`. Note that this behavior will be extended to all models in a future release.
-2025-10-24T02:35:19.047758+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
-2025-10-24T02:35:21.798866+0000 | untie_word_embeddings | WARNING - cannot untie model of type <class 'transformers.models.qwen3_omni_moe.modeling_qwen3_omni_moe.Qwen3OmniMoeForConditionalGeneration'> which doesn't have get_input_embeddings and get_output_embeddings implmented
-`get_input_embeddings` not auto‑handled for Qwen3OmniMoeForConditionalGeneration; please override in the subclass.
-2025-10-24T02:35:21.803447+0000 | reset | INFO - Compression lifecycle reset
-2025-10-24T02:35:21.862006+0000 | _create_default_logger | INFO - Logging all LLM Compressor modifier-level logs to sparse_logs/24-10-2025_02.35.21.log
-2025-10-24T02:35:21.862319+0000 | from_modifiers | INFO - Creating recipe from modifiers
-2025-10-24T02:35:22.077292+0000 | strategy_cdiv | WARNING - group quantization strategy requires strict division of weight/activation size 4304 and group/block size 128. consider reducing the group/block size or ignoring modules with weights not divisible by 128
-2025-10-24T02:35:24.784897+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
-2025-10-24T02:35:24.785059+0000 | IndependentPipeline | INFO - Inferred `SequentialPipeline` for `GPTQModifier`
+Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.26it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.11it/s]
 FAILED
 
 =================================== FAILURES ===================================
 _ TestvLLM.test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml] _
 
-self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fdf9015bbd0>
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7f98af937150>
 test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml'
 
     def test_vllm(self, test_data_file: str):
@@ -51,48 +39,198 @@ test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4
 
 tests/e2e/vLLM/test_vllm.py:105: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-tests/e2e/e2e_utils.py:85: in run_oneshot_for_e2e_testing
-    _run_oneshot(**oneshot_kwargs)
-tests/test_timer/timer_utils.py:33: in wrapper
-    return func(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-tests/e2e/e2e_utils.py:26: in _run_oneshot
-    oneshot(**oneshot_kwargs)
-src/llmcompressor/entrypoints/oneshot.py:330: in oneshot
-    one_shot()
-src/llmcompressor/entrypoints/oneshot.py:158: in __call__
-    self.apply_recipe_modifiers(
-src/llmcompressor/entrypoints/oneshot.py:201: in apply_recipe_modifiers
-    pipeline(
-src/llmcompressor/pipelines/independent/pipeline.py:45: in __call__
-    pipeline(model, dataloader, dataset_args)
-src/llmcompressor/pipelines/sequential/pipeline.py:71: in __call__
-    subgraphs = trace_subgraphs(model, sample_input, sequential_targets, ignore)
-                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-src/llmcompressor/pipelines/sequential/helpers.py:120: in trace_subgraphs
-    stack.enter_context(autowrap_forwards(ancestors, ignore))
-../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:517: in enter_context
-    result = _enter(cm)
-             ^^^^^^^^^^
-../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:137: in __enter__
-    return next(self.gen)
-           ^^^^^^^^^^^^^^
-src/llmcompressor/pipelines/sequential/ast_helpers.py:33: in autowrap_forwards
-    stack.enter_context(autowrap_forward(module, ignore))
-../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:517: in enter_context
-    result = _enter(cm)
-             ^^^^^^^^^^
-../../.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py:137: in __enter__
-    return next(self.gen)
-           ^^^^^^^^^^^^^^
-src/llmcompressor/pipelines/sequential/ast_helpers.py:69: in autowrap_forward
-    exec(code, namespace)
+tests/e2e/e2e_utils.py:49: in run_oneshot_for_e2e_testing
+    ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../rhdev/lib/python3.11/site-packages/datasets/load.py:1397: in load_dataset
+    builder_instance = load_dataset_builder(
+../../rhdev/lib/python3.11/site-packages/datasets/load.py:1137: in load_dataset_builder
+    dataset_module = dataset_module_factory(
+../../rhdev/lib/python3.11/site-packages/datasets/load.py:1036: in dataset_module_factory
+    raise e1 from None
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
->   ???
-E   NameError: name 'module' is not defined
+path = 'HuggingFaceM4/flickr30k', revision = None
+download_config = DownloadConfig(cache_dir=None, force_download=False, resume_download=False, local_files_only=False, proxies=None, user...e, use_etag=True, num_proc=None, max_retries=1, token=None, storage_options={}, download_desc=None, disable_tqdm=False)
+download_mode = <DownloadMode.REUSE_DATASET_IF_EXISTS: 'reuse_dataset_if_exists'>
+data_dir = None, data_files = None, cache_dir = None, download_kwargs = {}
+filename = 'flickr30k.py'
+combined_path = 'HuggingFaceM4/flickr30k/flickr30k.py'
+api = <huggingface_hub.hf_api.HfApi object at 0x7f98adec3890>
+dataset_readme_path = '//dev-network-share/users/engine/hub_cache/datasets--HuggingFaceM4--flickr30k/snapshots/6f2d7325c4141750b9d3707c0002fc89a0543584/README.md'
+commit_hash = '6f2d7325c4141750b9d3707c0002fc89a0543584'
 
-Qwen3OmniMoeForConditionalGeneration_8788127665849_autowrapped:1: NameError
+    def dataset_module_factory(
+        path: str,
+        revision: Optional[Union[str, Version]] = None,
+        download_config: Optional[DownloadConfig] = None,
+        download_mode: Optional[Union[DownloadMode, str]] = None,
+        data_dir: Optional[str] = None,
+        data_files: Optional[Union[dict, list, str, DataFilesDict]] = None,
+        cache_dir: Optional[str] = None,
+        **download_kwargs,
+    ) -> DatasetModule:
+        """
+        Download/extract/cache a dataset module.
+    
+        Dataset codes are cached inside the dynamic modules cache to allow easy import (avoid ugly sys.path tweaks).
+    
+        Args:
+    
+            path (str): Path or name of the dataset.
+                Depending on ``path``, the dataset builder that is used comes from one of the generic dataset builders (JSON, CSV, Parquet, text etc.).
+    
+                For local datasets:
+    
+                - if ``path`` is a local directory (containing data files only)
+                  -> load a generic dataset builder (csv, json, text etc.) based on the content of the directory
+                  e.g. ``'./path/to/directory/with/my/csv/data'``.
+    
+                For datasets on the Hugging Face Hub (list all available datasets with ``huggingface_hub.list_datasets()``)
+    
+                - if ``path`` is a dataset repository on the HF hub (containing data files only)
+                  -> load a generic dataset builder (csv, text etc.) based on the content of the repository
+                  e.g. ``'username/dataset_name'``, a dataset repository on the HF hub containing your data files.
+    
+            revision (:class:`~utils.Version` or :obj:`str`, optional): Version of the dataset to load.
+                As datasets have their own git repository on the Datasets Hub, the default version "main" corresponds to their "main" branch.
+                You can specify a different version than the default "main" by using a commit SHA or a git tag of the dataset repository.
+            download_config (:class:`DownloadConfig`, optional): Specific download configuration parameters.
+            download_mode (:class:`DownloadMode` or :obj:`str`, default ``REUSE_DATASET_IF_EXISTS``): Download/generate mode.
+            data_dir (:obj:`str`, optional): Directory with the data files. Used only if `data_files` is not specified,
+                in which case it's equal to pass `os.path.join(data_dir, "**")` as `data_files`.
+            data_files (:obj:`Union[Dict, List, str]`, optional): Defining the data_files of the dataset configuration.
+            cache_dir (`str`, *optional*):
+                Directory to read/write data. Defaults to `"~/.cache/huggingface/datasets"`.
+    
+                <Added version="2.16.0"/>
+    
+            **download_kwargs (additional keyword arguments): optional attributes for DownloadConfig() which will override
+                the attributes in download_config if supplied.
+    
+        Returns:
+            DatasetModule
+        """
+        if download_config is None:
+            download_config = DownloadConfig(**download_kwargs)
+        download_mode = DownloadMode(download_mode or DownloadMode.REUSE_DATASET_IF_EXISTS)
+        download_config.extract_compressed_file = True
+        download_config.force_extract = True
+        download_config.force_download = download_mode == DownloadMode.FORCE_REDOWNLOAD
+    
+        filename = list(filter(lambda x: x, path.replace(os.sep, "/").split("/")))[-1]
+        if not filename.endswith(".py"):
+            filename = filename + ".py"
+        combined_path = os.path.join(path, filename)
+    
+        # We have several ways to get a dataset builder:
+        #
+        # - if path is the name of a packaged dataset module
+        #   -> use the packaged module (json, csv, etc.)
+        #
+        # - if os.path.join(path, name) is a local python file
+        #   -> use the module from the python file
+        # - if path is a local directory (but no python file)
+        #   -> use a packaged module (csv, text etc.) based on content of the directory
+        #
+        # - if path has one "/" and is dataset repository on the HF hub with a python file
+        #   -> the module from the python file in the dataset repository
+        # - if path has one "/" and is dataset repository on the HF hub without a python file
+        #   -> use a packaged module (csv, text etc.) based on content of the repository
+    
+        # Try packaged
+        if path in _PACKAGED_DATASETS_MODULES:
+            return PackagedDatasetModuleFactory(
+                path,
+                data_dir=data_dir,
+                data_files=data_files,
+                download_config=download_config,
+                download_mode=download_mode,
+            ).get_module()
+        # Try locally
+        elif path.endswith(filename):
+            raise RuntimeError(f"Dataset scripts are no longer supported, but found {filename}")
+        elif os.path.isfile(combined_path):
+            raise RuntimeError(f"Dataset scripts are no longer supported, but found {filename}")
+        elif os.path.isdir(path):
+            return LocalDatasetModuleFactory(
+                path, data_dir=data_dir, data_files=data_files, download_mode=download_mode
+            ).get_module()
+        # Try remotely
+        elif is_relative_path(path) and path.count("/") <= 1:
+            try:
+                # Get the Dataset Card + get the revision + check authentication all at in one call
+                # We fix the commit_hash in case there are new commits in the meantime
+                api = HfApi(
+                    endpoint=config.HF_ENDPOINT,
+                    token=download_config.token,
+                    library_name="datasets",
+                    library_version=__version__,
+                    user_agent=get_datasets_user_agent(download_config.user_agent),
+                )
+                try:
+                    _raise_if_offline_mode_is_enabled()
+                    dataset_readme_path = api.hf_hub_download(
+                        repo_id=path,
+                        filename=config.REPOCARD_FILENAME,
+                        repo_type="dataset",
+                        revision=revision,
+                        proxies=download_config.proxies,
+                    )
+                    commit_hash = os.path.basename(os.path.dirname(dataset_readme_path))
+                except LocalEntryNotFoundError as e:
+                    if isinstance(
+                        e.__cause__,
+                        (
+                            OfflineModeIsEnabled,
+                            requests.exceptions.Timeout,
+                            requests.exceptions.ConnectionError,
+                            httpx.ConnectError,
+                            httpx.TimeoutException,
+                        ),
+                    ):
+                        raise ConnectionError(f"Couldn't reach '{path}' on the Hub ({e.__class__.__name__})") from e
+                    else:
+                        raise
+                except EntryNotFoundError:
+                    commit_hash = api.dataset_info(
+                        path,
+                        revision=revision,
+                        timeout=100.0,
+                    ).sha
+                except (
+                    OfflineModeIsEnabled,
+                    requests.exceptions.Timeout,
+                    requests.exceptions.ConnectionError,
+                    httpx.ConnectError,
+                    httpx.TimeoutException,
+                ) as e:
+                    raise ConnectionError(f"Couldn't reach '{path}' on the Hub ({e.__class__.__name__})") from e
+                except GatedRepoError as e:
+                    message = f"Dataset '{path}' is a gated dataset on the Hub."
+                    if e.response.status_code == 401:
+                        message += " You must be authenticated to access it."
+                    elif e.response.status_code == 403:
+                        message += f" Visit the dataset page at https://huggingface.co/datasets/{path} to ask for access."
+                    raise DatasetNotFoundError(message) from e
+                except RevisionNotFoundError as e:
+                    raise DatasetNotFoundError(
+                        f"Revision '{revision}' doesn't exist for dataset '{path}' on the Hub."
+                    ) from e
+                except RepositoryNotFoundError as e:
+                    raise DatasetNotFoundError(f"Dataset '{path}' doesn't exist on the Hub or cannot be accessed.") from e
+                try:
+                    api.hf_hub_download(
+                        repo_id=path,
+                        filename=filename,
+                        repo_type="dataset",
+                        revision=commit_hash,
+                        proxies=download_config.proxies,
+                    )
+>                   raise RuntimeError(f"Dataset scripts are no longer supported, but found {filename}")
+E                   RuntimeError: Dataset scripts are no longer supported, but found flickr30k.py
+
+../../rhdev/lib/python3.11/site-packages/datasets/load.py:994: RuntimeError
 =========================== short test summary info ============================
 FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/w4a16_channel_quant_moe.yaml]
-============================== 1 failed in 40.33s ==============================
+============================== 1 failed in 9.71s ===============================
