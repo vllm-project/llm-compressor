@@ -218,45 +218,12 @@ def process_dataset(
                 add_special_tokens=False,
             )
 
-    elif ds_name == "llm_compression_calibration":
-
-        def process(sample):
-            return processor(
-                processor.apply_chat_template(
-                    sample["text"],
-                    tokenize=False,
-                ),
-                padding=False,
-                max_length=max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
     elif ds_name == "open-platypus":
         # use the output rather than the instruction
         def process(sample):
             return processor(
                 processor.apply_chat_template(
                     sample["output"],
-                    tokenize=False,
-                ),
-                padding=False,
-                max_length=max_seq_length,
-                truncation=True,
-                add_special_tokens=False,
-            )
-
-    elif ds_name == "slimorca-deduped-cleaned-corrected":
-        # find the first element corresponding to a message from a human
-        def process(sample):
-            conversation_idx = 0
-            for idx, conversation in enumerate(sample["conversations"]):
-                if conversation["from"] == "human":
-                    conversation_idx = idx
-                    break
-            return processor(
-                processor.apply_chat_template(
-                    sample["conversations"][conversation_idx]["value"],
                     tokenize=False,
                 ),
                 padding=False,
