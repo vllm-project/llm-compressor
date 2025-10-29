@@ -126,16 +126,6 @@ class DatasetArguments(CustomDatasetArguments):
         default=512,
         metadata={"help": "Number of samples to use for one-shot calibration"},
     )
-    calibrate_moe_context: bool = field(
-        default=False,
-        metadata={
-            "help": "If during calibration, the MoE context should be enabled "
-            "for the given model. This usually involves updating all MoE modules "
-            "in the model for the duration of calibration. See moe_context under "
-            "modeling/prepare.py for a list of supported MoEs and their updated "
-            "module definitions"
-        },
-    )
     shuffle_calibration_samples: bool | None = field(
         default=True,
         metadata={
@@ -178,6 +168,18 @@ class DatasetArguments(CustomDatasetArguments):
                 "pass of the calibration. If a module receives fewer tokens, "
                 "a warning will be logged. Defaults to 1/num_of_experts."
                 "note: this argument is only relevant for MoE models"
+            ),
+        },
+    )
+    moe_calibrate_all_experts: bool = field(
+        default=True,
+        metadata={
+            "help": (
+                "Whether to calibrate all experts during MoE model calibration. "
+                "When True, all experts will see all tokens during calibration, "
+                "ensuring proper quantization statistics for all experts. "
+                "When False, only routed experts will be used. "
+                "Only relevant for MoE models. Default is True."
             ),
         },
     )
