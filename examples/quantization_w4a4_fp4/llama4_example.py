@@ -10,8 +10,10 @@ model_id = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 model = Llama4ForConditionalGeneration.from_pretrained(model_id, torch_dtype="auto")
 processor = Llama4Processor.from_pretrained(model_id)
 # MoE calibration is now handled automatically by the pipeline.
-# The `SequentialLlama4TextMoe` modules will be applied during calibration
-# to enable proper expert calibration and vLLM compatibility.
+# The `SequentialLlama4TextMoe` modules (from `llmcompressor.modeling.llama4`)
+# will be applied during calibration to enable proper expert calibration and vLLM compatibility.
+# These replace the original `Llama4TextMoe` class from
+# `transformers.models.llama4.modeling_llama4`.
 
 DATASET_ID = "neuralmagic/calibration"
 NUM_CALIBRATION_SAMPLES = 20

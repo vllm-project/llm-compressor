@@ -10,8 +10,10 @@ MODEL_ID = "meta-llama/Llama-4-Scout-17B-16E-Instruct"
 model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # MoE calibration is now handled automatically by the pipeline.
-# The `SequentialLlama4TextMoe` modules will be applied during calibration
-# to enable proper expert calibration and vLLM compatibility.
+# The `SequentialLlama4TextMoe` modules (from `llmcompressor.modeling.llama4`)
+# will be applied during calibration to enable proper expert calibration and vLLM compatibility.
+# These replace the original `Llama4TextMoe` class from
+# `transformers.models.llama4.modeling_llama4`.
 # Configure the quantization algorithm and scheme.
 # In this case, we:
 #   * quantize the weights to fp8 with block size 128 via ptq

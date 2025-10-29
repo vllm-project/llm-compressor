@@ -62,8 +62,10 @@ recipe = QuantizationModifier(
 # MoE calibration is now handled automatically by the pipeline.
 # We set `moe_calibrate_all_experts` to True to ensure all experts receive
 # calibration data. This temporarily updates the model definition to use
-# `CalibrationQwen3MoeSparseMoeBlock` which updates how the forward pass is
-# handled in the MoE block during calibration.
+# `CalibrationQwen3MoeSparseMoeBlock` (from `llmcompressor.modeling.qwen3_moe`)
+# which replaces the original `Qwen3MoeSparseMoeBlock` class from
+# `transformers.models.qwen3_moe.modeling_qwen3_moe`. This updates how the
+# forward pass is handled in the MoE block during calibration.
 # Feel free to update the definition under
 # llm-compressor/src/llmcompressor/modeling/qwen3_moe.py to play around with
 # this behavior and evaluate its impact on quantization performance.
