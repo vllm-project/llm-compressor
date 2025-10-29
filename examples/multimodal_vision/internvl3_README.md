@@ -181,8 +181,8 @@ We can evaluate accuracy multimodal_vision model with [VLMEvalKit](https://githu
 ```
 torchrun --nproc-per-node=2 run.py --data MMStar --model InternVL3-8B-FP8_W8A8-FP8_KV --verbose
 ```
-### Perfomace
-We can evalute performace with vllm.
+### Performance
+We can evaluate performance with vllm.
 First, run in vllm.
 ```
 vllm serve InternVL3-8B-INT8-W8A8-FP8-KV 
