@@ -118,7 +118,7 @@ def moe_calibration_context(
     replaced = {}
 
     # Step 1: Collect all MoE modules that need replacement
-    logger.info("Entering MoE calibration context")
+    logger.debug("Entering MoE calibration context")
     modules_to_replace = []
     for name, module in model.named_modules():
         class_name = module.__class__.__name__
@@ -161,7 +161,7 @@ def moe_calibration_context(
         yield
     finally:
         # Step 2: Restore non-permanent modules
-        for name, (original, replacement) in replaced.items():
+        for name, (_original, replacement) in replaced.items():
             if not replacement.is_permanent:
                 restored = replacement.restore(original)
                 model.set_submodule(name, restored)
