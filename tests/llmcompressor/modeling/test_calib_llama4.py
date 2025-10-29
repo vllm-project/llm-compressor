@@ -82,17 +82,13 @@ def test_calib_llama4_module():
     with calibration_forward_context(original):
         true_out, true_router_logits = original(sample)
 
-    module = SequentialLlama4TextMoe.from_original(
-        original, config, calibrate_all_experts=True
-    )
+    module = SequentialLlama4TextMoe(original, config, calibrate_all_experts=True)
     with calibration_forward_context(module):
         out, router_logits = module(sample)
         assert torch.nn.functional.mse_loss(true_out, out) < 1e-10
         assert torch.nn.functional.mse_loss(true_router_logits, router_logits) < 1e-10
 
-    module = SequentialLlama4TextMoe.from_original(
-        original, config, calibrate_all_experts=False
-    )
+    module = SequentialLlama4TextMoe(original, config, calibrate_all_experts=False)
     with calibration_forward_context(module):
         out, router_logits = module(sample)
         assert torch.nn.functional.mse_loss(true_out, out) < 1e-10

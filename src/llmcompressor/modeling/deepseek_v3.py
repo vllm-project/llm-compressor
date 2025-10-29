@@ -20,9 +20,9 @@ class CalibrationDeepseekV3MoE(MoECalibrationModule):
 
     def __init__(
         self,
-        config: DeepseekV3Config,
         original: OriginalDeepseekV3MoE,
-        calibrate_all_experts: bool,
+        config: DeepseekV3Config,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
         self.config = config
@@ -30,20 +30,6 @@ class CalibrationDeepseekV3MoE(MoECalibrationModule):
         self.gate = original.gate
         self.shared_experts = original.shared_experts
         self.calibrate_all_experts = calibrate_all_experts
-
-    @classmethod
-    def from_original(
-        cls,
-        original: OriginalDeepseekV3MoE,
-        config: DeepseekV3Config,
-        calibrate_all_experts: bool = True,
-    ) -> "CalibrationDeepseekV3MoE":
-        """Create calibration module from original DeepseekV3MoE."""
-        return cls(
-            config=config,
-            original=original,
-            calibrate_all_experts=calibrate_all_experts,
-        )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         residuals = hidden_states
@@ -98,7 +84,7 @@ def replace(
     Use CalibrationDeepseekV3MoE instead.
     """
     return CalibrationDeepseekV3MoE(
-        original=module,
-        config=config,
+        module,
+        config,
         calibrate_all_experts=calibrate_all_experts,
     )

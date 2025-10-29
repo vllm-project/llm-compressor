@@ -33,37 +33,23 @@ class SequentialLlama4TextMoe(MoECalibrationModule):
 
     def __init__(
         self,
-        config: Llama4TextConfig,
-        original: Llama4TextMoe,
-        calibrate_all_experts: bool,
-    ):
-        super().__init__()
-        self.top_k = config.num_experts_per_tok
-        self.hidden_dim = config.hidden_size
-        self.num_experts = config.num_local_experts
-
-        self.experts = SequentialLlama4TextExperts(config, original.experts)
-        self.router = original.router
-        self.shared_expert = original.shared_expert
-        self.calibrate_all_experts = calibrate_all_experts
-
-    @classmethod
-    def from_original(
-        cls,
         original: Llama4TextMoe,
         config: Llama4Config,
         calibrate_all_experts: bool = True,
-    ) -> "SequentialLlama4TextMoe":
-        """Create calibration module from original Llama4TextMoe."""
+    ):
+        super().__init__()
         # Extract text config from multimodal config if needed
         text_config = (
             config.get_text_config() if hasattr(config, "get_text_config") else config
         )
-        return cls(
-            config=text_config,
-            original=original,
-            calibrate_all_experts=calibrate_all_experts,
-        )
+        self.top_k = text_config.num_experts_per_tok
+        self.hidden_dim = text_config.hidden_size
+        self.num_experts = text_config.num_local_experts
+
+        self.experts = SequentialLlama4TextExperts(text_config, original.experts)
+        self.router = original.router
+        self.shared_expert = original.shared_expert
+        self.calibrate_all_experts = calibrate_all_experts
 
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
@@ -115,7 +101,7 @@ def replace(config: Llama4Config, module: Llama4TextMoe, calibrate_all_experts: 
     Use SequentialLlama4TextMoe instead.
     """
     return SequentialLlama4TextMoe(
-        original=module,
-        config=config,
+        module,
+        config,
         calibrate_all_experts=calibrate_all_experts,
     )

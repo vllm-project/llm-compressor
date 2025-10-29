@@ -36,9 +36,9 @@ class CalibrationQwen3MoeSparseMoeBlock(MoECalibrationModule):
 
     def __init__(
         self,
-        config: Qwen3MoeConfig,
         original: OriginalQwen3MoeSparseMoeBlock,
-        calibrate_all_experts: bool,
+        config: Qwen3MoeConfig,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
         self.num_experts = config.num_experts
@@ -48,20 +48,6 @@ class CalibrationQwen3MoeSparseMoeBlock(MoECalibrationModule):
         self.calibrate_all_experts = calibrate_all_experts
         self.gate = original.gate
         self.experts = original.experts
-
-    @classmethod
-    def from_original(
-        cls,
-        original: OriginalQwen3MoeSparseMoeBlock,
-        config: Qwen3MoeConfig,
-        calibrate_all_experts: bool = True,
-    ) -> "CalibrationQwen3MoeSparseMoeBlock":
-        """Create calibration module from original Qwen3MoeSparseMoeBlock."""
-        return cls(
-            config=config,
-            original=original,
-            calibrate_all_experts=calibrate_all_experts,
-        )
 
     def forward(self, hidden_states: torch.Tensor):
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -124,7 +110,7 @@ def replace(
     Use CalibrationQwen3MoeSparseMoeBlock instead.
     """
     return CalibrationQwen3MoeSparseMoeBlock(
-        original=module,
-        config=config,
+        module,
+        config,
         calibrate_all_experts=calibrate_all_experts,
     )

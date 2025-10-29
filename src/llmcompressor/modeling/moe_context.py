@@ -13,8 +13,8 @@ Key components:
 """
 
 import contextlib
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Type
+from abc import ABC
+from typing import Dict, Type
 
 import torch
 from loguru import logger
@@ -37,34 +37,13 @@ class MoECalibrationModule(ABC, torch.nn.Module):
     phase to ensure all experts receive data for proper quantization statistics.
 
     Subclasses must:
-    1. Implement `from_original()` to create calibration module from original
+    1. Implement `__init__()` with signature:
+       (self, original, config, calibrate_all_experts=True)
     2. Set `is_permanent` to indicate if module should stay in calibration form
     3. Optionally implement `restore()` if is_permanent=False
     """
 
     is_permanent: bool = False
-
-    @classmethod
-    @abstractmethod
-    def from_original(
-        cls,
-        original: torch.nn.Module,
-        config: Any,
-        calibrate_all_experts: bool = True,
-    ) -> "MoECalibrationModule":
-        """
-        Create a calibration module from the original MoE module.
-
-        Args:
-            original: The original MoE module to convert
-            config: Model configuration (contains num_experts, etc.)
-            calibrate_all_experts: If True, send all tokens to all experts.
-                                   If False, use normal routing.
-
-        Returns:
-            Instance of the calibration module
-        """
-        pass
 
     def restore(self) -> torch.nn.Module:
         """
@@ -153,10 +132,10 @@ def moe_calibration_context(
             modules_to_replace, desc="Replacing MoE modules for calibration"
         ):
             calibration_cls = MOE_CALIBRATION_MODULES[class_name]
-            replacement = calibration_cls.from_original(
+            replacement = calibration_cls(
                 module,
                 model.config,
-                calibrate_all_experts,
+                calibrate_all_experts=calibrate_all_experts,
             )
             model.set_submodule(name, replacement)
             replaced[name] = (module, replacement)
