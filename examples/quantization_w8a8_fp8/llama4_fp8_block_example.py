@@ -11,7 +11,8 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # MoE calibration is now handled automatically by the pipeline.
 # The `SequentialLlama4TextMoe` modules (from `llmcompressor.modeling.llama4`)
-# will be applied during calibration to enable proper expert calibration and vLLM compatibility.
+# will be applied during calibration to enable
+# proper expert calibration and vLLM compatibility.
 # These replace the original `Llama4TextMoe` class from
 # `transformers.models.llama4.modeling_llama4`.
 # Configure the quantization algorithm and scheme.
