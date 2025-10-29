@@ -1,8 +1,13 @@
 import contextlib
-from functools import wraps
+from functools import partial, wraps
 from typing import Any, Callable, ClassVar, Optional, Set, Union
 
 import torch
+from compressed_tensors.modeling import (
+    register_key_hook,
+    register_query_hook,
+    register_value_hook,
+)
 from loguru import logger
 from pydantic import BaseModel
 from torch.utils.hooks import RemovableHandle
@@ -92,7 +97,7 @@ class HooksMixin(BaseModel):
 
             return hook(*args, **kwargs)
 
-        register_function = getattr(target, f"register_{hook_type}_hook")
+        register_function = self._get_register_function(target, hook_type)
         handle = register_function(wrapped_hook, **kwargs)
         self._hooks.add(handle)
         logger.debug(f"{self} added {handle}")
@@ -113,3 +118,15 @@ class HooksMixin(BaseModel):
             hook.remove()
 
         self._hooks -= handles
+
+    def _get_register_function(
+        self, target: torch.nn.Module, hook_type: str
+    ) -> Callable:
+        if hook_type == "query":
+            return partial(register_query_hook, target)
+        elif hook_type == "key":
+            return partial(register_key_hook, target)
+        elif hook_type == "value":
+            return partial(register_value_hook, target)
+        else:
+            return getattr(target, f"register_{hook_type}_hook")
