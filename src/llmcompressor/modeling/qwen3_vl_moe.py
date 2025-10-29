@@ -4,11 +4,14 @@ from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeTextSparseMoeBlock as OriginalQwen3VLMoeTextSparseMoeBlock,
 )
 
-from llmcompressor.modeling.moe_context import MoECalibrationModule
+from llmcompressor.modeling.moe_context import (
+    MoECalibrationModule,
+    register_moe_calibration,
+)
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
-@MoECalibrationModule.register("CalibrationQwen3VLMoeTextSparseMoeBlock")
+@register_moe_calibration("CalibrationQwen3VLMoeTextSparseMoeBlock")
 class CalibrateQwen3VLMoeTextSparseMoeBlock(MoECalibrationModule):
     """
     Calibration version of Qwen3VLMoeTextSparseMoeBlock that sends all tokens to all

@@ -4,10 +4,13 @@ from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
     DeepseekV3MoE as OriginalDeepseekV3MoE,
 )
 
-from llmcompressor.modeling.moe_context import MoECalibrationModule
+from llmcompressor.modeling.moe_context import (
+    MoECalibrationModule,
+    register_moe_calibration,
+)
 
 
-@MoECalibrationModule.register("DeepseekV3MoE")
+@register_moe_calibration("DeepseekV3MoE")
 class CalibrationDeepseekV3MoE(MoECalibrationModule):
     """
     Calibration version of DeepseekV3MoE that sends all tokens to all experts.
