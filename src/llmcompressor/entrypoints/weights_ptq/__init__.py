@@ -1,6 +1,7 @@
 import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Optional
 
 import torch
@@ -11,14 +12,25 @@ from compressed_tensors.utils.match import _match_name
 from loguru import logger
 from safetensors.torch import load_file, save_file
 
-from .lifecycle import calibrate_weights, compress_module, initialize_quantized_linear
-from .save_utils import update_config, update_safetensors_index
+from llmcompressor.entrypoints.weights_ptq.lifecycle import (
+    calibrate_weights,
+    compress_module,
+    initialize_quantized_linear,
+)
+from llmcompressor.entrypoints.weights_ptq.model_utils import (
+    get_checkpoint_files,
+    is_weights_file,
+)
+from llmcompressor.entrypoints.weights_ptq.save_utils import (
+    update_config,
+    update_safetensors_index,
+)
 
 __all__ = ["weights_ptq"]
 
 
 def weights_ptq(
-    model_path: str,
+    model_stub: str | os.PathLike,
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme | str,
     ignore: Optional[list[str]] = None,
@@ -26,22 +38,24 @@ def weights_ptq(
     device: Optional[torch.device | str] = "cuda:0",
 ):
     # validate arguments
+    model_files = get_checkpoint_files(model_stub)
     scheme_name, scheme = _validate_scheme(scheme)
-    os.makedirs(save_directory, exist_ok=True)
 
     # 0. collect safetensors files, copy files
     jobs = []
-    for file_name in os.listdir(model_path):
-        file_path = os.path.join(model_path, file_name)
-        save_path = os.path.join(model_path, file_name)
+    for file_path, resolved_path in model_files:
+        save_path = Path(save_directory) / file_path
 
-        if file_name.endswith("safetensors"):
-            jobs.append((_process_file, file_path, save_path, scheme, ignore, device))
+        if file_path.endswith("safetensors"):
+            jobs.append(
+                (_process_file, resolved_path, save_path, scheme, ignore, device)
+            )
 
-        elif os.path.isdir(file_path):
-            shutil.copytree(file_path, save_path, dirs_exist_ok=True)
         else:
-            shutil.copyfile(file_path, save_path)
+            if is_weights_file(file_path):
+                logger.warning(f"Skipping weights file {file_path}")
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(resolved_path, save_path)
 
     # 1-4. quantize and compress weights
     with ThreadPoolExecutor(max_workers) as executor:
@@ -146,7 +160,7 @@ def _is_match_name(
 
 if __name__ == "__main__":
     weights_ptq(
-        "Llama-3.2-1B-Instruct",
+        "meta-llama/Llama-3.2-1B-Instruct",
         "testing_save",
         scheme="FP8_BLOCK",
         ignore=[
