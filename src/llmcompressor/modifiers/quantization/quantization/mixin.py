@@ -330,6 +330,12 @@ class QuantizationMixin(HooksMixin):
         if either are targeted by quantization.
         """
 
+        if not (
+            hasattr(model, "get_input_embeddings")
+            and hasattr(model, "get_output_embeddings")
+        ):
+            return
+
         try:
             input_embeddings, output_embeddings = (
                 model.get_input_embeddings(),
