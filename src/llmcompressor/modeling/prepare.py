@@ -15,14 +15,6 @@ from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
 from llmcompressor.modeling.llama4 import replace as replace_llama4
 from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
 
-# trigger registration
-from .deepseek_v3 import CalibrationDeepseekV3MoE  # noqa: F401
-from .llama4 import SequentialLlama4TextMoe  # noqa: F401
-from .qwen3_moe import CalibrationQwen3MoeSparseMoeBlock  # noqa: F401
-from .qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoeBlock  # noqa: F401
-
-# TODO: add granite4, Qwen3Next
-
 __all__ = ["replace_modules_for_calibration"]
 
 # ---------------------- module replacements; permanent -------------------------

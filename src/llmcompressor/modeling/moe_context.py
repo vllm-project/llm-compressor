@@ -115,6 +115,13 @@ def moe_calibration_context(
                 model(**batch)
         # Model is now restored (unless permanent)
     """
+    # trigger registration
+    from .deepseek_v3 import CalibrationDeepseekV3MoE  # noqa: F401
+    from .llama4 import SequentialLlama4TextMoe  # noqa: F401
+    from .qwen3_moe import CalibrationQwen3MoeSparseMoeBlock  # noqa: F401
+    from .qwen3_vl_moe import CalibrateQwen3VLMoeTextSparseMoeBlock  # noqa: F401
+    # TODO: add granite4, Qwen3Next
+
     replaced = {}
 
     # Step 1: Collect all MoE modules that need replacement
