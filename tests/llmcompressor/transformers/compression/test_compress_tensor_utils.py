@@ -232,11 +232,11 @@ def test_quant_model_reload(format, dtype, tmp_path):
     "offload,torch_dtype,device",
     [
         # dtype
-        (False, torch.float16, False, "cpu"),
-        (False, torch.float32, False, "cpu"),
+        (False, torch.float16, "cpu"),
+        (False, torch.float32, "cpu"),
         # offloading
-        (True, torch.float16, False, "cpu"),
-        (True, torch.float32, False, "cpu"),
+        (True, torch.float16, "cpu"),
+        (True, torch.float32, "cpu"),
     ],
 )
 def test_model_reload(offload, torch_dtype, device, tmp_path):
@@ -302,12 +302,12 @@ def test_model_shared_tensors(offload, torch_dtype, tie_word_embeddings, device)
     with torch.no_grad(), align_module_device(model.lm_head):
         update_offload_parameter(model.lm_head, "weight", model.lm_head.weight + 1)
 
-    with align_module_device(model.lm_head), align_module_device(model.embed_tokens):
+    with align_module_device(model.lm_head), align_module_device(model.model.embed_tokens):
         if tie_word_embeddings:
-            assert model.lm_head.weight != model.embed_tokens
+            assert model.lm_head.weight is model.model.embed_tokens.weight
             assert model.config.tie_word_embeddings
         else:
-            assert model.lm_head.weight == model.embed_tokens
+            assert model.lm_head.weight is not model.model.embed_tokens.weight
             assert not model.config.tie_word_embeddings
 
 
