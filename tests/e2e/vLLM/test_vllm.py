@@ -21,8 +21,9 @@ TEST_DATA_FILE = os.environ.get(
     "TEST_DATA_FILE", "tests/e2e/vLLM/configs/int8_dynamic_per_token.yaml"
 )
 SKIP_HF_UPLOAD = os.environ.get("SKIP_HF_UPLOAD", "")
-# vllm python environment
+# vllm environment: image url, same (default), or the path of vllm virtualenv
 VLLM_PYTHON_ENV = os.environ.get("VLLM_PYTHON_ENV", "same")
+RUN_SAVE_DIR=os.environ.get("RUN_SAVE_DIR", "none")
 TIMINGS_DIR = os.environ.get("TIMINGS_DIR", "timings/e2e-test_vllm")
 os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
 EXPECTED_SAVED_FILES = [
@@ -31,7 +32,11 @@ EXPECTED_SAVED_FILES = [
     "recipe.yaml",
     "tokenizer.json",
 ]
-
+IS_VLLM_IMAGE = false
+# when using vllm image, needs to save the generated model and vllm command
+if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exist()):
+    IS_VLLM_IMAGE = true
+    assert RUN_SAVE_DIR != "none", "To use vllm image must set RUN_SAVE_DIR too!"
 
 # Will run each test case in its own process through run_tests.sh
 # emulating vLLM CI testing
@@ -76,18 +81,29 @@ class TestvLLM:
         self.max_seq_length = eval_config.get("max_seq_length", 2048)
         # GPU memory utilization - only set if explicitly provided in config
         self.gpu_memory_utilization = eval_config.get("gpu_memory_utilization")
-        # vllm python env - if same, use the current python env, otherwise use
-        # the python passed in VLLM_PYTHON_ENV
-        if VLLM_PYTHON_ENV.lower() != "same":
-            self.vllm_env = VLLM_PYTHON_ENV
-        else:
+        self.is_vllm_image = IS_VLLM_IMAGE
+        if VLLM_PYTHON_ENV.lower() == "same":
             self.vllm_env = sys.executable
+        else:
+            self.vllm_env = VLLM_PYTHON_ENV
+
+        if RUN_SAVE_DIR != "none":
+            assert sd_path.exists(), f"RUN_SAVE_DIR path doesn't exist: {RUN_SAVE_DIR}"
+            self.run_save_dir = RUN_SAVE_DIR
 
         if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+            if RUN_SAVE_DIR != "none":
+                self.save_dir = os.path.join(RUN_SAVE_DIR, self.model.split("/")[1] + f"-{self.scheme}")
+            else:
+                self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
 
         logger.info("========== RUNNING ==============")
-        logger.info(self.save_dir)
+        logger.info(f"model save dir: {self.save_dir}")
+
+        # command file to run vllm if using vllm image
+        if self.is_vllm_image:
+            self.vllm_cmd_file = os.path.join(RUN_SAVE_DIR, "vllm.cmd")
+            logger.info(f"vllm cmd file save dir: {self.vllm_cmd_file}")
 
         self.prompts = [
             "The capital of France is",
@@ -100,8 +116,9 @@ class TestvLLM:
         # Run vLLM with saved model
 
         self.set_up(test_data_file)
-        if not self.save_dir:
-            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        # not need this anymore?
+        #if not self.save_dir:
+        #    self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
         oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
@@ -151,10 +168,13 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
-        if VLLM_PYTHON_ENV.lower() == "same":
-            logger.info("========== RUNNING vLLM in the same python env ==========")
+        if self.is_vllm_image:
+            logger.info("========== To run vLLM with vllm image ==========")
         else:
-            logger.info("========== RUNNING vLLM in a separate python env ==========")
+            if VLLM_PYTHON_ENV.lower() == "same":
+                logger.info("========== RUNNING vLLM in the same python env ==========")
+            else:
+                logger.info("========== RUNNING vLLM in a separate python env ==========")
 
         self._run_vllm(logger)
 
@@ -200,20 +220,31 @@ class TestvLLM:
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
         run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
-        logger.info("Run vllm in subprocess.Popen() using python env:")
+        logger.info("Run vllm using python env:")
         logger.info(self.vllm_env)
 
-        result = subprocess.Popen(
-            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        stdout, stderr = result.communicate()
-        logger.info(stdout)
+        if self.is_vllm_image:
+            vllm_cmd = " ".join(
+                "python", run_file_path, f"'{json_scheme}'",
+                f"'{json_llm_kwargs}'", f"'{json_prompts}'")
+            with open(self.vllm_cmd_file, "a") as cf:
+                cf.write(vllm_cmd)
+            logger.info(f"Wrote vllm cmd into {vllm_cmd_file}:")
+            logger.info(vllm_cmd)
+        else:
+            logger.info("Run vllm in subprocess.Popen using python env:")
+            logger.info(self.vllm_env)
+            result = subprocess.Popen(
+                [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout, stderr = result.communicate()
+            logger.info(stdout)
 
-        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
-        assert result.returncode == 0, error_msg
+            error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+            assert result.returncode == 0, error_msg
 
     def _check_session_contains_recipe(self) -> None:
         session = active_session()
