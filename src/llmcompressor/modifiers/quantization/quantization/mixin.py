@@ -335,11 +335,11 @@ class QuantizationMixin(HooksMixin):
                 model.get_input_embeddings(),
                 model.get_output_embeddings(),
             )
-        except NotImplementedError:
+        except NotImplementedError as e:
             logger.warning(
                 f"{model.__class__} doesn't have get_input_embeddings and "
-                + "get_output_embeddings implmented.\n This can cause problems when "
-                + "trying to quantize layers with shared weights\n{e}"
+                + "get_output_embeddings implemented.\n This can cause problems when "
+                + f"trying to quantize layers with shared weights\n{e}"
             )
             return
 
