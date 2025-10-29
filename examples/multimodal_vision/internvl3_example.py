@@ -15,6 +15,13 @@ from llmcompressor.modifiers.smoothquant import SmoothQuantModifier
 from llmcompressor.utils import dispatch_for_generation
 
 
+# IMPORTANT: Before running this script, you must manually modify the
+# `modeling_internvl_chat.py` file in your local copy of the `OpenGVLab/InternVL3-8B`
+# model directory.
+# Replace the original `forward` method of the `InternVLChatModel` class with the
+# version provided in `examples/multimodal_vision/internvl3_README.md`.
+# This step is necessary to disable vision processing during calibration.
+
 # Load model.
 model_id = "OpenGVLab/InternVL3-8B"
 model = AutoModel.from_pretrained(model_id, torch_dtype=torch.bfloat16, trust_remote_code=True)
