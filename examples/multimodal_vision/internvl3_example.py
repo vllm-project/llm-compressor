@@ -30,7 +30,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, use_
 # Oneshot arguments
 DATASET_ID = "flickr30k"
 DATASET_SPLIT = {"calibration": "test[:512]"}
-NUM_CALIBRATION_SAMPLES = 4
+NUM_CALIBRATION_SAMPLES = 4  # NOTE: Using a small number for a quick example. For best results, increase to 512 or more.
 MAX_SEQUENCE_LENGTH = 2048
 ds = load_dataset(DATASET_ID, split=DATASET_SPLIT)
 ds = ds.shuffle(seed=42)
