@@ -4,17 +4,25 @@ from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
     DeepseekV3MoE as OriginalDeepseekV3MoE,
 )
 
+from llmcompressor.modeling.moe_context import (
+    MoECalibrationModule,
+    register_moe_calibration,
+)
 
-class DeepseekV3MoECalibrate(torch.nn.Module):
+
+@register_moe_calibration("DeepseekV3MoE")
+class CalibrationDeepseekV3MoE(MoECalibrationModule):
     """
-    Patched DeepseekV3MoE which sends all tokens to all experts for calibration
+    Calibration version of DeepseekV3MoE that sends all tokens to all experts.
     """
+
+    is_permanent = True
 
     def __init__(
         self,
-        config: DeepseekV3Config,
         original: OriginalDeepseekV3MoE,
-        calibrate_all_experts: bool,
+        config: DeepseekV3Config,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
         self.config = config
@@ -65,11 +73,18 @@ class DeepseekV3MoECalibrate(torch.nn.Module):
         return hidden_states
 
 
+# Legacy function for backward compatibility
 def replace(
     config: DeepseekV3Config,
     module: OriginalDeepseekV3MoE,
     calibrate_all_experts: bool,
 ):
-    return DeepseekV3MoECalibrate(
-        config=config, original=module, calibrate_all_experts=calibrate_all_experts
+    """
+    Legacy replacement function.
+    Use CalibrationDeepseekV3MoE instead.
+    """
+    return CalibrationDeepseekV3MoE(
+        module,
+        config,
+        calibrate_all_experts=calibrate_all_experts,
     )
