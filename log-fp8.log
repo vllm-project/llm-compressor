@@ -6,60 +6,58 @@ configfile: pyproject.toml
 plugins: anyio-4.11.0
 collecting ... collected 1 item
 
-tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp8_dynamic_per_tensor_moe.yaml] 2025-10-24T16:19:13.620669+0000 | set_up | INFO - ========== RUNNING ==============
-2025-10-24T16:19:13.620795+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp8_dynamic_per_tensor_moe.yaml] 2025-10-28T04:30:05.760081+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-28T04:30:05.760197+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC
 `torch_dtype` is deprecated! Use `dtype` instead!
-Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards:  15%|█▌        | 2/13 [00:00<00:02,  4.43it/s]Loading checkpoint shards:  23%|██▎       | 3/13 [00:00<00:02,  3.44it/s]Loading checkpoint shards:  31%|███       | 4/13 [00:01<00:02,  3.11it/s]Loading checkpoint shards:  38%|███▊      | 5/13 [00:01<00:02,  2.87it/s]Loading checkpoint shards:  46%|████▌     | 6/13 [00:01<00:02,  2.80it/s]Loading checkpoint shards:  54%|█████▍    | 7/13 [00:02<00:02,  2.75it/s]Loading checkpoint shards:  62%|██████▏   | 8/13 [00:02<00:01,  2.73it/s]Loading checkpoint shards:  69%|██████▉   | 9/13 [00:03<00:01,  2.70it/s]Loading checkpoint shards:  77%|███████▋  | 10/13 [00:03<00:01,  2.64it/s]Loading checkpoint shards:  85%|████████▍ | 11/13 [00:03<00:00,  2.65it/s]Loading checkpoint shards:  92%|█████████▏| 12/13 [00:04<00:00,  2.61it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:04<00:00,  2.47it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:04<00:00,  2.75it/s]
-2025-10-24T16:19:24.784314+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
-2025-10-24T16:19:30.518930+0000 | reset | INFO - Compression lifecycle reset
-2025-10-24T16:19:30.526042+0000 | _create_default_logger | INFO - Logging all LLM Compressor modifier-level logs to sparse_logs/24-10-2025_16.19.30.log
-2025-10-24T16:19:30.526446+0000 | from_modifiers | INFO - Creating recipe from modifiers
-2025-10-24T16:19:30.558764+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
-2025-10-24T16:19:30.559026+0000 | IndependentPipeline | INFO - Inferred `DataFreePipeline` for `QuantizationModifier`
-Updating global scales:   0%|          | 0/356 [00:00<?, ?it/s]Updating global scales: 100%|██████████| 356/356 [00:00<00:00, 700362.21it/s]
-Fusing global scales: 0it [00:00, ?it/s]Fusing global scales: 1333it [00:00, 606992.43it/s]
-Calibrating weights:   0%|          | 0/356 [00:00<?, ?it/s]Calibrating weights:  74%|███████▍  | 264/356 [00:00<00:00, 2636.03it/s]Calibrating weights: 100%|██████████| 356/356 [00:00<00:00, 3021.34it/s]
-2025-10-24T16:21:26.199644+0000 | finalize | INFO - Compression lifecycle finalized for 1 modifiers
-2025-10-24T16:21:40.851405+0000 | post_process | WARNING - Optimized model is not saved. To save, please provide`output_dir` as input arg.Ex. `oneshot(..., output_dir=...)`
-2025-10-24T16:21:40.876059+0000 | test_vllm | INFO - ================= SAVING TO DISK ======================
-2025-10-24T16:21:40.876633+0000 | get_model_compressor | INFO - skip_sparsity_compression_stats set to True. Skipping sparsity compression statistic calculations. No sparsity compressor will be applied.
-Compressing model: 0it [00:00, ?it/s]Compressing model: 16it [00:00, 158.23it/s]Compressing model: 49it [00:00, 257.72it/s]Compressing model: 85it [00:00, 303.89it/s]Compressing model: 116it [00:00, 267.10it/s]Compressing model: 148it [00:00, 284.23it/s]Compressing model: 182it [00:00, 295.87it/s]Compressing model: 216it [00:00, 307.46it/s]Compressing model: 250it [00:00, 314.99it/s]Compressing model: 284it [00:00, 322.18it/s]Compressing model: 322it [00:01, 334.09it/s]Compressing model: 356it [00:01, 308.41it/s]
-2025-10-24T16:27:11.218490+0000 | reset | INFO - Compression lifecycle reset
-2025-10-24T16:27:11.218692+0000 | _run_vllm | INFO - Run vllm in subprocess.Popen() using python env:
-2025-10-24T16:27:11.218743+0000 | _run_vllm | INFO - /home/HDCharles/rhdev/bin/python3
-2025-10-24T16:30:02.015542+0000 | _run_vllm | INFO - INFO 10-24 16:27:13 [__init__.py:216] Automatically detected platform cuda.
-INFO 10-24 16:27:15 [utils.py:233] non-default args: {'disable_log_stats': True, 'model': 'Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC'}
-INFO 10-24 16:27:21 [model.py:547] Resolved architecture: Qwen3VLMoeForConditionalGeneration
-INFO 10-24 16:27:21 [model.py:1510] Using max model len 262144
-INFO 10-24 16:27:21 [scheduler.py:205] Chunked prefill is enabled with max_num_batched_tokens=16384.
-INFO 10-24 16:27:24 [__init__.py:216] Automatically detected platform cuda.
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:27:27 [core.py:644] Waiting for init message from front-end.
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:27:27 [core.py:77] Initializing a V1 LLM engine (v0.11.0) with config: model='Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC', speculative_config=None, tokenizer='Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=262144, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser=''), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None), seed=0, served_model_name=Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC, enable_prefix_caching=True, chunked_prefill_enabled=True, pooler_config=None, compilation_config={"level":3,"debug_dump_path":"","cache_dir":"","backend":"","custom_ops":[],"splitting_ops":["vllm.unified_attention","vllm.unified_attention_with_output","vllm.mamba_mixer2","vllm.mamba_mixer","vllm.short_conv","vllm.linear_attention","vllm.plamo2_mamba_mixer","vllm.gdn_attention","vllm.sparse_attn_indexer"],"use_inductor":true,"compile_sizes":[],"inductor_compile_config":{"enable_auto_functionalized_v2":false},"inductor_passes":{},"cudagraph_mode":[2,1],"use_cudagraph":true,"cudagraph_num_of_warmups":1,"cudagraph_capture_sizes":[512,504,496,488,480,472,464,456,448,440,432,424,416,408,400,392,384,376,368,360,352,344,336,328,320,312,304,296,288,280,272,264,256,248,240,232,224,216,208,200,192,184,176,168,160,152,144,136,128,120,112,104,96,88,80,72,64,56,48,40,32,24,16,8,4,2,1],"cudagraph_copy_inputs":false,"full_cuda_graph":false,"use_inductor_graph_partition":false,"pass_config":{},"max_capture_size":512,"local_cache_dir":null}
+Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 114.12it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 113.98it/s]
+2025-10-28T04:30:10.854420+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
+2025-10-28T04:30:14.685160+0000 | reset | INFO - Compression lifecycle reset
+2025-10-28T04:30:14.685576+0000 | from_modifiers | INFO - Creating recipe from modifiers
+2025-10-28T04:30:14.719131+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
+2025-10-28T04:30:14.719436+0000 | IndependentPipeline | INFO - Inferred `DataFreePipeline` for `QuantizationModifier`
+Updating global scales:   0%|          | 0/356 [00:00<?, ?it/s]Updating global scales: 100%|██████████| 356/356 [00:00<00:00, 752606.97it/s]
+Fusing global scales: 0it [00:00, ?it/s]Fusing global scales: 1333it [00:00, 592707.22it/s]
+Calibrating weights:   0%|          | 0/356 [00:00<?, ?it/s]Calibrating weights:  71%|███████   | 253/356 [00:00<00:00, 2528.14it/s]Calibrating weights: 100%|██████████| 356/356 [00:00<00:00, 2975.54it/s]
+2025-10-28T04:30:26.615508+0000 | finalize | INFO - Compression lifecycle finalized for 1 modifiers
+2025-10-28T04:30:41.297993+0000 | post_process | WARNING - Optimized model is not saved. To save, please provide`output_dir` as input arg.Ex. `oneshot(..., output_dir=...)`
+2025-10-28T04:30:41.320280+0000 | test_vllm | INFO - ================= SAVING TO DISK ======================
+2025-10-28T04:30:41.320754+0000 | get_model_compressor | INFO - skip_sparsity_compression_stats set to True. Skipping sparsity compression statistic calculations. No sparsity compressor will be applied.
+Compressing model: 0it [00:00, ?it/s]Compressing model: 18it [00:00, 177.50it/s]Compressing model: 51it [00:00, 264.53it/s]Compressing model: 93it [00:00, 332.02it/s]Compressing model: 127it [00:00, 287.88it/s]Compressing model: 166it [00:00, 318.53it/s]Compressing model: 202it [00:00, 330.47it/s]Compressing model: 239it [00:00, 342.35it/s]Compressing model: 274it [00:00, 342.84it/s]Compressing model: 309it [00:00, 340.95it/s]Compressing model: 344it [00:01, 337.20it/s]Compressing model: 356it [00:01, 322.67it/s]
+2025-10-28T04:31:16.711853+0000 | reset | INFO - Compression lifecycle reset
+2025-10-28T04:31:16.712083+0000 | _run_vllm | INFO - Run vllm in subprocess.Popen() using python env:
+2025-10-28T04:31:16.712114+0000 | _run_vllm | INFO - /home/HDCharles/rhdev/bin/python3
+2025-10-28T04:32:49.853704+0000 | _run_vllm | INFO - INFO 10-28 04:31:18 [__init__.py:216] Automatically detected platform cuda.
+INFO 10-28 04:31:20 [utils.py:233] non-default args: {'disable_log_stats': True, 'model': 'Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC'}
+INFO 10-28 04:31:20 [model.py:547] Resolved architecture: Qwen3VLMoeForConditionalGeneration
+INFO 10-28 04:31:20 [model.py:1510] Using max model len 262144
+INFO 10-28 04:31:22 [scheduler.py:205] Chunked prefill is enabled with max_num_batched_tokens=16384.
+INFO 10-28 04:31:24 [__init__.py:216] Automatically detected platform cuda.
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:31:27 [core.py:644] Waiting for init message from front-end.
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:31:27 [core.py:77] Initializing a V1 LLM engine (v0.11.0) with config: model='Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC', speculative_config=None, tokenizer='Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=262144, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser=''), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None), seed=0, served_model_name=Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC, enable_prefix_caching=True, chunked_prefill_enabled=True, pooler_config=None, compilation_config={"level":3,"debug_dump_path":"","cache_dir":"","backend":"","custom_ops":[],"splitting_ops":["vllm.unified_attention","vllm.unified_attention_with_output","vllm.mamba_mixer2","vllm.mamba_mixer","vllm.short_conv","vllm.linear_attention","vllm.plamo2_mamba_mixer","vllm.gdn_attention","vllm.sparse_attn_indexer"],"use_inductor":true,"compile_sizes":[],"inductor_compile_config":{"enable_auto_functionalized_v2":false},"inductor_passes":{},"cudagraph_mode":[2,1],"use_cudagraph":true,"cudagraph_num_of_warmups":1,"cudagraph_capture_sizes":[512,504,496,488,480,472,464,456,448,440,432,424,416,408,400,392,384,376,368,360,352,344,336,328,320,312,304,296,288,280,272,264,256,248,240,232,224,216,208,200,192,184,176,168,160,152,144,136,128,120,112,104,96,88,80,72,64,56,48,40,32,24,16,8,4,2,1],"cudagraph_copy_inputs":false,"full_cuda_graph":false,"use_inductor_graph_partition":false,"pass_config":{},"max_capture_size":512,"local_cache_dir":null}
 [Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
 [Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
 [Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
 [Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
 [Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
 [Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:27:28 [parallel_state.py:1208] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, TP rank 0, EP rank 0
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:27:28 [topk_topp_sampler.py:55] Using FlashInfer for top-p & top-k sampling.
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:27:34 [gpu_model_runner.py:2602] Starting to load model Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC...
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:27:34 [gpu_model_runner.py:2634] Loading model from scratch...
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:27:34 [cuda.py:366] Using Flash Attention backend on V1 engine.
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:28:08 [default_loader.py:267] Loading weights took 33.06 seconds
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:28:08 [gpu_model_runner.py:2653] Model loading took 30.0579 GiB and 33.710405 seconds
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:28:08 [gpu_model_runner.py:3344] Encoder cache will be initialized with a budget of 153600 tokens, and profiled with 1 video items of the maximum feature size.
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:28:28 [backends.py:548] Using cache directory: /home/HDCharles/.cache/vllm/torch_compile_cache/0dbf177978/rank_0_0/backbone for vLLM's torch.compile
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:28:28 [backends.py:559] Dynamo bytecode transform time: 9.55 s
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:28:31 [backends.py:197] Cache the graph for dynamic shape for later use
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:29:35 [backends.py:218] Compiling a graph for dynamic shape takes 66.96 s
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:29:37 [monitor.py:34] torch.compile takes 76.51 s in total
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:29:39 [gpu_worker.py:298] Available KV cache memory: 35.26 GiB
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:29:39 [kv_cache_utils.py:1087] GPU KV cache size: 385,088 tokens
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:29:39 [kv_cache_utils.py:1091] Maximum concurrency for 262,144 tokens per request: 1.47x
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:29:55 [gpu_model_runner.py:3480] Graph capturing finished in 16 secs, took 1.04 GiB
-[1;36m(EngineCore_DP0 pid=949834)[0;0m INFO 10-24 16:29:55 [core.py:210] init engine (profile, create kv cache, warmup model) took 107.13 seconds
-INFO 10-24 16:29:59 [llm.py:306] Supported_tasks: ['generate']
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:31:28 [parallel_state.py:1208] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, TP rank 0, EP rank 0
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:31:29 [topk_topp_sampler.py:55] Using FlashInfer for top-p & top-k sampling.
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:31:33 [gpu_model_runner.py:2602] Starting to load model Qwen3-VL-30B-A3B-Instruct-FP8_DYNAMIC...
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:31:34 [gpu_model_runner.py:2634] Loading model from scratch...
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:31:34 [cuda.py:366] Using Flash Attention backend on V1 engine.
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:06 [default_loader.py:267] Loading weights took 32.38 seconds
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:07 [gpu_model_runner.py:2653] Model loading took 30.0579 GiB and 32.616893 seconds
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:07 [gpu_model_runner.py:3344] Encoder cache will be initialized with a budget of 153600 tokens, and profiled with 1 video items of the maximum feature size.
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:26 [backends.py:548] Using cache directory: /home/HDCharles/.cache/vllm/torch_compile_cache/0dbf177978/rank_0_0/backbone for vLLM's torch.compile
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:26 [backends.py:559] Dynamo bytecode transform time: 9.62 s
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:29 [backends.py:164] Directly load the compiled graph(s) for dynamic shape from the cache, took 3.029 s
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:30 [monitor.py:34] torch.compile takes 9.62 s in total
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:31 [gpu_worker.py:298] Available KV cache memory: 35.25 GiB
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:32 [kv_cache_utils.py:1087] GPU KV cache size: 385,072 tokens
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:32 [kv_cache_utils.py:1091] Maximum concurrency for 262,144 tokens per request: 1.47x
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:43 [gpu_model_runner.py:3480] Graph capturing finished in 12 secs, took 1.04 GiB
+[1;36m(EngineCore_DP0 pid=3807648)[0;0m INFO 10-28 04:32:43 [core.py:210] init engine (profile, create kv cache, warmup model) took 36.64 seconds
+INFO 10-28 04:32:48 [llm.py:306] Supported_tasks: ['generate']
 ================= vLLM GENERATION =================
 
 PROMPT:
@@ -83,4 +81,4 @@ GENERATED TEXT:
 
 PASSED
 
-======================== 1 passed in 656.97s (0:10:56) =========================
+======================== 1 passed in 171.97s (0:02:51) =========================

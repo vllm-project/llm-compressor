@@ -6,185 +6,214 @@ configfile: pyproject.toml
 plugins: anyio-4.11.0
 collecting ... collected 1 item
 
-tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] 2025-10-24T16:30:26.528531+0000 | set_up | INFO - ========== RUNNING ==============
-2025-10-24T16:30:26.528659+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-NVFP4
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] 2025-10-28T14:01:20.220385+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-28T14:01:20.220511+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-NVFP4
 `torch_dtype` is deprecated! Use `dtype` instead!
-Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.15it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 112.01it/s]
-Map:   0%|          | 0/1 [00:00<?, ? examples/s]Map:   0%|          | 0/1 [00:00<?, ? examples/s]
+Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 115.25it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 115.10it/s]
+neuralmagic/calibration LLM train
+2025-10-28T14:01:27.453522+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
+2025-10-28T14:01:31.331454+0000 | reset | INFO - Compression lifecycle reset
+2025-10-28T14:01:31.331952+0000 | from_modifiers | INFO - Creating recipe from modifiers
+2025-10-28T14:01:31.397765+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
+2025-10-28T14:01:31.398497+0000 | IndependentPipeline | INFO - Inferred `SequentialPipeline` for `QuantizationModifier`
+2025-10-28T14:01:31.889166+0000 | trace_subgraphs | WARNING - Expected 75 subgraphs, but only traced 49. This is likely due to having wrapped code which calls sequential targets
+Updating global scales:   0%|          | 0/356 [00:00<?, ?it/s]Updating global scales:   8%|▊         | 27/356 [00:00<00:01, 263.59it/s]Updating global scales:  22%|██▏       | 77/356 [00:00<00:00, 400.60it/s]Updating global scales:  33%|███▎      | 118/356 [00:00<00:00, 378.39it/s]Updating global scales:  47%|████▋     | 169/356 [00:00<00:00, 426.87it/s]Updating global scales:  62%|██████▏   | 221/356 [00:00<00:00, 458.21it/s]Updating global scales:  76%|███████▋  | 272/356 [00:00<00:00, 473.09it/s]Updating global scales:  92%|█████████▏| 327/356 [00:00<00:00, 494.62it/s]Updating global scales: 100%|██████████| 356/356 [00:00<00:00, 459.53it/s]
+Fusing global scales: 0it [00:00, ?it/s]Fusing global scales: 1088it [00:00, 10697.75it/s]Fusing global scales: 1689it [00:00, 8461.37it/s] 
+Calibrating weights:   0%|          | 0/356 [00:00<?, ?it/s]Calibrating weights:   4%|▍         | 15/356 [00:00<00:02, 147.43it/s]Calibrating weights:  10%|█         | 36/356 [00:00<00:01, 181.58it/s]Calibrating weights:  16%|█▋        | 58/356 [00:00<00:01, 197.98it/s]Calibrating weights:  22%|██▏       | 80/356 [00:00<00:01, 203.10it/s]Calibrating weights:  29%|██▊       | 102/356 [00:00<00:01, 208.18it/s]Calibrating weights:  35%|███▍      | 123/356 [00:00<00:01, 171.92it/s]Calibrating weights:  41%|████      | 145/356 [00:00<00:01, 184.95it/s]Calibrating weights:  47%|████▋     | 167/356 [00:00<00:00, 194.73it/s]Calibrating weights:  53%|█████▎    | 190/356 [00:00<00:00, 202.61it/s]Calibrating weights:  60%|█████▉    | 212/356 [00:01<00:00, 204.47it/s]Calibrating weights:  66%|██████▌   | 234/356 [00:01<00:00, 208.70it/s]Calibrating weights:  72%|███████▏  | 256/356 [00:01<00:00, 209.77it/s]Calibrating weights:  78%|███████▊  | 278/356 [00:01<00:00, 209.48it/s]Calibrating weights:  84%|████████▍ | 300/356 [00:01<00:00, 210.29it/s]Calibrating weights:  90%|█████████ | 322/356 [00:01<00:00, 211.59it/s]Calibrating weights:  97%|█████████▋| 345/356 [00:01<00:00, 212.60it/s]Calibrating weights: 100%|██████████| 356/356 [00:01<00:00, 202.54it/s]
+Preparing cache:   0%|          | 0/20 [00:00<?, ?it/s]Preparing cache:  15%|█▌        | 3/20 [00:00<00:00, 29.61it/s]Preparing cache: 100%|██████████| 20/20 [00:00<00:00, 154.10it/s]
+(1/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](1/49): Calibrating:   5%|▌         | 1/20 [00:01<00:32,  1.70s/it](1/49): Calibrating:  30%|███       | 6/20 [00:01<00:03,  4.41it/s](1/49): Calibrating:  60%|██████    | 12/20 [00:01<00:00,  9.82it/s](1/49): Calibrating:  90%|█████████ | 18/20 [00:02<00:00, 15.86it/s](1/49): Calibrating: 100%|██████████| 20/20 [00:02<00:00,  9.75it/s]
+(1/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](1/49): Propagating:  70%|███████   | 14/20 [00:00<00:00, 133.60it/s](1/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 134.70it/s]
+(2/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](2/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.56it/s](2/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 53.57it/s](2/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.54it/s]
+(2/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](2/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 143.35it/s](2/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.05it/s]
+(3/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](3/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.63it/s](3/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 54.42it/s](3/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 55.40it/s]
+(3/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](3/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 143.40it/s](3/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 144.86it/s]
+(4/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](4/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.63it/s](4/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 56.87it/s](4/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 55.52it/s]
+(4/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](4/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.23it/s](4/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.91it/s]
+(5/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](5/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.51it/s](5/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 53.60it/s](5/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.58it/s]
+(5/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](5/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.21it/s](5/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.84it/s]
+(6/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](6/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.59it/s](6/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 53.33it/s](6/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.56it/s]
+(6/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](6/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.40it/s](6/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.82it/s]
+(7/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](7/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.58it/s](7/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 56.51it/s](7/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 55.19it/s]
+(7/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](7/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.24it/s](7/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 144.63it/s]
+(8/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](8/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.61it/s](8/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 54.16it/s](8/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 55.11it/s]
+(8/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](8/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.50it/s](8/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.89it/s]
+(9/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](9/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.60it/s](9/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 54.19it/s](9/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 55.26it/s]
+(9/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](9/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 146.71it/s](9/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 147.70it/s]
+(10/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](10/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.92it/s](10/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.03it/s](10/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.74it/s]
+(10/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](10/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.60it/s](10/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.46it/s]
+(11/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](11/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.91it/s](11/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 58.86it/s](11/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.48it/s]
+(11/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](11/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.75it/s](11/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.15it/s]
+(12/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](12/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.90it/s](12/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.25it/s](12/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.28it/s]
+(12/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](12/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 141.86it/s](12/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 144.14it/s]
+(13/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](13/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.91it/s](13/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.30it/s](13/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.31it/s]
+(13/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](13/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.63it/s](13/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.08it/s]
+(14/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](14/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.91it/s](14/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 55.91it/s](14/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 56.96it/s]
+(14/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](14/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.46it/s](14/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.82it/s]
+(15/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](15/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.94it/s](15/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.21it/s](15/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.83it/s]
+(15/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](15/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 143.92it/s](15/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.70it/s]
+(16/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](16/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.88it/s](16/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.27it/s](16/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.28it/s]
+(16/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](16/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 143.70it/s](16/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.51it/s]
+(17/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](17/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.83it/s](17/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 55.34it/s](17/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 56.45it/s]
+(17/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](17/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.34it/s](17/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.25it/s]
+(18/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](18/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.93it/s](18/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.28it/s](18/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.96it/s]
+(18/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](18/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 146.52it/s](18/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.36it/s]
+(19/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](19/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.92it/s](19/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.44it/s](19/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.47it/s]
+(19/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](19/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.53it/s](19/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.93it/s]
+(20/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](20/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.94it/s](20/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.64it/s](20/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.55it/s]
+(20/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](20/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.19it/s](20/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.80it/s]
+(21/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](21/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.94it/s](21/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.26it/s](21/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.92it/s]
+(21/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](21/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 146.40it/s](21/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 148.17it/s]
+(22/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](22/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.89it/s](22/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.20it/s](22/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.31it/s]
+(22/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](22/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 146.17it/s](22/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 147.87it/s]
+(23/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](23/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.00it/s](23/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.66it/s](23/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 58.34it/s]
+(23/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](23/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.71it/s](23/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.68it/s]
+(24/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](24/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.92it/s](24/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.06it/s](24/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.72it/s]
+(24/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](24/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 142.63it/s](24/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.02it/s]
+(25/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](25/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.91it/s](25/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.05it/s](25/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.60it/s]
+(25/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](25/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.34it/s](25/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.07it/s]
+(26/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](26/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  3.98it/s](26/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 49.63it/s](26/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 50.53it/s]
+(26/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](26/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 131.49it/s](26/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 136.00it/s]
+(27/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](27/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.93it/s](27/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 58.98it/s](27/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.50it/s]
+(27/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](27/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 141.61it/s](27/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 143.86it/s]
+(28/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](28/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.98it/s](28/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.89it/s](28/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.56it/s]
+(28/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](28/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.39it/s](28/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.64it/s]
+(29/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](29/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.93it/s](29/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.01it/s](29/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.66it/s]
+(29/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](29/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 141.65it/s](29/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 144.11it/s]
+(30/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](30/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.95it/s](30/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.21it/s](30/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.89it/s]
+(30/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](30/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 147.04it/s](30/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 148.20it/s]
+(31/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](31/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.94it/s](31/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.27it/s](31/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.34it/s]
+(31/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](31/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.02it/s](31/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.85it/s]
+(32/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](32/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.90it/s](32/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.22it/s](32/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.22it/s]
+(32/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](32/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 143.77it/s](32/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.74it/s]
+(33/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](33/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.01it/s](33/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 59.59it/s](33/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 58.33it/s]
+(33/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](33/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 146.05it/s](33/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 147.75it/s]
+(34/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](34/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.12it/s](34/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 60.34it/s](34/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 58.88it/s]
+(34/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](34/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 141.37it/s](34/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 143.58it/s]
+(35/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](35/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.00it/s](35/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.84it/s](35/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.83it/s]
+(35/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](35/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 142.37it/s](35/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 143.69it/s]
+(36/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](36/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.18it/s](36/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.75it/s](36/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 58.19it/s]
+(36/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](36/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.36it/s](36/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 147.02it/s]
+(37/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](37/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.14it/s](37/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 60.58it/s](37/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 59.29it/s]
+(37/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](37/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 147.19it/s](37/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 148.68it/s]
+(38/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](38/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.25it/s](38/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 61.15it/s](38/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 59.86it/s]
+(38/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](38/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.74it/s](38/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 147.60it/s]
+(39/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](39/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.35it/s](39/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 61.86it/s](39/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.56it/s]
+(39/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](39/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.57it/s](39/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.60it/s]
+(40/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](40/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.31it/s](40/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 58.96it/s](40/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 59.95it/s]
+(40/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](40/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.47it/s](40/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.53it/s]
+(41/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](41/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.32it/s](41/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 59.03it/s](41/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.09it/s]
+(41/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](41/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 142.40it/s](41/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 144.53it/s]
+(42/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](42/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.36it/s](42/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 61.77it/s](42/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.45it/s]
+(42/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](42/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.86it/s](42/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.44it/s]
+(43/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](43/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.37it/s](43/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 59.29it/s](43/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.01it/s]
+(43/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](43/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 143.71it/s](43/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.29it/s]
+(44/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](44/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.99it/s](44/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 56.47it/s](44/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 57.24it/s]
+(44/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](44/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 144.16it/s](44/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.64it/s]
+(45/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](45/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.31it/s](45/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 61.51it/s](45/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.22it/s]
+(45/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](45/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 143.27it/s](45/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 145.40it/s]
+(46/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](46/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.30it/s](46/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 61.46it/s](46/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.19it/s]
+(46/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](46/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.85it/s](46/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 147.57it/s]
+(47/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](47/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.39it/s](47/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 59.02it/s](47/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.25it/s]
+(47/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](47/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 145.77it/s](47/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 146.75it/s]
+(48/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](48/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.40it/s](48/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 62.28it/s](48/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 60.94it/s]
+(48/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](48/49): Propagating:  75%|███████▌  | 15/20 [00:00<00:00, 141.99it/s](48/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 144.55it/s]
+(49/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](49/49): Calibrating:  70%|███████   | 14/20 [00:00<00:00, 138.86it/s](49/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 189.54it/s]
+(49/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](49/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 1937.01it/s]
+2025-10-28T14:02:15.765071+0000 | finalize | INFO - Compression lifecycle finalized for 1 modifiers
+2025-10-28T14:02:15.848686+0000 | post_process | WARNING - Optimized model is not saved. To save, please provide`output_dir` as input arg.Ex. `oneshot(..., output_dir=...)`
+2025-10-28T14:02:15.849635+0000 | test_vllm | INFO - ================= SAVING TO DISK ======================
+2025-10-28T14:02:15.849773+0000 | get_model_compressor | INFO - skip_sparsity_compression_stats set to True. Skipping sparsity compression statistic calculations. No sparsity compressor will be applied.
+Compressing model: 0it [00:00, ?it/s]Compressing model: 1it [00:05,  5.83s/it]Compressing model: 7it [00:05,  1.59it/s]Compressing model: 12it [00:06,  3.17it/s]Compressing model: 17it [00:06,  5.25it/s]Compressing model: 23it [00:06,  8.46it/s]Compressing model: 28it [00:06, 11.68it/s]Compressing model: 33it [00:06, 15.47it/s]Compressing model: 39it [00:06, 20.79it/s]Compressing model: 44it [00:06, 24.96it/s]Compressing model: 49it [00:06, 29.31it/s]Compressing model: 55it [00:06, 34.60it/s]Compressing model: 61it [00:07, 38.30it/s]Compressing model: 67it [00:07, 42.05it/s]Compressing model: 73it [00:07, 43.47it/s]Compressing model: 79it [00:07, 46.50it/s]Compressing model: 85it [00:07, 47.16it/s]Compressing model: 91it [00:07, 48.45it/s]Compressing model: 97it [00:07, 48.56it/s]Compressing model: 103it [00:07, 50.36it/s]Compressing model: 109it [00:08, 41.79it/s]Compressing model: 114it [00:08, 28.00it/s]Compressing model: 118it [00:08, 25.53it/s]Compressing model: 122it [00:08, 27.75it/s]Compressing model: 127it [00:08, 31.27it/s]Compressing model: 132it [00:08, 34.20it/s]Compressing model: 137it [00:09, 37.12it/s]Compressing model: 142it [00:09, 39.56it/s]Compressing model: 147it [00:09, 41.38it/s]Compressing model: 152it [00:09, 42.25it/s]Compressing model: 157it [00:09, 42.55it/s]Compressing model: 162it [00:09, 43.62it/s]Compressing model: 167it [00:09, 44.29it/s]Compressing model: 172it [00:09, 44.72it/s]Compressing model: 177it [00:09, 45.13it/s]Compressing model: 182it [00:10, 45.56it/s]Compressing model: 187it [00:10, 45.74it/s]Compressing model: 192it [00:10, 45.08it/s]Compressing model: 197it [00:10, 45.38it/s]Compressing model: 202it [00:10, 45.54it/s]Compressing model: 207it [00:10, 45.49it/s]Compressing model: 212it [00:10, 45.74it/s]Compressing model: 217it [00:10, 45.78it/s]Compressing model: 222it [00:10, 45.82it/s]Compressing model: 227it [00:11, 45.80it/s]Compressing model: 232it [00:11, 45.92it/s]Compressing model: 237it [00:11, 45.98it/s]Compressing model: 242it [00:11, 45.95it/s]Compressing model: 247it [00:11, 46.16it/s]Compressing model: 252it [00:11, 45.26it/s]Compressing model: 257it [00:11, 44.74it/s]Compressing model: 262it [00:11, 45.11it/s]Compressing model: 267it [00:11, 45.47it/s]Compressing model: 272it [00:12, 45.71it/s]Compressing model: 277it [00:12, 45.66it/s]Compressing model: 282it [00:12, 45.71it/s]Compressing model: 287it [00:12, 45.35it/s]Compressing model: 292it [00:12, 45.50it/s]Compressing model: 297it [00:12, 43.54it/s]Compressing model: 302it [00:12, 44.15it/s]Compressing model: 307it [00:12, 44.63it/s]Compressing model: 312it [00:12, 44.86it/s]Compressing model: 317it [00:13, 44.22it/s]Compressing model: 322it [00:13, 44.66it/s]Compressing model: 327it [00:13, 44.94it/s]Compressing model: 332it [00:13, 45.09it/s]Compressing model: 337it [00:13, 45.26it/s]Compressing model: 342it [00:13, 44.90it/s]Compressing model: 347it [00:13, 45.16it/s]Compressing model: 352it [00:13, 45.52it/s]Compressing model: 356it [00:13, 25.69it/s]
+2025-10-28T14:07:49.943370+0000 | reset | INFO - Compression lifecycle reset
+2025-10-28T14:07:49.943804+0000 | _run_vllm | INFO - Run vllm in subprocess.Popen() using python env:
+2025-10-28T14:07:49.943849+0000 | _run_vllm | INFO - /home/HDCharles/rhdev/bin/python3
+2025-10-28T14:08:10.166190+0000 | _run_vllm | INFO - INFO 10-28 14:07:52 [__init__.py:216] Automatically detected platform cuda.
+INFO 10-28 14:07:53 [utils.py:233] non-default args: {'disable_log_stats': True, 'model': 'Qwen3-VL-30B-A3B-Instruct-NVFP4'}
+INFO 10-28 14:07:53 [model.py:547] Resolved architecture: Qwen3VLMoeForConditionalGeneration
+INFO 10-28 14:07:54 [model.py:1510] Using max model len 262144
+INFO 10-28 14:07:55 [scheduler.py:205] Chunked prefill is enabled with max_num_batched_tokens=16384.
+INFO 10-28 14:07:58 [__init__.py:216] Automatically detected platform cuda.
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:00 [core.py:644] Waiting for init message from front-end.
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:00 [core.py:77] Initializing a V1 LLM engine (v0.11.0) with config: model='Qwen3-VL-30B-A3B-Instruct-NVFP4', speculative_config=None, tokenizer='Qwen3-VL-30B-A3B-Instruct-NVFP4', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=262144, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser=''), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None), seed=0, served_model_name=Qwen3-VL-30B-A3B-Instruct-NVFP4, enable_prefix_caching=True, chunked_prefill_enabled=True, pooler_config=None, compilation_config={"level":3,"debug_dump_path":"","cache_dir":"","backend":"","custom_ops":[],"splitting_ops":["vllm.unified_attention","vllm.unified_attention_with_output","vllm.mamba_mixer2","vllm.mamba_mixer","vllm.short_conv","vllm.linear_attention","vllm.plamo2_mamba_mixer","vllm.gdn_attention","vllm.sparse_attn_indexer"],"use_inductor":true,"compile_sizes":[],"inductor_compile_config":{"enable_auto_functionalized_v2":false},"inductor_passes":{},"cudagraph_mode":[2,1],"use_cudagraph":true,"cudagraph_num_of_warmups":1,"cudagraph_capture_sizes":[512,504,496,488,480,472,464,456,448,440,432,424,416,408,400,392,384,376,368,360,352,344,336,328,320,312,304,296,288,280,272,264,256,248,240,232,224,216,208,200,192,184,176,168,160,152,144,136,128,120,112,104,96,88,80,72,64,56,48,40,32,24,16,8,4,2,1],"cudagraph_copy_inputs":false,"full_cuda_graph":false,"use_inductor_graph_partition":false,"pass_config":{},"max_capture_size":512,"local_cache_dir":null}
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:01 [parallel_state.py:1208] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, TP rank 0, EP rank 0
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:02 [topk_topp_sampler.py:55] Using FlashInfer for top-p & top-k sampling.
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:07 [gpu_model_runner.py:2602] Starting to load model Qwen3-VL-30B-A3B-Instruct-NVFP4...
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:07 [gpu_model_runner.py:2634] Loading model from scratch...
+[1;36m(EngineCore_DP0 pid=105533)[0;0m WARNING 10-28 14:08:07 [compressed_tensors.py:490] Current platform does not support cutlass NVFP4. Running CompressedTensorsW4A16Fp4.
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:07 [cuda.py:366] Using Flash Attention backend on V1 engine.
+[1;36m(EngineCore_DP0 pid=105533)[0;0m INFO 10-28 14:08:07 [nvfp4_moe_support.py:49] Falling back to Marlin FP4 MoE kernel.
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708] EngineCore failed to start.
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708] Traceback (most recent call last):
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core.py", line 699, in run_engine_core
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     engine_core = EngineCoreProc(*args, **kwargs)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core.py", line 498, in __init__
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     super().__init__(vllm_config, executor_class, log_stats,
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core.py", line 83, in __init__
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     self.model_executor = executor_class(vllm_config)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/executor/executor_base.py", line 54, in __init__
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     self._init_executor()
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/executor/uniproc_executor.py", line 55, in _init_executor
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     self.collective_rpc("load_model")
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/executor/uniproc_executor.py", line 83, in collective_rpc
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     return [run_method(self.driver_worker, method, args, kwargs)]
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/utils/__init__.py", line 3122, in run_method
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     return func(*args, **kwargs)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]            ^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/worker/gpu_worker.py", line 213, in load_model
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/worker/gpu_model_runner.py", line 2635, in load_model
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     self.model = model_loader.load_model(
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/model_loader/base_loader.py", line 50, in load_model
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     self.load_weights(model, model_config)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/model_loader/default_loader.py", line 264, in load_weights
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     loaded_weights = model.load_weights(
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                      ^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_vl.py", line 1603, in load_weights
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 294, in load_weights
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     autoloaded_weights = set(self._load_module("", self.module, weights))
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 252, in _load_module
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     yield from self._load_module(prefix,
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 225, in _load_module
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     loaded_params = module_load_weights(weights)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_moe.py", line 689, in load_weights
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     return loader.load_weights(weights)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 294, in load_weights
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     autoloaded_weights = set(self._load_module("", self.module, weights))
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 252, in _load_module
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     yield from self._load_module(prefix,
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 225, in _load_module
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     loaded_params = module_load_weights(weights)
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_vl_moe.py", line 231, in load_weights
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     success = self.load_fused_expert_weights(
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_vl_moe.py", line 126, in load_fused_expert_weights
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]     param = params_dict[name]
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708]             ~~~~~~~~~~~^^^^^^
+[1;36m(EngineCore_DP0 pid=105533)[0;0m ERROR 10-28 14:08:08 [core.py:708] KeyError: 'layers.0.mlp.experts.w2_weight'
+
 FAILED
 
 =================================== FAILURES ===================================
 _ TestvLLM.test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] _
 
-image = '<|im_start|>user\nHow does the location of the Sydney Conservatorium of Music impact the academic and professional op...c industry, and offers a range of internship and job placement opportunities to help them achieve success.<|im_end|>\n'
-timeout = None
-
-    def load_image(image: Union[str, "PIL.Image.Image"], timeout: Optional[float] = None) -> "PIL.Image.Image":
-        """
-        Loads `image` to a PIL Image.
-    
-        Args:
-            image (`str` or `PIL.Image.Image`):
-                The image to convert to the PIL Image format.
-            timeout (`float`, *optional*):
-                The timeout value in seconds for the URL request.
-    
-        Returns:
-            `PIL.Image.Image`: A PIL Image.
-        """
-        requires_backends(load_image, ["vision"])
-        if isinstance(image, str):
-            if image.startswith("http://") or image.startswith("https://"):
-                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
-                # like http_huggingface_co.png
-                image = PIL.Image.open(BytesIO(requests.get(image, timeout=timeout).content))
-            elif os.path.isfile(image):
-                image = PIL.Image.open(image)
-            else:
-                if image.startswith("data:image/"):
-                    image = image.split(",")[1]
-    
-                # Try to load as base64
-                try:
-                    b64 = base64.decodebytes(image.encode())
->                   image = PIL.Image.open(BytesIO(b64))
-                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-../../rhdev/lib/python3.11/site-packages/transformers/image_utils.py:481: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-fp = <_io.BytesIO object at 0x7efdfae7a480>, mode = 'r'
-formats = ['BMP', 'DIB', 'GIF', 'JPEG', 'PPM', 'PNG', ...]
-
-    def open(
-        fp: StrOrBytesPath | IO[bytes],
-        mode: Literal["r"] = "r",
-        formats: list[str] | tuple[str, ...] | None = None,
-    ) -> ImageFile.ImageFile:
-        """
-        Opens and identifies the given image file.
-    
-        This is a lazy operation; this function identifies the file, but
-        the file remains open and the actual image data is not read from
-        the file until you try to process the data (or call the
-        :py:meth:`~PIL.Image.Image.load` method).  See
-        :py:func:`~PIL.Image.new`. See :ref:`file-handling`.
-    
-        :param fp: A filename (string), os.PathLike object or a file object.
-           The file object must implement ``file.read``,
-           ``file.seek``, and ``file.tell`` methods,
-           and be opened in binary mode. The file object will also seek to zero
-           before reading.
-        :param mode: The mode.  If given, this argument must be "r".
-        :param formats: A list or tuple of formats to attempt to load the file in.
-           This can be used to restrict the set of formats checked.
-           Pass ``None`` to try all supported formats. You can print the set of
-           available formats by running ``python3 -m PIL`` or using
-           the :py:func:`PIL.features.pilinfo` function.
-        :returns: An :py:class:`~PIL.Image.Image` object.
-        :exception FileNotFoundError: If the file cannot be found.
-        :exception PIL.UnidentifiedImageError: If the image cannot be opened and
-           identified.
-        :exception ValueError: If the ``mode`` is not "r", or if a ``StringIO``
-           instance is used for ``fp``.
-        :exception TypeError: If ``formats`` is not ``None``, a list or a tuple.
-        """
-    
-        if mode != "r":
-            msg = f"bad mode {repr(mode)}"  # type: ignore[unreachable]
-            raise ValueError(msg)
-        elif isinstance(fp, io.StringIO):
-            msg = (  # type: ignore[unreachable]
-                "StringIO cannot be used to open an image. "
-                "Binary data must be used instead."
-            )
-            raise ValueError(msg)
-    
-        if formats is None:
-            formats = ID
-        elif not isinstance(formats, (list, tuple)):
-            msg = "formats must be a list or tuple"  # type: ignore[unreachable]
-            raise TypeError(msg)
-    
-        exclusive_fp = False
-        filename: str | bytes = ""
-        if is_path(fp):
-            filename = os.fspath(fp)
-            fp = builtins.open(filename, "rb")
-            exclusive_fp = True
-        else:
-            fp = cast(IO[bytes], fp)
-    
-        try:
-            fp.seek(0)
-        except (AttributeError, io.UnsupportedOperation):
-            fp = io.BytesIO(fp.read())
-            exclusive_fp = True
-    
-        prefix = fp.read(16)
-    
-        preinit()
-    
-        warning_messages: list[str] = []
-    
-        def _open_core(
-            fp: IO[bytes],
-            filename: str | bytes,
-            prefix: bytes,
-            formats: list[str] | tuple[str, ...],
-        ) -> ImageFile.ImageFile | None:
-            for i in formats:
-                i = i.upper()
-                if i not in OPEN:
-                    init()
-                try:
-                    factory, accept = OPEN[i]
-                    result = not accept or accept(prefix)
-                    if isinstance(result, str):
-                        warning_messages.append(result)
-                    elif result:
-                        fp.seek(0)
-                        im = factory(fp, filename)
-                        _decompression_bomb_check(im.size)
-                        return im
-                except (SyntaxError, IndexError, TypeError, struct.error) as e:
-                    if WARN_POSSIBLE_FORMATS:
-                        warning_messages.append(i + " opening failed. " + str(e))
-                except BaseException:
-                    if exclusive_fp:
-                        fp.close()
-                    raise
-            return None
-    
-        im = _open_core(fp, filename, prefix, formats)
-    
-        if im is None and formats is ID:
-            checked_formats = ID.copy()
-            if init():
-                im = _open_core(
-                    fp,
-                    filename,
-                    prefix,
-                    tuple(format for format in formats if format not in checked_formats),
-                )
-    
-        if im:
-            im._exclusive_fp = exclusive_fp
-            return im
-    
-        if exclusive_fp:
-            fp.close()
-        for message in warning_messages:
-            warnings.warn(message)
-        msg = "cannot identify image file %r" % (filename if filename else fp)
->       raise UnidentifiedImageError(msg)
-E       PIL.UnidentifiedImageError: cannot identify image file <_io.BytesIO object at 0x7efdfae7a480>
-
-../../rhdev/lib/python3.11/site-packages/PIL/Image.py:3560: UnidentifiedImageError
-
-During handling of the above exception, another exception occurred:
-
-self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7efdfb7a5d50>
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fb845f47110>
 test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml'
 
     def test_vllm(self, test_data_file: str):
@@ -193,7 +222,7 @@ test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp
         self.set_up(test_data_file)
         if not self.save_dir:
             self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
->       oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
             model=self.model,
             model_class=self.model_class,
             num_calibration_samples=self.num_calibration_samples,
@@ -205,172 +234,199 @@ test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp
             recipe=self.recipe,
             quant_type=self.quant_type,
         )
+    
+        # check that session contains recipe
+        self._check_session_contains_recipe()
+    
+        logger.info("================= SAVING TO DISK ======================")
+        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+    
+        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+    
+        # check that expected files exist
+        self._check_save_dir_has_expected_files()
+    
+        # Use the session to fetch the recipe;
+        # Reset session for next test case
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        with open(recipe_path, "w") as fp:
+            fp.write(recipe_yaml_str)
+        session.reset()
+    
+        # if SKIP_HF_UPLOAD.lower() != "yes":
+        #     logger.info("================= UPLOADING TO HUB ======================")
+    
+        #     stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+    
+        #     self.api.create_repo(
+        #         repo_id=stub,
+        #         exist_ok=True,
+        #         repo_type="model",
+        #         private=False,
+        #     )
+    
+        #     self.api.upload_folder(
+        #         repo_id=stub,
+        #         folder_path=self.save_dir,
+        #     )
+    
+        # if VLLM_PYTHON_ENV.lower() == "same":
+        #     logger.info("========== RUNNING vLLM in the same python env ==========")
+        # else:
+        #     logger.info("========== RUNNING vLLM in a separate python env ==========")
+    
+>       self._run_vllm(logger)
 
-tests/e2e/vLLM/test_vllm.py:105: 
+tests/e2e/vLLM/test_vllm.py:159: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-tests/e2e/e2e_utils.py:51: in run_oneshot_for_e2e_testing
-    ds = process_dataset(ds, processor, max_seq_length)
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-tests/testing_utils.py:291: in process_dataset
-    ds = ds.map(process, remove_columns=ds.column_names)
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:562: in wrapper
-    out: Union["Dataset", "DatasetDict"] = func(self, *args, **kwargs)
-                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3324: in map
-    for rank, done, content in Dataset._map_single(**unprocessed_kwargs):
-../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3656: in _map_single
-    for i, example in iter_outputs(shard_iterable):
-../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3630: in iter_outputs
-    yield i, apply_function(example, i, offset=offset)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/datasets/arrow_dataset.py:3553: in apply_function
-    processed_inputs = function(*fn_args, *additional_args, **fn_kwargs)
-                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-tests/testing_utils.py:210: in process
-    return processor(
-../../rhdev/lib/python3.11/site-packages/transformers/models/qwen3_vl/processing_qwen3_vl.py:163: in __call__
-    image_inputs = self.image_processor(images=images, **output_kwargs["images_kwargs"])
-                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:732: in __call__
-    return self.preprocess(images, *args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl_fast.py:141: in preprocess
-    return super().preprocess(images, videos, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:757: in preprocess
-    return self._preprocess_image_like_inputs(
-../../rhdev/lib/python3.11/site-packages/transformers/models/qwen2_vl/image_processing_qwen2_vl_fast.py:160: in _preprocess_image_like_inputs
-    images = self._prepare_image_like_inputs(
-../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:633: in _prepare_image_like_inputs
-    images = self._prepare_images_structure(images, expected_ndims=expected_ndims)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/transformers/image_processing_utils_fast.py:564: in _prepare_images_structure
-    images = self.fetch_images(images)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^
-../../rhdev/lib/python3.11/site-packages/transformers/image_processing_base.py:532: in fetch_images
-    return load_image(image_url_or_urls)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_timer/timer_utils.py:33: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-image = '<|im_start|>user\nHow does the location of the Sydney Conservatorium of Music impact the academic and professional op...c industry, and offers a range of internship and job placement opportunities to help them achieve success.<|im_end|>\n'
-timeout = None
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7fb845f47110>
+logger = <loguru.logger handlers=[(id=2, level=20, sink=<stdout>)]>
 
-    def load_image(image: Union[str, "PIL.Image.Image"], timeout: Optional[float] = None) -> "PIL.Image.Image":
-        """
-        Loads `image` to a PIL Image.
+    @log_time
+    def _run_vllm(self, logger):
+        import json
+        import subprocess
     
-        Args:
-            image (`str` or `PIL.Image.Image`):
-                The image to convert to the PIL Image format.
-            timeout (`float`, *optional*):
-                The timeout value in seconds for the URL request.
+        llm_kwargs = {"model": self.save_dir}
     
-        Returns:
-            `PIL.Image.Image`: A PIL Image.
-        """
-        requires_backends(load_image, ["vision"])
-        if isinstance(image, str):
-            if image.startswith("http://") or image.startswith("https://"):
-                # We need to actually check for a real protocol, otherwise it's impossible to use a local file
-                # like http_huggingface_co.png
-                image = PIL.Image.open(BytesIO(requests.get(image, timeout=timeout).content))
-            elif os.path.isfile(image):
-                image = PIL.Image.open(image)
-            else:
-                if image.startswith("data:image/"):
-                    image = image.split(",")[1]
+        if self.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
     
-                # Try to load as base64
-                try:
-                    b64 = base64.decodebytes(image.encode())
-                    image = PIL.Image.open(BytesIO(b64))
-                except Exception as e:
->                   raise ValueError(
-                        f"Incorrect image source. Must be a valid URL starting with `http://` or `https://`, a valid path to an image file, or a base64 encoded string. Got {image}. Failed with {e}"
-E                       ValueError: Incorrect image source. Must be a valid URL starting with `http://` or `https://`, a valid path to an image file, or a base64 encoded string. Got <|im_start|>user
-E                       How does the location of the Sydney Conservatorium of Music impact the academic and professional opportunities available to music students, and how does the conservatorium support student engagement with the music industry in Australia?<|im_end|>
-E                       <|im_start|>assistant
-E                       The location of the Sydney Conservatorium of Music, which is situated in the heart of Sydney's cultural precinct, impacts both the academic and professional opportunities available to music students. The conservatorium is located near several major performing arts venues and organizations, including the Sydney Opera House, the Australian Broadcasting Corporation, and the Sydney Symphony Orchestra, providing students with easy access to performances, rehearsals, and networking opportunities.
-E                       
-E                       One of the primary ways the conservatorium supports student engagement with the music industry in Australia is through its strong industry connections. The conservatorium has established partnerships with numerous professional music organizations, such as the Australian Chamber Orchestra, Opera Australia, and the Melbourne Symphony Orchestra. These partnerships provide students with the opportunity to work with industry professionals and gain practical experience in their chosen field.
-E                       
-E                       The conservatorium also offers a range of academic and extra-curricular programs that prepare students for careers in the music industry. For example, the Bachelor of Music (Performance) program includes specialized pathways in instrumental/vocal performance, composition, and musicology, while the Artist-In-Residence program allows students to work with internationally renowned musicians.
-E                       
-E                       Additionally, the conservatorium has a dedicated Career Development Office that provides students with assistance in finding employment, internships, and performance opportunities. The office also hosts regular industry events, such as masterclasses and networking sessions, to help students connect with industry professionals and gain a deeper understanding of the music industry in Australia.
-E                       
-E                       Overall, the location of the Sydney Conservatorium of Music and its strong industry connections provide students with a range of academic and professional opportunities that prepare them for successful careers in the music industry.<|im_end|>
-E                       <|im_start|>user
-E                       Can you give me some examples of notable alumni from the Sydney Conservatorium of Music who have gone on to successful careers in the music industry?<|im_end|>
-E                       <|im_start|>assistant
-E                       Certainly! The Sydney Conservatorium of Music has produced many successful alumni that have gone on to have impactful careers in the music industry. Here are a few notable examples:
-E                       
-E                       1. Brett Dean: Dean is an Australian composer and violist who studied at the Sydney Conservatorium of Music in the 1980s. He has since become one of Australia's most prominent living composers, and his works have been performed around the world.
-E                       
-E                       2. Nicole Car: Car is an Australian operatic soprano who studied at the Sydney Conservatorium of Music in the early 2000s. She has since become an internationally renowned singer and has performed in some of the world's most prestigious opera houses.
-E                       
-E                       3. Tim Minchin: Minchin is an Australian comedian, composer, and musician who studied piano and classical music at the Sydney Conservatorium of Music in the 1990s. He has since become a household name in Australia and around the world for his unique brand of musical comedy.
-E                       
-E                       4. Elena Kats-Chernin: Kats-Chernin is an Australian pianist and composer who studied at the Sydney Conservatorium of Music in the 1970s. She has since become one of Australia's most prominent composers, and her music has been performed by some of the world's leading orchestras.
-E                       
-E                       5. Jessica Wells: Wells is an Australian conductor and violinist who studied at the Sydney Conservatorium of Music in the 2000s. She has since become a sought-after conductor, working with a range of orchestras in Australia and around the world.
-E                       
-E                       These are just a few examples of the many successful alumni who have studied at the Sydney Conservatorium of Music.<|im_end|>
-E                       <|im_start|>user
-E                       Can you tell me more about the Artist-In-Residence program at the Sydney Conservatorium of Music? How does it work and what are the benefits for students?<|im_end|>
-E                       <|im_start|>assistant
-E                       The Artist-In-Residence program at the Sydney Conservatorium of Music is a unique opportunity for students to work with internationally renowned musicians, composers, and artists. The program brings in a diverse range of artists from around the world to collaborate with students and faculty for extended periods of time.
-E                       
-E                       The program is designed to provide students with access to world-class artists and allow them to gain valuable experience working with professionals in their field. Typically, the artists-in-residence will give lectures, masterclasses, and workshops, perform with students or faculty members, and collaborate on new works or projects.
-E                       
-E                       The program benefits students in several ways. Firstly, it provides them with exposure to different styles of music and different approaches to performance and composition. This exposure can help to broaden their musical horizons and inspire them to explore new genres or techniques.
-E                       
-E                       Secondly, working with professional artists can provide students with valuable learning opportunities. They can gain insights into the creative process and learn from the experiences of professionals who have had successful careers in the music industry.
-E                       
-E                       Finally, the program can help to build valuable connections and networks for students. By working with visiting artists, students have the opportunity to establish relationships and build networks that may help them in their future careers.
-E                       
-E                       Overall, the Artist-In-Residence program at the Sydney Conservatorium of Music is a valuable opportunity for students to work with world-class artists and gain valuable experience that can help them in their future careers.<|im_end|>
-E                       <|im_start|>user
-E                       Are there any opportunities for students at the Sydney Conservatorium of Music to perform or showcase their talent outside of the campus and in front of a live audience?<|im_end|>
-E                       <|im_start|>assistant
-E                       Yes, there are many opportunities for students at the Sydney Conservatorium of Music to perform or showcase their talent outside of the campus. The conservatorium has strong industry connections throughout Australia, and regularly hosts events and performances that allow students to gain real-world experience and exposure.
-E                       
-E                       One example is the Sydney Conservatorium of Music Symphony Orchestra, which performs regularly at venues including the Sydney Opera House and the City Recital Hall. Students who participate in the orchestra have the opportunity to perform in front of larger audiences and gain experience working with professional conductors and musicians.
-E                       
-E                       Additionally, the conservatorium hosts numerous concerts and recitals throughout the year that feature solo performances and small ensembles. These performances take place both on and off-campus and provide students with the opportunity to showcase their skills in front of a live audience.
-E                       
-E                       The conservatorium also participates in a range of external events and festivals, including the Sydney Festival and the Vivid Sydney Festival of Light, Music, and Ideas. These events provide students with exposure to a wider audience and the opportunity to perform alongside other professional musicians and artists.
-E                       
-E                       Overall, the Sydney Conservatorium of Music provides students with many opportunities to perform and showcase their talent outside of the campus and gain experience working in real-world performance contexts.<|im_end|>
-E                       <|im_start|>user
-E                       Can you tell me more about the specific partnerships the Sydney Conservatorium of Music has with professional music organizations, and how those partnerships benefit the students?<|im_end|>
-E                       <|im_start|>assistant
-E                       Yes, the Sydney Conservatorium of Music has established partnerships with several professional music organizations that provide a range of opportunities for students to gain practical experience and connect with industry professionals. Here are a few examples:
-E                       
-E                       1. Australian Chamber Orchestra (ACO): The Sydney Conservatorium of Music has a longstanding partnership with the ACO, which allows students to participate in masterclasses and workshops with ACO musicians. The partnership also includes the ACO Academy, which provides a range of professional development opportunities for young musicians.
-E                       
-E                       2. Opera Australia: Students at the Sydney Conservatorium of Music can participate in Opera Australia's Youth Opera Program, which includes workshops and performance opportunities with the company's professional singers and musicians. The partnership also includes the Opera Australia Scholarship, which provides financial support and mentorship to young singers.
-E                       
-E                       3. Melbourne Symphony Orchestra (MSO): The Sydney Conservatorium of Music has a partnership with the MSO, which provides students with access to professional development opportunities such as masterclasses and workshops. The partnership also includes the MSO Fellowship Program, which provides young conductors with mentorship and experience working with a professional orchestra.
-E                       
-E                       4. Sydney Symphony Orchestra (SSO): The Sydney Conservatorium of Music has a close relationship with the SSO, with many of the orchestra's members also serving as faculty members at the conservatorium. Students have many opportunities to collaborate with the SSO, including performance opportunities and workshops with orchestra members.
-E                       
-E                       These partnerships benefit students in several ways. Firstly, they provide access to professional musicians and industry leaders who can offer insight into the music industry and provide guidance and support for young musicians. Secondly, they provide practical experience and opportunities for students to perform with professional musicians and gain exposure to real-world performance contexts. Finally, they help to build connections and networks within the industry, which can be valuable for students as they embark on their own careers in music.<|im_end|>
-E                       <|im_start|>user
-E                       Wow, it's great to hear that the Sydney Conservatorium of Music provides so many opportunities for students to connect with professionals in the music industry. Do they also offer any internships or job placements for graduates?<|im_end|>
-E                       <|im_start|>assistant
-E                       Yes, the Sydney Conservatorium of Music offers a range of internship and job placement opportunities for its graduates. The conservatorium has a dedicated Career Development Office that provides resources and support to students and alumni as they transition into the music industry.
-E                       
-E                       The Career Development Office works with a range of industry partners to provide internships and job placements for graduates. These industry partners include major orchestras, opera companies, festivals, and record labels. Internships and job placements can vary widely, depending on the needs of the industry partner and the skills and interests of the graduate.
-E                       
-E                       The conservatorium also hosts regular workshops and events on topics related to career development, such as resume writing, networking, and professional branding. These events are designed to provide students and alumni with practical skills and advice to help them succeed in the music industry.
-E                       
-E                       Additionally, the conservatorium has a strong alumni network, with graduates working in a wide range of musical fields around the world. This network can be a valuable resource for students and alumni as they navigate their careers and seek out new opportunities.
-E                       
-E                       Overall, the Sydney Conservatorium of Music is committed to supporting students and alumni as they transition into the music industry, and offers a range of internship and job placement opportunities to help them achieve success.<|im_end|>
-E                       . Failed with cannot identify image file <_io.BytesIO object at 0x7efdfae7a480>
+        json_scheme = json.dumps(self.scheme)
+        json_llm_kwargs = json.dumps(llm_kwargs)
+        json_prompts = json.dumps(self.prompts)
+    
+        test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+    
+        logger.info("Run vllm in subprocess.Popen() using python env:")
+        logger.info(self.vllm_env)
+    
+        result = subprocess.Popen(
+            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
+    
+        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+>       assert result.returncode == 0, error_msg
+E       AssertionError: ERROR: vLLM failed with exit code 1: `torch_dtype` is deprecated! Use `dtype` instead!
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m 
+E         Loading safetensors checkpoint shards:   0% Completed | 0/13 [00:00<?, ?it/s]
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m Process EngineCore_DP0:
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m Traceback (most recent call last):
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/multiprocessing/process.py", line 314, in _bootstrap
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self.run()
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/multiprocessing/process.py", line 108, in run
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self._target(*self._args, **self._kwargs)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core.py", line 712, in run_engine_core
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     raise e
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core.py", line 699, in run_engine_core
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     engine_core = EngineCoreProc(*args, **kwargs)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core.py", line 498, in __init__
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     super().__init__(vllm_config, executor_class, log_stats,
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core.py", line 83, in __init__
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self.model_executor = executor_class(vllm_config)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/executor/executor_base.py", line 54, in __init__
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self._init_executor()
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/executor/uniproc_executor.py", line 55, in _init_executor
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self.collective_rpc("load_model")
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/executor/uniproc_executor.py", line 83, in collective_rpc
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     return [run_method(self.driver_worker, method, args, kwargs)]
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/utils/__init__.py", line 3122, in run_method
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     return func(*args, **kwargs)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m            ^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/worker/gpu_worker.py", line 213, in load_model
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/worker/gpu_model_runner.py", line 2635, in load_model
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self.model = model_loader.load_model(
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                  ^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/model_loader/base_loader.py", line 50, in load_model
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     self.load_weights(model, model_config)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/model_loader/default_loader.py", line 264, in load_weights
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     loaded_weights = model.load_weights(
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                      ^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_vl.py", line 1603, in load_weights
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 294, in load_weights
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     autoloaded_weights = set(self._load_module("", self.module, weights))
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 252, in _load_module
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     yield from self._load_module(prefix,
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 225, in _load_module
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     loaded_params = module_load_weights(weights)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_moe.py", line 689, in load_weights
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     return loader.load_weights(weights)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 294, in load_weights
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     autoloaded_weights = set(self._load_module("", self.module, weights))
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 252, in _load_module
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     yield from self._load_module(prefix,
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/utils.py", line 225, in _load_module
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     loaded_params = module_load_weights(weights)
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_vl_moe.py", line 231, in load_weights
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     success = self.load_fused_expert_weights(
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m   File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/model_executor/models/qwen3_vl_moe.py", line 126, in load_fused_expert_weights
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m     param = params_dict[name]
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m             ~~~~~~~~~~~^^^^^^
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m KeyError: 'layers.0.mlp.experts.w2_weight'
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m 
+E         Loading safetensors checkpoint shards:   0% Completed | 0/13 [00:00<?, ?it/s]
+E         [1;36m(EngineCore_DP0 pid=105533)[0;0m 
+E         [rank0]:[W1028 14:08:08.283099506 ProcessGroupNCCL.cpp:1538] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+E         Traceback (most recent call last):
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 51, in <module>
+E             main()
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 47, in main
+E             run_vllm(llm_kwargs, prompts)
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 32, in run_vllm
+E             llm = LLM(**llm_kwargs)
+E                   ^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/entrypoints/llm.py", line 297, in __init__
+E             self.llm_engine = LLMEngine.from_engine_args(
+E                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/llm_engine.py", line 177, in from_engine_args
+E             return cls(vllm_config=vllm_config,
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/llm_engine.py", line 114, in __init__
+E             self.engine_core = EngineCoreClient.make_client(
+E                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core_client.py", line 80, in make_client
+E             return SyncMPClient(vllm_config, executor_class, log_stats)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core_client.py", line 602, in __init__
+E             super().__init__(
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/core_client.py", line 448, in __init__
+E             with launch_core_engines(vllm_config, executor_class,
+E           File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py", line 144, in __exit__
+E             next(self.gen)
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/utils.py", line 732, in launch_core_engines
+E             wait_for_engine_startup(
+E           File "/home/HDCharles/rhdev/lib/python3.11/site-packages/vllm/v1/engine/utils.py", line 785, in wait_for_engine_startup
+E             raise RuntimeError("Engine core initialization failed. "
+E         RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+E         
+E       assert 1 == 0
+E        +  where 1 = <Popen: returncode: 1 args: ['/home/HDCharles/rhdev/bin/python3', '/home/HDC...>.returncode
 
-../../rhdev/lib/python3.11/site-packages/transformers/image_utils.py:483: ValueError
+tests/e2e/vLLM/test_vllm.py:216: AssertionError
 =========================== short test summary info ============================
 FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml]
-============================== 1 failed in 10.40s ==============================
+======================== 1 failed in 415.01s (0:06:55) =========================

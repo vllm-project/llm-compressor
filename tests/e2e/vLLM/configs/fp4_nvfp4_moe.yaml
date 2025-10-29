@@ -3,6 +3,7 @@ test_type: "regression"
 model: Qwen/Qwen3-VL-30B-A3B-Instruct
 model_class: "Qwen3VLMoeForConditionalGeneration"
 scheme: NVFP4
-num_calibration_samples: 1
-dataset_id: HuggingFaceM4/flickr30k
-dataset_split: train_sft
+num_calibration_samples: 20
+dataset_id: neuralmagic/calibration
+dataset_split: train
+dataset_config: LLM
