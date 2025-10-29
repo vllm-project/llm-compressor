@@ -132,7 +132,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
-            untie_word_embeddings(state.model)
             config_groups["R1"] = self._create_r1_scheme()
 
         if SpinquantRotation.R2 in self.rotations:
@@ -151,6 +150,8 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
+        # needed any time embeddings/lm_head is modified
+        untie_word_embeddings(state.model)
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
         self._center_embeddings(state.model)
@@ -179,7 +180,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     def _center_embeddings(self, model: PreTrainedModel):
-        untie_word_embeddings(model)
         for _, embedding in match_named_modules(
             model, [self.mappings.embedding], warn_on_fail=True
         ):
