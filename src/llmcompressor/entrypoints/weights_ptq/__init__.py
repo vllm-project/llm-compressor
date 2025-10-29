@@ -6,12 +6,15 @@ from typing import Optional
 
 import torch
 import tqdm
-from compressed_tensors.quantization import QuantizationScheme, preset_name_to_scheme
-from compressed_tensors.utils import getattr_chain
-from compressed_tensors.utils.match import _match_name
+from compressed_tensors.quantization import QuantizationScheme
 from loguru import logger
 from safetensors.torch import load_file, save_file
 
+from llmcompressor.entrypoints.weights_ptq.helpers import (
+    gpu_if_available,
+    is_match_name,
+    validate_scheme,
+)
 from llmcompressor.entrypoints.weights_ptq.lifecycle import (
     calibrate_weights,
     compress_module,
@@ -26,20 +29,21 @@ from llmcompressor.entrypoints.weights_ptq.save_utils import (
     update_safetensors_index,
 )
 
-__all__ = ["weights_ptq"]
+__all__ = ["ptq_weights"]
 
 
-def weights_ptq(
+def ptq_weights(
     model_stub: str | os.PathLike,
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme | str,
     ignore: Optional[list[str]] = None,
     max_workers: int = 1,
-    device: Optional[torch.device | str] = "cuda:0",
+    device: Optional[torch.device | str] = None,
 ):
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
-    scheme_name, scheme = _validate_scheme(scheme)
+    scheme_name, scheme = validate_scheme(scheme)
+    device = gpu_if_available(device)
 
     # 0. collect safetensors files, copy files
     jobs = []
@@ -85,7 +89,7 @@ def _process_file(
     tensors = load_file(file_path)
 
     for name in list(tensors.keys()):
-        if not _is_match_name(name, ["re:.*"], ignore):
+        if not is_match_name(name, ["re:.*weight$"], ignore):
             continue
 
         # 1. initialize module with qparams (on device)
@@ -107,64 +111,3 @@ def _process_file(
     total_size = sum(tensor.nbytes for tensor in tensors.values())
     weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
     return total_size, weight_map
-
-
-def _validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme]:
-    # treat strings as preset schemes
-    if isinstance(scheme, str):
-        scheme_name, scheme = scheme, preset_name_to_scheme(scheme, [])
-    else:
-        scheme_name = "config_group_0"
-
-    # weight quantization must be provided
-    if scheme.weights is None:
-        raise ValueError()
-
-    # input quantization must be dynamic
-    input_dynamic_attr = "input_activations.input_activations.dynamic"
-    if getattr_chain(scheme, input_dynamic_attr, True) is not True:
-        raise ValueError()
-
-    # output quantization must be dynamic
-    output_dynamic_attr = "input_activations.input_activations.dynamic"
-    if getattr_chain(scheme, output_dynamic_attr, True) is not True:
-        raise ValueError()
-
-    # override with static observers
-    if scheme.weights.observer in ("minmax", "mse"):
-        new_observer = f"static_{scheme.weights.observer}"
-        logger.warning(
-            f"Scheme uses {scheme.weights.observer} weight observer. "
-            f"Using {new_observer} instead"
-        )
-        scheme.weights.observer = new_observer
-
-    # target all modules; filter by ignore list
-    # technically this should be "re:.*", but vllm's
-    # ct moe layer has a hard coded check for "Linear"
-    scheme.targets = ["Linear"]
-    return scheme_name, scheme
-
-
-def _is_match_name(
-    name: str, targets: list[str], ignore: Optional[str | list[str]] = None
-) -> bool:
-    targets = targets if isinstance(targets, list) else [targets]
-    ignore = ignore if isinstance(ignore, list) else [ignore]
-
-    matches_target = any(_match_name(name, target) for target in targets)
-    matches_ignore = any(_match_name(name, ign) for ign in ignore)
-
-    return matches_target and not matches_ignore
-
-
-if __name__ == "__main__":
-    weights_ptq(
-        "meta-llama/Llama-3.2-1B-Instruct",
-        "testing_save",
-        scheme="FP8_BLOCK",
-        ignore=[
-            "model.embed_tokens.weight",
-            "re:.*norm.weight$",
-        ],
-    )
