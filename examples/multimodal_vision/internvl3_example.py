@@ -1,6 +1,6 @@
 import torch
 from datasets import load_dataset
-from transformers import AutoModel, AutoTokenizer,AutoProcessor
+from transformers import AutoModel, AutoTokenizer
 
 import math
 import numpy as np
