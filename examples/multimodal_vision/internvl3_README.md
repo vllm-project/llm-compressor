@@ -2,9 +2,9 @@
 It is recommended to use the local model as we need to modify the weights.
 
 ## Step 1: Prepare
-- 1、Download OpenGVLab/InternVL3-8B from hf
-- 2、Download  [chat_template.jinja](https://hf-mirror.com/OpenGVLab/InternVL3_5-8B/blob/main/chat_template.jinja), and place it in the local model dir of OpenGVLab/InternVL3-8B
-- 3、Replace the `forward` function in  OpenGVLab/InternVL3-8B/modeling_internvl_chat.py with the code below:
+- 1. Download OpenGVLab/InternVL3-8B from hf
+- 2. Download  [chat_template.jinja](https://hf-mirror.com/OpenGVLab/InternVL3_5-8B/blob/main/chat_template.jinja), and place it in the local model dir of OpenGVLab/InternVL3-8B
+- 3. Replace the `forward` function in  OpenGVLab/InternVL3-8B/modeling_internvl_chat.py with the code below:
 ```
     def forward(
             self,
