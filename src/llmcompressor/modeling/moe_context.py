@@ -14,22 +14,20 @@ Key components:
 
 import contextlib
 from abc import ABC
-from typing import Dict, Type
 
 import torch
+from compressed_tensors.registry import RegistryMixin
 from loguru import logger
 from tqdm import tqdm
 from transformers import PreTrainedModel
 
 __all__ = [
     "MoECalibrationModule",
-    "MOE_CALIBRATION_MODULES",
-    "register_moe_calibration",
     "moe_calibration_context",
 ]
 
 
-class MoECalibrationModule(ABC, torch.nn.Module):
+class MoECalibrationModule(ABC, torch.nn.Module, RegistryMixin):
     """
     Abstract base class for MoE calibration modules.
 
@@ -60,32 +58,6 @@ class MoECalibrationModule(ABC, torch.nn.Module):
             f"{self.__class__.__name__} has is_permanent=False but doesn't "
             "implement restore()"
         )
-
-
-# Registry: module class name -> calibration module class
-MOE_CALIBRATION_MODULES: Dict[str, Type[MoECalibrationModule]] = {}
-
-
-def register_moe_calibration(module_class_name: str):
-    """
-    Decorator to register a MoE calibration module.
-
-    Usage:
-        @register_moe_calibration("DeepseekV3MoE")
-        class CalibrationDeepseekV3MoE(MoECalibrationModule):
-            ...
-
-    Args:
-        module_class_name: The class name of the original module to replace
-    """
-
-    def decorator(cls: Type[MoECalibrationModule]) -> Type[MoECalibrationModule]:
-        if not issubclass(cls, MoECalibrationModule):
-            raise TypeError(f"{cls.__name__} must inherit from MoECalibrationModule")
-        MOE_CALIBRATION_MODULES[module_class_name] = cls
-        return cls
-
-    return decorator
 
 
 @contextlib.contextmanager
@@ -127,9 +99,10 @@ def moe_calibration_context(
     # Step 1: Collect all MoE modules that need replacement
     logger.debug("Entering MoE calibration context")
     modules_to_replace = []
+    moe_class_names = MoECalibrationModule.registered_names()
     for name, module in model.named_modules():
         class_name = module.__class__.__name__
-        if class_name in MOE_CALIBRATION_MODULES:
+        if class_name in moe_class_names:
             modules_to_replace.append((name, module, class_name))
 
     # Step 2: Replace modules with progress bar
@@ -138,8 +111,8 @@ def moe_calibration_context(
         for name, module, class_name in tqdm(
             modules_to_replace, desc="Replacing MoE modules for calibration"
         ):
-            calibration_cls = MOE_CALIBRATION_MODULES[class_name]
-            replacement = calibration_cls(
+            replacement = MoECalibrationModule.load_from_registry(
+                class_name,
                 module,
                 model.config,
                 calibrate_all_experts=calibrate_all_experts,
