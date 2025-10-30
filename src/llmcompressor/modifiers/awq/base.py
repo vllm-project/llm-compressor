@@ -1,5 +1,5 @@
 import inspect
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 import torch
 from compressed_tensors.quantization import disable_quantization
@@ -130,8 +130,10 @@ class AWQModifier(Modifier, QuantizationMixin):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: List[ResolvedMapping] = PrivateAttr(default_factory=list)
-    # Cache list of forward input args for each parent module, one dict for each batch
-    _parent_args_cache: Dict[Module, IntermediatesCache] = PrivateAttr(
+    # Cache of kwargs for parent modules, one dict for each batch
+    _model_kwargs_cache: list[dict[str, Any]] = PrivateAttr(default_factory=list)
+    # Cache of forward hidden states for each parent module, one tensor for each batch
+    _parent_hidden_states_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
     # Dict[smooth layer name, (activation means, activation counts)]
@@ -290,7 +292,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
-        self._parent_args_cache.clear()
+        self._parent_hidden_states_cache.clear()
+        self._model_kwargs_cache = None
         self._smooth_activation_means.clear()
         self._resolved_mappings.clear()
 
@@ -387,13 +390,31 @@ class AWQModifier(Modifier, QuantizationMixin):
         calculate the dynamic range during calibration
         """
 
-        def cache_parent_kwargs_hook(
+        def cache_hidden_states_kwargs_hook(
             module: torch.nn.Module,
             args: Tuple[torch.Tensor, ...],
             kwargs,
         ):
-            values = inspect.signature(module.forward).bind(*args, **kwargs)
-            self._parent_args_cache[module].append(values.arguments)
+            signature = inspect.signature(module.forward)
+            first_param = next(iter(signature.parameters))
+            batch_idx = len(self._parent_hidden_states_cache[module])
+
+            self._parent_hidden_states_cache[module].append(
+                {first_param: args[0]} if len(args) > 0 else {}
+            )
+
+            if len(self._model_kwargs_cache) < batch_idx:
+                raise ValueError("THIS SHOULDNT HAPPEN")
+            elif len(self._model_kwargs_cache) == batch_idx:
+                self._model_kwargs_cache.append(kwargs)
+            else:
+                self._model_kwargs_cache[batch_idx].update(
+                    {
+                        k: v
+                        for k, v in kwargs.items()
+                        if k not in self._model_kwargs_cache[batch_idx]
+                    }
+                )
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -409,17 +430,18 @@ class AWQModifier(Modifier, QuantizationMixin):
 
             return cache_smooth_activations_hook
 
+        self._model_kwargs_cache = []
         for mapping in self._resolved_mappings:
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
-            if mapping.parent not in self._parent_args_cache:
-                self._parent_args_cache[mapping.parent] = IntermediatesCache(
+            if mapping.parent not in self._parent_hidden_states_cache:
+                self._parent_hidden_states_cache[mapping.parent] = IntermediatesCache(
                     None,
                     self.offload_device,
                 )
                 self.register_hook(
                     mapping.parent,
-                    cache_parent_kwargs_hook,
+                    cache_hidden_states_kwargs_hook,
                     "forward_pre",
                     with_kwargs=True,
                 )
@@ -560,14 +582,20 @@ class AWQModifier(Modifier, QuantizationMixin):
         self._assert_all_activations_consumed()
 
     def _run_samples(self, module: Module) -> List[torch.Tensor]:
-        outputs = [
-            module(**batch_kwargs) for batch_kwargs in self._parent_args_cache[module]
-        ]
-        return [
+        outputs = []
+        for batch_idx in range(len(self._parent_hidden_states_cache[module])):
+            batch_kwargs = self._model_kwargs_cache[batch_idx].copy()
+            batch_kwargs.update(
+                self._parent_hidden_states_cache[module].fetch(batch_idx)
+            )
+            batch_kwargs = inspect.signature(module.forward).bind(
+                **batch_kwargs,
+            )
+            output = module(**batch_kwargs)
             # If Tuple, assume that first argument is the input
-            output[0] if isinstance(output, Tuple) else output
-            for output in outputs
-        ]
+            outputs.append(output[0] if isinstance(output, Tuple) else output)
+
+        return outputs
 
     def _compute_best_scale(
         self,
@@ -591,6 +619,8 @@ class AWQModifier(Modifier, QuantizationMixin):
         best_ratio = -1
         best_scales = None
         best_error = float("inf")
+
+        parent_module = torch.compile(parent_module)
 
         org_sd = {
             k: v.cpu()
