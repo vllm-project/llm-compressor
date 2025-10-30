@@ -34,6 +34,7 @@ from llmcompressor.core import reset_session
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
+    untie_word_embeddings,
 )
 from llmcompressor.transformers.utils.helpers import (
     detect_last_checkpoint,
@@ -91,6 +92,10 @@ def pre_process(
                     "create and pass in a processor directly to "
                     f"`oneshot`/`train`.\nInitialization Error: {e}"
                 )
+
+    # untie tie_word_embeddings weights
+    if not model_args.tie_word_embeddings:
+        untie_word_embeddings(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)

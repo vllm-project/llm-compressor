@@ -62,6 +62,15 @@ class ModelArguments:
         default="auto",
         metadata={"help": "Precision to cast model weights to, default to auto"},
     )
+
+    tie_word_embeddings: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether the model's input and output word embeddings "
+            "should attempt to be left tied. False means always untie. Note that this is only relevant if the "
+            "model has a output word embedding layer."
+        },
+    )
     trust_remote_code_model: bool = field(
         default=False,
         metadata={

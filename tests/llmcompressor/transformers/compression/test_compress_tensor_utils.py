@@ -65,6 +65,7 @@ def test_sparse_model_reload(compressed, config, dtype, tmp_path):
         splits=splits,
         precision=dtype,
         clear_sparse_session=False,
+        tie_word_embeddings=False,
     )
 
     model = AutoModelForCausalLM.from_pretrained(
