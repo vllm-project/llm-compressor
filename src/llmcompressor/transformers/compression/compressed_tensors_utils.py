@@ -133,7 +133,7 @@ def untie_word_embeddings(model: PreTrainedModel):
     except NotImplementedError as e:
         logger.warning(
             f"cannot untie model of type {model.__class__} which doesn't have "
-            + f"get_input_embeddings and get_output_embeddings implmented\n{e}"
+            f"get_input_embeddings and get_output_embeddings implmented\n{e}"
         )
         return
 
@@ -166,9 +166,9 @@ def _get_embeddings_or_warn(
     ):
         logger.warning(
             f"{model.__class__} doesn't have attribute get_input_embeddings and"
-            + " get_output_embeddings implemented."
-            + "\nThis can cause"
-            + " problems when quantizing layers with shared weights"
+            " get_output_embeddings implemented."
+            "\nThis can cause"
+            " problems when quantizing layers with shared weights"
         )
         return None, None
 
@@ -180,10 +180,10 @@ def _get_embeddings_or_warn(
     except NotImplementedError as e:
         logger.warning(
             f"{model.__class__} doesn't have get_input_embeddings and "
-            + "get_output_embeddings implemented."
-            + "\nThis can cause"
-            + " problems when quantizing layers with shared weights"
-            + f"\n{e}"
+            "get_output_embeddings implemented."
+            "\nThis can cause"
+            " problems when quantizing layers with shared weights"
+            f"\n{e}"
         )
         return None, None
 
@@ -193,10 +193,10 @@ def _get_embeddings_or_warn(
     ):
         logger.warning(
             f"expected modules from {model.__class__} get_input_embeddings and"
-            + f" get_output_embeddings but got {type(input_embeddings)}"
-            + f"  and {type(output_embeddings)}."
-            + "\nThis can cause"
-            + " problems when quantizing layers with shared weights"
+            f" get_output_embeddings but got {type(input_embeddings)}"
+            f"  and {type(output_embeddings)}."
+            "\nThis can cause"
+            " problems when quantizing layers with shared weights"
         )
         return None, None
     return input_embeddings, output_embeddings
