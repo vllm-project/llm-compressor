@@ -90,15 +90,23 @@ class IntermediatesCache:
         return cls(batch_intermediates, offload_device)
 
     def fetch(
-        self, batch_index: int, input_names: Optional[List[str]] = None
+        self,
+        batch_index: int,
+        input_names: Optional[List[str]] = None,
+        ignore_missing: bool = False,
     ) -> Dict[str, Any]:
         """
         Fetch values belonging to a batch
 
         :param batch_index: index of batch whose values are being fetched
         :param input_names: list of keys whose values are being fetched
+        :ignore_missing: if an intermediate for batch_index is not found,
+            return an empty dict if this is True, otherwise an Out of Index
+            error will be raised.
         :return: dictionary mapping keys to onloaded values
         """
+        if ignore_missing and batch_index >= len(self.batch_intermediates):
+            return {}
         intermediates = self.batch_intermediates[batch_index]
 
         return {
