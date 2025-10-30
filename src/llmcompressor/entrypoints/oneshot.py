@@ -231,7 +231,6 @@ def oneshot(
     config_name: Optional[str] = None,
     tokenizer: Optional[Union[str, PreTrainedTokenizerBase]] = None,
     processor: Optional[Union[str, ProcessorMixin]] = None,
-    cache_dir: Optional[str] = None,
     use_auth_token: bool = False,
     precision: str = "auto",
     tie_word_embeddings: bool = False,
@@ -279,8 +278,6 @@ def oneshot(
         model_name.
     :param processor: Pretrained processor name or path if not the same as
         model_name.
-    :param cache_dir: Where to store the pretrained data from
-        huggingface.co.
     :param use_auth_token: Whether to use Hugging Face auth token for private
         models.
     :param precision: Precision to cast model weights to, default to auto.
