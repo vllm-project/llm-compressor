@@ -16,13 +16,25 @@
 
 import torch
 
+from llmcompressor.modeling.moe_context import (
+    MoECalibrationModule,
+    register_moe_calibration,
+)
 
-class Qwen3NextSparseMoeBlock(torch.nn.Module):
+
+@register_moe_calibration("Qwen3NextSparseMoeBlock")
+class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
+    """
+    Calibration version of Qwen3NextSparseMoeBlock that sends all tokens to all experts.
+    """
+
+    is_permanent = False
+
     def __init__(
         self,
-        config,
         original,
-        calibrate_all_experts: bool,
+        config,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
         self.num_experts = config.num_experts
@@ -109,6 +121,6 @@ def replace(
     module,
     calibrate_all_experts,
 ):
-    return Qwen3NextSparseMoeBlock(
+    return CalibrationQwen3NextSparseMoeBlock(
         config=config, original=module, calibrate_all_experts=calibrate_all_experts
     )
