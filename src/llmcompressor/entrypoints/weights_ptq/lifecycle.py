@@ -22,7 +22,9 @@ def initialize_quantized_linear(
     weight: torch.Tensor, scheme: QuantizationScheme, device: str | torch.device
 ) -> torch.nn.Module:
     out_features, in_features = weight.shape
-    module = torch.nn.Linear(in_features, out_features, bias=False, device=device)
+    module = torch.nn.Linear(
+        in_features, out_features, bias=False, device=device, dtype=weight.dtype
+    )
     module.weight.data.copy_(weight)
     initialize_module_for_quantization(module, scheme, force_zero_point=False)
 

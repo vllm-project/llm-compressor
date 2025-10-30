@@ -7,12 +7,12 @@ from typing import Optional
 import torch
 import tqdm
 from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.utils.match import _match_name
 from loguru import logger
 from safetensors.torch import load_file, save_file
 
 from llmcompressor.entrypoints.weights_ptq.helpers import (
     gpu_if_available,
-    is_match_name,
     validate_scheme,
 )
 from llmcompressor.entrypoints.weights_ptq.lifecycle import (
@@ -59,6 +59,7 @@ def ptq_weights(
             if is_weights_file(file_path):
                 logger.warning(f"Skipping weights file {file_path}")
             save_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Copying {file_path} {save_path}")
             shutil.copyfile(resolved_path, save_path)
 
     # 1-4. quantize and compress weights
@@ -89,7 +90,11 @@ def _process_file(
     tensors = load_file(file_path)
 
     for name in list(tensors.keys()):
-        if not is_match_name(name, ["re:.*weight$"], ignore):
+        module_name, param_name = name.rsplit(".", 1)
+        is_ignored = any(_match_name(module_name, ign) for ign in ignore)
+        is_weight = param_name == "weight"
+        if is_ignored or not is_weight:
+            print(f"skip {name}")
             continue
 
         # 1. initialize module with qparams (on device)
@@ -103,7 +108,7 @@ def _process_file(
 
         # 4. save compressed data (on cpu)
         del tensors[name]
-        prefix = name.rsplit(".", 1)[0] + "."
+        prefix = module_name + "."
         for key, value in module.state_dict(prefix=prefix).items():
             tensors[key] = value.to("cpu")
 
