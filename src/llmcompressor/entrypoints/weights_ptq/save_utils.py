@@ -9,7 +9,11 @@ from compressed_tensors.base import (
     SPARSITY_CONFIG_NAME,
     TRANSFORM_CONFIG_NAME,
 )
-from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationConfig,
+    QuantizationScheme,
+    QuantizationStatus,
+)
 from loguru import logger
 from transformers.file_utils import CONFIG_NAME
 
@@ -27,6 +31,7 @@ def update_config(
         {
             "config_groups": {scheme_name: scheme},
             "ignore": ignore,
+            "quantization_status": QuantizationStatus.COMPRESSED,
         }
     )
 
