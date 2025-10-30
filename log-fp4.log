@@ -1,0 +1,424 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.13, pytest-8.4.2, pluggy-1.6.0 -- /home/HDCharles/rhdev/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/HDCharles/repos/llm-compressor
+configfile: pyproject.toml
+plugins: anyio-4.11.0, rerunfailures-16.1, mock-3.15.1
+collecting ... collected 1 item
+
+tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] 2025-10-29T19:00:24.622656+0000 | set_up | INFO - ========== RUNNING ==============
+2025-10-29T19:00:24.622807+0000 | set_up | INFO - Qwen3-VL-30B-A3B-Instruct-NVFP4
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/13 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 113.53it/s]Loading checkpoint shards: 100%|██████████| 13/13 [00:00<00:00, 113.39it/s]
+neuralmagic/calibration LLM train
+2025-10-29T19:00:33.281286+0000 | run_oneshot_for_e2e_testing | INFO - ONESHOT KWARGS
+2025-10-29T19:00:37.019803+0000 | reset | INFO - Compression lifecycle reset
+2025-10-29T19:00:37.020333+0000 | from_modifiers | INFO - Creating recipe from modifiers
+2025-10-29T19:00:37.091066+0000 | initialize | INFO - Compression lifecycle initialized for 1 modifiers
+2025-10-29T19:00:37.091464+0000 | IndependentPipeline | INFO - Inferred `SequentialPipeline` for `QuantizationModifier`
+2025-10-29T19:00:37.580481+0000 | trace_subgraphs | WARNING - Expected 75 subgraphs, but only traced 49. This is likely due to having wrapped code which calls sequential targets
+Updating global scales:   0%|          | 0/356 [00:00<?, ?it/s]Updating global scales:   1%|▏         | 5/356 [00:00<00:07, 45.91it/s]Updating global scales:   3%|▎         | 12/356 [00:00<00:06, 55.65it/s]Updating global scales:   5%|▌         | 19/356 [00:00<00:05, 57.95it/s]Updating global scales:   7%|▋         | 25/356 [00:00<00:05, 58.60it/s]Updating global scales:   9%|▉         | 32/356 [00:00<00:05, 60.93it/s]Updating global scales:  11%|█         | 39/356 [00:00<00:05, 62.41it/s]Updating global scales:  13%|█▎        | 46/356 [00:00<00:04, 63.96it/s]Updating global scales:  15%|█▍        | 53/356 [00:00<00:04, 62.34it/s]Updating global scales:  17%|█▋        | 60/356 [00:00<00:04, 60.78it/s]Updating global scales:  19%|█▉        | 67/356 [00:01<00:04, 62.10it/s]Updating global scales:  21%|██        | 74/356 [00:01<00:04, 63.11it/s]Updating global scales:  23%|██▎       | 81/356 [00:01<00:04, 61.98it/s]Updating global scales:  25%|██▍       | 88/356 [00:01<00:04, 63.27it/s]Updating global scales:  27%|██▋       | 95/356 [00:01<00:04, 64.27it/s]Updating global scales:  29%|██▊       | 102/356 [00:01<00:03, 64.17it/s]Updating global scales:  31%|███       | 109/356 [00:01<00:04, 52.70it/s]Updating global scales:  32%|███▏      | 115/356 [00:02<00:06, 35.28it/s]Updating global scales:  41%|████▏     | 147/356 [00:02<00:02, 87.69it/s]Updating global scales:  54%|█████▍    | 193/356 [00:02<00:00, 165.21it/s]Updating global scales:  68%|██████▊   | 241/356 [00:02<00:00, 237.26it/s]Updating global scales:  81%|████████▏ | 290/356 [00:02<00:00, 299.01it/s]Updating global scales:  96%|█████████▌| 341/356 [00:02<00:00, 353.30it/s]Updating global scales: 100%|██████████| 356/356 [00:02<00:00, 132.20it/s]
+Fusing global scales: 0it [00:00, ?it/s]Fusing global scales: 1064it [00:00, 10578.55it/s]Fusing global scales: 1689it [00:00, 8198.10it/s] 
+Calibrating weights:   0%|          | 0/356 [00:00<?, ?it/s]Calibrating weights:   4%|▍         | 14/356 [00:00<00:02, 137.61it/s]Calibrating weights:   9%|▉         | 33/356 [00:00<00:01, 168.17it/s]Calibrating weights:  15%|█▌        | 54/356 [00:00<00:01, 185.46it/s]Calibrating weights:  21%|██        | 75/356 [00:00<00:01, 190.88it/s]Calibrating weights:  27%|██▋       | 96/356 [00:00<00:01, 193.58it/s]Calibrating weights:  33%|███▎      | 116/356 [00:00<00:01, 159.90it/s]Calibrating weights:  38%|███▊      | 137/356 [00:00<00:01, 173.10it/s]Calibrating weights:  45%|████▍     | 160/356 [00:00<00:01, 185.35it/s]Calibrating weights:  51%|█████     | 182/356 [00:00<00:00, 192.86it/s]Calibrating weights:  57%|█████▋    | 204/356 [00:01<00:00, 199.66it/s]Calibrating weights:  63%|██████▎   | 225/356 [00:01<00:00, 200.33it/s]Calibrating weights:  69%|██████▉   | 247/356 [00:01<00:00, 202.28it/s]Calibrating weights:  76%|███████▌  | 269/356 [00:01<00:00, 206.11it/s]Calibrating weights:  81%|████████▏ | 290/356 [00:01<00:00, 204.36it/s]Calibrating weights:  88%|████████▊ | 312/356 [00:01<00:00, 205.03it/s]Calibrating weights:  94%|█████████▍| 334/356 [00:01<00:00, 208.13it/s]Calibrating weights: 100%|█████████▉| 355/356 [00:01<00:00, 203.85it/s]Calibrating weights: 100%|██████████| 356/356 [00:01<00:00, 194.07it/s]
+Preparing cache:   0%|          | 0/20 [00:00<?, ?it/s]Preparing cache:  10%|█         | 2/20 [00:00<00:00, 19.34it/s]Preparing cache: 100%|██████████| 20/20 [00:00<00:00, 148.24it/s]
+(1/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](1/49): Calibrating:   5%|▌         | 1/20 [00:17<05:36, 17.69s/it](1/49): Calibrating:  30%|███       | 6/20 [00:17<00:30,  2.19s/it](1/49): Calibrating:  60%|██████    | 12/20 [00:17<00:07,  1.13it/s](1/49): Calibrating:  90%|█████████ | 18/20 [00:18<00:00,  2.06it/s](1/49): Calibrating: 100%|██████████| 20/20 [00:18<00:00,  1.11it/s]
+(1/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](1/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 121.60it/s](1/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 123.41it/s]
+(2/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](2/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.29it/s](2/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 47.65it/s](2/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 50.94it/s]
+(2/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](2/49): Propagating:  70%|███████   | 14/20 [00:00<00:00, 130.83it/s](2/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 133.01it/s]
+(3/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](3/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.36it/s](3/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.32it/s](3/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.59it/s]
+(3/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](3/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.77it/s](3/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.05it/s]
+(4/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](4/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.33it/s](4/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 47.90it/s](4/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.21it/s]
+(4/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](4/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.66it/s](4/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.98it/s]
+(5/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](5/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.36it/s](5/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.31it/s](5/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.58it/s]
+(5/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](5/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.51it/s](5/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 132.23it/s]
+(6/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](6/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.37it/s](6/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 47.96it/s](6/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.17it/s]
+(6/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](6/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 127.21it/s](6/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.15it/s]
+(7/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](7/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.33it/s](7/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 47.68it/s](7/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 50.96it/s]
+(7/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](7/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.94it/s](7/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.40it/s]
+(8/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](8/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.30it/s](8/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 47.59it/s](8/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 50.76it/s]
+(8/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](8/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.41it/s](8/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.98it/s]
+(9/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](9/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.26it/s](9/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 47.49it/s](9/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 50.78it/s]
+(9/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](9/49): Propagating:  70%|███████   | 14/20 [00:00<00:00, 131.01it/s](9/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 133.15it/s]
+(10/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](10/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.33it/s](10/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.09it/s](10/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.38it/s]
+(10/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](10/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.06it/s](10/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.41it/s]
+(11/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](11/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.34it/s](11/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.09it/s](11/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.38it/s]
+(11/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](11/49): Propagating:  70%|███████   | 14/20 [00:00<00:00, 130.99it/s](11/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 133.11it/s]
+(12/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](12/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.32it/s](12/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.05it/s](12/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.35it/s]
+(12/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](12/49): Propagating:  70%|███████   | 14/20 [00:00<00:00, 130.88it/s](12/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 133.31it/s]
+(13/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](13/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.37it/s](13/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.03it/s](13/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.38it/s]
+(13/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](13/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.72it/s](13/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 132.26it/s]
+(14/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](14/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.36it/s](14/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.08it/s](14/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.34it/s]
+(14/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](14/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.78it/s](14/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.76it/s]
+(15/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](15/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.30it/s](15/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 47.83it/s](15/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.07it/s]
+(15/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](15/49): Propagating:  70%|███████   | 14/20 [00:00<00:00, 130.42it/s](15/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 132.27it/s]
+(16/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](16/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.43it/s](16/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.50it/s](16/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.78it/s]
+(16/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](16/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.33it/s](16/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.13it/s]
+(17/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](17/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.41it/s](17/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.53it/s](17/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.71it/s]
+(17/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](17/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.61it/s](17/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 132.15it/s]
+(18/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](18/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.40it/s](18/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.39it/s](18/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.66it/s]
+(18/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](18/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.45it/s](18/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.64it/s]
+(19/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](19/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.06it/s](19/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 46.05it/s](19/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 49.22it/s]
+(19/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](19/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.41it/s](19/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.09it/s]
+(20/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](20/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.41it/s](20/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.02it/s](20/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.37it/s]
+(20/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](20/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.18it/s](20/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.44it/s]
+(21/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](21/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.42it/s](21/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.16it/s](21/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.48it/s]
+(21/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](21/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.47it/s](21/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.30it/s]
+(22/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](22/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.49it/s](22/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.73it/s](22/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 52.09it/s]
+(22/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](22/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.48it/s](22/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.84it/s]
+(23/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](23/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.48it/s](23/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.81it/s](23/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 52.13it/s]
+(23/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](23/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.04it/s](23/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.31it/s]
+(24/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](24/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.59it/s](24/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.86it/s](24/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.16it/s]
+(24/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](24/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 127.36it/s](24/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.29it/s]
+(25/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](25/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.67it/s](25/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.97it/s](25/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.25it/s]
+(25/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](25/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.77it/s](25/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.35it/s]
+(26/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](26/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.62it/s](26/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.82it/s](26/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.08it/s]
+(26/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](26/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.57it/s](26/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.32it/s]
+(27/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](27/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.62it/s](27/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.72it/s](27/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 52.97it/s]
+(27/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](27/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.67it/s](27/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.83it/s]
+(28/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](28/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.61it/s](28/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.64it/s](28/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 52.66it/s]
+(28/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](28/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.42it/s](28/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.72it/s]
+(29/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](29/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.60it/s](29/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.46it/s](29/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 52.80it/s]
+(29/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](29/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 125.16it/s](29/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 128.60it/s]
+(30/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](30/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.62it/s](30/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.92it/s](30/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.23it/s]
+(30/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](30/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.06it/s](30/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.27it/s]
+(31/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](31/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.83it/s](31/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.14it/s](31/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.46it/s]
+(31/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](31/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.19it/s](31/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.75it/s]
+(32/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](32/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.95it/s](32/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.78it/s](32/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 55.22it/s]
+(32/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](32/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.95it/s](32/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.30it/s]
+(33/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](33/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.71it/s](33/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 50.46it/s](33/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.79it/s]
+(33/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](33/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.43it/s](33/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.15it/s]
+(34/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](34/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.70it/s](34/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.97it/s](34/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.40it/s]
+(34/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](34/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.96it/s](34/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 132.09it/s]
+(35/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](35/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  5.07it/s](35/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 52.71it/s](35/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 56.06it/s]
+(35/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](35/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 127.60it/s](35/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.40it/s]
+(36/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](36/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.71it/s](36/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 50.41it/s](36/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.76it/s]
+(36/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](36/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.68it/s](36/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.33it/s]
+(37/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](37/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.79it/s](37/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 50.81it/s](37/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.18it/s]
+(37/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](37/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.91it/s](37/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 132.32it/s]
+(38/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](38/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.82it/s](38/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.10it/s](38/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.43it/s]
+(38/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](38/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.96it/s](38/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.69it/s]
+(39/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](39/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.82it/s](39/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.04it/s](39/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.45it/s]
+(39/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](39/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 128.51it/s](39/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.47it/s]
+(40/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](40/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.82it/s](40/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.01it/s](40/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.36it/s]
+(40/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](40/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 125.89it/s](40/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.46it/s]
+(41/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](41/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.80it/s](41/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 50.85it/s](41/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.07it/s]
+(41/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](41/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.78it/s](41/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.26it/s]
+(42/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](42/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.83it/s](42/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.32it/s](42/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.69it/s]
+(42/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](42/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.54it/s](42/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 130.19it/s]
+(43/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](43/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.82it/s](43/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.40it/s](43/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.70it/s]
+(43/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](43/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.16it/s](43/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.51it/s]
+(44/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](44/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.88it/s](44/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 51.44it/s](44/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.83it/s]
+(44/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](44/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 125.48it/s](44/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 128.88it/s]
+(45/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](45/49): Calibrating:   5%|▌         | 1/20 [00:00<00:03,  4.80it/s](45/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 50.72it/s](45/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 54.10it/s]
+(45/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](45/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 126.24it/s](45/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 128.33it/s]
+(46/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](46/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.61it/s](46/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 49.77it/s](46/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 53.09it/s]
+(46/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](46/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 127.98it/s](46/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 129.51it/s]
+(47/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](47/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.19it/s](47/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 46.93it/s](47/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 49.85it/s]
+(47/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](47/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 124.95it/s](47/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 127.24it/s]
+(48/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](48/49): Calibrating:   5%|▌         | 1/20 [00:00<00:04,  4.46it/s](48/49): Calibrating:  65%|██████▌   | 13/20 [00:00<00:00, 48.85it/s](48/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 51.88it/s]
+(48/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](48/49): Propagating:  65%|██████▌   | 13/20 [00:00<00:00, 129.13it/s](48/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 131.26it/s]
+(49/49): Calibrating:   0%|          | 0/20 [00:00<?, ?it/s](49/49): Calibrating:  75%|███████▌  | 15/20 [00:00<00:00, 147.40it/s](49/49): Calibrating: 100%|██████████| 20/20 [00:00<00:00, 186.43it/s]
+(49/49): Propagating:   0%|          | 0/20 [00:00<?, ?it/s](49/49): Propagating: 100%|██████████| 20/20 [00:00<00:00, 1905.29it/s]
+2025-10-29T19:01:45.792595+0000 | finalize | INFO - Compression lifecycle finalized for 1 modifiers
+2025-10-29T19:01:45.881497+0000 | post_process | WARNING - Optimized model is not saved. To save, please provide`output_dir` as input arg.Ex. `oneshot(..., output_dir=...)`
+2025-10-29T19:01:45.882419+0000 | test_vllm | INFO - ================= SAVING TO DISK ======================
+2025-10-29T19:01:45.882544+0000 | get_model_compressor | INFO - skip_sparsity_compression_stats set to True. Skipping sparsity compression statistic calculations. No sparsity compressor will be applied.
+Compressing model: 0it [00:00, ?it/s]Compressing model: 1it [00:06,  6.16s/it]Compressing model: 12it [00:06,  2.65it/s]Compressing model: 24it [00:06,  6.32it/s]Compressing model: 36it [00:06, 11.14it/s]Compressing model: 48it [00:06, 17.38it/s]Compressing model: 61it [00:06, 25.73it/s]Compressing model: 73it [00:06, 34.82it/s]Compressing model: 85it [00:06, 45.12it/s]Compressing model: 98it [00:06, 57.49it/s]Compressing model: 110it [00:07, 62.20it/s]Compressing model: 121it [00:07, 54.82it/s]Compressing model: 130it [00:07, 60.21it/s]Compressing model: 140it [00:07, 66.74it/s]Compressing model: 150it [00:07, 72.42it/s]Compressing model: 160it [00:07, 76.90it/s]Compressing model: 170it [00:07, 80.56it/s]Compressing model: 180it [00:08, 82.71it/s]Compressing model: 189it [00:08, 82.58it/s]Compressing model: 198it [00:08, 77.90it/s]Compressing model: 207it [00:08, 79.33it/s]Compressing model: 217it [00:08, 81.61it/s]Compressing model: 227it [00:08, 83.69it/s]Compressing model: 237it [00:08, 84.39it/s]Compressing model: 247it [00:08, 85.59it/s]Compressing model: 257it [00:08, 85.96it/s]Compressing model: 267it [00:09, 86.62it/s]Compressing model: 277it [00:09, 85.03it/s]Compressing model: 287it [00:09, 84.10it/s]Compressing model: 296it [00:09, 82.78it/s]Compressing model: 305it [00:09, 80.21it/s]Compressing model: 314it [00:09, 81.12it/s]Compressing model: 323it [00:09, 80.53it/s]Compressing model: 332it [00:09, 80.28it/s]Compressing model: 342it [00:10, 82.24it/s]Compressing model: 352it [00:10, 83.02it/s]Compressing model: 356it [00:10, 34.94it/s]
+2025-10-29T19:07:37.268221+0000 | reset | INFO - Compression lifecycle reset
+2025-10-29T19:07:37.269203+0000 | _run_vllm | INFO - Run vllm in subprocess.Popen() using python env:
+2025-10-29T19:07:37.269250+0000 | _run_vllm | INFO - /home/HDCharles/rhdev/bin/python3
+2025-10-29T19:08:27.393113+0000 | _run_vllm | INFO - INFO 10-29 19:07:43 [utils.py:253] non-default args: {'disable_log_stats': True, 'model': 'Qwen3-VL-30B-A3B-Instruct-NVFP4'}
+INFO 10-29 19:07:50 [model.py:668] Resolved architecture: Qwen3VLMoeForConditionalGeneration
+INFO 10-29 19:07:50 [model.py:1773] Using max model len 262144
+INFO 10-29 19:07:51 [scheduler.py:211] Chunked prefill is enabled with max_num_batched_tokens=16384.
+[1;36m(EngineCore_DP0 pid=964731)[0;0m INFO 10-29 19:07:57 [core.py:93] Initializing a V1 LLM engine (v0.11.1rc5.dev23+g0f95a1c3f) with config: model='Qwen3-VL-30B-A3B-Instruct-NVFP4', speculative_config=None, tokenizer='Qwen3-VL-30B-A3B-Instruct-NVFP4', skip_tokenizer_init=False, tokenizer_mode=auto, revision=None, tokenizer_revision=None, trust_remote_code=False, dtype=torch.bfloat16, max_seq_len=262144, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, disable_custom_all_reduce=False, quantization=compressed-tensors, enforce_eager=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_fallback=False, disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None), seed=0, served_model_name=Qwen3-VL-30B-A3B-Instruct-NVFP4, enable_prefix_caching=True, chunked_prefill_enabled=True, pooler_config=None, compilation_config={'level': None, 'mode': 3, 'debug_dump_path': None, 'cache_dir': '', 'backend': 'inductor', 'custom_ops': ['none'], 'splitting_ops': ['vllm::unified_attention', 'vllm::unified_attention_with_output', 'vllm::unified_mla_attention', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::gdn_attention', 'vllm::sparse_attn_indexer'], 'use_inductor': None, 'compile_sizes': [], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'use_cudagraph': True, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512], 'cudagraph_copy_inputs': False, 'full_cuda_graph': True, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {}, 'max_cudagraph_capture_size': 512, 'local_cache_dir': None}
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[1;36m(EngineCore_DP0 pid=964731)[0;0m INFO 10-29 19:07:59 [parallel_state.py:1325] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, TP rank 0, EP rank 0
+[1;36m(EngineCore_DP0 pid=964731)[0;0m INFO 10-29 19:08:04 [gpu_model_runner.py:2860] Starting to load model Qwen3-VL-30B-A3B-Instruct-NVFP4...
+[1;36m(EngineCore_DP0 pid=964731)[0;0m WARNING 10-29 19:08:04 [compressed_tensors.py:574] Current platform does not support cutlass NVFP4. Running CompressedTensorsW4A16Fp4.
+[1;36m(EngineCore_DP0 pid=964731)[0;0m INFO 10-29 19:08:04 [cuda.py:405] Using Flash Attention backend on V1 engine.
+[1;36m(EngineCore_DP0 pid=964731)[0;0m INFO 10-29 19:08:04 [nvfp4_moe_support.py:52] Falling back to Marlin FP4 MoE kernel.
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779] EngineCore failed to start.
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779] Traceback (most recent call last):
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/v1/engine/core.py", line 770, in run_engine_core
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     engine_core = EngineCoreProc(*args, **kwargs)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/v1/engine/core.py", line 538, in __init__
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     super().__init__(
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/v1/engine/core.py", line 102, in __init__
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     self.model_executor = executor_class(vllm_config)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/v1/executor/abstract.py", line 98, in __init__
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     self._init_executor()
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/v1/executor/uniproc_executor.py", line 47, in _init_executor
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     self.driver_worker.load_model()
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/v1/worker/gpu_worker.py", line 233, in load_model
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/v1/worker/gpu_model_runner.py", line 2894, in load_model
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     self.model = model_loader.load_model(
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                  ^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     self.load_weights(model, model_config)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/model_loader/default_loader.py", line 300, in load_weights
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     loaded_weights = model.load_weights(
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                      ^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_vl.py", line 1724, in load_weights
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 328, in load_weights
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     autoloaded_weights = set(self._load_module("", self.module, weights))
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 282, in _load_module
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     yield from self._load_module(
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 255, in _load_module
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     loaded_params = module_load_weights(weights)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_moe.py", line 755, in load_weights
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     return loader.load_weights(weights)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 328, in load_weights
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     autoloaded_weights = set(self._load_module("", self.module, weights))
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 282, in _load_module
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     yield from self._load_module(
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 255, in _load_module
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     loaded_params = module_load_weights(weights)
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_vl_moe.py", line 258, in load_weights
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     success = self.load_fused_expert_weights(
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_vl_moe.py", line 138, in load_fused_expert_weights
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]     param = params_dict[name]
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779]             ~~~~~~~~~~~^^^^^^
+[1;36m(EngineCore_DP0 pid=964731)[0;0m ERROR 10-29 19:08:24 [core.py:779] KeyError: 'layers.0.mlp.experts.w2_weight'
+
+FAILED
+
+=================================== FAILURES ===================================
+_ TestvLLM.test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml] _
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7f46772e36d0>
+test_data_file = '/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml'
+
+    def test_vllm(self, test_data_file: str):
+        # Run vLLM with saved model
+    
+        self.set_up(test_data_file)
+        if not self.save_dir:
+            self.save_dir = self.model.split("/")[1] + f"-{self.scheme}"
+        oneshot_model, tokenizer = run_oneshot_for_e2e_testing(
+            model=self.model,
+            model_class=self.model_class,
+            num_calibration_samples=self.num_calibration_samples,
+            max_seq_length=self.max_seq_length,
+            scheme=self.scheme,
+            dataset_id=self.dataset_id,
+            dataset_config=self.dataset_config,
+            dataset_split=self.dataset_split,
+            recipe=self.recipe,
+            quant_type=self.quant_type,
+        )
+    
+        # check that session contains recipe
+        self._check_session_contains_recipe()
+    
+        logger.info("================= SAVING TO DISK ======================")
+        self._save_compressed_model(oneshot_model=oneshot_model, tokenizer=tokenizer)
+    
+        recipe_path = os.path.join(self.save_dir, "recipe.yaml")
+    
+        # check that expected files exist
+        self._check_save_dir_has_expected_files()
+    
+        # Use the session to fetch the recipe;
+        # Reset session for next test case
+        session = active_session()
+        recipe_yaml_str = session.get_serialized_recipe()
+        with open(recipe_path, "w") as fp:
+            fp.write(recipe_yaml_str)
+        session.reset()
+    
+        # if SKIP_HF_UPLOAD.lower() != "yes":
+        #     logger.info("================= UPLOADING TO HUB ======================")
+    
+        #     stub = f"{HF_MODEL_HUB_NAME}/{self.save_dir}-e2e"
+    
+        #     self.api.create_repo(
+        #         repo_id=stub,
+        #         exist_ok=True,
+        #         repo_type="model",
+        #         private=False,
+        #     )
+    
+        #     self.api.upload_folder(
+        #         repo_id=stub,
+        #         folder_path=self.save_dir,
+        #     )
+    
+        # if VLLM_PYTHON_ENV.lower() == "same":
+        #     logger.info("========== RUNNING vLLM in the same python env ==========")
+        # else:
+        #     logger.info("========== RUNNING vLLM in a separate python env ==========")
+    
+>       self._run_vllm(logger)
+
+tests/e2e/vLLM/test_vllm.py:159: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_timer/timer_utils.py:33: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <tests.e2e.vLLM.test_vllm.TestvLLM object at 0x7f46772e36d0>
+logger = <loguru.logger handlers=[(id=2, level=20, sink=<stdout>)]>
+
+    @log_time
+    def _run_vllm(self, logger):
+        import json
+        import subprocess
+    
+        llm_kwargs = {"model": self.save_dir}
+    
+        if self.gpu_memory_utilization is not None:
+            llm_kwargs["gpu_memory_utilization"] = self.gpu_memory_utilization
+    
+        json_scheme = json.dumps(self.scheme)
+        json_llm_kwargs = json.dumps(llm_kwargs)
+        json_prompts = json.dumps(self.prompts)
+    
+        test_file_dir = os.path.dirname(os.path.abspath(__file__))
+        run_file_path = os.path.join(test_file_dir, "run_vllm.py")
+    
+        logger.info("Run vllm in subprocess.Popen() using python env:")
+        logger.info(self.vllm_env)
+    
+        result = subprocess.Popen(
+            [self.vllm_env, run_file_path, json_scheme, json_llm_kwargs, json_prompts],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = result.communicate()
+        logger.info(stdout)
+    
+        error_msg = f"ERROR: vLLM failed with exit code {result.returncode}: {stderr}"
+>       assert result.returncode == 0, error_msg
+E       AssertionError: ERROR: vLLM failed with exit code 1: [1;36m(EngineCore_DP0 pid=964731)[0;0m 
+E         Loading safetensors checkpoint shards:   0% Completed | 0/13 [00:00<?, ?it/s]
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m Process EngineCore_DP0:
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m Traceback (most recent call last):
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/multiprocessing/process.py", line 314, in _bootstrap
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self.run()
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/multiprocessing/process.py", line 108, in run
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self._target(*self._args, **self._kwargs)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/engine/core.py", line 783, in run_engine_core
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     raise e
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/engine/core.py", line 770, in run_engine_core
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     engine_core = EngineCoreProc(*args, **kwargs)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/engine/core.py", line 538, in __init__
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     super().__init__(
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/engine/core.py", line 102, in __init__
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self.model_executor = executor_class(vllm_config)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/executor/abstract.py", line 98, in __init__
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self._init_executor()
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/executor/uniproc_executor.py", line 47, in _init_executor
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self.driver_worker.load_model()
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/worker/gpu_worker.py", line 233, in load_model
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self.model_runner.load_model(eep_scale_up=eep_scale_up)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/v1/worker/gpu_model_runner.py", line 2894, in load_model
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self.model = model_loader.load_model(
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                  ^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/model_loader/base_loader.py", line 55, in load_model
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     self.load_weights(model, model_config)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/model_loader/default_loader.py", line 300, in load_weights
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     loaded_weights = model.load_weights(
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                      ^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_vl.py", line 1724, in load_weights
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 328, in load_weights
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     autoloaded_weights = set(self._load_module("", self.module, weights))
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 282, in _load_module
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     yield from self._load_module(
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 255, in _load_module
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     loaded_params = module_load_weights(weights)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_moe.py", line 755, in load_weights
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     return loader.load_weights(weights)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 328, in load_weights
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     autoloaded_weights = set(self._load_module("", self.module, weights))
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 282, in _load_module
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     yield from self._load_module(
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/utils.py", line 255, in _load_module
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     loaded_params = module_load_weights(weights)
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_vl_moe.py", line 258, in load_weights
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     success = self.load_fused_expert_weights(
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m   File "/home/HDCharles/repos/vllm/vllm/model_executor/models/qwen3_vl_moe.py", line 138, in load_fused_expert_weights
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m     param = params_dict[name]
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m             ~~~~~~~~~~~^^^^^^
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m KeyError: 'layers.0.mlp.experts.w2_weight'
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m 
+E         Loading safetensors checkpoint shards:   0% Completed | 0/13 [00:00<?, ?it/s]
+E         [1;36m(EngineCore_DP0 pid=964731)[0;0m 
+E         [rank0]:[W1029 19:08:25.946827397 ProcessGroupNCCL.cpp:1524] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+E         Traceback (most recent call last):
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 51, in <module>
+E             main()
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 47, in main
+E             run_vllm(llm_kwargs, prompts)
+E           File "/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/run_vllm.py", line 32, in run_vllm
+E             llm = LLM(**llm_kwargs)
+E                   ^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/entrypoints/llm.py", line 336, in __init__
+E             self.llm_engine = LLMEngine.from_engine_args(
+E                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/v1/engine/llm_engine.py", line 188, in from_engine_args
+E             return cls(
+E                    ^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/v1/engine/llm_engine.py", line 122, in __init__
+E             self.engine_core = EngineCoreClient.make_client(
+E                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/v1/engine/core_client.py", line 93, in make_client
+E             return SyncMPClient(vllm_config, executor_class, log_stats)
+E                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/home/HDCharles/repos/vllm/vllm/v1/engine/core_client.py", line 639, in __init__
+E             super().__init__(
+E           File "/home/HDCharles/repos/vllm/vllm/v1/engine/core_client.py", line 468, in __init__
+E             with launch_core_engines(vllm_config, executor_class, log_stats) as (
+E           File "/home/HDCharles/.local/share/uv/python/cpython-3.11.13-linux-x86_64-gnu/lib/python3.11/contextlib.py", line 144, in __exit__
+E             next(self.gen)
+E           File "/home/HDCharles/repos/vllm/vllm/v1/engine/utils.py", line 889, in launch_core_engines
+E             wait_for_engine_startup(
+E           File "/home/HDCharles/repos/vllm/vllm/v1/engine/utils.py", line 946, in wait_for_engine_startup
+E             raise RuntimeError(
+E         RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+E         
+E       assert 1 == 0
+E        +  where 1 = <Popen: returncode: 1 args: ['/home/HDCharles/rhdev/bin/python3', '/home/HDC...>.returncode
+
+tests/e2e/vLLM/test_vllm.py:216: AssertionError
+=============================== warnings summary ===============================
+tests/e2e/vLLM/test_vllm.py: 44 warnings
+  /home/HDCharles/rhdev/lib/python3.11/site-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.pin_memory() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:46.)
+    return data.pin_memory(device)
+
+tests/e2e/vLLM/test_vllm.py: 44 warnings
+  /home/HDCharles/rhdev/lib/python3.11/site-packages/torch/utils/data/_utils/pin_memory.py:57: DeprecationWarning: The argument 'device' of Tensor.is_pinned() is deprecated. Please do not pass this argument. (Triggered internally at /pytorch/aten/src/ATen/native/Memory.cpp:31.)
+    return data.pin_memory(device)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/e2e/vLLM/test_vllm.py::TestvLLM::test_vllm[/home/HDCharles/repos/llm-compressor/tests/e2e/vLLM/configs/fp4_nvfp4_moe.yaml]
+================== 1 failed, 88 warnings in 487.91s (0:08:07) ==================

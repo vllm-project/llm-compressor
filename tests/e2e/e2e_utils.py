@@ -46,6 +46,7 @@ def run_oneshot_for_e2e_testing(
     )
 
     if dataset_id:
+        print(dataset_id, dataset_config, dataset_split)
         ds = load_dataset(dataset_id, name=dataset_config, split=dataset_split)
         ds = ds.shuffle(seed=42).select(range(num_calibration_samples))
         ds = process_dataset(ds, processor, max_seq_length)
@@ -62,6 +63,21 @@ def run_oneshot_for_e2e_testing(
 
             oneshot_kwargs["data_collator"] = data_collator
 
+        elif "calibration" in dataset_id:
+
+            def data_collator(batch):
+                assert len(batch) == 1
+                return {
+                    key: (
+                        torch.tensor(value)
+                        if key != "pixel_values"
+                        else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+                    )
+                    for key, value in batch[0].items()
+                }
+
+            oneshot_kwargs["data_collator"] = data_collator
+    print("CDH", recipe, scheme)
     oneshot_kwargs["model"] = loaded_model
     if recipe:
         oneshot_kwargs["recipe"] = recipe
