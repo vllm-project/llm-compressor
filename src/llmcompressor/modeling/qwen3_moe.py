@@ -20,13 +20,10 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import (
     Qwen3MoeSparseMoeBlock as OriginalQwen3MoeSparseMoeBlock,
 )
 
-from llmcompressor.modeling.moe_context import (
-    MoECalibrationModule,
-    register_moe_calibration,
-)
+from llmcompressor.modeling.moe_context import MoECalibrationModule
 
 
-@register_moe_calibration("Qwen3MoeSparseMoeBlock")
+@MoECalibrationModule.register("Qwen3MoeSparseMoeBlock")
 class CalibrationQwen3MoeSparseMoeBlock(MoECalibrationModule):
     """
     Calibration version of Qwen3MoeSparseMoeBlock that sends all tokens to all experts.
