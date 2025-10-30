@@ -330,31 +330,53 @@ class QuantizationMixin(HooksMixin):
         if either are targeted by quantization.
         """
 
-
-
-
-        try:
+        def _get_embeddings_or_warn(
+            model: torch.nn.Module,
+        ) -> tuple[torch.nn.Module | None, torch.nn.Module | None]:
             if not (
                 hasattr(model, "get_input_embeddings")
                 and hasattr(model, "get_output_embeddings")
             ):
-                raise NotImplementedError()
+                logger.warning(
+                    f"{model.__class__} doesn't have attribute get_input_embeddings and"
+                    + " get_output_embeddings implemented."
+                    + "\nThis can cause problems when trying to quantize layers with shared weights"
+                )
+                return None, None
 
-            input_embeddings, output_embeddings = (
-                model.get_input_embeddings(),
-                model.get_output_embeddings(),
-            )
-        except NotImplementedError as e:
-            logger.warning(
-                f"{model.__class__} doesn't have get_input_embeddings and "
-                + "get_output_embeddings implemented.\n This can cause problems when "
-                + f"trying to quantize layers with shared weights\n{e}"
-            )
+            try:
+                input_embeddings, output_embeddings = (
+                    model.get_input_embeddings(),
+                    model.get_output_embeddings(),
+                )
+            except NotImplementedError as e:
+                logger.warning(
+                    f"{model.__class__} doesn't have get_input_embeddings and "
+                    + "get_output_embeddings implemented."
+                    + "\nThis can cause problems when trying to quantize layers with shared weights"
+                    + f"\n{e}"
+                )
+                return None, None
+
+            if not (
+                isinstance(input_embeddings, torch.nn.Module) and 
+                isinstance(output_embeddings, torch.nn.Module)
+            ):
+                logger.warning(
+                    f"expected 2 modules from {model.__class__} get_input_embeddings and"
+                    + f" get_output_embeddings but got {type(input_embeddings)} and {type(output_embeddings)}." 
+                    + "\nThis can cause problems when trying to quantize layers with shared weights"
+
+                )
+                return None, None
+            return input_embeddings, output_embeddings
+
+        input_embeddings, output_embeddings = _get_embeddings_or_warn(model)
+
+        if None in (input_embeddings, output_embeddings): # if couldn't find embeddings
             return
 
-        if input_embeddings is None:
-            return
-        if input_embeddings.weight is not output_embeddings.weight:  # if not shared
+        if input_embeddings.weight is not output_embeddings.weight:  # if not shared, can ignore
             return
 
         # if shared, check if either is targeted
