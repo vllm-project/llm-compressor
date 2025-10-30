@@ -1,15 +1,39 @@
+"""
+MoE model preparation - imports and registration.
+
+This module imports all MoE calibration modules to ensure they are registered
+in the MOE_CALIBRATION_MODULES registry. The actual calibration logic is in
+moe_context.py.
+"""
+
 import tqdm
-from compressed_tensors.utils import replace_module
+from compressed_tensors.utils import deprecated, replace_module
 from transformers import PreTrainedModel
 
-from llmcompressor.modeling.deepseek_v3 import replace as replace_deepseekv3
-from llmcompressor.modeling.llama4 import replace as replace_llama4
-from llmcompressor.modeling.qwen3_moe import replace as replace_Qwen3MoE
-from llmcompressor.modeling.qwen3_next_moe import replace as replace_Qwen3NextMoE
-from llmcompressor.modeling.qwen3_vl_moe import replace as replace_Qwen3VLMoE
-from llmcompressor.utils.helpers import patch_attr
+# Import MoE calibration modules to trigger registration
+from llmcompressor.modeling.deepseek_v3 import (  # noqa: F401
+    CalibrationDeepseekV3MoE,
+)
+from llmcompressor.modeling.deepseek_v3 import (
+    replace as replace_deepseekv3,
+)
+from llmcompressor.modeling.llama4 import (  # noqa: F401
+    SequentialLlama4TextMoe,
+)
+from llmcompressor.modeling.llama4 import (
+    replace as replace_llama4,
+)
+from llmcompressor.modeling.moe_context import (  # noqa: F401
+    moe_calibration_context,
+)
+from llmcompressor.modeling.qwen3_moe import (  # noqa: F401
+    CalibrationQwen3MoeSparseMoeBlock,
+)
+from llmcompressor.modeling.qwen3_vl_moe import (
+    replace as replace_Qwen3VLMoE,
+)
 
-__all__ = ["replace_modules_for_calibration"]
+__all__ = ["moe_calibration_context", "replace_modules_for_calibration"]
 
 # ---------------------- module replacements; permanent -------------------------
 replacements = {
@@ -19,10 +43,30 @@ replacements = {
 }
 
 
+@deprecated(
+    message=(
+        "The function `replace_modules_for_calibration` has been deprecated. "
+        "Please use `moe_calibration_context` instead. "
+    )
+)
 def replace_modules_for_calibration(
     model: PreTrainedModel,
     calibrate_all_experts: bool = True,
 ) -> PreTrainedModel:
+    """
+    Deprecated function for backward compatibility.
+
+    Use moe_calibration_context instead:
+        with moe_calibration_context(model, calibrate_all_experts):
+            # your code here
+
+    Args:
+        model: The model to modify
+        calibrate_all_experts: Whether to calibrate all experts
+
+    Returns:
+        The modified model
+    """
     for name, module in tqdm.tqdm(list(model.named_modules())):
         cls_name = module.__class__.__name__
         if cls_name in replacements:
@@ -34,63 +78,3 @@ def replace_modules_for_calibration(
             replace_module(model, name, new_module)
 
     return model
-
-
-# ------------------- module replacements; during calibration --------------------
-
-
-def update_qwen3_moe(model, module, stack, calibrate_all_experts):
-    cls_name = module.__class__.__name__
-    if (
-        cls_name == "Qwen3MoeDecoderLayer"
-        and module.mlp.__class__.__name__ == "Qwen3MoeSparseMoeBlock"
-    ):
-        stack.enter_context(
-            patch_attr(
-                module,
-                "mlp",
-                replace_Qwen3MoE(
-                    config=model.config,
-                    module=module.mlp,
-                    calibrate_all_experts=calibrate_all_experts,
-                ),
-            )
-        )
-
-
-def update_qwen3_next_moe(model, module, stack, calibrate_all_experts):
-    cls_name = module.__class__.__name__
-    if (
-        cls_name == "Qwen3NextDecoderLayer"
-        and module.mlp.__class__.__name__ == "Qwen3NextSparseMoeBlock"
-    ):
-        stack.enter_context(
-            patch_attr(
-                module,
-                "mlp",
-                replace_Qwen3NextMoE(
-                    config=model.config,
-                    module=module.mlp,
-                    calibrate_all_experts=calibrate_all_experts,
-                ),
-            )
-        )
-
-
-moe_context = {
-    "Qwen3MoeForCausalLM": update_qwen3_moe,
-    "Qwen3NextForCausalLM": update_qwen3_next_moe,
-}
-
-
-def moe_calibration_context(
-    model: PreTrainedModel,
-    stack,
-    calibrate_all_experts: bool = True,
-):
-    # Temporarily updates the MoE modules within the context
-    # Once the context exists, parameter updates persist
-    model_name = model.__class__.__name__
-    if model_name in moe_context:
-        for module in model.modules():
-            moe_context[model_name](model, module, stack, calibrate_all_experts)

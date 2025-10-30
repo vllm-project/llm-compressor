@@ -20,6 +20,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
@@ -209,11 +210,16 @@ class Oneshot:
         user_pipeline = self.dataset_args.pipeline
         modifiers = session.lifecycle.recipe.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
-        pipeline(
+        # Apply MoE calibration context for the entire calibration process
+        with moe_calibration_context(
             self.model,
-            calibration_dataloader,
-            self.dataset_args,
-        )
+            calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
+        ):
+            pipeline(
+                self.model,
+                calibration_dataloader,
+                self.dataset_args,
+            )
 
         session.finalize()
 
@@ -251,7 +257,7 @@ def oneshot(
     overwrite_cache: bool = False,
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
-    calibrate_moe_context: bool = False,
+    moe_calibrate_all_experts: bool = True,
     quantization_aware_calibration: bool = True,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
@@ -313,9 +319,10 @@ def oneshot(
         preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
-    :param calibrate_moe_context: If during calibration, the MoE context should be
-        enabled for the given model. This usually involves updating all MoE modules
-        in the model for the duration of calibration.
+    :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE
+        model calibration. When True, all experts will see all tokens during
+        calibration, ensuring proper quantization statistics. When False, only
+        routed experts will be used. Only relevant for MoE models. Default is True.
     :param quantization_aware_calibration: Whether to enable quantization-aware
         calibration in the sequential pipeline. When True, quantization is applied
         during forward pass in calibration. When False, quantization is disabled
