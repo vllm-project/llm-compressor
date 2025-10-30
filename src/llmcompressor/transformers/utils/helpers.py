@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Optional, Union
 import requests
 from huggingface_hub import (
     _CACHED_NO_EXIST,
-    HUGGINGFACE_CO_URL_HOME,
+    HfApi,
     hf_hub_download,
     try_to_load_from_cache,
 )
@@ -149,7 +149,9 @@ def recipe_from_huggingface_model_id(
         logger.debug("HF_HUB_OFFLINE is set, skipping recipe download from HuggingFace")
         return None
 
-    model_id_url = os.path.join(HUGGINGFACE_CO_URL_HOME, hf_stub)
+    # Use custom HF_ENDPOINT
+    hf_api = HfApi()
+    model_id_url = f"{hf_api.endpoint.rstrip('/')}/{hf_stub}"
     request = requests.head(model_id_url)
 
     if request.status_code != 200:
