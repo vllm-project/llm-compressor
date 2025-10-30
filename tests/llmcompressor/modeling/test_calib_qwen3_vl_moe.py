@@ -1,5 +1,5 @@
 import torch
-from transformers import Qwen3VLMoeTextConfig
+from transformers import Qwen3VLMoeConfig
 from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import (
     Qwen3VLMoeTextSparseMoeBlock,
 )
@@ -10,10 +10,10 @@ from tests.testing_utils import requires_gpu
 
 
 @requires_gpu
-def test_calib_qwen3_moe_module():
-    config = Qwen3VLMoeTextConfig()
+def test_calib_qwen3_vl_moe_module():
+    config = Qwen3VLMoeConfig()
     with torch.device("cuda"):
-        original = Qwen3VLMoeTextSparseMoeBlock(config).eval()
+        original = Qwen3VLMoeTextSparseMoeBlock(config.get_text_config()).eval()
         # these are initialized as empty / all 0s which results in outputs
         # from the experts being all 0
         # update to use a small random value
@@ -21,7 +21,7 @@ def test_calib_qwen3_moe_module():
         original.experts.down_proj.data.normal_(mean=0.0, std=0.02)
 
     # Create dummy input tensor that simulates hidden_states
-    hidden_dim = config.hidden_size
+    hidden_dim = config.get_text_config().hidden_size
     batch, seq_len = 4, 32
     sample = torch.randn(batch, seq_len, hidden_dim, device="cuda")
 

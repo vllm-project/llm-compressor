@@ -11,14 +11,11 @@ from transformers.models.llama4.modeling_llama4 import (
     Llama4TextMoe,
 )
 
-from llmcompressor.modeling.moe_context import (
-    MoECalibrationModule,
-    register_moe_calibration,
-)
+from llmcompressor.modeling.moe_context import MoECalibrationModule
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
-@register_moe_calibration("Llama4TextMoe")
+@MoECalibrationModule.register("Llama4TextMoe")
 class SequentialLlama4TextMoe(MoECalibrationModule):
     """
     Calibration version of Llama4TextMoe that unpacks experts for sequential processing.
