@@ -77,7 +77,7 @@ def run_oneshot_for_e2e_testing(
                 }
 
             oneshot_kwargs["data_collator"] = data_collator
-
+    print("CDH", recipe, scheme)
     oneshot_kwargs["model"] = loaded_model
     if recipe:
         oneshot_kwargs["recipe"] = recipe
