@@ -150,8 +150,8 @@ def recipe_from_huggingface_model_id(
         return None
 
     # Use custom HF_ENDPOINT
-    hf_endpoint = HfApi().endpoint.rstrip("/")
-    model_id_url = f"{hf_endpoint}/{hf_stub}"
+    hf_api = HfApi()
+    model_id_url = f"{hf_api.endpoint.rstrip('/')}/{hf_stub}"
     request = requests.head(model_id_url)
 
     if request.status_code != 200:
