@@ -24,6 +24,11 @@ from llmcompressor.modeling.moe_context import (
 
 @register_moe_calibration("Qwen3NextSparseMoeBlock")
 class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
+    from transformers import Qwen3NextConfig
+    from transformers.models.qwen3_next.modeling_qwen3_next import (
+        Qwen3NextSparseMoeBlock,
+    )
+
     """
     Calibration version of Qwen3NextSparseMoeBlock that sends all tokens to all experts.
     """
@@ -32,8 +37,8 @@ class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
 
     def __init__(
         self,
-        original,
-        config,
+        original: Qwen3NextSparseMoeBlock,
+        config: Qwen3NextConfig,
         calibrate_all_experts: bool = True,
     ):
         super().__init__()
