@@ -143,8 +143,8 @@ def data_collator(batch):
     assert len(batch) == 1
     item = {key: value for key, value in batch[0].items()}
     item["pixel_values"] = load_image_from_PIL(item["image"])
-    item["labels"] = torch.LongTensor([item["input_ids"]])
     item["input_ids"] = torch.LongTensor([item["input_ids"]])
+    item["labels"] = item["input_ids"].clone()
     return item
 
 # Recipe
