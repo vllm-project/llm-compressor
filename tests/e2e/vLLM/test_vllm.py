@@ -32,10 +32,10 @@ EXPECTED_SAVED_FILES = [
     "recipe.yaml",
     "tokenizer.json",
 ]
-IS_VLLM_IMAGE = false
+IS_VLLM_IMAGE = False
 # when using vllm image, needs to save the generated model and vllm command
 if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exist()):
-    IS_VLLM_IMAGE = true
+    IS_VLLM_IMAGE = True
     assert RUN_SAVE_DIR != "none", "To use vllm image must set RUN_SAVE_DIR too!"
 
 # Will run each test case in its own process through run_tests.sh
