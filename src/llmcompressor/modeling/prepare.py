@@ -29,6 +29,9 @@ from llmcompressor.modeling.moe_context import (  # noqa: F401
 from llmcompressor.modeling.qwen3_moe import (  # noqa: F401
     CalibrationQwen3MoeSparseMoeBlock,
 )
+from llmcompressor.modeling.qwen3_next_moe import (  # noqa: F401
+    CalibrationQwen3NextSparseMoeBlock,
+)
 from llmcompressor.modeling.qwen3_vl_moe import (
     replace as replace_Qwen3VLMoE,
 )

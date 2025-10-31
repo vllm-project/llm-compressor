@@ -98,6 +98,9 @@ class CalibrationQwen3MoeSparseMoeBlock(MoECalibrationModule):
         )
         return final_hidden_states, router_logits
 
+    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
+        return original
+
 
 # Legacy function for backward compatibility
 def replace(
