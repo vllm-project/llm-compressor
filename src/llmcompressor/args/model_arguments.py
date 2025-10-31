@@ -67,7 +67,8 @@ class ModelArguments:
         default=True,
         metadata={
             "help": "Whether the model's input and output word embeddings "
-            "should attempt to be left tied. False means always untie. Note that this is only relevant if the "
+            "should attempt to be left tied. False means always untie."
+            " Note that this is only relevant if the "
             "model has a output word embedding layer."
         },
     )
