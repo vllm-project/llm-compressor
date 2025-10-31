@@ -88,7 +88,7 @@ class TestvLLM:
             self.vllm_env = VLLM_PYTHON_ENV
 
         if RUN_SAVE_DIR != "none":
-            assert RUN_SAVE_DIR.exists(), f"RUN_SAVE_DIR path doesn't exist: {RUN_SAVE_DIR}"
+            assert Path(RUN_SAVE_DIR).exists(), f"RUN_SAVE_DIR path doesn't exist: {RUN_SAVE_DIR}"
             self.run_save_dir = RUN_SAVE_DIR
 
         if not self.save_dir:
