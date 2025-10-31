@@ -88,7 +88,7 @@ class TestvLLM:
             self.vllm_env = VLLM_PYTHON_ENV
 
         if RUN_SAVE_DIR != "none":
-            assert sd_path.exists(), f"RUN_SAVE_DIR path doesn't exist: {RUN_SAVE_DIR}"
+            assert RUN_SAVE_DIR.exists(), f"RUN_SAVE_DIR path doesn't exist: {RUN_SAVE_DIR}"
             self.run_save_dir = RUN_SAVE_DIR
 
         if not self.save_dir:
