@@ -43,7 +43,7 @@ class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
     ):
         super().__init__()
         self.num_experts = config.num_experts
-        self.top_k = original.top_k
+        self.top_k = config.num_experts_per_tok
         self.norm_topk_prob = config.norm_topk_prob
 
         # gating
