@@ -168,6 +168,7 @@ class TestvLLM:
                 folder_path=self.save_dir,
             )
 
+        logger.info(f"Before vllm starts, here is self.save_dir: {self.save_dir}")
         if self.is_vllm_image:
             logger.info("========== To run vLLM with vllm image ==========")
         else:
@@ -228,7 +229,7 @@ class TestvLLM:
                     f"'{json_llm_kwargs}'", f"'{json_prompts}'"]
             vllm_cmd = " ".join(cmds)
             with open(self.vllm_cmd_file, "a") as cf:
-                cf.write(vllm_cmd)
+                cf.write(vllm_cmd + "\n")
             logger.info(f"Wrote vllm cmd into {self.vllm_cmd_file}:")
             logger.info(vllm_cmd)
         else:
