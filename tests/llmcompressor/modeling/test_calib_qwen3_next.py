@@ -8,7 +8,10 @@ from tests.testing_utils import requires_gpu
 @requires_gpu
 def test_calib_qwen3_moe_module():
     from transformers import Qwen3NextConfig
-    from transformers.models.qwen3_next.modeling_qwen3_next import Qwen3NextSparseMoeBlock
+    from transformers.models.qwen3_next.modeling_qwen3_next import (
+        Qwen3NextSparseMoeBlock,
+    )
+
     config = Qwen3NextConfig()
     with torch.device("cuda"):
         original = Qwen3NextSparseMoeBlock(config).eval()
@@ -27,7 +30,7 @@ def test_calib_qwen3_moe_module():
 
     with calibration_forward_context(module):
         output = module(sample)
-        #assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
         assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10
 
     module = CalibrationQwen3NextSparseMoeBlock(
@@ -35,5 +38,5 @@ def test_calib_qwen3_moe_module():
     )
     with calibration_forward_context(module):
         output = module(sample)
-        #assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
+        assert torch.nn.functional.mse_loss(true_output[0], output[0]) < 1e-10
         assert torch.nn.functional.mse_loss(true_output[1], output[1]) < 1e-10

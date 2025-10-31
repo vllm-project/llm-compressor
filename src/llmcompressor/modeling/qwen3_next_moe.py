@@ -38,7 +38,7 @@ class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
     ):
         super().__init__()
         self.num_experts = config.num_experts
-        self.top_k = config.top_k
+        self.top_k = original.top_k
         self.norm_topk_prob = config.norm_topk_prob
 
         # gating
@@ -56,7 +56,7 @@ class CalibrationQwen3NextSparseMoeBlock(MoECalibrationModule):
         router_logits = self.gate(hidden_states)
 
         routing_weights = torch.nn.functional.softmax(
-            router_logits, dim=1, dtype=torch.float
+            router_logits, dim=-1, dtype=torch.float
         )
         routing_weights, selected_experts = torch.topk(
             routing_weights, self.top_k, dim=-1
