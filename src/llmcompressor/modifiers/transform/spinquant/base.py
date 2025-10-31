@@ -144,6 +144,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         return True
 
+    @torch.no_grad()
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
