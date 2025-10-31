@@ -233,7 +233,6 @@ def oneshot(
     processor: Optional[Union[str, ProcessorMixin]] = None,
     use_auth_token: bool = False,
     precision: str = "auto",
-    tie_word_embeddings: bool = False,
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
@@ -281,8 +280,6 @@ def oneshot(
     :param use_auth_token: Whether to use Hugging Face auth token for private
         models.
     :param precision: Precision to cast model weights to, default to auto.
-    :param tie_word_embeddings: Whether the model's input and output word embeddings
-        should be tied.
     :param trust_remote_code_model: Whether to allow for custom models to execute
         their own modeling files.
     :param save_compressed: Whether to compress sparse models during save.

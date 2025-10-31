@@ -7,11 +7,14 @@ from compressed_tensors.transform import (
     TransformScheme,
     apply_transform_config,
 )
-from compressed_tensors.utils import TorchDtype
+from compressed_tensors.utils import TorchDtype, match_named_modules
 from pydantic import Field, ValidationInfo, field_validator
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    untie_if_target_shared_embedding,
+)
 
 __all__ = ["QuIPModifier"]
 
@@ -99,6 +102,16 @@ class QuIPModifier(Modifier):
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
+
+        def matched_module_generator():
+            for scheme in self.transform_config.config_groups.values():
+                for arg in scheme.apply:
+                    gen = match_named_modules(state.model, arg.targets, arg.ignore)
+                    for _, module in gen:
+                        yield module
+
+        # Untie embeddings if they will be targeted by transforms
+        untie_if_target_shared_embedding(state.model, matched_module_generator())
 
         apply_transform_config(state.model, self.transform_config)
 
