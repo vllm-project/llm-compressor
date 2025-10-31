@@ -220,7 +220,7 @@ class TestvLLM:
         test_file_dir = os.path.dirname(os.path.abspath(__file__))
         run_file_path = os.path.join(test_file_dir, "run_vllm.py")
 
-        logger.info("Run vllm using python env:")
+        logger.info("Run vllm using env:")
         logger.info(self.vllm_env)
 
         if self.is_vllm_image:
@@ -229,7 +229,7 @@ class TestvLLM:
             vllm_cmd = " ".join(cmds)
             with open(self.vllm_cmd_file, "a") as cf:
                 cf.write(vllm_cmd)
-            logger.info(f"Wrote vllm cmd into {vllm_cmd_file}:")
+            logger.info(f"Wrote vllm cmd into {self.vllm_cmd_file}:")
             logger.info(vllm_cmd)
         else:
             logger.info("Run vllm in subprocess.Popen using python env:")
