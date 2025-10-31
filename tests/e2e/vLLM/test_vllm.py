@@ -224,9 +224,9 @@ class TestvLLM:
         logger.info(self.vllm_env)
 
         if self.is_vllm_image:
-            vllm_cmd = " ".join(
-                "python", run_file_path, f"'{json_scheme}'",
-                f"'{json_llm_kwargs}'", f"'{json_prompts}'")
+            cmds = ["python", run_file_path, f"'{json_scheme}'",
+                    f"'{json_llm_kwargs}'", f"'{json_prompts}'"]
+            vllm_cmd = " ".join(cmds)
             with open(self.vllm_cmd_file, "a") as cf:
                 cf.write(vllm_cmd)
             logger.info(f"Wrote vllm cmd into {vllm_cmd_file}:")
