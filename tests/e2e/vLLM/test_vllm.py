@@ -34,7 +34,7 @@ EXPECTED_SAVED_FILES = [
 ]
 IS_VLLM_IMAGE = False
 # when using vllm image, needs to save the generated model and vllm command
-if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exist()):
+if VLLM_PYTHON_ENV.lower() != "same" and (not Path(VLLM_PYTHON_ENV).exists()):
     IS_VLLM_IMAGE = True
     assert RUN_SAVE_DIR != "none", "To use vllm image must set RUN_SAVE_DIR too!"
 
