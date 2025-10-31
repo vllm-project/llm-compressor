@@ -24,6 +24,7 @@ elif [ -f "$CONFIG" ]; then
     echo "Config is provided as a file: $CONFIG"
     CONFIGS=`cat "$CONFIG"`
 fi
+echo "$CONFIGS"
 
 # Parse list of configs.
 for MODEL_CONFIG in $(echo -e "$CONFIGS" | sed "s|^|${script_path}/configs/|")
