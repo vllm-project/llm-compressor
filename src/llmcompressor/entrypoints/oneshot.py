@@ -7,10 +7,12 @@ models without additional training. Supports calibration-based compression
 with various pipeline configurations for efficient model optimization.
 """
 
+from __future__ import annotations
+
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -36,7 +38,7 @@ class Oneshot:
     This class handles the entire lifecycle of one-shot calibration, including
     preprocessing (model and tokenizer/processor initialization), model optimization
     (quantization or sparsification), and postprocessing (saving outputs). The
-    intructions for model optimization can be specified by using a recipe.
+    instructions for model optimization can be specified by using a recipe.
 
     - **Input Keyword Arguments:**
         `kwargs` are parsed into:
@@ -99,7 +101,7 @@ class Oneshot:
 
     def __init__(
         self,
-        log_dir: Optional[str] = None,
+        log_dir: str | None = None,
         **kwargs,
     ):
         """
@@ -179,8 +181,8 @@ class Oneshot:
 
     def apply_recipe_modifiers(
         self,
-        calibration_dataloader: Optional[DataLoader],
-        recipe_stage: Optional[str] = None,
+        calibration_dataloader: DataLoader | None,
+        recipe_stage: str | None = None,
     ):
         """
         Applies recipe modifiers to the model during the lifecycle.
@@ -198,7 +200,7 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        # (Helen INFERENG-661): validate recipe modifiers before intialization
+        # (Helen INFERENG-661): validate recipe modifiers before initialization
         session.initialize(
             model=self.model,
             start=-1,
@@ -226,11 +228,11 @@ class Oneshot:
 
 def oneshot(
     # Model arguments
-    model: Union[str, PreTrainedModel],
-    distill_teacher: Optional[str] = None,
-    config_name: Optional[str] = None,
-    tokenizer: Optional[Union[str, PreTrainedTokenizerBase]] = None,
-    processor: Optional[Union[str, ProcessorMixin]] = None,
+    model: str | PreTrainedModel,
+    distill_teacher: str | None = None,
+    config_name: str | None = None,
+    tokenizer: str | PreTrainedTokenizerBase | None = None,
+    processor: str | ProcessorMixin | None = None,
     use_auth_token: bool = False,
     precision: str = "auto",
     tie_word_embeddings: bool = True,
@@ -238,15 +240,15 @@ def oneshot(
     save_compressed: bool = True,
     model_revision: str = "main",
     # Recipe arguments
-    recipe: Optional[Union[str, List[str]]] = None,
-    recipe_args: Optional[List[str]] = None,
+    recipe: str | list[str] | None = None,
+    recipe_args: list[str] | None = None,
     clear_sparse_session: bool = False,
-    stage: Optional[str] = None,
+    stage: str | None = None,
     # Dataset arguments
-    dataset: Optional[Union[str, "Dataset", "DatasetDict"]] = None,
-    dataset_config_name: Optional[str] = None,
-    dataset_path: Optional[str] = None,
-    splits: Optional[Union[str, List, Dict]] = None,
+    dataset: str | Dataset | DatasetDict | None = None,
+    dataset_config_name: str | None = None,
+    dataset_path: str | None = None,
+    splits: str | list[str] | dict[str, str] | None = None,
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
     max_seq_length: int = 384,
@@ -255,13 +257,13 @@ def oneshot(
     concatenate_data: bool = False,
     streaming: bool = False,
     overwrite_cache: bool = False,
-    preprocessing_num_workers: Optional[int] = None,
-    min_tokens_per_module: Optional[float] = None,
+    preprocessing_num_workers: int | None = None,
+    min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
     quantization_aware_calibration: bool = True,
     # Miscellaneous arguments
-    output_dir: Optional[str] = None,
-    log_dir: Optional[str] = None,
+    output_dir: str | None = None,
+    log_dir: str | None = None,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -290,7 +292,8 @@ def oneshot(
         tag, or commit id).
 
     # Recipe arguments
-    :param recipe: Path to a LLM Compressor sparsification recipe.
+    :param recipe: Path to a LLM Compressor recipe, or a list of paths
+      to multiple LLM Compressor recipes.
     :param recipe_args: List of recipe arguments to evaluate, in the
         format "key1=value1", "key2=value2".
     :param clear_sparse_session: Whether to clear CompressionSession/
