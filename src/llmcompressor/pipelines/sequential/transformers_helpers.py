@@ -35,9 +35,8 @@ from torch.fx._compatibility import compatibility
 from torch.fx._symbolic_trace import is_fx_tracing
 from torch.fx.proxy import ParameterProxy
 
-from transformers import logging
+from transformers import logging, PretrainedConfig, PreTrainedModel
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
-from transformers.modeling_utils import PreTrainedConfig, PreTrainedModel
 from transformers.models.auto import get_values
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_AUDIO_CLASSIFICATION_MAPPING_NAMES,
@@ -77,7 +76,7 @@ _IS_IN_DEBUG_MODE = os.environ.get("FX_DEBUG_MODE", "").upper() in ENV_VARS_TRUE
 
 
 def _generate_supported_model_class_names(
-    model_name: type[PreTrainedConfig],
+    model_name: type[PretrainedConfig],
     supported_tasks: str | list[str] | None = None,
 ) -> list[str]:
     task_mapping = {
