@@ -30,6 +30,10 @@ def get_checkpoint_files(model_stub: str | os.PathLike) -> list[str]:
 
 
 def walk_file_paths(root_dir: str, ignore: str | None = None) -> list[str]:
+    """
+    Return all file paths relative to the root directory
+    """
+
     all_files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in filenames:

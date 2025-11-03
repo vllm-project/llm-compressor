@@ -40,6 +40,16 @@ def ptq_weights(
     max_workers: int = 1,
     device: Optional[torch.device | str] = None,
 ):
+    """
+    Name TBD
+
+    :param model_stub: huggingface model hub or path to local weights files
+    :param scheme: weight quantization scheme or preset scheme name
+    :param ignore: modules to ignore. Modules ending with "norm" are automatically
+        ignored
+    :param max_workers: number of worker threads to process files with
+    :param device: gpu device to accelerate quantization with
+    """
     # validate arguments
     model_files = get_checkpoint_files(model_stub)
     scheme_name, scheme = validate_scheme(scheme)
@@ -87,6 +97,16 @@ def _process_file(
     ignore: str | list[str],
     device: str | torch.device,
 ) -> tuple[int, dict[str, str]]:
+    """
+    Quantize and compress tensors in a given safetensors file
+
+    :param file_path: safetensors file to process
+    :param save_path: save path of file with quantized weights
+    :param scheme: quantization scheme to apply to tensors
+    :param ignore: modules to ignore. Modules ending with "norm" are automatically
+        ignored
+    :param device: device used to quantize and compress weights
+    """
     tensors = load_file(file_path)
 
     for name in list(tensors.keys()):
