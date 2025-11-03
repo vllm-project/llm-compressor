@@ -22,7 +22,7 @@ model_dir="/storage/yiliu7"
 
 model_dir="/storage/yiliu7"
 model_name="meta-llama/Meta-Llama-3.1-8B-Instruct"
-model_name="Qwen/Qwen2.5-0.5B/"
+# model_name="Qwen/Qwen2.5-0.5B/"
 
 model_id=f"{model_dir}/{model_name}"
 
@@ -67,51 +67,15 @@ else:
     iters = light["iters"]
 
 # Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-
-
 from auto_round.calib_dataset import get_dataset
 ds = get_dataset(
     tokenizer=tokenizer,
     seqlen=MAX_SEQUENCE_LENGTH,
     nsamples=NUM_CALIBRATION_SAMPLES,
 )
-# data_args = DatasetArguments(shuffle_calibration_samples=False)
-# Load dataset and preprocess.
-# ds = load_dataset(DATASET_ID, split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]")
-# ds = ds.shuffle(seed=42)
-
-
-# def preprocess(example):
-#     return {
-#         "text": tokenizer.apply_chat_template(
-#             example["messages"],
-#             tokenize=False,
-#         )
-#     }
-
-
-# ds = ds.map(preprocess)
-
-
-# # Tokenize inputs.
-# def tokenize(sample):
-#     return tokenizer(
-#         sample["text"],
-#         padding=False,
-#         max_length=MAX_SEQUENCE_LENGTH,
-#         truncation=True,
-#         add_special_tokens=False,
-#     )
-
-
-# ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-#   * quantize the weights to 4 bit with GPTQ with a group size 128
+#   * quantize the weights to 4 bit with AutoRound with a group size 128
 recipe = AutoRoundModifier(
     targets="Linear", scheme="W4A16", ignore=["lm_head"], iters=iters
 )
