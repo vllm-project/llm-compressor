@@ -20,11 +20,6 @@ from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.gptq.gptq_quantize import (
-    accumulate_hessian,
-    make_empty_hessian,
-    quantize_weight,
-)
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -188,45 +183,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     block_size: int = 128
     dampening_frac: Optional[float] = 0.01
     # TODO: this does not serialize / will be incorrectly written
-    actorder: Optional[Union[ActivationOrdering, Sentinel]] = Sentinel("static")
-    offload_hessians: bool = False
 
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _hessians: Dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _num_samples: Dict[torch.nn.Module, int] = PrivateAttr(default_factory=dict)
-    
+
     _cur_layer_idx = PrivateAttr(default=0)
     
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
-
-        def resolve_actorder(existing):
-            # sentinel default only overrides if existing is None
-            if self.actorder == Sentinel("static"):
-                return ActivationOrdering.STATIC if existing is None else existing
-
-            # user-provided value always attempts to override
-            if existing is None or self.actorder == existing:
-                return self.actorder
-
-            # if existing provided and conflicts
-            raise ValueError(
-                "Cannot resolve activation ordering when both "
-                "`AutoRoundModifier.actorder` and `QuantizationScheme.actorder` "
-                f"are provided and differ ({self.actorder}, {existing}). "
-                "Either unset `AutoRoundModifier.actorder` or "
-                "remove `actorder` from config groups."
-            )
-
-        for scheme in config.config_groups.values():
-            assert isinstance(scheme, QuantizationScheme)
-            if (
-                getattr_chain(scheme, "weights.strategy", None)
-                == QuantizationStrategy.GROUP
-            ):
-                scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -369,9 +334,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     
                     update_offload_parameter(module, "weight_scale", weight_scale)
 
-            for module in list(self._num_samples.keys()):
-                name = self._module_names[module]
-                del self._num_samples[module]
             decoding_layer.eval()
             all_module_input.clear()
             all_module_output.clear()
@@ -394,22 +356,4 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         if not self.ended_:
             self.on_end(state, None)
 
-        if len(self._num_samples) > 0:
-            raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
-
-        self._hessians = dict()
-        self._num_samples = dict()
-
         return True
-
-    @contextlib.contextmanager
-    def _maybe_onload_hessian(self, module: torch.nn.Module):
-        if self.offload_hessians:
-            device = get_execution_device(module)
-            self._hessians[module] = self._hessians[module].to(device=device)
-
-        yield
-
-        if self.offload_hessians:
-            if module in self._hessians:  # may have been deleted in context
-                self._hessians[module] = self._hessians[module].to(device="cpu")
