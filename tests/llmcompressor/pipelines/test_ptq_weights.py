@@ -11,6 +11,20 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.testing_utils import requires_gpu
 
 
+def _get_tiny_w4a16_quant():
+    return QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(
+            num_bits=4,
+            type="int",
+            strategy="group",
+            group_size=16,
+            symmetric=True,
+            dynamic=False,
+        ),
+    )
+
+
 def _get_tiny_block_quant():
     return QuantizationScheme(
         targets=["Linear"],
@@ -26,10 +40,12 @@ def _get_tiny_block_quant():
 
 
 @requires_gpu
-@pytest.mark.parametrize("scheme", ["FP8_dynamic", _get_tiny_block_quant()])
+@pytest.mark.parametrize(
+    "scheme", [_get_tiny_w4a16_quant(), "FP8_dynamic", _get_tiny_block_quant()]
+)
 def test_weights_ptq_e2e(scheme, tmp_path):
     model = "nm-testing/tinysmokellama-3.2"
-    ignore = ["model.embed_tokens", "lm_head", "re:.*norm$"]
+    ignore = ["model.embed_tokens", "lm_head"]
     device = "cuda:0"
 
     ptq_outdir = tmp_path / "weights_out"

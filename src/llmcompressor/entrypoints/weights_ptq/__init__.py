@@ -91,10 +91,9 @@ def _process_file(
 
     for name in list(tensors.keys()):
         module_name, param_name = name.rsplit(".", 1)
+        is_linear_weight = param_name == "weight" and not module_name.endswith("norm")
         is_ignored = any(_match_name(module_name, ign) for ign in ignore)
-        is_weight = param_name == "weight"
-        if is_ignored or not is_weight:
-            print(f"skip {name}")
+        if not is_linear_weight or is_ignored:
             continue
 
         # 1. initialize module with qparams (on device)

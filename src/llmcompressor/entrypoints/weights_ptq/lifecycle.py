@@ -15,7 +15,11 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_weight_zp_scale,
 )
 
-__all__ = ["initialize_quantized_linear", "calibrate_weights", "compress_module"]
+__all__ = [
+    "initialize_quantized_linear",
+    "calibrate_weights",
+    "compress_module",
+]
 
 
 def initialize_quantized_linear(
@@ -58,6 +62,8 @@ def compress_module(module: torch.nn.Linear):
         global_scale=getattr(module, "weight_global_scale", None),
     )
 
+    # `compress_weight` is a messy api
+    delattr(module, "weight")
     for key, value in data.items():
         if hasattr(module, key):
             getattr(module, key).data = value
