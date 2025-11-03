@@ -27,11 +27,12 @@ def validate_scheme(scheme: QuantizationScheme) -> tuple[str, QuantizationScheme
     output_dynamic = getattr_chain(scheme, "output_activations.dynamic", True)
     if input_dynamic is not True or output_dynamic is not True:
         raise ValueError(
-            "Weights-only PTQ cannot calibrate activations. "
+            "Model Free PTQ cannot calibrate activations. "
             "Please use `oneshot` instead."
         )
 
     # override with static observers
+    # Remove after https://github.com/vllm-project/compressed-tensors/pull/489
     if scheme.weights.observer in ("minmax", "mse"):
         new_observer = f"static_{scheme.weights.observer}"
         logger.warning(
