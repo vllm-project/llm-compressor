@@ -9,4 +9,5 @@ for model optimization tasks.
 
 from .oneshot import Oneshot, oneshot
 from .train import train
+from .weights_ptq import ptq_weights
 from .utils import post_process, pre_process
