@@ -21,9 +21,9 @@ from llmcompressor.pipelines.sequential.helpers import (
     get_sequential_targets,
 )
 from llmcompressor.utils.helpers import (
+    DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
-    DISABLE_QAC_MODIFIERS,
 )
 
 if TYPE_CHECKING:

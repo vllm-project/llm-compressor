@@ -16,9 +16,9 @@ from llmcompressor.pipelines.sequential.helpers import (
     trace_subgraphs,
 )
 from llmcompressor.utils.helpers import (
+    DISABLE_QAC_MODIFIERS,
     DisableQuantization,
     calibration_forward_context,
-    DISABLE_QAC_MODIFIERS,
 )
 
 if TYPE_CHECKING:
@@ -79,7 +79,7 @@ class SequentialPipeline(CalibrationPipeline):
         # TODO: remove this to enable quantization aware calibration for GPTQ and AWQ
         disable_qac = any(
             type(mod).__name__ in DISABLE_QAC_MODIFIERS
-            for mod in session.lifecycle.recipe.modifiers 
+            for mod in session.lifecycle.recipe.modifiers
         )
 
         with contextlib.ExitStack() as stack:

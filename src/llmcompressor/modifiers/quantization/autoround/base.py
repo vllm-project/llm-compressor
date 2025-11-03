@@ -1,17 +1,12 @@
-import contextlib
 from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 from compressed_tensors.quantization import (
     QuantizationConfig,
-    QuantizationScheme,
-    QuantizationStrategy,
+    enable_quantization,
 )
-from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import (
     align_module_device,
-    get_execution_device,
-    getattr_chain,
     match_named_modules,
     update_offload_parameter,
 )
@@ -20,21 +15,10 @@ from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.sentinel import Sentinel
-from llmcompressor.utils.metric_logging import CompressionLogger
-from compressed_tensors.quantization import enable_quantization
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
-from collections import defaultdict
+from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 
 __all__ = ["AutoRoundModifier"]
-
-
-
-
-
-
-
 
 
 def normalize_input(cur_inputs):
@@ -93,6 +77,7 @@ def _wrap_decoding_layer(layer: torch.nn.Module) -> _PretrainModelWrapper:
     first_param = next(layer.parameters())
     wrapped_model.dtype = first_param.dtype
     return wrapped_model
+
 
 class AutoRoundModifier(Modifier, QuantizationMixin):
     """
@@ -173,9 +158,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # prepare module names
         self._module_names = {
             m: name
-            for name, m in match_named_modules(
-                state.model, self.targets, self.ignore
-            )
+            for name, m in match_named_modules(state.model, self.targets, self.ignore)
         }
         # add temporary names to all modules for debugging
         for name, mod in state.model.named_modules():
@@ -185,14 +168,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             param.requires_grad_(False)
         return True
 
-
     def start_calibration(self, model: torch.nn.Module):
         """
         Register activation calibration hooks and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
-
 
         for _, module in match_named_modules(model, self.targets, self.ignore):
             # Note: No need to register observers for auto-round
@@ -202,15 +183,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
-
     def input_capture_hook(self, module, *args, **kwargs):
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
-
     def output_capture_hook(self, module, *args, **kwargs):
         self._all_module_output[module._tmp_name].append((args, kwargs))
-
-
 
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
@@ -221,10 +198,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for name, module in state.model.named_modules():
             if _is_decoding_layer(module, name):
                 # register input/output capture hooks for decoding layers
-                logger.warning(f">> Registering input/output capture hooks for decoding layer {getattr(module, '_tmp_name', '')} || {name}")
-                self.register_hook(module, self.input_capture_hook, "forward_pre", with_kwargs=True)
-                self.register_hook(module, self.output_capture_hook, "forward", with_kwargs=True)
-
+                logger.warning(
+                    f">> Registering input/output capture hooks for decoding layer {getattr(module, '_tmp_name', '')} || {name}"
+                )
+                self.register_hook(
+                    module, self.input_capture_hook, "forward_pre", with_kwargs=True
+                )
+                self.register_hook(
+                    module, self.output_capture_hook, "forward", with_kwargs=True
+                )
 
     def on_event(self, state: State, event: Event, **kwargs):
         if event.type_ == EventType.CALIBRATION_EPOCH_START:
@@ -246,7 +228,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         if cur_layer_idx >= len(state.model.model.layers):
             # skip the lm_head layer
             logger.info(
-                f">>||>> All decoding layers have been processed for AutoRound."
+                ">>||>> All decoding layers have been processed for AutoRound."
             )
             # self.compress_modules(return_directly=False)
             return
@@ -259,6 +241,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         with torch.enable_grad(), align_module_device(decoding_layer):
             import auto_round
+
             ar = auto_round.AutoRound(
                 model=wrapped_model,
                 tokenizer="",
@@ -297,10 +280,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     # TODO: update weight as well
                     update_offload_parameter(module, "weight_scale", weight_scale)
         decoding_layer.eval()
+
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
         self._all_module_output.clear()
-
 
     def on_end(self, state: State, event: Event, **kwargs):
         """

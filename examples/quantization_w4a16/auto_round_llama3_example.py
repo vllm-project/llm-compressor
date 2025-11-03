@@ -1,12 +1,12 @@
 import os
+
 _DEBUG = os.environ.get("DEBUG", "0") == "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import AutoRoundModifier
-from llmcompressor.modifiers.quantization import AutoRoundModifier
+
 # from llmcompressor.modifiers.quantization import QuantizationModifier as AutoRoundModifier
 from llmcompressor.utils import dispatch_for_generation
 
@@ -17,14 +17,14 @@ model_id = "Qwen/Qwen2.5-0.5B"
 model_id = "/data5/yliu7/HF_HOME/Qwen/Qwen2.5-0.5B"
 model_id = "/data5/yliu7/meta-llama/meta-llama/Meta-Llama-3.1-8B-Instruct"
 
-model_dir="/storage/yiliu7"
+model_dir = "/storage/yiliu7"
 # model_id=f"{model_dir}/meta-llama/Meta-Llama-3.1-8B-Instruct"
 
-model_dir="/storage/yiliu7"
-model_name="meta-llama/Meta-Llama-3.1-8B-Instruct"
+model_dir = "/storage/yiliu7"
+model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 # model_name="Qwen/Qwen2.5-0.5B/"
 
-model_id=f"{model_dir}/{model_name}"
+model_id = f"{model_dir}/{model_name}"
 
 
 # model_id = "facebook/opt-125m"
@@ -32,10 +32,10 @@ model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype="auto")
 tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 if _DEBUG:
-    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-    from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
-    from transformers.models.llama.modeling_llama import LlamaForCausalLM
     import torch
+    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+    from transformers.models.llama.modeling_llama import LlamaForCausalLM
+    from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 
     config = AutoConfig.from_pretrained(model_id)
     config.num_hidden_layers = 2  # Use a smaller model for testing
@@ -68,6 +68,7 @@ else:
 
 # Select calibration dataset.
 from auto_round.calib_dataset import get_dataset
+
 ds = get_dataset(
     tokenizer=tokenizer,
     seqlen=MAX_SEQUENCE_LENGTH,
@@ -79,7 +80,7 @@ ds = get_dataset(
 recipe = AutoRoundModifier(
     targets="Linear", scheme="W4A16", ignore=["lm_head"], iters=iters
 )
-                           
+
 
 # Apply algorithms.
 oneshot(
@@ -105,7 +106,11 @@ print("==========================================\n\n")
 
 # Save to disk compressed.
 SAVE_DIR = model_id.rstrip("/").split("/")[-1] + "-W4A16-G128"
-SAVE_DIR = f"{model_dir}/" + model_id.rstrip("/").split("/")[-1] + "-W4A16-G128-disbale-shuffule-ar"
+SAVE_DIR = (
+    f"{model_dir}/"
+    + model_id.rstrip("/").split("/")[-1]
+    + "-W4A16-G128-disbale-shuffule-ar"
+)
 print(f"Saving quantized model to {SAVE_DIR}")
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
