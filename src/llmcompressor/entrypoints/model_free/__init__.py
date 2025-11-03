@@ -11,28 +11,28 @@ from compressed_tensors.utils.match import _match_name
 from loguru import logger
 from safetensors.torch import load_file, save_file
 
-from llmcompressor.entrypoints.weights_ptq.helpers import (
+from llmcompressor.entrypoints.model_free.helpers import (
     gpu_if_available,
     validate_scheme,
 )
-from llmcompressor.entrypoints.weights_ptq.lifecycle import (
+from llmcompressor.entrypoints.model_free.lifecycle import (
     calibrate_weights,
     compress_module,
     initialize_quantized_linear,
 )
-from llmcompressor.entrypoints.weights_ptq.model_utils import (
+from llmcompressor.entrypoints.model_free.model_utils import (
     get_checkpoint_files,
     is_weights_file,
 )
-from llmcompressor.entrypoints.weights_ptq.save_utils import (
+from llmcompressor.entrypoints.model_free.save_utils import (
     update_config,
     update_safetensors_index,
 )
 
-__all__ = ["ptq_weights"]
+__all__ = ["model_free_ptq"]
 
 
-def ptq_weights(
+def model_free_ptq(
     model_stub: str | os.PathLike,
     save_directory: str | os.PathLike,
     scheme: QuantizationScheme | str,
@@ -41,7 +41,8 @@ def ptq_weights(
     device: Optional[torch.device | str] = None,
 ):
     """
-    Name TBD
+    Quantize a model without the need for a model definition. This function operates on
+    a model stub or folder containing weights saved in safetensors files
 
     :param model_stub: huggingface model hub or path to local weights files
     :param scheme: weight quantization scheme or preset scheme name

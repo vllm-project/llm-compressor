@@ -6,7 +6,7 @@ import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from safetensors.torch import load_file
 
-from llmcompressor import oneshot, ptq_weights
+from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.testing_utils import requires_gpu
 
@@ -51,7 +51,7 @@ def test_weights_ptq_e2e(scheme, tmp_path):
     ptq_outdir = tmp_path / "weights_out"
     oneshot_outdir = tmp_path / "oneshot_out"
 
-    ptq_weights(
+    model_free_ptq(
         model,
         ptq_outdir,
         scheme=scheme,
