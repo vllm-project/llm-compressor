@@ -43,7 +43,7 @@ def _get_tiny_block_quant():
 @pytest.mark.parametrize(
     "scheme", [_get_tiny_w4a16_quant(), "FP8_dynamic", _get_tiny_block_quant()]
 )
-def test_weights_ptq_e2e(scheme, tmp_path):
+def test_model_free_ptq_matches_oneshot(scheme, tmp_path):
     model = "nm-testing/tinysmokellama-3.2"
     ignore = ["model.embed_tokens", "lm_head"]
     device = "cuda:0"
