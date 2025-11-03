@@ -109,7 +109,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         - on_start
             - add input/output capture hooks to decoding layers
         - on_sequential_epoch_end
-            - quantize_weight
+            - apply_autoround
+            - post_autoround_cleanup
         - on_finalize
             - remove_hooks()
             - model.apply(freeze_module_quantization)
@@ -184,9 +185,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         model.apply(enable_quantization)  # quantize at the same time as calibrate
 
     def input_capture_hook(self, module, *args, **kwargs):
+        if module._tmp_name not in self._all_module_input:
+            self._all_module_input[module._tmp_name] = []
         self._all_module_input[module._tmp_name].append((args, kwargs))
 
     def output_capture_hook(self, module, *args, **kwargs):
+        if module._tmp_name not in self._all_module_output:
+            self._all_module_output[module._tmp_name] = []
         self._all_module_output[module._tmp_name].append((args, kwargs))
 
     def on_start(self, state: State, event: Event, **kwargs):
@@ -227,10 +232,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         logger.info(f">>||>> AutoRound for decoding layer index {cur_layer_idx}")
         if cur_layer_idx >= len(state.model.model.layers):
             # skip the lm_head layer
-            logger.info(
-                ">>||>> All decoding layers have been processed for AutoRound."
-            )
-            # self.compress_modules(return_directly=False)
+            logger.info(">>||>> All decoding layers have been processed for AutoRound.")
             return
         decoding_layer = state.model.model.layers[cur_layer_idx]
         logger.debug(
@@ -270,9 +272,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 if hasattr(module, "weight_scale") and hasattr(
                     module, "weight_zero_point"
                 ):
-                    logger.debug(
-                        f"Updating offload parameters for module {getattr(module, '_tmp_name', '')} || {name}"
-                    )
                     # Note: The model's weight is already quantized and dequantized in-place by auto-round.
                     weight_scale = module.scale
                     del module.scale
