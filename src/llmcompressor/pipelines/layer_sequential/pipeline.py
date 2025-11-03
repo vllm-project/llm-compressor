@@ -19,9 +19,12 @@ from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
     dispatch_for_sequential,
     get_sequential_targets,
+)
+from llmcompressor.utils.helpers import (
+    DisableQuantization,
+    calibration_forward_context,
     DISABLE_QAC_MODIFIERS,
 )
-from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
