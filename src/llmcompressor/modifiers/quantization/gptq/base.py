@@ -266,7 +266,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     percdamp=self.dampening_frac,
                 )
                 comp_logger.set_loss(loss)
-            breakpoint()
+
             update_offload_parameter(module, "weight", quantized_weight)
             update_offload_parameter(module, "weight_scale", scale)
             update_offload_parameter(module, "weight_zero_point", zero_point)

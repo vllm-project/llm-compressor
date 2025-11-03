@@ -319,7 +319,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     logger.debug(
                         f"Updating offload parameters for module {getattr(module, '_tmp_name', '')} || {name}"
                     )
-                    # The model's weight is already quantized and determined in auto-round
+                    # Note: The model's weight is already quantized and dequantized in-place by auto-round
                     weight_scale = module.scale
                     del module.scale
                     del module.zp
