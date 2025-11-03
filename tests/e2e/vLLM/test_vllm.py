@@ -182,7 +182,7 @@ class TestvLLM:
         self.tear_down()
 
     def tear_down(self):
-        if self.save_dir is not None and os.path.isdir(self.save_dir):
+        if not IS_VLLM_IMAGE and self.save_dir is not None and os.path.isdir(self.save_dir):
             shutil.rmtree(self.save_dir)
 
         timer = get_singleton_manager()
