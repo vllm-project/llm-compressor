@@ -59,7 +59,6 @@ def pre_process(
     Raises:
         FileNotFoundError: If the model or processor path is invalid.
     """
-    _warn_tied_embeddings(model_args.tie_word_embeddings)
 
     # Initialize model
     if isinstance(model_args.model, (str, PosixPath)):
@@ -150,21 +149,6 @@ def post_process(
         reset_session()
 
 
-def _warn_tied_embeddings(tie_word_embeddings: bool = False):
-    """
-    Logs a warning if the model has tied word embeddings.
-    The `tie_word_embeddings` flag may cause issues during saving in the one-shot
-    calibration workflow due to shared tensor addresses.
-    """
-    if tie_word_embeddings:
-        logger.debug(
-            "The tie_word_embeddings flag is by default set to False. "
-            "This guarantees that the one-shot algorithm saves the final "
-            "weights without errors. Detected tie_word_embeddings=True. "
-            "This may cause issues with the one-shot algorithm on save."
-        )
-
-
 def initialize_model_from_path(
     model_args: ModelArguments,
     training_args: Optional[TrainingArguments] = None,
@@ -175,7 +159,7 @@ def initialize_model_from_path(
     model_path = model_args.model
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_path,
-        cache_dir=model_args.cache_dir,
+        cache_dir=None,
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
         trust_remote_code=model_args.trust_remote_code_model,
@@ -211,7 +195,7 @@ def initialize_model_from_path(
             )
             teacher_kwargs = {
                 "config": teacher_config,
-                "cache_dir": model_args.cache_dir,
+                "cache_dir": None,
                 "use_auth_token": True if model_args.use_auth_token else None,
                 "torch_dtype": parse_dtype(model_args.precision),
                 "device_map": teacher_device_map,
@@ -233,7 +217,7 @@ def initialize_model_from_path(
 
     model_kwargs = {
         "config": config,
-        "cache_dir": model_args.cache_dir,
+        "cache_dir": None,
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
         "torch_dtype": parse_dtype(model_args.precision),
@@ -266,7 +250,7 @@ def initialize_processor_from_path(
     try:
         processor = AutoProcessor.from_pretrained(
             processor_src,
-            cache_dir=model_args.cache_dir,
+            cache_dir=None,
             use_fast=True,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,
@@ -285,7 +269,7 @@ def initialize_processor_from_path(
         logger.debug("Could not load fast processor, loading slow processor instead")
         processor = AutoProcessor.from_pretrained(
             processor_src,
-            cache_dir=model_args.cache_dir,
+            cache_dir=None,
             use_fast=False,
             revision=model_args.model_revision,
             use_auth_token=True if model_args.use_auth_token else None,

@@ -9,6 +9,7 @@ with various pipeline configurations for efficient model optimization.
 
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from loguru import logger
@@ -19,6 +20,7 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.modeling.moe_context import moe_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
 __all__ = ["Oneshot", "oneshot"]
@@ -97,7 +99,7 @@ class Oneshot:
 
     def __init__(
         self,
-        log_dir: Optional[str] = "sparse_logs",
+        log_dir: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -117,8 +119,18 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
-        # Set up logging
-        if log_dir:
+        # Set up file logging (no default files):
+        # 1) If LLM_COMPRESSOR_LOG_FILE is set, log to that file.
+        # 2) Else, if an explicit log_dir is provided, create a timestamped file there.
+        log_file = os.environ.get("LLM_COMPRESSOR_LOG_FILE", "").strip()
+        if log_file:
+            p = Path(log_file).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            logger.add(
+                str(p),
+                level="DEBUG",
+            )
+        elif log_dir:
             os.makedirs(log_dir, exist_ok=True)
             date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             logger.add(
@@ -198,11 +210,16 @@ class Oneshot:
         user_pipeline = self.dataset_args.pipeline
         modifiers = session.lifecycle.recipe.modifiers
         pipeline = CalibrationPipeline.from_modifiers(modifiers, user=user_pipeline)
-        pipeline(
+        # Apply MoE calibration context for the entire calibration process
+        with moe_calibration_context(
             self.model,
-            calibration_dataloader,
-            self.dataset_args,
-        )
+            calibrate_all_experts=self.dataset_args.moe_calibrate_all_experts,
+        ):
+            pipeline(
+                self.model,
+                calibration_dataloader,
+                self.dataset_args,
+            )
 
         session.finalize()
 
@@ -214,10 +231,9 @@ def oneshot(
     config_name: Optional[str] = None,
     tokenizer: Optional[Union[str, PreTrainedTokenizerBase]] = None,
     processor: Optional[Union[str, ProcessorMixin]] = None,
-    cache_dir: Optional[str] = None,
     use_auth_token: bool = False,
     precision: str = "auto",
-    tie_word_embeddings: bool = False,
+    tie_word_embeddings: bool = True,
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
@@ -241,11 +257,11 @@ def oneshot(
     overwrite_cache: bool = False,
     preprocessing_num_workers: Optional[int] = None,
     min_tokens_per_module: Optional[float] = None,
-    calibrate_moe_context: bool = False,
+    moe_calibrate_all_experts: bool = True,
     quantization_aware_calibration: bool = True,
     # Miscellaneous arguments
     output_dir: Optional[str] = None,
-    log_dir: Optional[str] = "sparse_logs",
+    log_dir: Optional[str] = None,
     **kwargs,
 ) -> PreTrainedModel:
     """
@@ -262,13 +278,11 @@ def oneshot(
         model_name.
     :param processor: Pretrained processor name or path if not the same as
         model_name.
-    :param cache_dir: Where to store the pretrained data from
-        huggingface.co.
     :param use_auth_token: Whether to use Hugging Face auth token for private
         models.
     :param precision: Precision to cast model weights to, default to auto.
     :param tie_word_embeddings: Whether the model's input and output word embeddings
-        should be tied.
+        should be left tied if possible. False means always untie.
     :param trust_remote_code_model: Whether to allow for custom models to execute
         their own modeling files.
     :param save_compressed: Whether to compress sparse models during save.
@@ -305,9 +319,10 @@ def oneshot(
         preprocessing.
     :param min_tokens_per_module: Minimum percentage of tokens per
         module, relevant for MoE models.
-    :param calibrate_moe_context: If during calibration, the MoE context should be
-        enabled for the given model. This usually involves updating all MoE modules
-        in the model for the duration of calibration.
+    :param moe_calibrate_all_experts: Whether to calibrate all experts during MoE
+        model calibration. When True, all experts will see all tokens during
+        calibration, ensuring proper quantization statistics. When False, only
+        routed experts will be used. Only relevant for MoE models. Default is True.
     :param quantization_aware_calibration: Whether to enable quantization-aware
         calibration in the sequential pipeline. When True, quantization is applied
         during forward pass in calibration. When False, quantization is disabled

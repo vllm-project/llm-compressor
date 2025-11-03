@@ -11,27 +11,47 @@ from transformers.models.llama4.modeling_llama4 import (
     Llama4TextMoe,
 )
 
+from llmcompressor.modeling.moe_context import (
+    MoECalibrationModule,
+    register_moe_calibration,
+)
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
-class SequentialLlama4TextMoe(torch.nn.Module):
+@register_moe_calibration("Llama4TextMoe")
+class SequentialLlama4TextMoe(MoECalibrationModule):
+    """
+    Calibration version of Llama4TextMoe that unpacks experts for sequential processing.
+
+    This module:
+    1. Unpacks the packed expert weights (3D -> 2D) for calibration
+    2. Optionally sends all tokens to all experts during calibration
+    3. Stays in unpacked form (permanent) for vLLM compatibility
+    """
+
+    is_permanent = True
+
     def __init__(
         self,
-        config: Llama4TextConfig,
         original: Llama4TextMoe,
-        calibrate_all_experts: bool,
+        config: Llama4Config,
+        calibrate_all_experts: bool = True,
     ):
         super().__init__()
-        self.top_k = config.num_experts_per_tok
-        self.hidden_dim = config.hidden_size
-        self.num_experts = config.num_local_experts
+        # Extract text config from multimodal config if needed
+        text_config = (
+            config.get_text_config() if hasattr(config, "get_text_config") else config
+        )
+        self.top_k = text_config.num_experts_per_tok
+        self.hidden_dim = text_config.hidden_size
+        self.num_experts = text_config.num_local_experts
 
-        self.experts = SequentialLlama4TextExperts(config, original.experts)
+        self.experts = SequentialLlama4TextExperts(text_config, original.experts)
         self.router = original.router
         self.shared_expert = original.shared_expert
         self.calibrate_all_experts = calibrate_all_experts
 
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         hidden_states = hidden_states.reshape(-1, self.hidden_dim)
         router_scores, router_logits = self.router(hidden_states)  # transformers>=4.54
 
@@ -74,9 +94,14 @@ class SequentialLlama4TextExperts(torch.nn.ModuleList):
             self[i].down_proj.weight.data = down.t().contiguous()
 
 
+# Legacy function for backward compatibility
 def replace(config: Llama4Config, module: Llama4TextMoe, calibrate_all_experts: bool):
+    """
+    Legacy replacement function.
+    Use SequentialLlama4TextMoe instead.
+    """
     return SequentialLlama4TextMoe(
-        config=config.get_text_config(),
-        original=module,
+        module,
+        config,
         calibrate_all_experts=calibrate_all_experts,
     )

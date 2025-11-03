@@ -16,6 +16,9 @@ from transformers import PreTrainedModel
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    untie_word_embeddings,
+)
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -144,9 +147,12 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         return True
 
+    @torch.no_grad()
     def on_start(self, state: State, event: Event, **kwargs):
         self.started_ = True
 
+        # needed any time embeddings/lm_head is modified
+        untie_word_embeddings(state.model)
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
         self._center_embeddings(state.model)

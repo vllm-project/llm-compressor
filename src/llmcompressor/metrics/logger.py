@@ -339,14 +339,22 @@ class PythonLogger(LambdaLogger):
         :param log_level: logging level for the console metrics
         :return: metrics
         """
+        # Only write logs to disk when explicitly requested via env var.
+        log_file = os.environ.get("LLM_COMPRESSOR_LOG_FILE", "").strip()
+        if log_file:
+            if PythonLogger._global_file_sink_id is None:
+                path = Path(log_file).expanduser()
+                path.parent.mkdir(parents=True, exist_ok=True)
+                PythonLogger._global_file_sink_id = logger.add(
+                    str(path), level="DEBUG", delay=True
+                )
+                logger.info(f"File logging enabled: {path}")
+            return
 
-        # File handler setup, for logging modifier debug statements
-        if PythonLogger._global_file_sink_id is None:
-            base_log_path = (
-                os.environ.get("NM_TEST_LOG_DIR")
-                if os.environ.get("NM_TEST_MODE")
-                else "sparse_logs"
-            )
+        # Preserve test behavior: in NM_TEST_MODE, write a timestamped file
+        # under NM_TEST_LOG_DIR. In regular runs (no env var), do nothing.
+        if PythonLogger._global_file_sink_id is None and os.environ.get("NM_TEST_MODE"):
+            base_log_path = os.environ.get("NM_TEST_LOG_DIR")
             now = datetime.now()
             dt_string = now.strftime("%d-%m-%Y_%H.%M.%S")
             log_path = os.path.join(base_log_path, f"{dt_string}.log")
