@@ -33,8 +33,7 @@ __all__ = ["AutoRoundModifier"]
 
 
 
-all_module_input = defaultdict(list)
-all_module_output = defaultdict(list)
+
 
 
 
@@ -144,17 +143,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         will be set to the targets parameter set at the modifier level. Can also be set
         to a dictionary of the format `preset_scheme_name: targets` for example:
         `W8A8: ['Linear']` for weight and activation 8-bit.
-    :param kv_cache_scheme: optional QuantizationArgs, that specify the
-        quantization of the kv cache. If None, kv cache is not quantized.
-        When applying kv cache quantization to transformer AutoModelForCausalLM,
-        the kv_cache_scheme gets converted into a QuantizationScheme that:
-            - targets the `q_proj` and `k_proj` modules of the model. The outputs
-              of those modules are the keys and values that might be cached
-            - quantizes the outputs of the aformentioned layers, so that
-              keys and values are compressed before storing them in the cache
-        There is an explicit assumption that the model contains modules with
-        `k_proj` and `v_proj` in their names. If this is not the case
-        and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
     # AutoRound modifier arguments
@@ -165,7 +153,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     # private variables
     _module_names: Dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _cur_layer_idx = PrivateAttr(default=0)
-    
+    _all_module_input: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
+    _all_module_output: Dict[str, List[Tuple]] = PrivateAttr(default_factory=dict)
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -188,7 +177,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 state.model, self.targets, self.ignore
             )
         }
-        # add tmp name for each module for debugging
+        # add temporary names to all modules for debugging
         for name, mod in state.model.named_modules():
             mod._tmp_name = name
         # freeze all model parameters
@@ -199,7 +188,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def start_calibration(self, model: torch.nn.Module):
         """
-        Register activation calibration hooks (including kv_cache quantization) and enable quantization as we calibrate
+        Register activation calibration hooks and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
@@ -215,11 +204,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
 
     def input_capture_hook(self, module, *args, **kwargs):
-        all_module_input[module._tmp_name].append((args, kwargs))
+        self._all_module_input[module._tmp_name].append((args, kwargs))
 
 
     def output_capture_hook(self, module, *args, **kwargs):
-        all_module_output[module._tmp_name].append((args, kwargs))
+        self._all_module_output[module._tmp_name].append((args, kwargs))
 
 
 
@@ -233,8 +222,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if _is_decoding_layer(module, name):
                 # register input/output capture hooks for decoding layers
                 logger.warning(f">> Registering input/output capture hooks for decoding layer {getattr(module, '_tmp_name', '')} || {name}")
-                # module.register_forward_pre_hook(input_capture_hook, with_kwargs=True)
-                # module.register_forward_hook(output_capture_hook, with_kwargs=True)
                 self.register_hook(module, self.input_capture_hook, "forward_pre", with_kwargs=True)
                 self.register_hook(module, self.output_capture_hook, "forward", with_kwargs=True)
 
@@ -245,17 +232,19 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 self.on_start(state, None)
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self.autoround(state)
+            self.apply_autoround(state)
+            self.post_autoround_cleanup()
 
         if event.type_ == EventType.CALIBRATION_EPOCH_END:
             if not self.ended_:
                 self.on_end(state, None)
 
-    def autoround(self, state):
+    def apply_autoround(self, state):
         cur_layer_idx = self._cur_layer_idx
         self._cur_layer_idx += 1
         logger.info(f">>||>> AutoRound for decoding layer index {cur_layer_idx}")
         if cur_layer_idx >= len(state.model.model.layers):
+            # skip the lm_head layer
             logger.info(
                 f">>||>> All decoding layers have been processed for AutoRound."
             )
@@ -276,16 +265,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 scheme="W4A16",
                 iters=self.iters,
                 enable_quanted_input=False,
-                # FIXME: batch size 1 causes error, looks like related to the input_others prepare
-                # batch_size=1
                 enable_torch_compile=True,
-                # enable_deterministic_algorithms=True,
             )
 
             ar.configure_layer_config()
 
             input_name = f"model.layers.{cur_layer_idx}"
-            cur_inputs = all_module_input[input_name]
+            cur_inputs = self._all_module_input[input_name]
             input_ids, input_others = normalize_input(cur_inputs)
             decoding_layer.tuning_device = torch.device("cuda")
 
@@ -304,16 +290,16 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     logger.debug(
                         f"Updating offload parameters for module {getattr(module, '_tmp_name', '')} || {name}"
                     )
-                    # Note: The model's weight is already quantized and dequantized in-place by auto-round
+                    # Note: The model's weight is already quantized and dequantized in-place by auto-round.
                     weight_scale = module.scale
                     del module.scale
                     del module.zp
                     # TODO: update weight as well
                     update_offload_parameter(module, "weight_scale", weight_scale)
-
-            decoding_layer.eval()
-            all_module_input.clear()
-            all_module_output.clear()
+        decoding_layer.eval()
+    def post_autoround_cleanup(self):
+        self._all_module_input.clear()
+        self._all_module_output.clear()
 
 
     def on_end(self, state: State, event: Event, **kwargs):
